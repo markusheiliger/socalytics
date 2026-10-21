@@ -6,7 +6,7 @@ import { countOpenChecklistItems, deriveStage, implementBlockers, specDir } from
 import { UsageError, defaultGit, resolveFolder } from './speckit-orchestrate.mjs';
 
 // Reports how far a spec has come in the Spec Kit authoring flow (specify → clarify → plan → tasks → analyze) and what
-// still blocks publishing it, so /speckit-gha-author can resume at the next Spec Kit step. Read-only.
+// still blocks publishing it, for the `author` workflow (speckit-author-flow.mjs). Read-only.
 
 const NEEDS_CLARIFICATION = /\[NEEDS CLARIFICATION/g;
 const CLARIFICATION_SESSION = /^###\s+Session\b/;

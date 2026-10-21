@@ -16,7 +16,10 @@ public static class AnalysisAuditEvents
     public const string ResultRejectedAction = "reject-result";
     public const string RunCancelledEvent = "analysis.run-cancelled";
     public const string RunCancelledAction = "cancel-analysis-run";
+    public const string RunSupersededEvent = "analysis.run-superseded";
+    public const string RunSupersededAction = "supersede-analysis-run";
     public const string RunResourceType = "analysis-run";
+    public const string SupersedingRunIdDetail = "supersedingRunId";
     public const string PreviousStateDetail = "previousState";
     public const string AttemptResourceType = "analysis-attempt";
     public const string ForeignAttemptReason = "foreign-attempt";
@@ -93,6 +96,24 @@ public static class AnalysisAuditEvents
                 [RunIdDetail] = runId.ToString(),
             },
             ActorOverride = new AuditActorOverride(AuditActorKind.AnalystManager, null),
+        };
+
+    public static AuditEvent RunSuperseded(Guid runId, Guid matchId, Guid teamId, Guid supersedingRunId, string previousState) =>
+        new()
+        {
+            EventType = RunSupersededEvent,
+            Action = RunSupersededAction,
+            Outcome = AuditOutcome.Succeeded,
+            Resource = new AuditResource(RunResourceType, runId.ToString()),
+            TeamId = teamId,
+            Details = new Dictionary<string, string>
+            {
+                [RunIdDetail] = runId.ToString(),
+                [MatchIdDetail] = matchId.ToString(),
+                [SupersedingRunIdDetail] = supersedingRunId.ToString(),
+                [PreviousStateDetail] = previousState,
+            },
+            ActorOverride = new AuditActorOverride(AuditActorKind.System, null),
         };
 
     // The cancellation reason is free text and is deliberately not part of the event.

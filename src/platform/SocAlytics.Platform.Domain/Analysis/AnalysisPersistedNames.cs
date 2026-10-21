@@ -48,6 +48,29 @@ public static class AnalysisPersistedNames
 		}
 	}
 
+	public static string ToPersistedName(CancellationCause cause) => cause switch
+	{
+		CancellationCause.Member => "member",
+		CancellationCause.Superseded => "superseded",
+		_ => throw new ArgumentOutOfRangeException(nameof(cause)),
+	};
+
+	public static bool TryParseCancellationCause(string? value, out CancellationCause cause)
+	{
+		switch (value)
+		{
+			case "member":
+				cause = CancellationCause.Member;
+				return true;
+			case "superseded":
+				cause = CancellationCause.Superseded;
+				return true;
+			default:
+				cause = default;
+				return false;
+		}
+	}
+
 	public const string CoverageModeComplete = "complete";
 
 	public const string CoverageModePartial = "partial";

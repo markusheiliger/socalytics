@@ -132,8 +132,8 @@ public sealed class SegmentMediaReadTests(PostgresContainerFixture postgres, Nat
         await c.OpenAsync(ct);
         await ExecAsync(c,
             """
-            INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
-            VALUES (@run, @g, @g, @g, 'wf', '1.0.0', ARRAY['cap-seg'], 'all-requested-capabilities', 'Running', @at, @at, @at);
+            INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
+            VALUES (@run, @g, @g, @g, @at, 'wf', '1.0.0', ARRAY['cap-seg'], 'all-requested-capabilities', 'Running', @at, @at, @at);
             INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
             VALUES (@node, @run, 'seg', 'cap-seg', '1.0.0', 'low-level', 'segment', 0, 'Active', @at);
             INSERT INTO socalytics.analysis_run_snapshots (run_id, snapshot, snapshot_digest)

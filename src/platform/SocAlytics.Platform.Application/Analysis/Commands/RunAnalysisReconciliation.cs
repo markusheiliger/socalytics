@@ -35,6 +35,7 @@ public sealed class RunAnalysisReconciliationHandler(
                 {
                     ["readyJobsRepublished"] = result.ReadyJobsRepublished.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     ["notificationsRepublished"] = result.NotificationsRepublished.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ["runsSuperseded"] = result.RunsSuperseded.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 },
             },
             cancellationToken);

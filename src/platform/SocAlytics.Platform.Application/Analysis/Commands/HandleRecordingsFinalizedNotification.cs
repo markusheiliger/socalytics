@@ -51,6 +51,7 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
     RequestSegmentMaterializationHandler segmentRequests,
     WorkflowSnapshotMapper mapper,
     RunReadinessCoordinator coordinator,
+    RunSupersession supersession,
     TimeProvider time)
 {
     private const string MessageType = "recordings-finalized";
@@ -155,6 +156,7 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
         }
 
         var definition = resolved.Definition;
+        await runs.LockMatchRunsAsync(lineage.MatchId, ct);
         var existingId = await runs.FindRunIdAsync(lineage.RecordingSetVersionId, definition.WorkflowId, definition.WorkflowVersion, ct);
         if (existingId is { } found)
         {
@@ -168,9 +170,10 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
         if (!validation.IsValid)
         {
             runId = await runs.InsertAsync(new NewAnalysisRun(
-                lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, definition.WorkflowId, definition.WorkflowVersion,
+                lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, lineage.FinalizedAt, definition.WorkflowId, definition.WorkflowVersion,
                 definition.RequestedCapabilities, definition.CompletionPolicy, AnalysisRunState.Failed, validation.Reason,
                 snapshot, [], []), ct);
+            await supersession.ApplyAsync(lineage.MatchId, ct);
             return await Record("run-created", null, runId);
         }
 
@@ -189,7 +192,7 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
         }).ToList();
 
         runId = await runs.InsertAsync(new NewAnalysisRun(
-            lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, definition.WorkflowId, definition.WorkflowVersion,
+            lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, lineage.FinalizedAt, definition.WorkflowId, definition.WorkflowVersion,
             definition.RequestedCapabilities, definition.CompletionPolicy, AnalysisRunState.Requested, null, snapshot, nodes, edges), ct);
         var videoPolicies = definition.Nodes.ToDictionary(d => d.NodeKey, d => d.VideoPolicy, StringComparer.Ordinal);
         var rejections = new Dictionary<AnalysisSegmentReference, string>();
@@ -219,8 +222,13 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
                 p.Snapshot.AnalystProfileDigest.ToString(), p.Snapshot.ImageDigest.ToString(), p.Snapshot.ModelDigest?.ToString(),
                 JsonSerializer.Serialize(p.Snapshot.Resources), p.Snapshot.SchemaVersion),
             p.Segment is { } s && videoPolicies[p.NodeKey] != VideoPolicies.Forbidden && rejections.TryGetValue(s, out var reason) ? reason : null)).ToList(), ct);
-        await runs.LockRunAsync(runId, ct);
-        await coordinator.ApplyAsync(runId, ct);
+        await supersession.ApplyAsync(lineage.MatchId, ct);
+        var created = await runs.LockRunAsync(runId, ct);
+        if (created?.State == AnalysisRunState.Requested)
+        {
+            await coordinator.ApplyAsync(runId, ct);
+        }
+
         return await Record("run-created", null, runId);
     }
 

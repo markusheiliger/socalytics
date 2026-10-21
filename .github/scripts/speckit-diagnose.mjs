@@ -232,7 +232,7 @@ export async function runEvidence({ client, env, log }) {
         '',
         `The last \`/speckit ${repeated.verb}\` left the implementation branch at ${pull.head.sha} and stopped with the same reason as the stop before it: ${neutralizeMarkers(repeated.reason)}`,
         '',
-        `Do not recommend \`/speckit ${repeated.verb}\` again: it would repeat the failure. Recommend a command that changes something, such as \`/speckit specify\` for a cause outside this spec. A recommendation of \`/speckit ${repeated.verb}\` is replaced at publication.`,
+        `Do not recommend \`/speckit ${repeated.verb}\` again: it would repeat the failure. Recommend a command that changes something, such as \`/speckit author\` for a cause outside this spec. A recommendation of \`/speckit ${repeated.verb}\` is replaced at publication.`,
         '',
       );
     }
@@ -400,9 +400,9 @@ function readAgentItems(env, type) {
   }
 }
 
-// Diagnose reports its results as `speckit_diagnosis`; Spec Kit specify reports reworks of a spec it authored as `speckit_fix`.
+// Diagnose reports its results as `speckit_diagnosis`.
 function readAgentReports(env) {
-  return [...readAgentItems(env, 'speckit_diagnosis'), ...readAgentItems(env, 'speckit_fix')].map((item) => item.report ?? item);
+  return readAgentItems(env, 'speckit_diagnosis').map((item) => item.report ?? item);
 }
 
 // Whether the diagnose run tracked by a still-open diagnosis check run has ended without reporting (agent failure,
@@ -480,7 +480,7 @@ function defaultRecommendation(report) {
       return {
         title: 'Fix the cause in a new spec, then continue once it is implemented',
         why: `${report.summary} The cause lies outside this spec, so running the work here again cannot remove it.`,
-        command: `/speckit specify ${guidance}`,
+        command: `/speckit author ${guidance}`,
       };
     case 'artifacts':
       return {
@@ -595,6 +595,23 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
   if (adjusted.length > 0) lines.push('', `_Parts of the report were adjusted: ${adjusted.map(safe).join('; ')}._`);
   if (runUrl) lines.push('', `<sub>[Diagnosis run](${runUrl})</sub>`);
   return lines.join('\n');
+}
+
+// The outcome of a rework by the diagnose agent, from its agent output and the safe-output push job (recordRework).
+function reworkOutcome(env) {
+  const detection = String(env.SPECKIT_DETECTION ?? '').trim();
+  const withheld = detection && detection !== 'success';
+  const reports = withheld ? [] : readAgentReports(env);
+  const { reasons, report } = withheld
+    ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
+    : reports.length > 0 ? validateReport(reports.at(-1), { requireCategory: false }) : { reasons: ['the agent did not report'], report: null };
+  return {
+    reasons,
+    report,
+    pushed: String(env.SPECKIT_PUSH_SHA ?? '').trim(),
+    pushFailures: Number(env.SPECKIT_PUSH_FAILURES || 0),
+    incomplete: readAgentItems(env, 'report_incomplete').map((item) => String(item.reason ?? '').trim()).filter(Boolean),
+  };
 }
 
 // Custom safe-output job, after the agent and the built-in safe outputs. A diagnosis posts its findings on the
@@ -718,8 +735,10 @@ async function autoContinue(client, env, { twin, pull, folder, command }) {
 }
 
 // Records a rework of an amendment (`fix` after the consistency check, `revise` after a person's feedback) and starts
-// the consistency check of the result.
-async function recordRework({ client, env, log, inputs }) {
+// the consistency check of the result. `outcome` is what the rework produced: its validated report (or the reasons
+// why there is none), the pushed commit, failed pushes, and why a push was refused. Diagnose reads it from its agent
+// output (reworkOutcome); Spec Kit author passes the result of its land job.
+export async function recordRework({ client, env, log, inputs, outcome }) {
   const { mode, amendment: number, round, stalls, findings } = inputs;
   const checkRun = Number(env.SPECKIT_CHECK_RUN);
   const complete = async (conclusion, title, summary) => {
@@ -744,12 +763,7 @@ async function recordRework({ client, env, log, inputs }) {
     const pending = await pendingFeedback(client, context.amendment);
     await presentAmendment(client, env, context, { consistent: false, problem, since: pending.since });
   };
-  const detection = String(env.SPECKIT_DETECTION ?? '').trim();
-  const withheld = detection && detection !== 'success';
-  const reports = withheld ? [] : readAgentReports(env);
-  const { reasons, report } = withheld
-    ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
-    : reports.length > 0 ? validateReport(reports.at(-1), { requireCategory: false }) : { reasons: ['the agent did not report'], report: null };
+  const { reasons, report, pushed, pushFailures, incomplete } = outcome ?? reworkOutcome(env);
   if (!report || !report.summary) {
     await complete('failure', mode === 'fix' ? `Correction round ${round} did not finish` : 'The rework did not finish', reasons.join('; '));
     const problem = `The ${mode === 'fix' ? `correction round ${round}` : 'rework'} did not produce a result: ${neutralizeMarkers(reasons.join('; ') || 'no report')}.`;
@@ -759,10 +773,7 @@ async function recordRework({ client, env, log, inputs }) {
     await setAttention(client, number, true);
     return { exitCode: 0, outcome: 'failed' };
   }
-  const pushFailures = Number(env.SPECKIT_PUSH_FAILURES || 0);
-  const pushed = String(env.SPECKIT_PUSH_SHA ?? '').trim();
   // A push the safe-output tool refused never reaches the push job; the agent reports it as incomplete instead.
-  const incomplete = readAgentItems(env, 'report_incomplete').map((item) => String(item.reason ?? '').trim()).filter(Boolean);
   if (pushFailures > 0 || (!pushed && incomplete.length > 0)) {
     const what = mode === 'fix' ? `Correction round ${round}` : 'The rework';
     const why = pushFailures > 0 ? `${pushFailures} push(es) to \`${context.amendment.head.ref}\` failed.` : `The push was refused: ${incomplete.join('; ')}`;

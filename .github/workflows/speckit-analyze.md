@@ -1,9 +1,9 @@
 ---
 name: Spec Kit analyze
 description: >-
-  Checks an amendment of Spec Kit artifacts, or a new spec authored by `/speckit specify`, for consistency with an
+  Checks an amendment of Spec Kit artifacts, or a new spec authored by `/speckit author`, for consistency with an
   independent, read-only /speckit-analyze of the whole spec folder. Started by the amendment and new spec lifecycles
-  (Spec Kit diagnose, Spec Kit specify, and Spec Kit commands); its record job starts a correction round or a rework
+  (Spec Kit diagnose, Spec Kit author, and Spec Kit commands); its record job starts a correction round or a rework
   with pending feedback, merges a consistent new spec automatically, or hands the pull request to a person for review.
 on:
   workflow_dispatch:
@@ -48,7 +48,7 @@ on:
         required: true
         type: string
       kind:
-        description: amend (an amendment on speckit-amend/<folder>), spec (a new spec authored by /speckit specify on speckit-spec/<folder>), or fix (one on the earlier speckit-fix/<folder>)
+        description: amend (an amendment on speckit-amend/<folder>), spec (a new spec authored by /speckit author on speckit-spec/<folder>), or fix (one on the earlier speckit-fix/<folder>)
         required: false
         type: string
         default: amend
@@ -166,7 +166,7 @@ safe-outputs:
 # Check an amendment of Spec Kit artifacts, or a new spec, for consistency
 
 Pull request #${{ inputs.amendment }} is of kind **${{ inputs.kind }}**. Kind `amend` amends the Spec Kit artifacts of an
-existing spec folder; kinds `spec` and `fix` add a new spec authored by `/speckit specify`, an ordinary spec for a
+existing spec folder; kinds `spec` and `fix` add a new spec authored by `/speckit author`, an ordinary spec for a
 cause outside the stopped spec of pull request #${{ inputs.pull }}, which depends on it. The spec folder is named in `.speckit-analysis/spec-dir`. For an amendment it is
 `specs/${{ inputs.folder }}/` until the implementation archives it right before its merge, and
 `specs/archive/${{ inputs.folder }}/` after that.

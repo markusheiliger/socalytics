@@ -181,7 +181,7 @@ public sealed class UpstreamResultReadEndToEndTests
         var sp = scope.ServiceProvider;
         await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
         var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
-            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "development-default", "1", [EndToEndHarness.MatchCapability], "all-requested-capabilities",
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, "development-default", "1", [EndToEndHarness.MatchCapability], "all-requested-capabilities",
             AnalysisRunState.Requested, null,
             new AnalysisRunSnapshotRecord("{\"segmentationPolicy\":{\"durationSeconds\":300}}", Digest), [segment, match],
             [new DependencyEdgeRecord(segment.Id, match.Id, DependencyKind.Required, null)]), ct);

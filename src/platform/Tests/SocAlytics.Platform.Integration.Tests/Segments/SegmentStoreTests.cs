@@ -303,9 +303,9 @@ public sealed class SegmentStoreTests(PostgresContainerFixture postgres)
             $"""
             SET session_replication_role = replica;
             INSERT INTO socalytics.analysis_runs
-                (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities,
+                (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities,
                  completion_policy, state, created_at, terminated_at, updated_at)
-            VALUES ('{runId}', gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'w', '1', ARRAY['c'],
+            VALUES ('{runId}', gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), now(), 'w', '1', ARRAY['c'],
                     'all-requested-capabilities', '{runState}', now(),
                     CASE WHEN '{runState}' IN ('Requested', 'Running') THEN NULL ELSE now() END, now())
             ON CONFLICT (id) DO NOTHING;

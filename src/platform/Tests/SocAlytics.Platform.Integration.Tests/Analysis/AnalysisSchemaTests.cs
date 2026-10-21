@@ -27,7 +27,7 @@ public sealed class AnalysisSchemaTests(PostgresContainerFixture postgres)
 		};
 		var edges = new[] { new DependencyEdgeRecord(a, b, DependencyKind.Conditional, """{"kind":"capabilityRequested","capabilityId":"cap.low"}""") };
 		return new NewAnalysisRun(
-			Guid.NewGuid(), Guid.NewGuid(), setId, "wf", workflowVersion, ["cap.high", "cap.low"], "all-requested-capabilities",
+			Guid.NewGuid(), Guid.NewGuid(), setId, DateTimeOffset.UtcNow, "wf", workflowVersion, ["cap.high", "cap.low"], "all-requested-capabilities",
 			AnalysisRunState.Running, null, new AnalysisRunSnapshotRecord("""{"workflow":"wf"}""", "sha-256:" + new string('a', 64)), nodes, edges);
 	}
 

@@ -26,6 +26,7 @@ const run = (runId: string, state: string, createdAt: string): AnalysisRunSummar
   state,
   createdAt: new Date(createdAt),
   version: 1,
+  isCurrent: false,
 });
 
 const runs = [

@@ -39,6 +39,7 @@ internal static class PersistedTableClassifications
             ["recording_set_members"] = TableClassification.Immutable,
             ["recording_retry_outcomes"] = TableClassification.Immutable,
             ["recording_finalized_events"] = TableClassification.Immutable,
+            ["analysis_run_supersessions"] = TableClassification.Immutable,
             ["analysis_run_snapshots"] = TableClassification.ChildOf("analysis_runs", "run_id"),
             ["analysis_workflow_nodes"] = TableClassification.ChildOf("analysis_runs", "run_id"),
             ["analysis_node_snapshots"] = TableClassification.ChildOf("analysis_runs", "run_id"),

@@ -521,7 +521,7 @@ public sealed class DockerRuntimeEndToEndTests
 
         await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
         var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
-            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), definition.WorkflowId, definition.WorkflowVersion, definition.RequestedCapabilities,
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, definition.WorkflowId, definition.WorkflowVersion, definition.RequestedCapabilities,
             definition.CompletionPolicy, AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord(mapped.RunSnapshotJson, mapped.RunSnapshotDigest),
             nodes, []), ct);
         await sp.GetRequiredService<ILogicalJobStore>().InsertAsync(planned.Select(p => new NewLogicalJob(

@@ -100,7 +100,7 @@ export async function guardPullRequest(client, env, pull, { report = () => {} } 
   if (isFix && defaultBranch && pull.base?.ref !== defaultBranch) {
     await client.updatePullRequest(pull.number, { base: defaultBranch });
     actions.push(`retargeted from ${pull.base?.ref}`);
-    notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${defaultBranch}\`: a spec authored by \/speckit specify\ merges into the default branch, where its twin is created.`);
+    notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${defaultBranch}\`: a spec authored by \/speckit author\ merges into the default branch, where its twin is created.`);
   }
   if (actions.length > 0) {
     await client.createComment(pull.number, notes.join('\n\n'));
@@ -162,7 +162,7 @@ async function requesterOf(client, twin) {
   }
 }
 
-// The owner of a spec pull request: for a spec authored by `/speckit specify` the person who asked for it on the
+// The owner of a spec pull request: for a spec authored by `/speckit author` the person who asked for it on the
 // implementation, for an amendment (and when no such request is recorded) the person who requested the implementation.
 export async function ownerOf(client, { kind = 'amend', implementation = null, twin, amendment = null }) {
   if (kind === 'fix' && implementation) {
@@ -246,7 +246,7 @@ export async function startAnalysis(client, env, context, { round, mode = 'loop'
 // Starts a rework of the amendment or prerequisite spec: `revise` with a person's feedback (`feedback`, from
 // pendingFeedback, handed to the rework as guidance), or `fix` with the findings of the consistency check. The pull
 // request goes back to draft until it is presented again. Amendments are reworked by Spec Kit diagnose, prerequisite
-// specs authored by `/speckit specify` by Spec Kit specify.
+// specs authored by `/speckit author` by Spec Kit author.
 export async function startRework(client, env, context, { mode, round = 0, guidance = '', feedback = null, stalls = 0, findings = [], progress = null }) {
   const { amendment, folder, implementation, twin, kind = 'amend' } = context;
   const noun = kind === 'fix' ? 'spec' : 'amendment';
@@ -323,14 +323,14 @@ export async function startRework(client, env, context, { mode, round = 0, guida
   }
 }
 
-// The first steps for an amendment a diagnosis just created, or a spec `/speckit specify` just authored: assign its
+// The first steps for an amendment a diagnosis just created, or a spec `/speckit author` just authored: assign its
 // owner, mark the start of the feedback window, describe the state, and start the consistency check.
 export async function beginAmendment(client, env, context) {
   const { amendment, implementation, kind = 'amend' } = context;
   const requester = await ownerOf(client, context);
   if (requester) await assignOwner(client, amendment.number, requester);
   const origin = kind === 'fix'
-    ? `This spec was requested with \`/speckit specify\` on #${implementation.number}.`
+    ? `This spec was requested with \`/speckit author\` on #${implementation.number}.`
     : `This amendment comes from the diagnosis on #${implementation.number}.`;
   const then = kind === 'fix'
     ? `then it is merged automatically, or handed to ${requester ? `@${requester}` : 'you'} for review when it changes \`${ARCHITECTURE_PREFIX}\` or a person pushed to it`
@@ -351,7 +351,7 @@ function howTo({ kind = 'amend', implementation, amendment }) {
   return kind === 'fix' ? renderFixHowTo(implementation.number, amendment?.base?.ref ?? null) : renderAmendmentHowTo(implementation.number);
 }
 
-// Why a consistent spec authored by `/speckit specify` is handed to a person instead of being merged automatically.
+// Why a consistent spec authored by `/speckit author` is handed to a person instead of being merged automatically.
 function heldReason(held, designLink) {
   switch (held?.reason) {
     case 'architecture': return `It changes \`${ARCHITECTURE_PREFIX}\`, so a person reviews its design decisions${designLink ? ` ([Design decisions](${designLink}))` : ''} before it is merged.`;
@@ -667,7 +667,7 @@ export async function runRecordAnalysis({ client, env, log, markdownRun = undefi
     : stalls >= MAX_STALLED_ROUNDS
       ? `${remaining} inconsistency(ies) remain; ${stalls} of ${round} correction round(s) made no progress`
       : `${remaining} inconsistency(ies) remain after the limit of ${MAX_CORRECTION_ROUNDS} correction rounds`;
-  // A consistent spec authored by `/speckit specify` is merged automatically unless it needs a person.
+  // A consistent spec authored by `/speckit author` is merged automatically unless it needs a person.
   let held = null;
   if (consistent && context.kind === 'fix') {
     const { designDecisionsComment, mergeSpecPull } = await import('./speckit-fix.mjs');
