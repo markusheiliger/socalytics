@@ -263,7 +263,7 @@ results are accepted, media is verified, and nothing remains after the attempt.
   partial staging on any failure with the existing staging categories; tests in
   `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Work/SegmentMediaStagerTests.cs` (digest mismatch,
   checksum mismatch, limit exceeded, refused read, storage unavailable) (FR-018, SC-004)
-- [ ] T023 [US2] Wire media staging into `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/AttemptRunner.cs`
+- [x] T023 [US2] Wire media staging into `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/AttemptRunner.cs`
   before launch, mount `{attemptDirectory}/media/` read-only at `/socalytics/media/` only when present in
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Runtime/Docker/DockerLaunchSpec.cs` and
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Runtime/AttemptExecution.cs`, and make the simulated Analyst in

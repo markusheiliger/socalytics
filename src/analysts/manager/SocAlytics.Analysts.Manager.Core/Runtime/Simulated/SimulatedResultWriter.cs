@@ -17,6 +17,13 @@ internal static class SimulatedResultWriter
 
     public static long SegmentStartMs(int segmentNumber) => (segmentNumber - 1) * SegmentWindowMs;
 
+    /// <summary>A job with <c>segmentMedia</c> needs the verified manifest and media the Manager staged.</summary>
+    public static bool HasRequiredMedia(AttemptLaunch launch) =>
+        launch.Job?.SegmentMedia is null
+        || (launch.MediaDirectory is { } media
+            && File.Exists(Path.Combine(media, SegmentMediaStager.ManifestName))
+            && File.Exists(Path.Combine(media, SegmentMediaStager.MediaName)));
+
     public static void Write(AttemptLaunch launch, SimulatedAnalystOptions options)
     {
         if (launch.Job is not { } job || launch.ResultDirectory is not { } directory)

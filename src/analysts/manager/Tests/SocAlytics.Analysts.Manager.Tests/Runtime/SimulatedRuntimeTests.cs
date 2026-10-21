@@ -99,6 +99,43 @@ public sealed class SimulatedRuntimeTests
     }
 
     [Fact]
+    public async Task A_job_with_segment_media_fails_without_verified_media_and_succeeds_with_it()
+    {
+        var adapter = Adapter(new FakeTimeProvider(), new SimulatedCapabilityOptions());
+        var job = new global::SocAlytics.Analysts.Manager.Work.AnalystJobMessage(
+            "m", "o", "run-1", "node-1", "job-1", "team-1", "match-1",
+            new global::SocAlytics.Analysts.Manager.Platform.QueueCapability("cap-a", "1.0.0"), "1.0.0",
+            "segment", null, new global::SocAlytics.Analysts.Manager.Work.JobPinned("d", "i", null),
+            new global::SocAlytics.Analysts.Manager.Work.JobResources(1, 1),
+            new global::SocAlytics.Analysts.Manager.Platform.CompletionCorrelation("c"),
+            "rsv-1", new global::SocAlytics.Analysts.Manager.Work.JobSegment("rec-1", 1),
+            new global::SocAlytics.Analysts.Manager.Work.JobSegmentMedia("required", "sha-256:" + new string('a', 64)));
+        var directory = Path.Combine(Path.GetTempPath(), "socalytics-sim-media-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var launch = Launch with { Job = job, MediaDirectory = Path.Combine(directory, "media"), ResultDirectory = Path.Combine(directory, "result") };
+
+            var missing = await (await adapter.StartAttemptAsync(launch, TestContext.Current.CancellationToken)).Outcome;
+            missing.Succeeded.ShouldBeFalse();
+            missing.FailureReason.ShouldBe("segment-media-missing");
+            Directory.Exists(launch.ResultDirectory).ShouldBeFalse();
+
+            Directory.CreateDirectory(launch.MediaDirectory!);
+            File.WriteAllText(Path.Combine(launch.MediaDirectory!, "segment-manifest.json"), "{}");
+            File.WriteAllText(Path.Combine(launch.MediaDirectory!, "segment.mp4"), "x");
+            var present = await (await adapter.StartAttemptAsync(launch with { AttemptId = "attempt-2" }, TestContext.Current.CancellationToken)).Outcome;
+            present.Succeeded.ShouldBeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task The_simulated_runtime_sees_the_job_and_attempt_files_of_a_1_0_0_job()
     {
         var time = new FakeTimeProvider(DateTimeOffset.Parse("2026-10-12T14:00:00Z"));
