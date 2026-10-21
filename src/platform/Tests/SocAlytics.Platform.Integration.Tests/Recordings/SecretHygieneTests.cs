@@ -47,7 +47,7 @@ public sealed class SecretHygieneTests(PostgresContainerFixture postgres, RustFs
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
 		await using var factory = new PlatformApiFactory(
 			db,
-			recordingUpload: RecordingTestData.WithKeyPrefix(RecordingTestData.NewKeyPrefix(), new Dictionary<string, string?> { ["SessionLifetime"] = "00:00:05", ["ExpirySweepInterval"] = "01:00:00" }),
+			recordingUpload: RecordingTestData.WithKeyPrefix(RecordingTestData.NewKeyPrefix(), new Dictionary<string, string?> { ["SessionLifetime"] = "00:30:00", ["ExpirySweepInterval"] = "01:00:00" }),
 			objectStorage: new Dictionary<string, string?>
 			{
 				["ServiceUrl"] = rustFs.ServiceUrl,
@@ -95,11 +95,25 @@ public sealed class SecretHygieneTests(PostgresContainerFixture postgres, RustFs
 		var second = RecordingTestData.Generate(2, 2048);
 		using var pending = await PostAsync(admin, $"/api/v1/matches/{match}/upload-sessions", second.Declaration(), ct);
 		pending.StatusCode.ShouldBe(HttpStatusCode.Created, await pending.Content.ReadAsStringAsync(ct));
-		await Task.Delay(TimeSpan.FromSeconds(6), ct);
+		var pendingId = (await pending.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("session").GetProperty("id").GetGuid();
+
+		// Expire only now: the sweep reads the database clock, so the pending session's expiry is moved there as well.
+		factory.Time.Advance(TimeSpan.FromMinutes(31));
+		await using (var connection = new NpgsqlConnection(db.MigratorConnectionString))
+		{
+			await connection.OpenAsync(ct);
+			await using var expire = new NpgsqlCommand($"UPDATE socalytics.recording_upload_sessions SET expires_at = now() - interval '1 second' WHERE id = '{pendingId}'", connection);
+			(await expire.ExecuteNonQueryAsync(ct)).ShouldBe(1);
+		}
+
 		await using (var scope = factory.Services.CreateAsyncScope())
 		{
 			await scope.ServiceProvider.GetRequiredService<ExpireUploadSessionsHandler>().HandleAsync(ct);
 		}
+
+		var sessionStates = await QueryAsync(db, "SELECT id || '|' || state || '|' || (expired_at IS NOT NULL) FROM socalytics.recording_upload_sessions", ct);
+		sessionStates.ShouldContain($"{pendingId}|expired|true");
+		sessionStates.ShouldContain($"{id}|completed|false");
 
 		var objectKeys = await QueryAsync(db, "SELECT object_key FROM socalytics.recording_upload_sessions", ct);
 		var uploadIds = await QueryAsync(db, "SELECT multipart_upload_id FROM socalytics.recording_upload_sessions", ct);

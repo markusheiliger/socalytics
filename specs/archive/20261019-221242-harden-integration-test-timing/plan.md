@@ -2,7 +2,7 @@
 
 **Branch**: `20261019-221242-harden-integration-test-timing` | **Date**: 2026-10-19 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261019-221242-harden-integration-test-timing/spec.md`
+**Input**: Feature specification from `/specs/archive/20261019-221242-harden-integration-test-timing/spec.md`
 
 ## Summary
 
@@ -53,7 +53,7 @@ Post-design re-check: Pass.
 ### Documentation (this feature)
 
 ```text
-specs/20261019-221242-harden-integration-test-timing/
+specs/archive/20261019-221242-harden-integration-test-timing/
 ├── plan.md
 ├── spec.md
 ├── tasks.md
