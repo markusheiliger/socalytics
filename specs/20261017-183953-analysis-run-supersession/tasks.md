@@ -135,10 +135,9 @@ description: "Task list for Analysis Run Supersession"
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-**Purpose**: Architecture truth at merge and end-to-end validation
+**Purpose**: Architecture truth at merge; the validation in [quickstart.md](quickstart.md) is run by the phase and finalize verification and the convergence, because a validation-only task changes no file and cannot land
 
 - [x] T021 Make `docs/architecture/` describe the merged state: turn the decided-not-implemented supersession statements in `docs/architecture/job-processing.md` (Run State And Recovery), `docs/architecture/match-data-pipeline.md` (Upload and Recording-Lineage Foundation), `docs/architecture/analysts-models-and-hardware.md` (Capability-Scoped Result Access), and `docs/architecture/client-applications.md` (Web UI) into present tense, add run supersession to the development, end-to-end, and browser-test evidence in `docs/architecture/platform-implementation.md`, keep `POL-005` in `docs/architecture/security-and-data-governance.md` unresolved, and correct every other statement the feature makes false, re-reading `docs/architecture/`, `AGENTS.md` "Current State", `src/platform/README.md`, `src/clients/README.md`, and the root `README.md` at implementation time; the rewrites listed under Architecture Updates in plan.md are examples, not the whole job; then run `node .github/scripts/check-markdown.mjs`
-- [ ] T022 Run the validation in `specs/20261017-183953-analysis-run-supersession/quickstart.md` (platform restore, build, integration, structure, host, and end-to-end filters and the full solution test; Web UI `npm ci`, `npm run build`, `npm test`, `npm run test:e2e -- --project simulated`, and the platform chain) and fix any failure in the files of the task that caused it
 
 ---
 
@@ -193,7 +192,7 @@ Task: "T020 Platform browser test in tests/e2e/platform/run-supersession.spec.ts
 3. US2 → reads state current and superseded runs.
 4. US3 → reordering, duplicates, races, and reconciliation proven.
 5. US4 → Web UI markers.
-6. Polish → architecture truth and quickstart validation.
+6. Polish → architecture truth; quickstart validation by the verification and convergence.
 
 ---
 
