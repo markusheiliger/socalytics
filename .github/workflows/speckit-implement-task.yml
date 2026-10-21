@@ -122,13 +122,6 @@ jobs:
         with:
           workspace: workspace
 
-      - name: Locate the spec folder
-        env:
-          FOLDER: ${{ inputs.folder }}
-        run: |
-          if [ -d "workspace/specs/$FOLDER" ]; then dir="specs/$FOLDER"; else dir="specs/archive/$FOLDER"; fi
-          echo "SPECIFY_FEATURE_DIRECTORY=$dir" >> "$GITHUB_ENV"
-
       - name: Run the Spec Kit workflow implement-task
         uses: ./tooling/.github/actions/speckit-workflow
         env:

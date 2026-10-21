@@ -430,7 +430,9 @@ merged the base branch). The GitHub workflows own the flow and the state of issu
 attempts, check runs, comments, commits, ticks); the Spec Kit workflows own the work on the level of a Spec Kit
 command: the prompt, the agent step, and the check of the change with the land jobs' validators (see "Workflow Design"
 in the [gha extension README](../../.specify/extension-src/gha/README.md)). The jobs pass only inputs: the folder, the
-task, the guidance, and for a repair its tasks, scope, and evidence.
+task, the guidance, and for a repair its tasks, scope, and evidence; the action turns the folder into
+`SPECIFY_FEATURE_DIRECTORY` for the Spec Kit commands, and the job sets up Node.js and Python before the solution's
+environment.
 
 - **Unattended, inside the job:** the action runs `specify workflow run` with `mode=unattended` and an empty standard
   input, within the job's time limit (`timeout`, default 60 minutes). A run never outlives its job and is never

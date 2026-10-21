@@ -123,13 +123,6 @@ jobs:
         with:
           workspace: workspace
 
-      - name: Locate the spec folder
-        env:
-          FOLDER: ${{ inputs.folder }}
-        run: |
-          if [ -d "workspace/specs/$FOLDER" ]; then dir="specs/$FOLDER"; else dir="specs/archive/$FOLDER"; fi
-          echo "SPECIFY_FEATURE_DIRECTORY=$dir" >> "$GITHUB_ENV"
-
       # The repaired tasks, the failed scope, and the evidence; a merge verification repair may change the environment
       # actions (the changed actions' self-test failed).
       - name: Prepare the repair inputs

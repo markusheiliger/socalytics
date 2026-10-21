@@ -108,13 +108,6 @@ jobs:
         id: integrate
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-resolve.mjs" integrate
 
-      - name: Locate the spec folder
-        env:
-          FOLDER: ${{ inputs.folder }}
-        run: |
-          if [ -d "workspace/specs/$FOLDER" ]; then dir="specs/$FOLDER"; else dir="specs/archive/$FOLDER"; fi
-          echo "SPECIFY_FEATURE_DIRECTORY=$dir" >> "$GITHUB_ENV"
-
       - name: Run the Spec Kit workflow resolve
         if: steps.integrate.outputs.agent == 'true'
         uses: ./tooling/.github/actions/speckit-workflow
