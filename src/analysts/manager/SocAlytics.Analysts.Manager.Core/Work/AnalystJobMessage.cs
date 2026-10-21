@@ -19,7 +19,11 @@ public sealed record AnalystJobMessage(
     JobResources Resources,
     CompletionCorrelation Correlation,
     string? RecordingSetVersionId = null,
-    JobSegment? Segment = null);
+    JobSegment? Segment = null,
+    JobSegmentMedia? SegmentMedia = null);
+
+/// <summary>The pinned materialized segment media of a segment-scoped job (analyst-job 1.2.0).</summary>
+public sealed record JobSegmentMedia(string VideoPolicy, string ManifestChecksum);
 
 public sealed record JobSegment(string RecordingVersionId, int SegmentNumber);
 

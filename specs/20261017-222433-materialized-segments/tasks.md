@@ -234,7 +234,7 @@ results are accepted, media is verified, and nothing remains after the attempt.
   (stale, fenced, completed, foreign, forbidden-policy, and not-current refusals; grant expiry; no source locations)
   (FR-016, FR-017)
 
-- [ ] T020 [P] [US2] Add `getAnalysisSegmentMedia` to the Manager platform client in
+- [x] T020 [P] [US2] Add `getAnalysisSegmentMedia` to the Manager platform client in
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Platform/PlatformClient.cs` and
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Platform/PlatformWorkContracts.cs` (response validated
   against `analysis/segment-media` 1.0.0, refusals mapped like the upstream read) and parse `segmentMedia` in
