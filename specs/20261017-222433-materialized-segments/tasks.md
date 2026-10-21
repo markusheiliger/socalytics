@@ -28,7 +28,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 ### Contract schemas
 
-- [ ] T001 [P] Create `contracts/segments/segment-manifest/v1/segment-manifest.schema.json` 1.0.0 with
+- [x] T001 [P] Create `contracts/segments/segment-manifest/v1/segment-manifest.schema.json` 1.0.0 with
   `releases/1.0.0.schema.json`, `examples/valid/` (`segment-manifest.json`, `clipped-segment-manifest.json`),
   `examples/invalid/` (`missing-media-digest.json`, `plain-digest-form.json`, `zero-segment-number.json`,
   `unknown-property.json`, `audio-media-type.json`), and `examples/invalid/expectations.json`, exactly as specified in
