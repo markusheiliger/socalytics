@@ -29,6 +29,10 @@ on:
         required: true
         type: string
 
+# Every run says which pull request or issue it handles: GitHub would otherwise name it after the pull request title
+# alone ("Implement: …", "Amend: …").
+run-name: "${{ github.event_name == 'issue_comment' && format('Spec Kit commands · comment on #{0} · {1}', github.event.issue.number, github.event.issue.title) || github.event_name == 'pull_request_review' && format('Spec Kit commands · review of pull request #{0} · {1}', github.event.pull_request.number, github.event.pull_request.title) || github.event_name == 'pull_request_target' && format('Spec Kit commands · pull request #{0} {1} · {2}', github.event.pull_request.number, github.event.action, github.event.pull_request.title) || format('Spec Kit commands · feedback on pull request #{0}', inputs.pull) }}"
+
 permissions: {}
 
 jobs:
