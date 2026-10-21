@@ -1167,9 +1167,11 @@ export async function runLand({ client, env, log, git }) {
 export async function main(argv, { env = process.env, log = console.log, client, git } = {}) {
   const [command] = argv;
   const workspace = path.resolve(String(env.SPECKIT_WORKSPACE || '.'));
-  const run = { client: client ?? createGitHubClient(env), env, log, git: git ?? defaultGit(workspace), rootDir: workspace };
   const handlers = { evidence: runEvidence, decide: runDecide, inputs: runInputs, package: runPackage, land: runLand, record: runRecord };
   if (!handlers[command]) throw new FixUsageError(`Usage: speckit-fix.mjs <${Object.keys(handlers).join(' | ')}>`);
+  // decide, inputs, and package run in the read-only author job without a GitHub token.
+  const needsClient = ['evidence', 'land', 'record'].includes(command);
+  const run = { client: client ?? (needsClient ? createGitHubClient(env) : null), env, log, git: git ?? defaultGit(workspace), rootDir: workspace };
   const result = await handlers[command](run);
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `outcome=${result.outcome ?? ''}\n`);
   return result.exitCode;

@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { renderSpecLine } from './speckit-prepare-core.mjs';
 import { presentAmendment, resolveAmendment, runRecordAnalysis, startRework } from './speckit-amend.mjs';
 import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, RETRY_COMMENT_MARKER, maintainDependencyBlock, parseFixEvents, renderFixEvent, setAttention, setBlocked } from './speckit-implement-core.mjs';
-import { authoredFor, checkFixSpec, designDecisionsFromPlan, fixBlock, fixStamp, isAutomationCommit, linkPrerequisite, maintainFixSpec, parseAuthorReport, parseDesignDecisions, readResult, reworkOutcome, reworkStage, runDecide, runEvidence, runInputs, runLand, runPackage, runRecord, settleClosedFix, startFixAuthoring, syncDesignDecisions, validateDecision } from './speckit-fix.mjs';
+import { authoredFor, checkFixSpec, main as fixMain, designDecisionsFromPlan, fixBlock, fixStamp, isAutomationCommit, linkPrerequisite, maintainFixSpec, parseAuthorReport, parseDesignDecisions, readResult, reworkOutcome, reworkStage, runDecide, runEvidence, runInputs, runLand, runPackage, runRecord, settleClosedFix, startFixAuthoring, syncDesignDecisions, validateDecision } from './speckit-fix.mjs';
 import { defaultGit } from './speckit-orchestrate.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -633,6 +633,20 @@ test('decide keeps the validated decision, resets the workspace, and turns an in
     assert.match(JSON.parse(readFileSync(path.join(dir, 'decision-validated.json'), 'utf8')).refused, /the decision step wrote no decision\.json/);
   } finally {
     repo.cleanup();
+  }
+});
+
+test('the read-only steps of the author job run without a GitHub token', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-author-tokenless-'));
+  try {
+    writeFileSync(path.join(dir, 'decision.json'), JSON.stringify({ decision: 'refuse', refused: 'An outage.' }));
+    const tokenless = { SPECKIT_RESULT_DIR: dir, SPECKIT_WORKSPACE: dir };
+    assert.equal(await fixMain(['decide'], { env: tokenless, log: silent, git: () => ({ status: 0, stdout: '', stderr: '' }) }), 0);
+    assert.equal(JSON.parse(readFileSync(path.join(dir, 'decision-validated.json'), 'utf8')).decision, 'refuse');
+    assert.equal(await fixMain(['package'], { env: env({ ...tokenless, SPECKIT_MODE: 'author' }), log: silent, git: () => assert.fail('a refusal needs no git') }), 0);
+    await assert.rejects(fixMain(['record'], { env: env(tokenless), log: silent }), /A GitHub token is required/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
