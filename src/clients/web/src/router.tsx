@@ -28,6 +28,7 @@ import { RegistryOverviewPage } from './features/registry/RegistryOverviewPage';
 import { WorkflowCreatePage } from './features/registry/WorkflowCreatePage';
 import { WorkflowsPage } from './features/registry/WorkflowsPage';
 import { WorkflowVersionPage } from './features/registry/WorkflowVersionPage';
+import { OperationsSummaryPage } from './features/operations/OperationsSummaryPage';
 import { MemberPage } from './features/members/MemberPage';
 import { MembersPage } from './features/members/MembersPage';
 import { SeasonPage } from './features/seasons/SeasonPage';
@@ -103,6 +104,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/analyst-managers/requests', element: <RequireRole allow={canPairManagers}><MyRequestsPage /></RequireRole> },
           { path: '/analyst-managers/requests/:registrationId', element: <RequireRole allow={canPairManagers}><MyRequestPage /></RequireRole> },
           { path: '/analyst-managers/:registrationId', element: clubAdminOnly(<RegistrationPage />) },
+          { path: '/operations', element: clubAdminOnly(<OperationsSummaryPage />) },
           { path: '/registry', element: clubAdminOnly(<RegistryOverviewPage />) },
           { path: '/registry/images', element: clubAdminOnly(<ImagesPage />) },
           { path: '/registry/images/register', element: clubAdminOnly(<RegisterImagePage />) },
