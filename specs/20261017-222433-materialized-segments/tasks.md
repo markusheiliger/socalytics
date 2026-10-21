@@ -295,7 +295,7 @@ observe recovery, contained failure, and refusal.
 
 ### Materialization failures
 
-- [ ] T025 [US3] Implement retries and failure in
+- [x] T025 [US3] Implement retries and failure in
   `src/platform/SocAlytics.Platform.Application/Segments/MaterializeSegment.cs`: transient `source-unavailable`,
   `storage-unavailable`, and `extraction-failed` return the row to demanded `absent` with `next_attempt_at` after
   `RetryDelay` until `MaxAttempts`, then `failed` with `retry-budget-exhausted`; non-retryable reasons end `failed`
