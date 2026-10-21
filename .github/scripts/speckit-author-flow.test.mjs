@@ -404,3 +404,18 @@ test('main prints one ASCII-only JSON object per command and rejects unknown one
   assert.throws(() => main(['questions'], { rootDir }), /--run <run id>/);
   assert.throws(() => main(['nope', '--run', RUN], { rootDir }), /Unknown command "nope"/);
 }));
+
+test('drift: the installed copies of the workflow author match its source in the gha extension', () => {
+  const repo = (file) => new URL(`../../${file}`, import.meta.url);
+  const read = (file) => readFileSync(repo(file), 'utf8').replaceAll('\r\n', '\n');
+  const source = read('.specify/extension-src/gha/workflows/author/workflow.yml');
+  const reinstall = 'reinstall the extension and re-register the workflow (see .specify/extension-src/gha/README.md)';
+  for (const copy of ['.specify/extensions/gha/workflows/author/workflow.yml', '.specify/workflows/author/workflow.yml']) {
+    assert.equal(read(copy), source, `${copy} differs from the source: ${reinstall}`);
+  }
+  const version = source.match(/^\s+version:\s*"?([\w.-]+)"?\s*$/m)?.[1];
+  const entry = JSON.parse(read('.specify/workflows/workflow-registry.json')).workflows?.author;
+  assert.ok(entry, 'the workflow author is registered');
+  assert.equal(entry.version, version, `the registry lists version ${entry.version}, the source ${version}: ${reinstall}`);
+  assert.equal(entry.source, '.specify/extensions/gha/workflows/author', 'the registry names the installed extension folder with forward slashes');
+});

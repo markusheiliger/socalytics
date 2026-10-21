@@ -136,6 +136,16 @@ test('removed resume and diagnose commands show help without starting work', asy
   await assert.rejects(() => main(['other'], { env: {}, client: github }), /Usage/);
 });
 
+test('renamed commands name their new command without starting work', async () => {
+  const github = diagnosisRepo();
+  const result = await run(github, '/speckit specify Make the test robust');
+  assert.equal(result.command, 'unknown');
+  assert.match(github.comments.at(-1).body, /^\*\*`\/speckit specify` was renamed to `\/speckit author`\*\* and was not run\. Comment this instead \(people with write access\):\n\n```text\n\/speckit author Make the test robust\n```\n\n[\s\S]*\*\*Spec Kit commands\*\*/);
+  await run(github, '/speckit fix');
+  assert.match(github.comments.at(-1).body, /^\*\*`\/speckit fix` was renamed to `\/speckit author`\*\*[\s\S]*```text\n\/speckit author\n```/);
+  assert.equal(github.repo.runs.length, 0);
+});
+
 test('sync bypasses unchanged retry refusal, uses the actual base, and survives dispatch failure', async () => {
   const github = diagnosisRepo({ amendment: false });
   const pull = github.repo.pulls[0];
@@ -255,7 +265,7 @@ test('specify starts the authoring of a new spec once, and refuses while one is 
   const runs = github.repo.runs.length;
   const renamed = await run(github, '/speckit fix Make it robust');
   assert.equal(renamed.command, 'unknown');
-  assert.match(github.comments.at(-1).body, /^Unknown command `\/speckit fix`\.[\s\S]*`\/speckit author \[guidance\]`/);
+  assert.match(github.comments.at(-1).body, /^\*\*`\/speckit fix` was renamed to `\/speckit author`\*\* and was not run[\s\S]*`\/speckit author \[guidance\]`/);
   assert.equal(github.repo.runs.length, runs, 'nothing started');
 });
 

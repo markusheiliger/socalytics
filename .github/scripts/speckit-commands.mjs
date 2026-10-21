@@ -39,6 +39,10 @@ const COMMAND_NAMES = PR_COMMANDS.map((command) => command.name);
 // Parses a pull request comment in the form `/speckit <command> [flags] [guidance]`, like
 // "/speckit retry --force use the existing helper". The command must be the first word; the rest of the comment (first
 // line and following lines) is its argument, split into the flags and the guidance (parseCommandArguments).
+// Commands that were renamed: their old name is answered with the new one instead of being run, so a stale
+// recommendation never starts work under a name the help no longer lists.
+export const RENAMED_COMMANDS = { specify: 'author', fix: 'author' };
+
 export function parseCommand(body) {
   const text = String(body ?? '').replace(/^\s+/, '');
   const match = text.match(/^\/speckit(?:[ \t]+([A-Za-z-]+))?(?=\s|$)([\s\S]*)$/);
@@ -47,6 +51,20 @@ export function parseCommand(body) {
   const known = COMMAND_NAMES.includes(name) ? name : 'unknown';
   const argument = match[2].trim();
   return { name: known, given: match[1] ?? '', argument, ...parseCommandArguments(known, argument) };
+}
+
+function unknownCommandLine(command) {
+  const given = neutralizeMarkers(command.given);
+  const renamed = RENAMED_COMMANDS[String(command.given).toLowerCase()];
+  if (!renamed) return `Unknown command \`/speckit ${given}\`.`;
+  const guidance = command.argument ? ` ${neutralizeMarkers(command.argument)}` : '';
+  return [
+    `**\`/speckit ${given}\` was renamed to \`/speckit ${renamed}\`** and was not run. Comment this instead (people with write access):`,
+    '',
+    '```text',
+    `/speckit ${renamed}${guidance}`,
+    '```',
+  ].join('\n');
 }
 
 const describeFlags = (command) => {
@@ -175,7 +193,7 @@ export async function runCommand({ client, env, log, now = Date.now, rootDir = e
   }
   if (command.name === 'help' || command.name === 'unknown') {
     await reply(client, number, [
-      ...(command.name === 'unknown' ? [`Unknown command \`/speckit ${neutralizeMarkers(command.given)}\`.`, ''] : []),
+      ...(command.name === 'unknown' ? [unknownCommandLine(command), ''] : []),
       renderHelp(),
     ]);
     return { exitCode: 0, handled: true, command: command.name };

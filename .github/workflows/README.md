@@ -236,7 +236,9 @@ diagnosis evidence file are generated from it, and a test fails when this table 
 Every comment command has the form `/speckit <command> [flags] [guidance]`. Flags start with `--`, directly follow the
 command, and are declared per command in `PR_COMMANDS`; case and trailing punctuation (`--force;`) are tolerated, a
 bare `--` ends the flags (put it before guidance that itself starts with `--`), and a flag the command does not support
-refuses the command instead of becoming guidance. An unknown command is answered with the help.
+refuses the command instead of becoming guidance. An unknown command is answered with the help; a renamed one
+(`specify` and `fix`, now `author`) is not run either, and the answer gives the command to post instead, with its
+guidance (`RENAMED_COMMANDS` in `speckit-commands.mjs`).
 
 ### Guidance
 
