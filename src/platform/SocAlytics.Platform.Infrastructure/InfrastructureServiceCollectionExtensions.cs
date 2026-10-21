@@ -41,6 +41,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<IRecordingSetLookup, RecordingSetLookup>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Analysis.IAnalysisSegmentSource, SocAlytics.Platform.Infrastructure.Analysis.LineageAnalysisSegmentSource>();
         services.TryAddScoped<SocAlytics.Platform.Application.Segments.ISegmentStore, SocAlytics.Platform.Infrastructure.Persistence.Segments.SegmentStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Segments.ISegmentSourceLookup, SocAlytics.Platform.Infrastructure.Segments.SegmentSourceLookup>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IAnalysisRunStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.ILogicalJobStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.LogicalJobStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IExecutionAttemptStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.ExecutionAttemptStore>();

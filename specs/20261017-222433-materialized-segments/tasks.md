@@ -180,7 +180,7 @@ segments become `available` once, manifests validate, and the jobs become ready 
   queries (`segment-scope-mismatch`), and the coverage intersection (`segment-coverage-empty`); rejections create no
   `available` row, change no existing row, and create no lineage input; accepted requests upsert demand; tests in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentRequestTests.cs` (FR-002, FR-007, FR-010)
-- [ ] T016 [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/MaterializeSegment.cs`: claim, extract,
+- [x] T016 [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/MaterializeSegment.cs`: claim, extract,
   write media and manifest under `segments/{recordingVersionId}/{mappingDigestHex}/{policyDigestHex}/{segmentNumber}/{candidateId}/`,
   confirm the store's attested full-object SHA-256 and size equal the manifest, publish by compare-and-set in a unit of
   work, delete losing or expired candidates' objects, and treat a published association as a cache hit only after its
