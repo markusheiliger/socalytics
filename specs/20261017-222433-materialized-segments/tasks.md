@@ -255,7 +255,7 @@ results are accepted, media is verified, and nothing remains after the attempt.
 
 ### Manager staging and mount
 
-- [ ] T022 [US2] Implement `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/SegmentMediaStager.cs`: request
+- [x] T022 [US2] Implement `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/SegmentMediaStager.cs`: request
   the grants for the current attempt with lease renewal as in `UpstreamStager.cs`, download both objects to
   `{attemptDirectory}/media/` as `segment-manifest.json` and `segment.mp4`, verify the manifest's SHA-256 against
   `segmentMedia.manifestChecksum` and against the segment manifest schema, verify the media digest and size against

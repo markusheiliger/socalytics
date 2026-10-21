@@ -14,14 +14,22 @@ public static class SegmentMediaSchema
         RequireFormatValidation = true,
     };
 
-    private static readonly Lazy<JsonSchema> Schema = new(Load);
+    public const string ManifestSchemaId = "https://socalytics.invalid/contracts/segments/segment-manifest/v1/segment-manifest.schema.json";
 
-    public static bool IsValid(ReadOnlySpan<byte> utf8Json)
+    private static readonly Lazy<JsonSchema> Schema = new(() => Load(SchemaId));
+    private static readonly Lazy<JsonSchema> ManifestSchema = new(() => Load(ManifestSchemaId));
+
+    public static bool IsValid(ReadOnlySpan<byte> utf8Json) => Evaluate(Schema.Value, utf8Json);
+
+    /// <summary>Validates a segment manifest against the embedded contracts/segments/segment-manifest/v1 schema.</summary>
+    public static bool IsManifestValid(ReadOnlySpan<byte> utf8Json) => Evaluate(ManifestSchema.Value, utf8Json);
+
+    private static bool Evaluate(JsonSchema schema, ReadOnlySpan<byte> utf8Json)
     {
         try
         {
             using var document = JsonDocument.Parse(utf8Json.ToArray());
-            return Schema.Value.Evaluate(document.RootElement, Options).IsValid;
+            return schema.Evaluate(document.RootElement, Options).IsValid;
         }
         catch (JsonException)
         {
@@ -29,7 +37,7 @@ public static class SegmentMediaSchema
         }
     }
 
-    private static JsonSchema Load()
+    private static JsonSchema Load(string schemaId)
     {
         var registry = new SchemaRegistry { Fetch = (_, _) => null };
         var assembly = typeof(SegmentMediaSchema).Assembly;
@@ -43,7 +51,7 @@ public static class SegmentMediaSchema
             using var reader = new StreamReader(stream);
             var schema = JsonSchema.FromText(reader.ReadToEnd(), new BuildOptions { SchemaRegistry = registry });
             schemas.Add(schema);
-            if (schema.BaseUri?.AbsoluteUri == SchemaId)
+            if (schema.BaseUri?.AbsoluteUri == schemaId)
             {
                 media = schema;
             }
@@ -56,6 +64,6 @@ public static class SegmentMediaSchema
             schema.Evaluate(probe.RootElement, Options);
         }
 
-        return media ?? throw new InvalidOperationException("The segment-media schema is not embedded.");
+        return media ?? throw new InvalidOperationException("The schema " + schemaId + " is not embedded.");
     }
 }
