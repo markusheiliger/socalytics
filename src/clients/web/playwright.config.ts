@@ -34,7 +34,7 @@ export default defineConfig({
     {
       name: 'platform-session',
       testDir: './tests/e2e/platform',
-      testMatch: /(session|origin)\.spec\.ts$/,
+      testMatch: /[\\/](session|origin)\.spec\.ts$/,
       fullyParallel: false,
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
@@ -103,11 +103,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
+      name: 'platform-supersession',
+      testDir: './tests/e2e/platform',
+      testMatch: /run-supersession\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-cancellation'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
       name: 'platform-recovery',
       testDir: './tests/e2e/platform',
       testMatch: /[\\/]recovery\.spec\.ts$/,
       fullyParallel: false,
-      dependencies: ['platform-cancellation'],
+      dependencies: ['platform-supersession'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {

@@ -313,8 +313,9 @@ The project constitution in
 every specification, plan, and task list.
 
 Using the committed skills in GitHub Copilot needs only Python 3.11+ on `PATH`
-as `python`. The `specify` CLI is needed only to upgrade Spec Kit or add
-extensions. It requires [uv](https://docs.astral.sh/uv/) and is installed from
+as `python`. The `specify` CLI is needed to author specs with `/speckit-author`
+or the Spec Kit workflow `author` (see [specs/README.md](specs/README.md#author)), to upgrade
+Spec Kit, or to add extensions. It requires [uv](https://docs.astral.sh/uv/) and is installed from
 the pinned release tag:
 
 ```powershell
@@ -343,8 +344,11 @@ Run the skills in GitHub Copilot Chat, one at a time, reviewing each result:
 amends the constitution. Do not use `/speckit-taskstoissues`: this repository
 mirrors features, not tasks, to GitHub through spec twins (see below).
 
-The skills under `.github/skills/speckit-*` and the files under `.specify/`
-other than the constitution are managed by the `specify` CLI. Do not edit them
+The skills under `.github/skills/speckit-*` (except the hand-maintained
+`.github/skills/speckit-author/`) and the files under `.specify/`
+other than the constitution, the `gha` extension source
+(`.specify/extension-src/`, which also holds the source of the `author`
+workflow), and `.specify/.gitignore` are managed by the `specify` CLI. Do not edit them
 by hand; run `specify self check` to look for a newer release and follow the
 [Spec Kit upgrade guide](https://github.github.io/spec-kit/upgrade.html) to
 refresh them.
@@ -739,7 +743,7 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     | --- | --- | --- |
     | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | review and merge the linked **amendment pull request** (below) |
     | `retry` | a transient failure, or the agent took a poor approach while the artifacts are fine | `/speckit retry <guidance>` |
-    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit specify <what to fix>` for code, tests, or the environment actions (a **new spec**, below); `/speckit sync` once a fix is on the base branch, or after an action the comment names |
+    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit author <what to fix>` for code, tests, or the environment actions (a **new spec**, below); `/speckit sync` once a fix is on the base branch, or after an action the comment names |
     | `decision` | a trade-off only a person can make | `/speckit retry 1. … 2. …`, prefilled with the recommended answers as guidance |
     | `unknown` | not enough evidence | another diagnosis starts automatically with the previous findings as context |
 
@@ -816,26 +820,29 @@ finished.
 #### New Specs for Causes Outside the Spec
 
 When the cause lies outside the stopped spec (`outside`), for example a flaky
-test of another feature on the base branch, `/speckit specify <what to fix>`
+test of another feature on the base branch, `/speckit author <what to fix>`
 keeps the fix inside Spec Kit instead of patching around it. It creates an
 ordinary spec, treated like any other.
 
-1. The `Spec Kit specify` agentic workflow
-    ([`speckit-specify.md`](.github/workflows/speckit-specify.md)) runs
-    `/speckit-gha-author` itself, without asking (every recommended choice),
-    with a feature description from the stop, the diagnosis, and your
-    guidance: specify, clarify, plan, tasks, analyze, and the publish checks.
-    The spec lands in a normal `specs/<timestamp>-<name>/` folder and is
-    proposed as a draft pull request `speckit-spec/<folder>` → the default
-    branch that may only change that folder and `docs/architecture/`. When an
+1. The `Spec Kit author` workflow
+    ([`speckit-author.yml`](.github/workflows/speckit-author.yml)), a regular
+    workflow without an agent of its own, first lets one decision step write
+    `decision.json` from the stop, the diagnosis, and your guidance. When an
     open or merged spec already removes the cause, it writes nothing and
     reuses that one. When a spec cannot remove the cause (tooling under
     `.github/`, permissions, quotas, external services), it changes nothing
-    and says why.
-2. An independent `/speckit-analyze` checks it, with correction rounds. Once
+    and says why. Otherwise it runs the Spec Kit workflow `author`
+    unattended (every recommended choice) with the feature description of the
+    decision: specify, clarify, plan, tasks, analyze, and the publish checks.
+    The spec lands in a normal `specs/<timestamp>-<name>/` folder and is
+    proposed as a draft pull request `speckit-spec/<folder>` → the default
+    branch that may only change that folder and `docs/architecture/`.
+2. An independent `/speckit-analyze` checks it, with correction rounds (the
+    same workflow reworks the spec from the stage the findings concern). Once
     it is consistent, the pull request is merged automatically. It waits for
     your review instead when it changes `docs/architecture/` (a **Design
-    decisions** comment explains each decision) or when a person pushed to it.
+    decisions** comment lists each decision of its plan's Architecture
+    Updates) or when a person pushed to it.
 3. On the default branch it gets a twin and dependency inference like any
     spec, and the stopped spec's twin is made to depend on it. Nothing
     requests its implementation automatically: sign it off with
@@ -855,9 +862,9 @@ The implementation pull request records every step in a comment.
 These pull request comment commands are not skills. To walk through a stop
 locally, run the skill `/speckit-gha-diagnose [pull request, twin, or folder]`
 in GitHub Copilot: it uses the same method, asks you the decisions, and pushes
-the result. The diagnose, analyze, and specify workflows are compiled with GitHub
-Agentic Workflows; after editing `speckit-diagnose.md`, `speckit-analyze.md`, or
-`speckit-specify.md`, install the extension (`gh extension install github/gh-aw`)
+the result. The diagnose and analyze workflows are compiled with GitHub
+Agentic Workflows; after editing `speckit-diagnose.md` or `speckit-analyze.md`,
+install the extension (`gh extension install github/gh-aw`)
 and run `gh aw compile`.
 Do not edit the generated `.lock.yml` files. Their Copilot engine uses the
 workflow token with the `copilot-requests` permission, so no secret is needed.

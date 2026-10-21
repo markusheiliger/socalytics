@@ -250,9 +250,9 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.equal(isImplementRunOf('Spec Kit diagnose #38', 38), false);
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose spec #38 · Diagnose why the implementation stopped', 38), true);
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose spec #381 · Revise the amendment with review feedback', 38), false);
-  assert.equal(isTwinRunOf('speckit-specify.lock.yml', 'Spec Kit specify spec #38 · Write a new spec that unblocks the implementation', 38), true);
+  assert.equal(isTwinRunOf('speckit-author.yml', 'Spec Kit author spec #38 · Write a new spec that unblocks the implementation', 38), true);
   assert.equal(isTwinRunOf('speckit-analyze.lock.yml', 'Spec Kit diagnose spec #38 · Diagnose why the implementation stopped', 38), false);
-  assert.equal(isTwinRunOf('speckit-specify.lock.yml', '[Spec Kit specify] spec #38 · Author a spec for the cause outside the stopped implementation (#41)', 38), true, 'runs named with brackets');
+  assert.equal(isTwinRunOf('speckit-author.yml', '[Spec Kit author] spec #38 · Author a spec for the cause outside the stopped implementation (#41)', 38), true, 'runs named with brackets');
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #38 · why #41 stopped', 38), true, 'runs named before the spec reference');
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #38', 38), true, 'runs named before the mode was added');
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #381 · fix #82 round 1', 38), false);
@@ -375,7 +375,7 @@ test('describes what each command does and what a restart continues with', () =>
   assert.equal(parseNextCommand('please /speckit retry'), null);
   assert.match(describeCommandEffect('/speckit retry', { baseBranch: 'main', continuation: 'continues with the convergence' }), /^Does not merge `main`: the implementation continues with the convergence on the branch as it is[\s\S]*Text you add after the command/);
   assert.equal(describeCommandEffect('/speckit resume Use x', { baseBranch: 'main' }), null);
-  assert.match(describeCommandEffect('/speckit specify Make it robust', { baseBranch: 'main' }), /authors a new spec for the cause, guided by the text after the command, and opens it as a pull request against `main`; it is checked for consistency and merged automatically[\s\S]*signs it off with `\/speckit implement`[\s\S]*retries by itself on its current phase base/);
+  assert.match(describeCommandEffect('/speckit author Make it robust', { baseBranch: 'main' }), /The Spec Kit workflow `author` writes a new spec for the cause, guided by the text after the command, and opens it as a pull request against `main`; it is checked for consistency and merged automatically[\s\S]*signs it off with `\/speckit implement`[\s\S]*retries by itself on its current phase base/);
   assert.equal(describeCommandEffect('/speckit fix Make it robust', { baseBranch: 'main' }), null, 'fix is no command anymore');
   assert.equal(describeCommandEffect('/speckit help'), null);
   for (const verb of ['artifacts', 'retry', 'outside', 'decision', 'unknown']) assert.ok(CATEGORY_MEANING[verb]);

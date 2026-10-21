@@ -38,8 +38,8 @@ public sealed class RunCancellationTests(PostgresContainerFixture postgres, Rust
 		var at = DateTimeOffset.UtcNow.AddMinutes(-1);
 		await ExecAsync(s,
 			"""
-			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities, completion_policy, state, failure_reason, created_at, running_at, terminated_at, updated_at)
-			VALUES (@run, @team, @match, @set, 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', @state, @failure, @at, @runningAt, @terminatedAt, @at);
+			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities, completion_policy, state, failure_reason, created_at, running_at, terminated_at, updated_at)
+			VALUES (@run, @team, @match, @set, now(), 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', @state, @failure, @at, @runningAt, @terminatedAt, @at);
 			INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
 			VALUES (@node, @run, 'm1', 'cap-a', '1.0.0', 'high-level', 'match', 0, 'Active', @at);
 			INSERT INTO socalytics.analysis_logical_jobs (id, run_id, node_id, execution_scope, state, updated_at)

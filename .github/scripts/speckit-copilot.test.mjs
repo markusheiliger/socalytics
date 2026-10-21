@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { CopilotUsageError, MODELS_FILE, STANDARD_DENY_TOOLS, buildArgs, isRejection, loadLevels, main, parseLevels, resolveSelection } from './speckit-copilot.mjs';
+import { CopilotUsageError, MODELS_FILE, STANDARD_DENY_TOOLS, buildArgs, execArgs, isRejection, loadLevels, main, parseLevels, resolveSelection } from './speckit-copilot.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workflowsDir = path.join(here, '..', 'workflows');
@@ -125,6 +125,18 @@ test('the CLI writes outputs, NUL-separated arguments, and the rejection verdict
   assert.throws(() => main(['args'], { env }), CopilotUsageError);
   assert.throws(() => main(['other'], { env }), CopilotUsageError);
 }));
+
+test('exec stands in for the copilot executable of the Spec Kit workflow engine: the level and deny-list replace --yolo and the caller\'s model', () => {
+  const env = { SPECKIT_LEVEL: 'standard', SPECKIT_DENY_TOOLS: 'shell(git merge:*)', SPECKIT_AI_CREDITS: '500' };
+  const args = execArgs(['-p', '/speckit-plan', '--yolo', '--model', 'gpt-x', '--output-format', 'json'], { levels: LEVELS, env });
+  assert.deepEqual(args.slice(0, 2), ['-p', '/speckit-plan']);
+  assert.ok(!args.includes('--yolo') && !args.includes('gpt-x'), 'the caller does not choose permissions or model');
+  assert.deepEqual(args.slice(2), buildArgs({ mode: 'agent', model: 'claude-sonnet-5.5', effort: 'high', denyTools: 'shell(git merge:*)', aiCredits: '500', outputFormat: 'json' }));
+  assert.deepEqual(execArgs(['-p', 'x', '--agent', 'speckit.plan'], { levels: LEVELS, env, auto: true }).slice(0, 4), ['-p', 'x', '--agent', 'speckit.plan']);
+  assert.ok(!execArgs(['-p', 'x'], { levels: LEVELS, env, auto: true }).includes('--model'), 'the retry uses the CLI default model');
+  assert.throws(() => execArgs(['--yolo'], { levels: LEVELS, env }), /needs the prompt/);
+  assert.throws(() => execArgs(['-p', 'x'], { levels: LEVELS, env: { SPECKIT_LEVEL: 'huge' } }), /Unknown level/);
+});
 
 test('the action\'s models.json is valid, and every workflow uses a level it defines', () => {
   const levels = loadLevels(MODELS_FILE);

@@ -8,8 +8,8 @@ and why), and later `plan.md`, design artifacts, and `tasks.md` from
 restating it, as required by the
 [constitution](../.specify/memory/constitution.md).
 
-New specs are authored with `/speckit-gha-author` in Copilot Chat; see
-[Workflow Per Feature](#workflow-per-feature).
+New specs are authored with `/speckit-author` in Copilot Chat, which runs the
+Spec Kit workflow `author`; see [Workflow Per Feature](#workflow-per-feature).
 
 ## Index
 
@@ -50,28 +50,61 @@ helper scripts use the machine's local time, so set the environment variable
 
 ### Author
 
-Run `/speckit-gha-author` in GitHub Copilot Chat from the repository root.
-Without input it proposes the next logical spec from the architecture, the
-existing specs, and the code; with an architecture section (for example
-`docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui`) it
-authors a spec for that part; with a feature idea in free text it first maps the
-idea to the architecture and says when the architecture must change with it;
-with a spec folder it resumes where the spec stopped. It runs the Spec Kit skills in their order and pauses for you after
-each stage:
+Run `/speckit-author` in GitHub Copilot Chat, with a feature idea, a spec
+folder to continue at its next step (optionally followed by a note on what
+should change), or nothing: then the run offers to continue the spec you are
+working on, or an agent proposes up to three next logical specs from
+`docs/architecture/`, the existing specs, the spec twin issues, and the code,
+and you pick one. The skill runs the Spec Kit workflow
+[`author`](../.specify/extension-src/gha/workflows/author/workflow.yml), which
+the `gha` extension ships, and asks you its gates in
+Chat; it changes nothing itself. In autopilot the run takes every recommended
+choice (`/speckit-author <idea> and push` pushes at the end).
 
-1. `/speckit-specify` creates the folder and `spec.md`, and
-   `/speckit-clarify` resolves the open questions with you.
-2. `/speckit-plan` selects the technical approach from the architecture and
-   checks it against the constitution. When the plan needs new frameworks,
-   SDKs, or tools, an environment spec is authored and merged first.
-3. Optionally `/speckit-checklist` adds a domain checklist.
-4. `/speckit-tasks` writes `tasks.md`; its `/speckit-gha-refine` hook
-   makes the parallel task groups safe.
-5. `/speckit-analyze` checks the artifacts against each other; findings are
-   fixed through the Spec Kit skills.
-6. The publish checks require stage `tasked`, no open clarification markers or
-   checklist items, and a clean Markdown check.
-7. Your last decision: commit and push the spec folder.
+The same workflow runs in a terminal, where its gates ask directly:
+
+```powershell
+$env:TZ = 'UTC'
+specify workflow run author -i feature="let club admins see which Analyst Managers are offline"
+```
+
+The workflow runs the Spec Kit commands in their order; every decision between
+them comes from `node .github/scripts/speckit-author-flow.mjs`, and gates ask
+you where a person decides:
+
+1. `/speckit-specify` creates the folder and `spec.md`.
+2. `/speckit-clarify`: an agent step writes the questions the skill would ask,
+   a gate asks you each one (its recommended option is marked), and the skill
+   records your answers; at most three rounds, until no question is left. When
+   a fourth scan still finds questions, the run stops and lists them, and you
+   answer them in your own words in the next run. A gate then shows the spec.
+3. `/speckit-plan` selects the technical approach from the architecture and
+   checks it against the constitution; a plan without `## Architecture Updates`
+   is repaired with `/speckit-gha-architecture`. When the plan needs new
+   frameworks, SDKs, or tools, an environment spec must be authored and merged
+   first. A gate shows the plan.
+4. `/speckit-tasks` writes `tasks.md`; a missing documentation task for the
+   Architecture Updates is added by a second pass, and `[P]` group warnings are
+   repaired with `/speckit-gha-refine`. A gate shows the phases and groups.
+5. `/speckit-analyze` checks the artifacts against each other; a gate asks you
+   about each finding with a fix (up to five per round, the most severe first)
+   before the approved ones are remediated, at most three analyses.
+6. Markdown findings in the spec are fixed by a formatting-only step. The
+   publish checks require stage `tasked`, no open clarification markers,
+   checklist items, or CRITICAL and HIGH findings, and a clean Markdown check.
+7. Your last decision: push the spec folder and the `docs/architecture/`
+   changes of its plan (committed together as `Spec: <title>`), commit them
+   only, or leave them uncommitted. The gate warns when you are not on the
+   default branch.
+
+Choosing `revise` at a gate stops the run; `/speckit-author` then asks what
+should change and starts again, and in a terminal the run prints how to
+continue, for example
+`specify workflow run author -i feature=<folder> -i stage=plan -i feedback="split the read model"`:
+the run starts again at that stage and keeps everything before it. With
+`-i mode=unattended` every decision takes the recommended choice and
+`-i publish=push` pushes at the end. Agent steps run the Copilot CLI non-interactively
+(`copilot -p … --yolo`); on Windows use the standalone `copilot.exe`.
 
 `node .github/scripts/speckit-author.mjs status [folder]` shows where a spec
 stands and what still blocks publishing it.
@@ -100,4 +133,4 @@ The skills locate the active feature through the machine-local
 folder, point it there, for example
 `{ "feature_directory": "specs/<folder>" }`, set the
 `SPECIFY_FEATURE_DIRECTORY` environment variable, or pass the folder to
-`/speckit-gha-author`.
+`/speckit-author` (the `feature` input of the `author` workflow).

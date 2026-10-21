@@ -39,6 +39,49 @@ describe('analysisRunAdapter', () => {
     expect(result).toMatchObject({ state: 'Cancelled', version: 3, cancelledBy: { accountName: 'coach' }, cancellationReason: 'wrong set' });
   });
 
+  it('maps the supersession fields of a current run sent as null', async () => {
+    const current = { ...run, isCurrent: true, supersededBy: null, supersededAt: null, cancellationCause: null };
+    const { api } = setup(() => ok(200, { items: [current] }));
+    const [item] = (await createAnalysisRunAdapter(api).listByMatch(ids.match)).items;
+    expect(item.isCurrent).toBe(true);
+    expect(item.supersededBy).toBeUndefined();
+    expect(item.supersededAt).toBeUndefined();
+    expect(item.cancellationCause).toBeUndefined();
+  });
+
+  it('defaults isCurrent to false and tolerates absent supersession fields', async () => {
+    const { api } = setup(() => ok(200, { items: [run] }));
+    const [item] = (await createAnalysisRunAdapter(api).listByMatch(ids.match)).items;
+    expect(item.isCurrent).toBe(false);
+    expect(item.supersededBy).toBeUndefined();
+    expect(item.cancellationCause).toBeUndefined();
+  });
+
+  it('maps a superseded run with its successor and cause', async () => {
+    const superseded = {
+      ...run,
+      state: 'Cancelled',
+      isCurrent: false,
+      cancellationCause: 'superseded',
+      supersededAt: '2026-10-02T08:00:00Z',
+      supersededBy: { runId: ids.version, recordingSetVersionId: ids.set, recordingSetFinalizedAt: '2026-10-02T07:59:00Z' },
+    };
+    const { api } = setup(() => ok(200, { items: [superseded] }));
+    const [item] = (await createAnalysisRunAdapter(api).listByMatch(ids.match)).items;
+    expect(item.cancellationCause).toBe('superseded');
+    expect(item.supersededAt).toBeInstanceOf(Date);
+    expect(item.supersededBy).toMatchObject({ runId: ids.version, recordingSetVersionId: ids.set });
+    expect(item.supersededBy?.recordingSetFinalizedAt).toBeInstanceOf(Date);
+  });
+
+  it('passes the member cancellation cause through, maps it on cancel, and drops unknown causes', async () => {
+    const cancelled = { ...run, state: 'Cancelled', cancellationCause: 'member', isCurrent: false, version: 3 };
+    const { api } = setup(() => ok(200, cancelled));
+    expect((await createAnalysisRunAdapter(api).cancel(ids.run, 2)).cancellationCause).toBe('member');
+    const other = setup(() => ok(200, { items: [{ ...run, cancellationCause: 'other' }] }));
+    expect((await createAnalysisRunAdapter(other.api).listByMatch(ids.match)).items[0].cancellationCause).toBeUndefined();
+  });
+
   it('maps a refused cancellation to a failure', async () => {
     const { api } = setup(() => problem(409, 'conflict'));
     await expect(createAnalysisRunAdapter(api).cancel(ids.run, 1)).rejects.toMatchObject({ kind: 'conflict' });

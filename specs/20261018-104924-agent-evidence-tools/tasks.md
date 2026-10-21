@@ -11,7 +11,7 @@ description: "Task list for Agent Evidence Tools API"
 
 **Tests**: The spec requires automated evidence (FR-021, SC-001 to SC-005), so every story has test tasks. Test tasks follow the implementation tasks of their story so that each landed task keeps the build and test suites green.
 
-**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story. This feature changes the code of `specs/archive/20261017-204332-agent-orchestration-invocations`, `specs/20261018-101517-agent-catalog-registry`, `specs/archive/20261017-175648-fact-indexing-queries`, and `specs/20261017-224326-evidence-clip-access` in place and is implemented after they and `specs/20261017-183953-analysis-run-supersession` have merged.
+**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story. This feature changes the code of `specs/archive/20261017-204332-agent-orchestration-invocations`, `specs/20261018-101517-agent-catalog-registry`, `specs/archive/20261017-175648-fact-indexing-queries`, and `specs/20261017-224326-evidence-clip-access` in place and is implemented after they and `specs/archive/20261017-183953-analysis-run-supersession` have merged.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -144,7 +144,7 @@ description: "Task list for Agent Evidence Tools API"
 
 ### Phase Dependencies
 
-- **Foundational (Phase 1)**: starts once `specs/archive/20261017-204332-agent-orchestration-invocations`, `specs/20261018-101517-agent-catalog-registry`, `specs/archive/20261017-175648-fact-indexing-queries`, `specs/20261017-224326-evidence-clip-access`, and `specs/20261017-183953-analysis-run-supersession` have merged; blocks every story.
+- **Foundational (Phase 1)**: starts once `specs/archive/20261017-204332-agent-orchestration-invocations`, `specs/20261018-101517-agent-catalog-registry`, `specs/archive/20261017-175648-fact-indexing-queries`, `specs/20261017-224326-evidence-clip-access`, and `specs/archive/20261017-183953-analysis-run-supersession` have merged; blocks every story.
 - **User Story 1 (Phase 2)**: after Phase 1.
 - **User Story 2 (Phase 3)**: after User Story 1 (its tests call `get_match` through the route group).
 - **User Story 3 (Phase 4)**: after User Story 1 (route group, test support); independent of User Story 2.

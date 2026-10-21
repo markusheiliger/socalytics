@@ -48,7 +48,7 @@ public sealed class FactQueriesTests(PostgresContainerFixture postgres)
 		var twin = Guid.CreateVersion7();
 		var unused = Guid.CreateVersion7();
 		var run = new NewAnalysisRun(
-			Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "wf", "1", ["cap.detect"], "all-requested-capabilities",
+			Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, "wf", "1", ["cap.detect"], "all-requested-capabilities",
 			AnalysisRunState.Running, null,
 			new AnalysisRunSnapshotRecord("""{"segmentationPolicy":{"version":"1","durationSeconds":300,"digest":"x"}}""", DigestA),
 			[

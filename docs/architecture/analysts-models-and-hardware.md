@@ -295,8 +295,7 @@ capability-owned payload and explicitly reports coverage per expected upstream
 segment as accepted, missing, failed, blocked, or skipped. Within one run,
 accepted results are never superseded; supersession applies only across runs,
 which a job's read never crosses. A superseded run keeps its accepted results
-as readable history through reads of that run only (decided, not yet
-implemented).
+as readable history through reads of that run only.
 
 The AM performs that query on the AC's behalf, because ACs receive no platform
 credentials. Before launching a high-level attempt, the AM reads every upstream
