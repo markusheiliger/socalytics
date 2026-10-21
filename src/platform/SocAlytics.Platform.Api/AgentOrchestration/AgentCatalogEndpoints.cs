@@ -17,7 +17,12 @@ internal sealed record CatalogBaselineDto(
 	string SchemaVersion, string Kind, string Version, IReadOnlyList<string> ToolAllowlist, IReadOnlyList<CatalogBaselineAgentDto> Agents);
 
 internal sealed record AgentCatalogArtifactDto(
-	string Kind, string Id, string Version, string Digest, DateTimeOffset RegisteredAt, JsonElement Document);
+	string Kind, string Id, string Version, string Digest, DateTimeOffset RegisteredAt, JsonElement Document,
+	[property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+	IReadOnlyList<ProfileDistanceDto>? Distances = null);
+
+internal sealed record ProfileDistanceDto(
+	string AgentId, string AgentVersion, string ProfileId, string ProfileVersion, double Distance, bool ReviewRequired);
 
 internal sealed record AgentCatalogArtifactSummaryDto(
 	string Kind, string Id, string Version, string Digest, string RegisteredBy, DateTimeOffset RegisteredAt);
@@ -27,7 +32,9 @@ internal sealed record AgentCatalogArtifactListDto(IReadOnlyList<AgentCatalogArt
 internal sealed record AgentVersionDto(
 	string AgentId, string Version, string Digest, string Group, string State, bool Enabled, JsonElement Document,
 	string RegisteredBy, DateTimeOffset RegisteredAt, string? ApprovedBy, DateTimeOffset? ApprovedAt, bool? SelfApproval,
-	bool? DifferentiationAcknowledged, string? RetiredBy, DateTimeOffset? RetiredAt);
+	bool? DifferentiationAcknowledged, string? RetiredBy, DateTimeOffset? RetiredAt,
+	[property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+	IReadOnlyList<ProfileDistanceDto>? Distances = null);
 
 internal sealed record AgentVersionSummaryDto(
 	string AgentId, string Version, string Digest, string Group, string State, bool Enabled, DateTimeOffset RegisteredAt);
@@ -226,7 +233,7 @@ internal static class AgentCatalogEndpoints
 		}
 
 		var record = result.Record!;
-		var view = AgentCatalogViews.Of(record);
+		var view = AgentCatalogViews.Of(record, result.Distances);
 		var dto = ToDto(view);
 		http.Response.Headers.ETag = ArtifactEtag(view.Digest);
 		return result.Created
@@ -402,11 +409,16 @@ internal static class AgentCatalogEndpoints
 	}
 
 	private static AgentCatalogArtifactDto ToDto(AgentCatalogArtifactView v) =>
-		new(v.Kind, v.Id, v.Version, v.Digest, v.RegisteredAt, ParseDocument(v.Document));
+		new(v.Kind, v.Id, v.Version, v.Digest, v.RegisteredAt, ParseDocument(v.Document), ToDtos(v.Distances));
 
 	private static AgentVersionDto ToDto(AgentVersionView v) =>
 		new(v.AgentId, v.Version, v.Digest, v.Group, v.State, v.Enabled, ParseDocument(v.Document), v.RegisteredBy, v.RegisteredAt,
-			v.ApprovedBy, v.ApprovedAt, v.SelfApproval, v.DifferentiationAcknowledged, v.RetiredBy, v.RetiredAt);
+			v.ApprovedBy, v.ApprovedAt, v.SelfApproval, v.DifferentiationAcknowledged, v.RetiredBy, v.RetiredAt, ToDtos(v.Distances));
+
+	private static IReadOnlyList<ProfileDistanceDto>? ToDtos(IReadOnlyList<ProfileDistanceView>? distances) =>
+		distances is null
+			? null
+			: [.. distances.Select(d => new ProfileDistanceDto(d.AgentId, d.AgentVersion, d.ProfileId, d.ProfileVersion, d.Distance, d.ReviewRequired))];
 
 	private static JsonElement ParseDocument(string canonical)
 	{

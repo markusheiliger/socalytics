@@ -115,7 +115,7 @@ description: "Task list for Agent Catalog Registry"
 
 ### Implementation for User Story 3
 
-- [ ] T027 [US3] Add profile distances and the differentiation acknowledgement in `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Catalog/`: `RegisterAgentCatalogArtifact` and `GetAgentCatalogArtifact` return `distances` for philosophy profiles against the profiles of approved, non-retired Coach Agent versions over the same dimension-set id and major, `GetAgentVersion` returns them for Coach Agent versions, and `ApproveAgentVersion` requires `differentiationReviewAcknowledged: true` when any distance is below 0.10 (`409 differentiation-review-required` otherwise) and records it in `differentiation_acknowledged` and the audit event (FR-012, FR-015; research R7)
+- [x] T027 [US3] Add profile distances and the differentiation acknowledgement in `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Catalog/`: `RegisterAgentCatalogArtifact` and `GetAgentCatalogArtifact` return `distances` for philosophy profiles against the profiles of approved, non-retired Coach Agent versions over the same dimension-set id and major, `GetAgentVersion` returns them for Coach Agent versions, and `ApproveAgentVersion` requires `differentiationReviewAcknowledged: true` when any distance is below 0.10 (`409 differentiation-review-required` otherwise) and records it in `differentiation_acknowledged` and the audit event (FR-012, FR-015; research R7)
 
 ### Tests for User Story 3
 

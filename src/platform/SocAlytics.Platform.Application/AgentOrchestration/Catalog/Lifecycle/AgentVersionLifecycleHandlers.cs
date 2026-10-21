@@ -16,6 +16,7 @@ public sealed class ApproveAgentVersionHandler(
     IAuditTrail audit,
     IAgentVersionStore versions,
     IAgentEnablementStore enablements,
+    ProfileDistanceCalculator distances,
     IRequestContext context,
     TimeProvider time)
 {
@@ -51,6 +52,12 @@ public sealed class ApproveAgentVersionHandler(
             return OperationFailure.VersionMismatch(stored.Version);
         }
 
+        var reported = await distances.ComputeForAgentVersionAsync(stored, cancellationToken);
+        if (reported.Any(d => d.ReviewRequired) && !command.DifferentiationReviewAcknowledged)
+        {
+            return OperationFailure.Conflict(AgentCatalogProblems.DifferentiationReviewRequired);
+        }
+
         var approver = memberId.ToString();
         var selfApproval = string.Equals(stored.RegisteredBy, approver, StringComparison.Ordinal);
         var approval = new AgentVersionApproval(approver, time.GetUtcNow(), selfApproval, command.DifferentiationReviewAcknowledged);
@@ -75,7 +82,7 @@ public sealed class ApproveAgentVersionHandler(
         var enablement = await enablements.FindAsync(command.AgentId, false, cancellationToken);
         await scope.CommitAsync(cancellationToken);
         AgentCatalogMetrics.ApprovalRecorded();
-        return AgentCatalogViews.Of(approved, enablement?.AgentVersion == command.Version);
+        return AgentCatalogViews.Of(approved, enablement?.AgentVersion == command.Version, reported.Count == 0 ? null : reported);
     }
 }
 

@@ -13,6 +13,7 @@ public sealed class RegisterAgentCatalogArtifactHandler(
     IAccessAuthorizer authorizer,
     IAuditTrail audit,
     AgentCatalogRegistrar registrar,
+    ProfileDistanceCalculator distances,
     IRequestContext context)
 {
     public async Task<RegisterCatalogResult<AgentCatalogArtifactRecord>> HandleAsync(
@@ -34,6 +35,12 @@ public sealed class RegisterAgentCatalogArtifactHandler(
         var result = await registrar.RegisterArtifactAsync(command.Kind, command.Document, memberId.ToString(), false, cancellationToken);
         if (result.IsRegistered)
         {
+            if (command.Kind == AgentCatalogRecordKind.PhilosophyProfile)
+            {
+                var record = result.Record!;
+                result.WithDistances(await distances.ComputeAsync(record.Id, record.Version, record.Document, null, null, cancellationToken));
+            }
+
             await scope.CommitAsync(cancellationToken);
         }
 

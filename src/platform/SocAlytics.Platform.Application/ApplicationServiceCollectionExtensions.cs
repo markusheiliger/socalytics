@@ -152,6 +152,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.AuthenticateAgentWorkloadRequestHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadQueueCredentialsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.AgentCatalogRecordValidator>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.ProfileDistanceCalculator>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Registration.AgentCatalogRegistrar>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Registration.RegisterAgentCatalogArtifactHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Registration.RegisterAgentVersionHandler>();

@@ -31,12 +31,12 @@ public sealed class ListAgentCatalogArtifactsHandler(
         }
 
         var records = await artifacts.ListAsync(kind, string.IsNullOrEmpty(id) ? null : id, cancellationToken);
-        return OperationResult<IReadOnlyList<AgentCatalogArtifactView>>.Success([.. records.Select(AgentCatalogViews.Of)]);
+        return OperationResult<IReadOnlyList<AgentCatalogArtifactView>>.Success([.. records.Select(r => AgentCatalogViews.Of(r))]);
     }
 }
 
 public sealed class GetAgentCatalogArtifactHandler(
-    IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IAuditTrail audit, IAgentCatalogArtifactStore artifacts)
+    IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IAuditTrail audit, IAgentCatalogArtifactStore artifacts, ProfileDistanceCalculator distances)
 {
     public async Task<OperationResult<AgentCatalogArtifactView>> HandleAsync(
         AgentCatalogRecordKind kind, string id, string version, CancellationToken cancellationToken)
@@ -50,7 +50,14 @@ public sealed class GetAgentCatalogArtifactHandler(
         }
 
         var record = await artifacts.FindAsync(kind, id, version, cancellationToken);
-        return record is null ? OperationFailure.NotFound() : AgentCatalogViews.Of(record);
+        if (record is null)
+        {
+            return OperationFailure.NotFound();
+        }
+
+        return record.Kind == AgentCatalogRecordKind.PhilosophyProfile
+            ? AgentCatalogViews.Of(record, await distances.ComputeAsync(record.Id, record.Version, record.Document, null, null, cancellationToken))
+            : AgentCatalogViews.Of(record);
     }
 }
 
@@ -88,7 +95,8 @@ public sealed class ListAgentVersionsHandler(
 }
 
 public sealed class GetAgentVersionHandler(
-    IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IAuditTrail audit, IAgentVersionStore versions, IAgentEnablementStore enablements)
+    IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IAuditTrail audit, IAgentVersionStore versions, IAgentEnablementStore enablements,
+    ProfileDistanceCalculator distances)
 {
     public async Task<OperationResult<AgentVersionView>> HandleAsync(string agentId, string version, CancellationToken cancellationToken)
     {
@@ -107,6 +115,10 @@ public sealed class GetAgentVersionHandler(
         }
 
         var enablement = await enablements.FindAsync(agentId, false, cancellationToken);
-        return AgentCatalogViews.Of(record, enablement?.AgentVersion == version);
+        var reported = await distances.ComputeForAgentVersionAsync(record, cancellationToken);
+        return AgentCatalogViews.Of(record, enablement?.AgentVersion == version, reported.Count == 0 && !IsCoach(record) ? null : reported);
     }
+
+    private static bool IsCoach(AgentVersionRecord record) =>
+        string.Equals(record.Group, SocAlytics.Platform.Domain.AgentOrchestration.AgentCatalogIds.GroupCoach, StringComparison.Ordinal);
 }

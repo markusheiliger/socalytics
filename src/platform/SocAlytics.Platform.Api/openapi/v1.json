@@ -20,6 +20,15 @@
           "digest": {
             "type": "string"
           },
+          "distances": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileDistanceDto"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "document": {
             "$ref": "#/components/schemas/JsonElement"
           },
@@ -705,6 +714,15 @@
           },
           "digest": {
             "type": "string"
+          },
+          "distances": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileDistanceDto"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
           },
           "document": {
             "$ref": "#/components/schemas/JsonElement"
@@ -3820,6 +3838,42 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ProfileDistanceDto": {
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "agentVersion": {
+            "type": "string"
+          },
+          "distance": {
+            "format": "double",
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "profileId": {
+            "type": "string"
+          },
+          "profileVersion": {
+            "type": "string"
+          },
+          "reviewRequired": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agentId",
+          "agentVersion",
+          "profileId",
+          "profileVersion",
+          "distance",
+          "reviewRequired"
+        ],
         "type": "object"
       },
       "ReasonRequest": {

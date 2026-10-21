@@ -22,6 +22,15 @@ public sealed class RegisterCatalogResult<T>
 
     public OperationFailure? Failure { get; private init; }
 
+    /// <summary>The profile distances reported with a registered philosophy profile.</summary>
+    public IReadOnlyList<ProfileDistanceView>? Distances { get; private set; }
+
+    public RegisterCatalogResult<T> WithDistances(IReadOnlyList<ProfileDistanceView> distances)
+    {
+        Distances = distances;
+        return this;
+    }
+
     public bool IsRegistered => Record is not null;
 
     public static RegisterCatalogResult<T> Registered(T record, bool created) => new() { Record = record, Created = created };

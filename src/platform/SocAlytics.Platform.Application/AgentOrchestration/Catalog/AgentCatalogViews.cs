@@ -13,7 +13,8 @@ public sealed record AgentCatalogArtifactView(
     string Digest,
     string RegisteredBy,
     DateTimeOffset RegisteredAt,
-    string Document);
+    string Document,
+    IReadOnlyList<ProfileDistanceView>? Distances = null);
 
 public sealed record AgentVersionView(
     string AgentId,
@@ -31,7 +32,8 @@ public sealed record AgentVersionView(
     bool? DifferentiationAcknowledged,
     string? RetiredBy,
     DateTimeOffset? RetiredAt,
-    long RowVersion);
+    long RowVersion,
+    IReadOnlyList<ProfileDistanceView>? Distances = null);
 
 public sealed record CatalogBaselineAgentView(string AgentId, string Group, string Domain, string DisplayName, IReadOnlyList<string> PermittedTools);
 
@@ -45,13 +47,13 @@ public sealed record CatalogBaselineView(
 
 public static class AgentCatalogViews
 {
-    public static AgentCatalogArtifactView Of(AgentCatalogArtifactRecord record) =>
-        new(AgentCatalogRecordKinds.ToName(record.Kind), record.Id, record.Version, record.Digest, record.RegisteredBy, record.RegisteredAt, record.Document);
+    public static AgentCatalogArtifactView Of(AgentCatalogArtifactRecord record, IReadOnlyList<ProfileDistanceView>? distances = null) =>
+        new(AgentCatalogRecordKinds.ToName(record.Kind), record.Id, record.Version, record.Digest, record.RegisteredBy, record.RegisteredAt, record.Document, distances);
 
-    public static AgentVersionView Of(AgentVersionRecord record, bool enabled) =>
+    public static AgentVersionView Of(AgentVersionRecord record, bool enabled, IReadOnlyList<ProfileDistanceView>? distances = null) =>
         new(record.AgentId, record.AgentVersion, record.Digest, record.Group, AgentVersionStates.ToPersistedName(record.State), enabled,
             record.Document, record.RegisteredBy, record.RegisteredAt, record.ApprovedBy, record.ApprovedAt, record.SelfApproval,
-            record.DifferentiationAcknowledged, record.RetiredBy, record.RetiredAt, record.Version);
+            record.DifferentiationAcknowledged, record.RetiredBy, record.RetiredAt, record.Version, distances);
 
     public static CatalogBaselineView Baseline() =>
         new("1.0.0", "catalog-baseline", AgentCatalogIds.BaselineVersion, AgentCatalogIds.ToolAllowlist,
