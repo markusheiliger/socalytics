@@ -1,0 +1,112 @@
+schema_version: "1.0"
+workflow:
+  id: "resolve"
+  name: "Resolve the conflicts of a base branch merge"
+  version: "1.1.0"
+  author: "socalytics"
+  description: >-
+    Resolves the conflicts of a merge of the base branch into a spec's implementation branch (the merge is already in
+    progress), checks that no conflict marker remains, that it only changes what a resolution may change, and that
+    tasks.md keeps every task and checked box, and writes result.json, including the base branch files it had to
+    change. It never commits or pushes. Every decision comes from .github/scripts/speckit-implement-flow.mjs.
+
+# Common design of the gha workflows (see .specify/extension-src/gha/README.md, "Workflow design"): start → agent step →
+# check → review gate (interactive mode only) → result.
+
+requires:
+  speckit_version: ">=1.0.13"
+  integrations:
+    any:
+      - "copilot"
+
+inputs:
+  folder:
+    type: string
+    default: ""
+    prompt: "Spec folder (specs/<folder>) of the implementation branch"
+  base:
+    type: string
+    default: ""
+    prompt: "Name of the base branch being merged, for example main"
+  guidance:
+    type: string
+    default: ""
+    prompt: "Guidance for the agent (optional)"
+  feedback:
+    type: string
+    default: ""
+    prompt: "What should change in the previous run's resolution, which is still in the working tree (optional)"
+  mode:
+    type: string
+    default: "interactive"
+    prompt: "interactive (review the resolution) or unattended"
+  tooling:
+    type: string
+    default: "."
+    prompt: "Folder with the trusted .github/scripts helpers (GitHub passes its tooling checkout; locally the repository)"
+  integration:
+    type: string
+    default: "auto"
+    prompt: "Integration to use ('auto' uses the project's initialized integration)"
+  review_verdict: {type: string, default: ""}
+
+steps:
+  - id: start
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" start --run {{ context.run_id }} --workflow resolve'
+    output_format: json
+
+  - id: resolve
+    type: prompt
+    integration: "{{ inputs.integration }}"
+    timeout: 3600
+    prompt: >-
+      The working tree is in the middle of merging {{ steps.start.output.data.base }} into the implementation branch
+      of the spec in `{{ steps.start.output.data.spec_dir }}/`. Git reported merge conflicts in these files:
+      {{ steps.start.output.data.conflicts }}. Resolve every conflict: remove all conflict markers, and combine both
+      sides so that the intent of the spec and the changes from {{ steps.start.output.data.base }} are both kept. Use
+      the spec, plan, and tasks in `{{ steps.start.output.data.spec_dir }}/` to understand the implementation side.
+      The merged result must also build and pass its tests as a whole. Both sides can clash without a textual
+      conflict, for example two migrations with the same sequence number, an identifier both sides added, or
+      implementation code that uses something the base branch renamed or removed. Fix such clashes on the
+      implementation's side, keeping what the base branch has as it is: besides the conflicted files you may change
+      the files this implementation branch changed itself (`git diff --name-only
+      {{ steps.start.output.data.fork_point }} HEAD`) and add new files, for example to renumber this implementation's
+      migration to the next free number (rename it with `git mv`) and update every reference to it. Only when the
+      merged result cannot pass otherwise, you may also make the smallest change to other files of the base branch
+      (for example add a setting this implementation made required to a test that the base branch added); never
+      delete them, and never weaken a test, assertion, or requirement on either side to make it pass. A person reviews
+      such changes before the implementation merges. Do not change anything under `.github/`, `.specify/`, or
+      `specs/`, except conflicted files of `{{ steps.start.output.data.spec_dir }}/` itself: combine both sides there,
+      keep every task of the implementation branch, and keep every checked box checked. Build what the merge touches
+      and run the tests that cover it; the full verification runs after you. Do not run git commit, merge, checkout,
+      reset, restore, stash, rebase, or push. {{ steps.start.output.data.extra }}
+
+  - id: check
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" check --run {{ context.run_id }}'
+    output_format: json
+
+  - id: review
+    type: if
+    condition: "{{ steps.start.output.data.interactive }}"
+    then:
+      - id: review-verdict
+        type: gate
+        message: "The resolution {{ steps.check.output.data.summary }}. Accept it, revise it (the run stops and says how to give feedback), or abort."
+        show_file: ".specify/workflows/runs/{{ context.run_id }}/changes.diff"
+        options: ["accept", "revise", "abort"]
+        on_reject: abort
+        verdict_input: review_verdict
+      - id: revise
+        type: if
+        condition: "{{ steps.review-verdict.output.choice == 'revise' }}"
+        then:
+          - id: stop-for-feedback
+            type: shell
+            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" revise --run {{ context.run_id }}'
+
+  - id: result
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" result --run {{ context.run_id }}'
+    output_format: json

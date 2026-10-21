@@ -1058,6 +1058,9 @@ export async function runPackage({ env, log, git, rootDir = process.cwd() }) {
     const runFile = path.join(dir, 'run.json');
     const run = existsSync(runFile) ? (readFileSync(runFile, 'utf8').match(/"run_id"\s*:\s*"([\w-]+)"/)?.[1] ?? '') : '';
     const state = /^[\w-]+$/.test(run) ? pending({ rootDir, run }) : { status: 'failed', error: 'the Spec Kit workflow `author` did not start' };
+    // On GitHub every run is unattended and must finish in this job; a run that paused stopped at a gate, which is a
+    // defect of the workflow, not of the spec.
+    if (state.status === 'paused') state.error = `a gate (${state.step}) paused the unattended run, which must never ask; the workflow \`author\` has a defect`;
     const start = String(env.SPECKIT_START ?? '').trim();
     const files = state.status === 'completed' ? git(['diff', '--name-only', '--no-renames', start, 'HEAD']).stdout.split(/\r?\n/).filter(Boolean) : [];
     Object.assign(result, {

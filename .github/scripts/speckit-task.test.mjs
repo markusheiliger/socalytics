@@ -854,7 +854,8 @@ test('merge: integrate merges the base branch and reports conflicts', async () =
     assert.deepEqual(integrated.result.conflicts, []);
     assert.equal(integrated.result.baseSha, remoteSha(repos, 'main'));
     assert.equal(integrated.result.head, remoteSha(repos, 'speckit/f'));
-    assert.match(output, /conflicts=false\nagent=false\nverify=true\nenvironment=false\nprompt=\n/);
+    assert.match(output, /conflicts=false\nagent=false\nverify=true\nenvironment=false\n/);
+  assert.doesNotMatch(output, /prompt=/, 'the resolution\'s prompt lives in the Spec Kit workflow resolve');
     assert.equal(readFileSync(path.join(repos.work, 'docs/other.md'), 'utf8').replaceAll('\r\n', '\n'), '# Other\n', 'the verification sees the merged tree');
     assert.deepEqual([result.verified, result.checks.map((check) => check.name)], [true, ['platform build and tests', 'Markdown check']]);
   });
@@ -872,8 +873,7 @@ test('resolve: the agent resolution is verified, replayed, and pushed as a merge
     agent: resolveShared,
     verify: { outcome: 'success', checks: 'platform build and tests' },
   });
-  assert.match(output, /conflicts=true\nagent=true\nverify=false\nenvironment=false\nprompt=The working tree is in the middle of merging[^\n]*`docs\/shared\.md`/);
-  assert.match(output, /Guidance from the person who retried this implementation: Preserve both migration sequences\.\n/);
+  assert.match(output, /conflicts=true\nagent=true\nverify=false\nenvironment=false\n/);
   assert.deepEqual(integrated.result.conflicts, ['docs/shared.md']);
   assert.deepEqual([result.verified, result.resolutions], [true, [{ path: 'docs/shared.md', deleted: false, blob: '0' }]]);
 
@@ -1225,9 +1225,8 @@ const renumberMigration = (r) => {
 };
 
 test('resolve: clashes without a textual conflict are fixed in the implementation\'s own files and replayed', () => withRepos(clashingMigrations, async (repos) => {
-  const { integrated, result, output } = work(repos, { inputs: RESOLVE_INPUTS, agent: renumberMigration, verify: { outcome: 'success', checks: 'platform build and tests' } });
-  const forkPoint = git(repos.work, 'merge-base', integrated.result.head, integrated.result.baseSha).trim();
-  assert.match(output, new RegExp(`two migrations with the same sequence number[^\\n]*\`git diff --name-only ${forkPoint} HEAD\`[^\\n]*smallest change to other files of \`main\``));
+  const { result, output } = work(repos, { inputs: RESOLVE_INPUTS, agent: renumberMigration, verify: { outcome: 'success', checks: 'platform build and tests' } });
+  assert.match(output, /agent=true/);
   assert.deepEqual(result.reasons, []);
   assert.deepEqual(result.changes, [
     { path: 'db/0017_feature.sql', deleted: true },
@@ -1415,7 +1414,6 @@ test('resolve: conflicts in the spec\'s own artifacts go to the resolution, keep
     });
     assert.deepEqual([integrated.result.conflicts, integrated.result.attention], [['specs/f/spec.md'], undefined]);
     assert.match(output, /agent=true/);
-    assert.match(output, /except conflicted files of `specs\/f` itself/);
     const github = fakeGitHub();
     const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
     assert.equal(landed.exitCode, 0, landed.reasons?.join('; '));

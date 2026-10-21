@@ -1,13 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { assess, collectFacts, hasArchitectureTask } from './speckit-author.mjs';
 import { runMarkdownChecks } from './check-markdown.mjs';
 import { describeParallelGroups } from './speckit-implement-core.mjs';
 import { isValidFolderName, parseTwinFolder, specDir } from './speckit-prepare-core.mjs';
 import { UsageError, defaultGit, resolveFolder } from './speckit-orchestrate.mjs';
+import { FlowError, describeRun, option, readFlowState, readJson, readRunInputs, runAsScript, runDir, runFlowCommand, writeFlowState, writeResult } from './speckit-flow.mjs';
+
+export { FlowError, runDir };
 
 // The deterministic half of the Spec Kit workflow `author`, which the gha extension ships
 // (.specify/extension-src/gha/workflows/author/workflow.yml): every decision of the workflow comes from one of these
@@ -17,6 +19,7 @@ import { UsageError, defaultGit, resolveFolder } from './speckit-orchestrate.mjs
 //
 // Every subcommand takes `--run <run id>`: the workflow inputs come from the run's inputs.json, and the run folder
 // (`.specify/workflows/runs/<run id>/`, ignored by git) holds the agent files and `author.json`, the state of the run.
+// It follows the common design of the gha workflows (speckit-flow.mjs): the last step writes result.json.
 
 export const STAGES = ['specify', 'clarify', 'plan', 'tasks', 'analyze'];
 // The stages a `stage` input can restart; feedback reworks one of the first three.
@@ -34,27 +37,10 @@ export const MAX_FOLDER_CLOCK_SKEW_MS = 15 * 60 * 1000;
 const STAMP = /^\d{8}-\d{6}$/;
 const ARCHITECTURE_DIR = 'docs/architecture';
 
-export class FlowError extends Error {}
-
-export const runDir = (rootDir, run) => path.join(rootDir, '.specify', 'workflows', 'runs', run);
 const relative = (rootDir, file) => path.relative(rootDir, file).replaceAll('\\', '/');
 
-function readJson(file, what) {
-  if (!existsSync(file)) throw new FlowError(`${what} was not written: ${file} does not exist.`);
-  try {
-    return JSON.parse(readFileSync(file, 'utf8'));
-  } catch (error) {
-    throw new FlowError(`${what} is not valid JSON (${file}): ${error.message}`);
-  }
-}
-
 export function readInputs(rootDir, run) {
-  const file = path.join(runDir(rootDir, run), 'inputs.json');
-  const data = existsSync(file) ? readJson(file, 'The run inputs') : {};
-  const inputs = data.inputs ?? {};
-  const text = (name) => String(inputs[name] ?? '').trim();
-  const mode = text('mode') || 'interactive';
-  if (!['interactive', 'unattended'].includes(mode)) throw new FlowError(`Input mode must be "interactive" or "unattended", got "${mode}".`);
+  const { text, mode } = readRunInputs(rootDir, run);
   const stage = text('stage');
   if (stage && !RESTART_STAGES.includes(stage)) throw new FlowError(`Input stage must be one of ${RESTART_STAGES.join(', ')}, got "${stage}".`);
   const stamp = text('stamp');
@@ -62,15 +48,8 @@ export function readInputs(rootDir, run) {
   return { feature: text('feature'), feedback: text('feedback'), mode, publish: text('publish') || 'ask', stage, stamp };
 }
 
-export function readState(rootDir, run) {
-  const file = path.join(runDir(rootDir, run), 'author.json');
-  return existsSync(file) ? readJson(file, 'The run state') : {};
-}
-
-function writeState(rootDir, run, state) {
-  mkdirSync(runDir(rootDir, run), { recursive: true });
-  writeFileSync(path.join(runDir(rootDir, run), 'author.json'), `${JSON.stringify(state, null, 2)}\n`);
-}
+export const readState = (rootDir, run) => readFlowState(rootDir, run, 'author');
+const writeState = (rootDir, run, state) => writeFlowState(rootDir, run, 'author', state);
 
 // A spec folder named by the input: `<folder>`, `specs/<folder>`, or `specs/archive/<folder>` that exists.
 export function existingFolder(rootDir, input) {
@@ -540,7 +519,11 @@ export function publish({ rootDir, run, choice, git }) {
   if (!['push', 'commit', 'none'].includes(action)) throw new UsageError(`Publish must be push, commit, or none, got "${action}".`);
   const { folder, title, architecture = [] } = readState(rootDir, run);
   if (!title) throw new FlowError('Run the publish checks first.');
-  if (action === 'none') return { action, folder, committed: false, pushed: false };
+  const record = (published) => {
+    writeState(rootDir, run, { ...readState(rootDir, run), published });
+    return published;
+  };
+  if (action === 'none') return record({ action, folder, committed: false, pushed: false });
   const must = (args, what) => {
     const result = git(args);
     if (result.status !== 0) throw new FlowError(`${what} failed: ${(result.stderr || result.stdout).trim()}`);
@@ -561,7 +544,16 @@ export function publish({ rootDir, run, choice, git }) {
     if (upstream.status === 0) must(['push', '--quiet'], 'git push');
     else must(['push', '--quiet', '-u', 'origin', branch], 'git push');
   }
-  return { action, folder, committed: staged.status !== 0, pushed: action === 'push', architecture };
+  return record({ action, folder, committed: staged.status !== 0, pushed: action === 'push', architecture });
+}
+
+// The last step: result.json in the common shape (speckit-flow.mjs) with the spec folder, its title, and what the
+// handover did.
+export function result({ rootDir, run, git }) {
+  const { folder, title = null, published = null, architecture = [] } = readState(rootDir, run);
+  if (!folder) throw new FlowError('The run has no spec folder.');
+  const changed = git(['status', '--porcelain', '--untracked-files=all', '--', specDir(folder), ...architecture]).stdout.split(/\r?\n/).filter(Boolean).map((line) => line.slice(3));
+  return writeResult(rootDir, run, { workflow: 'author', folder, title, publish: published, files: changed });
 }
 
 // Stops the run when a person chose to revise a stage (recorded for `pending`), and says how to run the workflow again
@@ -585,23 +577,15 @@ export function revise({ rootDir, run, stage: reviewed }) {
 // (`fix-<round>-<n>`) are returned together, so they can be asked at once and answered in one resume. The first
 // option of a gate is its recommended one.
 export function pending({ rootDir, run }) {
-  const state = readJson(path.join(runDir(rootDir, run), 'state.json'), 'The run state');
-  const status = state.status;
+  const described = describeRun(rootDir, run);
+  const { status, step, state } = described;
   const { folder = null, revise: reviewed = null } = readState(rootDir, run);
-  if (status !== 'paused') {
-    const step = state.current_step_id ?? null;
-    if (status === 'completed') {
-      const results = state.step_results ?? {};
-      const published = results['publish-chosen']?.output?.data ?? results['publish-input']?.output?.data ?? null;
-      return { status, step, folder, publish: published };
-    }
-    // The helper's own message is on the failed step's stderr; the run's error only says that a command failed.
-    const result = state.step_results?.[step] ?? {};
-    const error = String(result.output?.stderr ?? '').replace(/\s*Shell command exited with code \d+\.\s*$/, '').trim() || result.error || state.error || '';
-    return { status, step, folder, error, revise: error.startsWith('Revision requested') ? reviewed : null };
+  if (status === 'completed') {
+    const results = state.step_results ?? {};
+    const published = results['publish-chosen']?.output?.data ?? results['publish-input']?.output?.data ?? null;
+    return { status, step, folder, publish: published };
   }
-  const step = state.current_step_id;
-  const output = state.step_results?.[step]?.output ?? {};
+  if (status !== 'paused') return { status, step, folder, error: described.error, revise: described.error.startsWith('Revision requested') ? reviewed : null };
   const questionRound = String(step).match(/^answer-(\d+)-\d+$/)?.[1];
   if (questionRound) {
     const list = validateQuestions(readJson(path.join(runDir(rootDir, run), 'questions.json'), 'The clarification questions'));
@@ -635,59 +619,32 @@ export function pending({ rootDir, run }) {
       })),
     };
   }
-  return {
-    status,
-    kind: 'gate',
-    step,
-    input: String(step).replaceAll('-', '_'),
-    message: output.message ?? '',
-    options: output.options ?? [],
-    recommended: output.options?.[0] ?? null,
-    file: output.show_file ?? null,
-  };
-}
-
-function option(argv, name) {
-  const index = argv.indexOf(`--${name}`);
-  return index >= 0 ? (argv[index + 1] ?? '') : null;
+  return described;
 }
 
 export function main(argv, { rootDir = process.cwd(), env = process.env, git = defaultGit(rootDir), gh = defaultGh(rootDir), log = (text) => process.stdout.write(text), now = Date.now() } = {}) {
-  const [command] = argv;
-  const run = option(argv, 'run');
-  if (!run || !/^[\w-]+$/.test(run)) throw new UsageError('Usage: speckit-author-flow.mjs <command> --run <run id> [options]');
-  const context = { rootDir, run, git, env };
+  const at = (run) => ({ rootDir, run, git, env });
   const commands = {
-    start: () => start(context),
-    begin: () => begin({ ...context, gh, choice: option(argv, 'choice') ?? '' }),
-    proposal: () => proposal(context),
-    pick: () => pick({ ...context, choice: option(argv, 'choice') ?? '' }),
-    created: () => created({ ...context, now }),
-    stage: () => stage({ ...context, name: option(argv, 'name') }),
-    questions: () => questions({ ...context, final: argv.includes('--final') }),
-    answers: () => answers({ ...context, choices: option(argv, 'choices') ?? '' }),
-    check: () => check({ ...context, after: option(argv, 'after'), strict: argv.includes('--strict') }),
-    environment: () => environment(context),
-    findings: () => findings(context),
-    approve: () => approve({ ...context, choices: option(argv, 'choices') ?? '' }),
-    markdown: () => markdownCheck(context),
-    ready: () => ready(context),
-    publish: () => publish({ ...context, choice: option(argv, 'choice') ?? '' }),
-    revise: () => revise({ ...context, stage: option(argv, 'stage') }),
-    pending: () => pending(context),
+    start: (run) => start(at(run)),
+    begin: (run) => begin({ ...at(run), gh, choice: option(argv, 'choice') ?? '' }),
+    proposal: (run) => proposal(at(run)),
+    pick: (run) => pick({ ...at(run), choice: option(argv, 'choice') ?? '' }),
+    created: (run) => created({ ...at(run), now }),
+    stage: (run) => stage({ ...at(run), name: option(argv, 'name') }),
+    questions: (run) => questions({ ...at(run), final: argv.includes('--final') }),
+    answers: (run) => answers({ ...at(run), choices: option(argv, 'choices') ?? '' }),
+    check: (run) => check({ ...at(run), after: option(argv, 'after'), strict: argv.includes('--strict') }),
+    environment: (run) => environment(at(run)),
+    findings: (run) => findings(at(run)),
+    approve: (run) => approve({ ...at(run), choices: option(argv, 'choices') ?? '' }),
+    markdown: (run) => markdownCheck(at(run)),
+    ready: (run) => ready(at(run)),
+    publish: (run) => publish({ ...at(run), choice: option(argv, 'choice') ?? '' }),
+    result: (run) => result(at(run)),
+    revise: (run) => revise({ ...at(run), stage: option(argv, 'stage') }),
+    pending: (run) => pending(at(run)),
   };
-  if (!commands[command]) throw new UsageError(`Unknown command "${command}". Commands: ${Object.keys(commands).join(', ')}.`);
-  // ASCII only: on Windows the workflow engine decodes a shell step's output with the system code page, so every other
-  // character (an arrow, an umlaut in a question) is escaped; the JSON value is the same.
-  log(`${JSON.stringify(commands[command]()).replace(/[\u007f-\uffff]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)}\n`);
-  return 0;
+  return runFlowCommand(argv, commands, { script: 'speckit-author-flow.mjs', rootDir, helper: import.meta.url, log });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try {
-    process.exitCode = main(process.argv.slice(2));
-  } catch (error) {
-    console.error(error.message);
-    process.exitCode = error instanceof UsageError ? 2 : 1;
-  }
-}
+runAsScript(import.meta.url, main);

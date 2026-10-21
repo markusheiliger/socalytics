@@ -38,10 +38,11 @@ on:
         description: Task attempt number
         required: true
         type: number
-      prompt:
-        description: Prompt for the task agent
-        required: true
+      guidance:
+        description: Guidance from the person who restarted the work, for the task agent
+        required: false
         type: string
+        default: ""
       verify_mode:
         description: Verification mode for the task
         required: false
@@ -90,7 +91,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           path: tooling
           persist-credentials: false
 
@@ -128,19 +129,20 @@ jobs:
           if [ -d "workspace/specs/$FOLDER" ]; then dir="specs/$FOLDER"; else dir="specs/archive/$FOLDER"; fi
           echo "SPECIFY_FEATURE_DIRECTORY=$dir" >> "$GITHUB_ENV"
 
-      - name: Run Copilot CLI
-        uses: ./tooling/.github/actions/speckit-copilot
+      - name: Run the Spec Kit workflow implement-task
+        uses: ./tooling/.github/actions/speckit-workflow
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
         with:
+          workflow: implement-task
           level: standard
-          mode: agent
-          prompt: ${{ inputs.prompt }}
           ai-credits: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
-          working-directory: workspace
-          output-format: json
-          output-file: ${{ env.SPECKIT_RESULT_DIR }}/agent.jsonl
-          exit-code-file: ${{ env.SPECKIT_RESULT_DIR }}/agent-exit.txt
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          result-dir: ${{ env.SPECKIT_RESULT_DIR }}
+          inputs: |
+            folder=${{ inputs.folder }}
+            task=${{ inputs.task }}
+            guidance=${{ inputs.guidance }}
 
       - name: Package the result
         id: package
@@ -212,7 +214,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           path: tooling
           persist-credentials: false
 

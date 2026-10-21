@@ -61,7 +61,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           path: tooling
           persist-credentials: false
 
@@ -99,19 +99,19 @@ jobs:
           if [ -d "workspace/specs/$FOLDER" ]; then dir="specs/$FOLDER"; else dir="specs/archive/$FOLDER"; fi
           echo "SPECIFY_FEATURE_DIRECTORY=$dir" >> "$GITHUB_ENV"
 
-      - name: Run Copilot CLI
-        uses: ./tooling/.github/actions/speckit-copilot
+      - name: Run the Spec Kit workflow converge
+        uses: ./tooling/.github/actions/speckit-workflow
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
         with:
+          workflow: converge
           level: strong
-          mode: agent
-          prompt: ${{ matrix.prompt }}
           ai-credits: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
-          working-directory: workspace
-          output-format: json
-          output-file: ${{ env.SPECKIT_RESULT_DIR }}/agent.jsonl
-          exit-code-file: ${{ env.SPECKIT_RESULT_DIR }}/agent-exit.txt
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          result-dir: ${{ env.SPECKIT_RESULT_DIR }}
+          inputs: |
+            folder=${{ inputs.folder }}
+            guidance=${{ matrix.guidance }}
 
       - name: Package the result
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-converge.mjs" package
@@ -158,7 +158,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           path: tooling
           persist-credentials: false
 
