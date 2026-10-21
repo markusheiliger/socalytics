@@ -78,7 +78,7 @@ public sealed class LifecycleTests(PostgresContainerFixture postgres)
 	public async Task ApprovalByTheCreatorMarksSelfApproval()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var api = new AgentCatalogApi(f.Admin);
 		var etag = await RegisterDraftAsync(api, ct);
 		var draft = await GetAsync(api, ct);
@@ -97,7 +97,7 @@ public sealed class LifecycleTests(PostgresContainerFixture postgres)
 	public async Task ApprovalByAnotherClubAdminIsNotSelfApproval()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		using var other = await SecondAdminAsync(f, ct);
 		var etag = await RegisterDraftAsync(new AgentCatalogApi(f.Admin), ct);
 
@@ -111,7 +111,7 @@ public sealed class LifecycleTests(PostgresContainerFixture postgres)
 	public async Task ApprovingTwiceAndApprovingARetiredVersionAreRefused()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var api = new AgentCatalogApi(f.Admin);
 		var etag = await RegisterDraftAsync(api, ct);
 		var approved = await ReadAsync(await api.ApproveAgentVersionAsync(AgentId, Version, etag, null, ct), ct);
@@ -131,7 +131,7 @@ public sealed class LifecycleTests(PostgresContainerFixture postgres)
 	public async Task StaleAndMissingIfMatchAreRefused()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var api = new AgentCatalogApi(f.Admin);
 		var etag = await RegisterDraftAsync(api, ct);
 
@@ -155,7 +155,7 @@ public sealed class LifecycleTests(PostgresContainerFixture postgres)
 	public async Task ConcurrentApprovalsLeaveOneWinner()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		using var other = await SecondAdminAsync(f, ct);
 		var first = new AgentCatalogApi(f.Admin);
 		var second = new AgentCatalogApi(other);
@@ -175,7 +175,7 @@ public sealed class LifecycleTests(PostgresContainerFixture postgres)
 	public async Task ApprovedAndRetiredDocumentsAndDigestsNeverChange()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var api = new AgentCatalogApi(f.Admin);
 		var etag = await RegisterDraftAsync(api, ct);
 		var draft = await GetAsync(api, ct);
@@ -200,7 +200,7 @@ public sealed class LifecycleTests(PostgresContainerFixture postgres)
 	public async Task RetiringAnApprovedVersionSucceedsAndIsAudited()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var api = new AgentCatalogApi(f.Admin);
 		var etag = await RegisterDraftAsync(api, ct);
 
@@ -225,7 +225,7 @@ public sealed class LifecycleTests(PostgresContainerFixture postgres)
 	public async Task RetiringTheEnabledVersionIsRefused()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var api = new AgentCatalogApi(f.Admin);
 		var etag = await RegisterDraftAsync(api, ct);
 		var approved = await ReadAsync(await api.ApproveAgentVersionAsync(AgentId, Version, etag, null, ct), ct);

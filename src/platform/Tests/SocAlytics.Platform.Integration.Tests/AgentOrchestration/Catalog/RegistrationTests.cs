@@ -118,7 +118,7 @@ public sealed class RegistrationTests(PostgresContainerFixture postgres)
 	public async Task EveryArtifactKindAndAnAgentVersionAreStoredWithTheDigestOfTheirDocument()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var api = new AgentCatalogApi(f.Admin);
 
 		foreach (var artifact in Valid())
@@ -144,7 +144,7 @@ public sealed class RegistrationTests(PostgresContainerFixture postgres)
 	public async Task EqualReplaysReturnTheStoredRecordAndDifferentContentIsRefused()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var api = new AgentCatalogApi(f.Admin);
 		var artifacts = CatalogFixtures.SpecialistTacticsArtifacts();
 		await api.RegisterAllAsync(artifacts.All, ct);
@@ -182,7 +182,7 @@ public sealed class RegistrationTests(PostgresContainerFixture postgres)
 	public async Task InvalidRegistrationsNameEveryViolationAndStoreNothing()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var api = new AgentCatalogApi(f.Admin);
 		var artifacts = CatalogFixtures.SpecialistTacticsArtifacts();
 		var tools = CatalogFixtures.Artifact(CatalogKinds.ToolPolicies, "specialist-tactics-tools");
@@ -245,7 +245,7 @@ public sealed class RegistrationTests(PostgresContainerFixture postgres)
 	public async Task MembersWithoutTheClubAdminRoleAreRefusedAndAudited()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		await TestMembers.SeedAsync(f.Db, "plain-member", cancellationToken: ct);
 		using var member = await ApiSession.SignInAsync(f.Factory, "plain-member", TestMembers.DefaultPassword, ct);
 		var api = new AgentCatalogApi(member);
@@ -271,7 +271,7 @@ public sealed class RegistrationTests(PostgresContainerFixture postgres)
 	public async Task ListAndReadReturnEachRecordWithItsDigestDocumentMemberAndTime()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var api = new AgentCatalogApi(f.Admin);
 		var artifacts = CatalogFixtures.SpecialistTacticsArtifacts();
 		await api.RegisterAllAsync(artifacts.All, ct);
@@ -319,7 +319,7 @@ public sealed class RegistrationTests(PostgresContainerFixture postgres)
 	public async Task RegistrationsAreCountedByKindAndOutcome()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var sink = new List<Measurement>();
 		using var listener = Listen(sink);
 		var api = new AgentCatalogApi(f.Admin);
@@ -344,7 +344,7 @@ public sealed class RegistrationTests(PostgresContainerFixture postgres)
 	public async Task AuditLogsAndTelemetryCarryNoPromptRationaleOrProvenanceText()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct);
+		await using var f = await AgentOrchestrationFixture.StartAsync(postgres, ct, CatalogSeed.Off);
 		var sink = new List<Measurement>();
 		using var listener = Listen(sink);
 		var api = new AgentCatalogApi(f.Admin);
