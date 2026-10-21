@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Page, Route } from '@playwright/test';
 import type {
   AnalysisRunSummaryDto,
@@ -400,6 +402,247 @@ export function problem(status: number, title: string, extra: Record<string, unk
 
 type Handler = (route: Route, body: unknown) => Promise<void> | void;
 
+/** Agent catalog state mirrors the JSON of the Agent Catalog API (dates serialize through JSON). */
+export type CatalogKind =
+  | 'prompt-templates'
+  | 'model-selections'
+  | 'tool-policies'
+  | 'safety-policies'
+  | 'dimension-sets'
+  | 'philosophy-profiles'
+  | 'modifier-policies';
+
+export interface CatalogDistance {
+  agentId: string;
+  agentVersion: string;
+  profileId: string;
+  profileVersion: string;
+  distance: number;
+  reviewRequired: boolean;
+}
+
+export interface CatalogArtifact {
+  kind: string;
+  id: string;
+  version: string;
+  digest: string;
+  registeredBy: string;
+  registeredAt: Date | string;
+  document: Record<string, any>;
+  /** Profiles only; when set it replaces the computed distances. */
+  distances?: CatalogDistance[];
+}
+
+export interface CatalogAgentVersion {
+  agentId: string;
+  version: string;
+  digest: string;
+  group: string;
+  state: string;
+  document: Record<string, any>;
+  registeredBy: string;
+  registeredAt: Date | string;
+  approvedBy: string | null;
+  approvedAt: Date | string | null;
+  selfApproval: boolean;
+  differentiationAcknowledged: boolean;
+  retiredBy: string | null;
+  retiredAt: Date | string | null;
+  /** Coach Agent versions; when set it replaces the computed distances. */
+  distances?: CatalogDistance[];
+  rowVersion: number;
+}
+
+export interface CatalogEnablement {
+  agentId: string;
+  enabledVersion: string | null;
+  changedBy: string | null;
+  changedAt: Date | string | null;
+  rowVersion: number;
+}
+
+export type CatalogOperation =
+  | 'getAgentCatalogBaseline'
+  | 'registerAgentCatalogArtifact'
+  | 'listAgentCatalogArtifacts'
+  | 'getAgentCatalogArtifact'
+  | 'registerAgentVersion'
+  | 'listAgentVersions'
+  | 'getAgentVersion'
+  | 'approveAgentVersion'
+  | 'retireAgentVersion'
+  | 'listAgentEnablements'
+  | 'setAgentEnablement';
+
+/** A scripted answer: `extra` members are added to the problem (`violations`, `reason`, …). */
+export interface CatalogRefusal {
+  status: number;
+  code?: string;
+  extra?: Record<string, unknown>;
+}
+
+export const CATALOG_SEED_ACTOR = 'system:seed';
+
+const CATALOG_KINDS: Record<CatalogKind, string> = {
+  'prompt-templates': 'prompt-template',
+  'model-selections': 'model-selection',
+  'tool-policies': 'tool-policy',
+  'safety-policies': 'safety-policy',
+  'dimension-sets': 'dimension-set',
+  'philosophy-profiles': 'philosophy-profile',
+  'modifier-policies': 'modifier-policy',
+};
+const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?$/;
+const CATALOG_NAME = /^[A-Za-z0-9._/:-]{1,128}$/;
+const CATALOG_REVIEW_THRESHOLD = 0.1;
+
+const catalogBaselinePath = join(
+  import.meta.dirname,
+  '..', '..', '..', '..', '..', '..',
+  'contracts', 'agent-catalog', 'catalog-baseline', 'v1', 'examples', 'valid', 'baseline-1.0.0.json',
+);
+
+interface CatalogBaselineDocument {
+  toolAllowlist: string[];
+  agents: { agentId: string; group: string; domain: string; displayName: string; permittedTools: string[] }[];
+}
+
+function catalogBaseline(): CatalogBaselineDocument {
+  return JSON.parse(readFileSync(catalogBaselinePath, 'utf8')) as CatalogBaselineDocument;
+}
+
+function seedCatalogRecord(document: Record<string, any>): CatalogArtifact {
+  return {
+    kind: document.kind,
+    id: document.id,
+    version: document.version,
+    digest: digestOf(document),
+    registeredBy: CATALOG_SEED_ACTOR,
+    registeredAt: now,
+    document,
+  };
+}
+
+/** The Development and Test seed: two specialists with version 0.1.0 approved and enabled, four artifacts each. */
+function seedCatalog(): {
+  artifacts: CatalogArtifact[];
+  versions: CatalogAgentVersion[];
+  enablements: CatalogEnablement[];
+} {
+  const baseline = catalogBaseline();
+  const artifacts: CatalogArtifact[] = [
+    seedCatalogRecord({
+      schemaVersion: '1.0.0',
+      kind: 'model-selection',
+      id: 'simulated-model',
+      version: '0.1.0',
+      provider: 'simulated',
+      model: 'simulated',
+      deployment: 'simulated',
+    }),
+  ];
+  const versions: CatalogAgentVersion[] = [];
+  const domains: Record<string, string> = {
+    'specialist-tactics': 'team phases, possession, pressing, transitions, formations, spacing, and set plays',
+    'specialist-video-analysis': 'evidence retrieval, sequence comparison, and clip curation',
+  };
+  for (const agentId of Object.keys(domains)) {
+    const agent = baseline.agents.find((a) => a.agentId === agentId)!;
+    const records = [
+      seedCatalogRecord({
+        schemaVersion: '1.0.0',
+        kind: 'prompt-template',
+        id: `${agentId}-prompt`,
+        version: '0.1.0',
+        group: 'specialist',
+        responseContract: 'agent-response/1',
+        text: `You are ${agentId}, a SocAlytics Specialist Agent for ${domains[agentId]}.\nProvide decision support; the human coach decides.`,
+        slots: [],
+      }),
+      seedCatalogRecord({
+        schemaVersion: '1.0.0',
+        kind: 'tool-policy',
+        id: `${agentId}-tools`,
+        version: '0.1.0',
+        tools: agent.permittedTools,
+      }),
+      seedCatalogRecord({
+        schemaVersion: '1.0.0',
+        kind: 'safety-policy',
+        id: `${agentId}-safety`,
+        version: '0.1.0',
+        group: 'specialist',
+        routes: ['user-to-specialist', 'coach-to-specialist'],
+        hardBoundaries: ['Never reveal raw recordings or unauthorized team data.'],
+        escalationCategories: ['medical', 'safeguarding', 'welfare'],
+        refusalCategories: ['privacy', 'raw-data-access', 'unauthorized-data'],
+        rules: ['evidence-citation', 'tool-allowlist-only', 'no-raw-data-access'],
+      }),
+    ];
+    artifacts.push(...records);
+    const ref = (kind: string, id: string) => {
+      const found = [...records, artifacts[0]].find((r) => r.kind === kind && r.id === id)!;
+      return { id: found.id, version: found.version, digest: found.digest };
+    };
+    const document = {
+      schemaVersion: '1.0.0',
+      kind: 'agent-version',
+      agentId,
+      version: '0.1.0',
+      group: 'specialist',
+      displayName: agent.displayName,
+      artifacts: {
+        promptTemplate: ref('prompt-template', `${agentId}-prompt`),
+        modelSelection: ref('model-selection', 'simulated-model'),
+        toolPolicy: ref('tool-policy', `${agentId}-tools`),
+        safetyPolicy: ref('safety-policy', `${agentId}-safety`),
+      },
+    };
+    versions.push({
+      agentId,
+      version: '0.1.0',
+      digest: digestOf(document),
+      group: 'specialist',
+      state: 'approved',
+      document,
+      registeredBy: CATALOG_SEED_ACTOR,
+      registeredAt: now,
+      approvedBy: CATALOG_SEED_ACTOR,
+      approvedAt: now,
+      selfApproval: false,
+      differentiationAcknowledged: false,
+      retiredBy: null,
+      retiredAt: null,
+      rowVersion: 2,
+    });
+  }
+  const enablements = baseline.agents.map<CatalogEnablement>((a) => {
+    const enabled = a.agentId in domains;
+    return {
+      agentId: a.agentId,
+      enabledVersion: enabled ? '0.1.0' : null,
+      changedBy: enabled ? CATALOG_SEED_ACTOR : null,
+      changedAt: enabled ? now : null,
+      rowVersion: enabled ? 2 : 1,
+    };
+  });
+  return { artifacts, versions, enablements };
+}
+
+function catalogViolation(code: string, pointer: string, detail: string) {
+  return { code, pointer, detail };
+}
+
+function profileDistance(first: Record<string, any>, second: Record<string, any>): number {
+  const firstWeights = Object.fromEntries(Object.entries(first).map(([k, v]) => [k, Number(v?.weight ?? 0)]));
+  const secondWeights = Object.fromEntries(Object.entries(second).map(([k, v]) => [k, Number(v?.weight ?? 0)]));
+  let sum = 0;
+  for (const id of new Set([...Object.keys(firstWeights), ...Object.keys(secondWeights)])) {
+    sum += Math.abs((firstWeights[id] ?? 0) - (secondWeights[id] ?? 0));
+  }
+  return sum / 200;
+}
+
 export type AgentOperation =
   | 'listAgents'
   | 'listConversations'
@@ -523,7 +766,9 @@ export class SimulatedApi {
   factPageSize = 50;
   private readonly statusReads = new Map<string, number>();
 
-  constructor(private readonly page: Page) {}
+  constructor(private readonly page: Page) {
+    this.resetCatalog();
+  }
 
   async install(): Promise<void> {
     await this.page.route('**/api/v1/**', (route) => this.handle(route));
@@ -1224,6 +1469,484 @@ export class SimulatedApi {
     return respond(201, workflow);
   }
 
+  /** Agent catalog state, seeded like the Development and Test seed; tests may add, replace, or clear any of it. */
+  catalogArtifacts: CatalogArtifact[] = [];
+  catalogVersions: CatalogAgentVersion[] = [];
+  catalogEnablements: CatalogEnablement[] = [];
+  private readonly catalogRefusals = new Map<CatalogOperation, CatalogRefusal[]>();
+  private catalogClock = 1;
+
+  /** Restores the seeded catalog (nine baseline agents, two approved and enabled specialists with four artifacts each). */
+  resetCatalog(): void {
+    const seeded = seedCatalog();
+    this.catalogArtifacts = seeded.artifacts;
+    this.catalogVersions = seeded.versions;
+    this.catalogEnablements = seeded.enablements;
+    this.catalogRefusals.clear();
+  }
+
+  /** The next `count` requests of the operation answer the refusal before any state change (any validation problem or refusal). */
+  refuseCatalogNext(operation: CatalogOperation, refusal: CatalogRefusal, count = 1): void {
+    const queue = this.catalogRefusals.get(operation) ?? [];
+    for (let i = 0; i < count; i++) queue.push(refusal);
+    this.catalogRefusals.set(operation, queue);
+  }
+
+  /** Injects an artifact registered by any member (default: the seed actor). */
+  seedCatalogArtifact(
+    document: Record<string, any>,
+    options: { registeredBy?: string; distances?: CatalogDistance[] } = {},
+  ): CatalogArtifact {
+    const record: CatalogArtifact = {
+      kind: String(document.kind),
+      id: String(document.id),
+      version: String(document.version),
+      digest: digestOf(document),
+      registeredBy: options.registeredBy ?? CATALOG_SEED_ACTOR,
+      registeredAt: later(this.catalogClock++),
+      document,
+      ...(options.distances ? { distances: options.distances } : {}),
+    };
+    this.catalogArtifacts.push(record);
+    return record;
+  }
+
+  /** Injects an agent version in any state registered by any member; Coach Agent versions may carry fixed distances. */
+  seedCatalogAgentVersion(
+    document: Record<string, any>,
+    options: Partial<Omit<CatalogAgentVersion, 'agentId' | 'version' | 'digest' | 'group' | 'document'>> = {},
+  ): CatalogAgentVersion {
+    const state = options.state ?? 'draft';
+    const stamp = later(this.catalogClock++);
+    const version: CatalogAgentVersion = {
+      agentId: String(document.agentId),
+      version: String(document.version),
+      digest: digestOf(document),
+      group: String(document.group),
+      document,
+      registeredBy: CATALOG_SEED_ACTOR,
+      registeredAt: stamp,
+      approvedBy: state === 'approved' || state === 'retired' ? CATALOG_SEED_ACTOR : null,
+      approvedAt: state === 'approved' || state === 'retired' ? stamp : null,
+      selfApproval: false,
+      differentiationAcknowledged: false,
+      retiredBy: state === 'retired' ? CATALOG_SEED_ACTOR : null,
+      retiredAt: state === 'retired' ? stamp : null,
+      rowVersion: 1,
+      ...options,
+      state,
+    };
+    this.catalogVersions.push(version);
+    return version;
+  }
+
+  /** Enables (or, with `null`, disables) a version directly, as another member's change would. */
+  seedCatalogEnablement(agentId: string, enabledVersion: string | null, changedBy = CATALOG_SEED_ACTOR): void {
+    const found = this.catalogEnablements.find((e) => e.agentId === agentId);
+    const changed = {
+      enabledVersion,
+      changedBy: enabledVersion ? changedBy : null,
+      changedAt: enabledVersion ? later(this.catalogClock++) : null,
+    };
+    if (found) Object.assign(found, changed, { rowVersion: found.rowVersion + 1 });
+    else this.catalogEnablements.push({ agentId, rowVersion: 1, ...changed });
+    this.syncAvailableAgents();
+  }
+
+  /** Simulates a change by someone else: the stored row version moves on, so a held `If-Match` is stale. */
+  changeCatalogBehindTheScenes(target: { agentId: string; version?: string }): void {
+    const record = target.version
+      ? this.catalogVersions.find((v) => v.agentId === target.agentId && v.version === target.version)
+      : this.catalogEnablements.find((e) => e.agentId === target.agentId);
+    if (record) record.rowVersion += 1;
+  }
+
+  /** After an enablement change the enablement is the source of `listAvailableAgents`; the untouched default keeps the six specialists of the triage tests. */
+  private syncAvailableAgents(): void {
+    const baseline = catalogBaseline().agents;
+    this.agents = this.catalogEnablements
+      .filter((e) => e.enabledVersion)
+      .map((e) => baseline.find((a) => a.agentId === e.agentId))
+      .filter((a): a is CatalogBaselineDocument['agents'][number] => !!a && a.group === 'specialist')
+      .map((a) => ({ agentId: a.agentId, group: a.group, domain: a.domain }));
+  }
+
+  private catalogDistances(profileId: string, profileVersion: string): CatalogDistance[] {
+    const profile = this.catalogArtifacts.find(
+      (a) => a.kind === 'philosophy-profile' && a.id === profileId && a.version === profileVersion,
+    );
+    if (!profile) return [];
+    const result: CatalogDistance[] = [];
+    for (const coach of this.catalogVersions) {
+      const ref = coach.document.artifacts?.philosophyProfile as { id: string; version: string } | undefined;
+      if (coach.group !== 'coach' || coach.state !== 'approved' || !ref) continue;
+      if (ref.id === profileId && ref.version === profileVersion) continue;
+      const other = this.catalogArtifacts.find(
+        (a) => a.kind === 'philosophy-profile' && a.id === ref.id && a.version === ref.version,
+      );
+      if (!other) continue;
+      const distance = profileDistance(profile.document.weights ?? {}, other.document.weights ?? {});
+      result.push({
+        agentId: coach.agentId,
+        agentVersion: coach.version,
+        profileId: ref.id,
+        profileVersion: ref.version,
+        distance: Math.round(distance * 100) / 100,
+        reviewRequired: distance < CATALOG_REVIEW_THRESHOLD,
+      });
+    }
+    return result;
+  }
+
+  private versionDistances(version: CatalogAgentVersion): CatalogDistance[] | undefined {
+    if (version.distances) return version.distances;
+    const ref = version.document.artifacts?.philosophyProfile as { id: string; version: string } | undefined;
+    return version.group === 'coach' && ref ? this.catalogDistances(ref.id, ref.version) : undefined;
+  }
+
+  private validateCatalogRecord(kind: string, document: Record<string, any>): ReturnType<typeof catalogViolation>[] {
+    const violations: ReturnType<typeof catalogViolation>[] = [];
+    const schema = (pointer: string, detail: string) => violations.push(catalogViolation('schema-violation', pointer, detail));
+    if (document.kind !== kind) schema('/kind', `The record kind is '${kind}'.`);
+    if (document.schemaVersion !== '1.0.0') schema('/schemaVersion', 'The schema version is 1.0.0.');
+    if (kind !== 'agent-version') {
+      if (typeof document.id !== 'string' || !CATALOG_NAME.test(document.id)) schema('/id', 'The identifier is 1 to 128 name characters.');
+    }
+    if (typeof document.version !== 'string' || !SEMVER.test(document.version)) schema('/version', 'The version is a semantic version.');
+    const requireString = (field: string) => {
+      if (typeof document[field] !== 'string' || document[field] === '') schema(`/${field}`, `${field} is required.`);
+    };
+    const requireList = (field: string, min = 1) => {
+      if (!Array.isArray(document[field]) || document[field].length < min) schema(`/${field}`, `${field} needs at least ${min} entr${min === 1 ? 'y' : 'ies'}.`);
+    };
+    const allowlist = catalogBaseline().toolAllowlist;
+    const checkTools = (pointer: string, tools: unknown) => {
+      if (!Array.isArray(tools)) return;
+      tools.forEach((tool, i) => {
+        if (!allowlist.includes(String(tool))) {
+          violations.push(catalogViolation('unknown-tool', `${pointer}/${i}`, `Tool '${tool}' is not on the allowlist.`));
+        }
+      });
+    };
+    switch (kind) {
+      case 'prompt-template': {
+        requireString('group');
+        requireString('responseContract');
+        requireString('text');
+        if (typeof document.text === 'string' && document.text.length > 32_000) schema('/text', 'The text is at most 32,000 characters.');
+        const slots: string[] = Array.isArray(document.slots) ? document.slots : [];
+        slots.forEach((slot, i) => {
+          const hits = typeof document.text === 'string' ? document.text.split(`{{${slot}}}`).length - 1 : 0;
+          if (hits !== 1) {
+            violations.push(catalogViolation('profile-slot-missing', `/slots/${i}`, `Declared slot '${slot}' must occur exactly once as {{${slot}}}.`));
+          }
+        });
+        const used = typeof document.text === 'string' ? [...document.text.matchAll(/\{\{([^{}]+)\}\}/g)].map((m) => m[1]) : [];
+        for (const slot of new Set(used)) {
+          if (!slots.includes(slot)) {
+            violations.push(catalogViolation('profile-slot-not-allowed', '/text', `Slot '${slot}' occurs but is not declared.`));
+          }
+        }
+        break;
+      }
+      case 'model-selection':
+        requireString('provider');
+        requireString('model');
+        requireString('deployment');
+        break;
+      case 'tool-policy':
+        requireList('tools');
+        checkTools('/tools', document.tools);
+        break;
+      case 'safety-policy':
+        requireString('group');
+        requireList('routes');
+        requireList('hardBoundaries');
+        break;
+      case 'dimension-set':
+        requireList('dimensions');
+        break;
+      case 'philosophy-profile': {
+        const set = this.catalogArtifacts.find(
+          (a) => a.kind === 'dimension-set' && a.id === document.dimensionSet?.id && a.version === document.dimensionSet?.version,
+        );
+        if (!set) {
+          violations.push(catalogViolation('dimension-set-not-found', '/dimensionSet', 'The dimension set does not exist.'));
+          break;
+        }
+        const weights = (document.weights ?? {}) as Record<string, any>;
+        const dimensions: { id: string }[] = set.document.dimensions ?? [];
+        let total = 0;
+        for (const { id } of dimensions) {
+          if (!(id in weights)) violations.push(catalogViolation('missing-dimension', `/weights/${id}`, `Dimension '${id}' has no weight.`));
+        }
+        for (const [id, entry] of Object.entries(weights)) {
+          if (!dimensions.some((d) => d.id === id)) {
+            violations.push(catalogViolation('unknown-dimension', `/weights/${id}`, `Dimension '${id}' is not part of the dimension set.`));
+            continue;
+          }
+          const weight = entry?.weight;
+          if (!Number.isInteger(weight) || weight < 0 || weight > 100) {
+            violations.push(catalogViolation('weight-out-of-range', `/weights/${id}/weight`, 'A weight is an integer from 0 to 100.'));
+          } else total += weight;
+          if (!entry?.rationale) violations.push(catalogViolation('rationale-missing', `/weights/${id}/rationale`, 'A rationale is required.'));
+        }
+        if (total !== 100 && !violations.some((v) => v.code === 'weight-out-of-range')) {
+          violations.push(catalogViolation('weights-total-not-100', '/weights', `The weights total ${total}, not 100.`));
+        }
+        break;
+      }
+      case 'modifier-policy':
+        if (!Number.isInteger(document.perDimensionBound) || document.perDimensionBound < 1 || document.perDimensionBound > 3) {
+          violations.push(catalogViolation('modifier-bound-exceeded', '/perDimensionBound', 'The per-dimension bound is at most 3.'));
+        }
+        if (!Number.isInteger(document.maxPositiveMovement) || document.maxPositiveMovement < 1 || document.maxPositiveMovement > 10) {
+          violations.push(catalogViolation('modifier-movement-exceeded', '/maxPositiveMovement', 'The maximum positive movement is at most 10.'));
+        }
+        break;
+      case 'agent-version': {
+        const agent = catalogBaseline().agents.find((a) => a.agentId === document.agentId);
+        if (!agent) {
+          violations.push(catalogViolation('unknown-agent-id', '/agentId', `'${document.agentId}' is not a catalog agent identifier.`));
+          break;
+        }
+        if (document.group !== agent.group) {
+          violations.push(catalogViolation('group-mismatch', '/group', `Agent '${agent.agentId}' belongs to the group '${agent.group}'.`));
+        }
+        if (agent.group === 'coach' && !document.disclosure) {
+          violations.push(catalogViolation('disclosure-missing', '/disclosure', 'Coach Agent versions carry a disclosure.'));
+        }
+        const slots: [string, string][] = [
+          ['promptTemplate', 'prompt-template'],
+          ['modelSelection', 'model-selection'],
+          ['toolPolicy', 'tool-policy'],
+          ['safetyPolicy', 'safety-policy'],
+          ['philosophyProfile', 'philosophy-profile'],
+          ['modifierPolicy', 'modifier-policy'],
+        ];
+        for (const [slot, slotKind] of slots) {
+          const ref = document.artifacts?.[slot] as { id: string; version: string } | undefined;
+          const coachOnly = slot === 'philosophyProfile' || slot === 'modifierPolicy';
+          if (!ref) {
+            if (coachOnly && agent.group === 'coach') {
+              violations.push(catalogViolation('artifact-not-found', `/artifacts/${slot}`, `Coach Agent versions reference a ${slotKind}.`));
+            }
+            continue;
+          }
+          if (coachOnly && agent.group !== 'coach') {
+            violations.push(catalogViolation('profile-slot-not-allowed', `/artifacts/${slot}`, `Specialist Agent versions reference no ${slotKind}.`));
+            continue;
+          }
+          const found = this.catalogArtifacts.find((a) => a.id === ref.id && a.version === ref.version);
+          if (!found) violations.push(catalogViolation('artifact-not-found', `/artifacts/${slot}`, `The ${slotKind} ${ref.id} ${ref.version} does not exist.`));
+          else if (found.kind !== slotKind) violations.push(catalogViolation('artifact-kind-mismatch', `/artifacts/${slot}`, `${ref.id} is not a ${slotKind}.`));
+          else if (slot === 'toolPolicy') {
+            (found.document.tools ?? []).forEach((tool: string, i: number) => {
+              if (!agent.permittedTools.includes(tool)) {
+                violations.push(catalogViolation('tool-outside-baseline', `/artifacts/toolPolicy/tools/${i}`, `Tool '${tool}' is outside the baseline of '${agent.agentId}'.`));
+              }
+            });
+          }
+        }
+        break;
+      }
+    }
+    return violations;
+  }
+
+  private async handleAgentCatalog(
+    route: Route,
+    method: string,
+    path: string,
+    role: SimulatedRole,
+    json: (status: number, body: unknown) => Promise<void>,
+  ): Promise<void> {
+    const request = route.request();
+    const headers = request.headers();
+    const actor = String(members[role].id);
+    const reply = (status: number, body: unknown, extra: Record<string, string> = {}) =>
+      route.fulfill({
+        status,
+        contentType: status >= 400 ? 'application/problem+json' : 'application/json',
+        headers: extra,
+        body: JSON.stringify(body),
+      });
+    const refuse = (status: number, code?: string, extra: Record<string, unknown> = {}) =>
+      reply(status, problem(status, code ?? `Refused ${status}`, { ...(code ? { code } : {}), ...extra }));
+    const conditional = (etag: string, payload: unknown, extra: Record<string, string> = {}) =>
+      headers['if-none-match'] === etag
+        ? route.fulfill({ status: 304, headers: { ETag: etag, ...extra } })
+        : reply(200, payload, { ETag: etag, ...extra });
+    const precondition = (current: number): Promise<void> | null => {
+      const header = headers['if-match'];
+      if (header === undefined) return refuse(428, 'version-required');
+      return header.replace(/"/g, '') === String(current) ? null : refuse(412, 'version-mismatch');
+    };
+    const etagOf = (rowVersion: number) => `"${rowVersion}"`;
+    let body: Record<string, any> = {};
+    try {
+      body = (request.postDataJSON() ?? {}) as Record<string, any>;
+    } catch {
+      body = {};
+    }
+    const url = new URL(request.url());
+    const seg = path.split('/').map(decodeURIComponent);
+    const baseline = catalogBaseline();
+    const enabledOf = (agentId: string) => this.catalogEnablements.find((e) => e.agentId === agentId)?.enabledVersion ?? null;
+    const versionView = (v: CatalogAgentVersion) => {
+      const { rowVersion: _rowVersion, distances: _distances, ...rest } = v;
+      const distances = this.versionDistances(v);
+      return { ...rest, enabled: enabledOf(v.agentId) === v.version, ...(distances ? { distances } : {}) };
+    };
+    const summaryOf = (v: CatalogAgentVersion) => ({
+      agentId: v.agentId,
+      version: v.version,
+      digest: v.digest,
+      group: v.group,
+      state: v.state,
+      enabled: enabledOf(v.agentId) === v.version,
+      registeredAt: v.registeredAt,
+    });
+    const enablementView = (e: CatalogEnablement) => {
+      const { rowVersion, ...rest } = e;
+      return { ...rest, group: baseline.agents.find((a) => a.agentId === e.agentId)?.group ?? 'specialist', etag: etagOf(rowVersion) };
+    };
+    const artifactView = (a: CatalogArtifact, withDistances: boolean) => {
+      const { distances, ...rest } = a;
+      const computed = withDistances && a.kind === 'philosophy-profile' ? (distances ?? this.catalogDistances(a.id, a.version)) : undefined;
+      return { ...rest, ...(computed ? { distances: computed } : {}) };
+    };
+
+    const operation = ((): CatalogOperation | null => {
+      if (path === '/agent-catalog/baseline' && method === 'GET') return 'getAgentCatalogBaseline';
+      if (seg[2] === 'artifacts' && seg.length === 4) return method === 'POST' ? 'registerAgentCatalogArtifact' : method === 'GET' ? 'listAgentCatalogArtifacts' : null;
+      if (seg[2] === 'artifacts' && seg.length === 7 && method === 'GET') return 'getAgentCatalogArtifact';
+      if (seg[2] === 'agent-versions' && seg.length === 3) return method === 'POST' ? 'registerAgentVersion' : method === 'GET' ? 'listAgentVersions' : null;
+      if (seg[2] === 'agent-versions' && seg.length === 6 && method === 'GET') return 'getAgentVersion';
+      if (seg[2] === 'agent-versions' && seg.length === 7 && method === 'POST') return seg[6] === 'approval' ? 'approveAgentVersion' : seg[6] === 'retirement' ? 'retireAgentVersion' : null;
+      if (path === '/agent-catalog/enablements' && method === 'GET') return 'listAgentEnablements';
+      if (seg[2] === 'enablements' && seg.length === 4 && method === 'PUT') return 'setAgentEnablement';
+      return null;
+    })();
+    if (!operation) return json(404, problem(404, 'Not found'));
+    if (role !== 'ClubAdmin') return refuse(403, 'forbidden');
+    const scripted = this.catalogRefusals.get(operation)?.shift();
+    if (scripted) return refuse(scripted.status, scripted.code, scripted.extra);
+
+    switch (operation) {
+      case 'getAgentCatalogBaseline':
+        return reply(200, { schemaVersion: '1.0.0', kind: 'catalog-baseline', version: '1.0.0', ...baseline });
+      case 'listAgentCatalogArtifacts': {
+        const kind = CATALOG_KINDS[seg[3] as CatalogKind];
+        if (!kind) return refuse(404, 'not-found');
+        const id = url.searchParams.get('id');
+        const items = this.catalogArtifacts
+          .filter((a) => a.kind === kind && (!id || a.id === id))
+          .map(({ kind: k, id: i, version, digest, registeredBy, registeredAt }) => ({ kind: k, id: i, version, digest, registeredBy, registeredAt }));
+        return reply(200, { items });
+      }
+      case 'registerAgentCatalogArtifact': {
+        const kind = CATALOG_KINDS[seg[3] as CatalogKind];
+        if (!kind) return refuse(404, 'not-found');
+        const violations = this.validateCatalogRecord(kind, body);
+        if (violations.length) return refuse(400, 'agent-catalog-validation-failed', { violations });
+        const digest = digestOf(body);
+        const existing = this.catalogArtifacts.find((a) => a.kind === kind && a.id === body.id && a.version === body.version);
+        if (existing) {
+          return existing.digest === digest ? reply(200, artifactView(existing, true)) : refuse(409, 'agent-catalog-version-exists');
+        }
+        const created = this.seedCatalogArtifact(body, { registeredBy: actor });
+        return reply(201, artifactView(created, true), {
+          Location: `/api/v1/agent-catalog/artifacts/${seg[3]}/${encodeURIComponent(created.id)}/versions/${created.version}`,
+        });
+      }
+      case 'getAgentCatalogArtifact': {
+        const kind = CATALOG_KINDS[seg[3] as CatalogKind];
+        const found = this.catalogArtifacts.find((a) => a.kind === kind && a.id === seg[4] && a.version === seg[6]);
+        if (!found) return refuse(404, 'not-found');
+        return conditional(`"${found.digest}"`, artifactView(found, true));
+      }
+      case 'listAgentVersions': {
+        const agentId = url.searchParams.get('agentId');
+        const state = url.searchParams.get('state');
+        const items = this.catalogVersions.filter((v) => (!agentId || v.agentId === agentId) && (!state || v.state === state)).map(summaryOf);
+        return reply(200, { items });
+      }
+      case 'registerAgentVersion': {
+        const violations = this.validateCatalogRecord('agent-version', body);
+        if (violations.length) return refuse(400, 'agent-catalog-validation-failed', { violations });
+        const existing = this.catalogVersions.find((v) => v.agentId === body.agentId && v.version === body.version);
+        if (existing) {
+          return existing.digest === digestOf(body)
+            ? reply(200, { ...versionView(existing) }, { ETag: etagOf(existing.rowVersion) })
+            : refuse(409, 'agent-catalog-version-exists');
+        }
+        const created = this.seedCatalogAgentVersion(body, { registeredBy: actor });
+        return reply(201, { ...versionView(created) }, {
+          ETag: etagOf(created.rowVersion),
+          Location: `/api/v1/agent-catalog/agent-versions/${created.agentId}/versions/${created.version}`,
+        });
+      }
+      case 'getAgentVersion': {
+        const found = this.catalogVersions.find((v) => v.agentId === seg[3] && v.version === seg[5]);
+        if (!found) return refuse(404, 'not-found');
+        return conditional(`"${found.rowVersion}"`, versionView(found));
+      }
+      case 'approveAgentVersion':
+      case 'retireAgentVersion': {
+        const found = this.catalogVersions.find((v) => v.agentId === seg[3] && v.version === seg[5]);
+        if (!found) return refuse(404, 'not-found');
+        const failed = precondition(found.rowVersion);
+        if (failed) return failed;
+        const stamp = later(this.catalogClock++);
+        if (operation === 'approveAgentVersion') {
+          if (found.state !== 'draft') return refuse(409, 'agent-version-not-draft');
+          const acknowledged = body.differentiationReviewAcknowledged === true;
+          const review = (this.versionDistances(found) ?? []).some((d) => d.reviewRequired);
+          if (review && !acknowledged) return refuse(409, 'differentiation-review-required');
+          Object.assign(found, {
+            state: 'approved',
+            approvedBy: actor,
+            approvedAt: stamp,
+            selfApproval: found.registeredBy === actor,
+            differentiationAcknowledged: review && acknowledged,
+          });
+        } else {
+          if (found.state !== 'approved') return refuse(409, 'agent-version-not-approved');
+          if (enabledOf(found.agentId) === found.version) return refuse(409, 'agent-version-enabled');
+          Object.assign(found, { state: 'retired', retiredBy: actor, retiredAt: stamp });
+        }
+        found.rowVersion += 1;
+        return reply(200, versionView(found), { ETag: etagOf(found.rowVersion) });
+      }
+      case 'listAgentEnablements':
+        return reply(200, { items: this.catalogEnablements.map(enablementView) });
+      case 'setAgentEnablement': {
+        const agent = baseline.agents.find((a) => a.agentId === seg[3]);
+        const enablement = this.catalogEnablements.find((e) => e.agentId === seg[3]);
+        if (!agent || !enablement) return refuse(404, 'not-found');
+        if (body.version !== null && body.version !== undefined && typeof body.version !== 'string') {
+          return refuse(400, 'validation-failed', { errors: [{ field: 'version', code: 'invalid' }] });
+        }
+        const failed = precondition(enablement.rowVersion);
+        if (failed) return failed;
+        const target = (body.version ?? null) as string | null;
+        if (target !== null) {
+          if (agent.group === 'coach') return refuse(409, 'coach-agent-enablement-unsupported');
+          const version = this.catalogVersions.find((v) => v.agentId === agent.agentId && v.version === target);
+          if (!version) return refuse(404, 'not-found');
+          if (version.state !== 'approved') {
+            return refuse(409, 'agent-version-not-enableable', { reason: version.state === 'retired' ? 'retired' : 'not-approved' });
+          }
+        }
+        this.seedCatalogEnablement(agent.agentId, target, actor);
+        return reply(200, enablementView(this.catalogEnablements.find((e) => e.agentId === agent.agentId)!), {
+          ETag: etagOf(this.catalogEnablements.find((e) => e.agentId === agent.agentId)!.rowVersion),
+        });
+      }
+    }
+  }
+
   /** Agents the catalog lists as enabled; tests may replace them. */
   agents: SimulatedAgent[] = [
     ['specialist-fitness', 'Fitness'],
@@ -1705,6 +2428,9 @@ export class SimulatedApi {
     }
     if (AGENT_ROUTES.some(([, verb, pattern]) => verb === method && pattern.test(path))) {
       return this.handleAgents(route, method, path, role);
+    }
+    if (path.startsWith('/agent-catalog/')) {
+      return this.handleAgentCatalog(route, method, path, role, json);
     }
     if (path.startsWith('/analyst-manager-registrations')) {
       return this.handleRegistrations(route, method, path, role, json);
