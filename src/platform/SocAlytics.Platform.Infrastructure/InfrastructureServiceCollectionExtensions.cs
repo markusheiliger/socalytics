@@ -164,6 +164,7 @@ public static class InfrastructureServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.AnalysisNotificationOptions.SectionName);
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.RecordingsFinalizedConsumerWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.LeaseExpiryWorker>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.SegmentMaterializationWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentAttemptMonitorWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentWorkReconciliationWorker>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IPublicationReconciliationStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.PublicationReconciliationStore>();

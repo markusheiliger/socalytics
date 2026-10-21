@@ -188,7 +188,7 @@ segments become `available` once, manifests validate, and the jobs become ready 
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentMaterializationTests.cs` covering manifest
   contents and digest (SC-001), 8 concurrent requests with one association and no leftover candidate objects (SC-002),
   a recording-set-only revision reusing the same association, and coexisting policy digests (FR-004 to FR-006, FR-010)
-- [ ] T017 [US1] Add `src/platform/SocAlytics.Platform.Infrastructure/Workers/SegmentMaterializationWorker.cs` on the
+- [x] T017 [US1] Add `src/platform/SocAlytics.Platform.Infrastructure/Workers/SegmentMaterializationWorker.cs` on the
   existing `WorkerLoop` pattern with `MaxConcurrentPerInstance` parallel claims and a toolchain probe at start, and
   register it where the existing analysis workers are registered; tests in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentWorkerTests.cs` for processing demanded
