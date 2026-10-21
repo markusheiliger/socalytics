@@ -203,7 +203,7 @@ export class FakeGitHub {
       inputs: structuredClone(inputs),
       display_title: workflowFile === IMPLEMENT_WORKFLOW_FILE
         ? renderImplementRunName(inputs.twin, inputs.title)
-        : { 'speckit-diagnose.lock.yml': `Spec Kit diagnose spec #${inputs.twin} · ${inputs.mode ?? 'diagnose'}`, 'speckit-analyze.lock.yml': `Spec Kit analyze spec #${inputs.twin} · Check the amendment for consistency` }[workflowFile] ?? workflowFile,
+        : { 'speckit-diagnose.lock.yml': `Spec Kit diagnose spec #${inputs.twin} · ${inputs.mode === 'diagnose' && inputs.stop ? inputs.stop : inputs.mode ?? 'diagnose'}`, 'speckit-analyze.lock.yml': `Spec Kit analyze spec #${inputs.twin} · Check the amendment for consistency` }[workflowFile] ?? workflowFile,
       status: 'queued',
       conclusion: null,
       created_at: this.tick(),
