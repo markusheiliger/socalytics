@@ -162,6 +162,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Reads.GetAgentVersionHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Lifecycle.ApproveAgentVersionHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Lifecycle.RetireAgentVersionHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Enablement.ListAgentEnablementsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Enablement.SetAgentEnablementHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAvailableAgentsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.CreateAgentConversationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAgentConversationsHandler>();

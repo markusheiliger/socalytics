@@ -3,6 +3,7 @@ using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.AgentOrchestration.Catalog;
+using SocAlytics.Platform.Application.AgentOrchestration.Catalog.Enablement;
 using SocAlytics.Platform.Application.AgentOrchestration.Catalog.Lifecycle;
 using SocAlytics.Platform.Application.AgentOrchestration.Catalog.Reads;
 using SocAlytics.Platform.Application.AgentOrchestration.Catalog.Registration;
@@ -34,6 +35,13 @@ internal sealed record AgentVersionSummaryDto(
 internal sealed record AgentVersionListDto(IReadOnlyList<AgentVersionSummaryDto> Items);
 
 internal sealed record ApproveAgentVersionRequestDto(bool? DifferentiationReviewAcknowledged);
+
+internal sealed record AgentEnablementDto(
+	string AgentId, string Group, string? EnabledVersion, string? ChangedBy, DateTimeOffset? ChangedAt, string Etag);
+
+internal sealed record AgentEnablementListDto(IReadOnlyList<AgentEnablementDto> Items);
+
+internal sealed record SetAgentEnablementRequestDto(string? Version);
 
 internal sealed record AgentCatalogViolationDto(string Code, string Pointer, string Detail);
 
@@ -119,8 +127,69 @@ internal static class AgentCatalogEndpoints
 			.ProducesProblem(StatusCodes.Status409Conflict)
 			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
 			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
+		members.MapGet("/agent-catalog/enablements", ListEnablementsAsync)
+			.WithName("listAgentEnablements")
+			.WithTags("Agent catalog")
+			.Produces<AgentEnablementListDto>()
+			.ProducesProblem(StatusCodes.Status403Forbidden);
+		members.MapPut("/agent-catalog/enablements/{agentId}", SetEnablementAsync)
+			.WithName("setAgentEnablement")
+			.WithTags("Agent catalog")
+			.Accepts<SetAgentEnablementRequestDto>("application/json")
+			.Produces<AgentEnablementDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		return routes;
 	}
+
+	private static async Task<IResult> ListEnablementsAsync(ListAgentEnablementsHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(cancellationToken);
+		return result.IsSuccess
+			? Results.Ok(new AgentEnablementListDto([.. result.Value.Select(ToDto)]))
+			: ProblemResults.From(result.Failure);
+	}
+
+	private static async Task<IResult> SetEnablementAsync(
+		string agentId, HttpContext http, SetAgentEnablementHandler handler, CancellationToken cancellationToken)
+	{
+		var expected = IfMatchHeader.Parse(http.Request);
+		if (!expected.IsSuccess)
+		{
+			return ProblemResults.From(expected.Failure);
+		}
+
+		SetAgentEnablementRequestDto? body;
+		try
+		{
+			body = await JsonSerializer.DeserializeAsync<SetAgentEnablementRequestDto>(http.Request.Body, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+			body = null;
+		}
+
+		if (body is null)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("body", "invalid")));
+		}
+
+		var result = await handler.HandleAsync(new SetAgentEnablementCommand(agentId, body.Version, expected.Value), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = IfMatchHeader.Format(result.Value.RowVersion);
+		return Results.Ok(ToDto(result.Value));
+	}
+
+	private static AgentEnablementDto ToDto(AgentEnablementView v) =>
+		new(v.AgentId, v.Group, v.EnabledVersion, v.ChangedBy, v.ChangedAt, IfMatchHeader.Format(v.RowVersion));
 
 	private static async Task<IResult> GetBaselineAsync(GetAgentCatalogBaselineHandler handler, CancellationToken cancellationToken)
 	{
