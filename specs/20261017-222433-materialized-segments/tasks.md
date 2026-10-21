@@ -242,14 +242,16 @@ results are accepted, media is verified, and nothing remains after the attempt.
   `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Platform/SegmentMediaClientTests.cs` (FR-016, FR-023)
 - [ ] T021 [P] [US2] Extend the SDK in `src/analysts/sdk/`: copy the segment manifest schema into
   `src/analysts/sdk/src/socalytics_analyst/contracts/` (byte-identical, test-verified; analyst-job 1.2.0 with its
-  `segmentMedia` model field already arrived with T002), add
+  `segmentMedia` model field already arrived with T002) by extending `src/analysts/sdk/scripts/sync_contracts.py`
+  (and its SDK test) to include `segments/segment-manifest/v1` so the copy stays byte-identical and
+  `uv run --no-sync python scripts/sync_contracts.py --check` passes, add
   `src/analysts/sdk/src/socalytics_analyst/models/segment.py` (`SegmentManifest`), add
   `src/analysts/sdk/src/socalytics_analyst/media.py` (`SegmentMedia` with `manifest`, `path`, `to_match_ms`), set
   `AnalystContext.media` in `src/analysts/sdk/src/socalytics_analyst/context.py`, and raise the input errors
   `segment-media-missing`, `segment-media-unexpected`, `segment-manifest-mismatch`, `segment-media-digest-mismatch`,
   `segment-manifest-invalid`, and `unsupported-version` (exit 2) per
   `specs/20261017-222433-materialized-segments/contracts/container-interface.md`; tests in
-  `src/analysts/sdk/tests/test_media.py` and the contract example tests; run `uv run pytest` (FR-021)
+  `src/analysts/sdk/tests/test_media.py` and the contract example tests; run `uv run --no-sync pytest` (FR-021)
 
 ### Manager staging and mount
 
@@ -375,7 +377,7 @@ refused and in-use segments are kept.
 - [ ] T032 Run the quickstart validation: `dotnet restore`, `dotnet build --no-restore`, and
   `dotnet test --no-build` for `src/platform/SocAlytics.Platform.slnx` and
   `src/analysts/manager/SocAlytics.Analysts.Manager.slnx`, `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`,
-  `uv run pytest` in `src/analysts/sdk`, and `npm ci`, `npm run build`, and `npm test` in `src/clients/web` (the
+  `uv run --no-sync pytest` in `src/analysts/sdk`, and `npm ci`, `npm run build`, and `npm test` in `src/clients/web` (the
   OpenAPI snapshot changed); fix failures in the files of the tasks above
 
 ---
