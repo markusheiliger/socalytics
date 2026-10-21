@@ -23,14 +23,18 @@ ANALYSIS_CONTRACTS = (
     "fact-artifact",
 )
 
+SEGMENT_CONTRACTS = ("segment-manifest",)
+
 REFRESH_COMMAND = "python src/analysts/sdk/scripts/sync_contracts.py"
 
 
 def canonical_files() -> list[Path]:
     """Return the canonical files to copy as paths relative to the contracts root."""
     files = [Path("common/v1/common.schema.json")]
-    for name in ANALYSIS_CONTRACTS:
-        version_dir = Path("analysis") / name / "v1"
+    contracts = [("analysis", name) for name in ANALYSIS_CONTRACTS]
+    contracts += [("segments", name) for name in SEGMENT_CONTRACTS]
+    for group, name in contracts:
+        version_dir = Path(group) / name / "v1"
         files.append(version_dir / f"{name}.schema.json")
         releases = CANONICAL_ROOT / version_dir / "releases"
         if releases.is_dir():

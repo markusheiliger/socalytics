@@ -240,7 +240,7 @@ results are accepted, media is verified, and nothing remains after the attempt.
   against `analysis/segment-media` 1.0.0, refusals mapped like the upstream read) and parse `segmentMedia` in
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/AnalystJobMessage.cs`, with tests in
   `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Platform/SegmentMediaClientTests.cs` (FR-016, FR-023)
-- [ ] T021 [P] [US2] Extend the SDK in `src/analysts/sdk/`: copy the segment manifest schema into
+- [x] T021 [P] [US2] Extend the SDK in `src/analysts/sdk/`: copy the segment manifest schema into
   `src/analysts/sdk/src/socalytics_analyst/contracts/` (byte-identical, test-verified; analyst-job 1.2.0 with its
   `segmentMedia` model field already arrived with T002) by extending `src/analysts/sdk/scripts/sync_contracts.py`
   (and its SDK test) to include `segments/segment-manifest/v1` so the copy stays byte-identical and

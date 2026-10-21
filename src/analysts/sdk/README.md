@@ -20,6 +20,7 @@ Analyst: no network, no environment variables, no credentials.
 | `/socalytics/job.json` | read-only | The Logical Job (`analysis/analyst-job`) |
 | `/socalytics/attempt.json` | read-only | The attempt context (`analysis/analyst-attempt`) |
 | `/socalytics/inputs/` | read-only | Staged upstream results with `coverage.json` (`analysis/upstream-results`), digest-verified against their manifests on load |
+| `/socalytics/media/` | read-only | Present only when the job carries `segmentMedia`: `segment-manifest.json` (`segments/segment-manifest`) and `segment.mp4`, verified on load and exposed as `context.media` (`manifest`, `path`, `to_match_ms`) |
 | `/socalytics/result/` | read-write | `facts.json` and `manifest.json`, plus supporting artifacts (top-level files only) |
 | `/socalytics/scratch/` | read-write | Working space, available as `context.scratch` |
 
@@ -49,7 +50,7 @@ if __name__ == "__main__":
 ```
 
 `run(analyst, *, output_type, root=Path("/socalytics"))` loads and verifies the inputs, calls the function with an
-`AnalystContext` (`job`, `attempt`, `inputs`, `result`, `scratch`), finalizes the result, prints one summary line, and
+`AnalystContext` (`job`, `attempt`, `inputs`, `media`, `result`, `scratch`), finalizes the result, prints one summary line, and
 exits. `output_type` is `foundational-facts` or `soccer-concepts`. `root` exists for tests only. The author calls
 `context.result.add_fact`, `add_artifact`, `set_validity_window`, `set_confidence`, and `add_evidence_reference`;
 `finalize` belongs to `run`. When at least one fact is added, `set_confidence` is required.
@@ -60,7 +61,7 @@ exits. `output_type` is `foundational-facts` or `soccer-concepts`. `root` exists
 | --- | --- |
 | `0` | The result was finalized; standard output carries `socalytics-analyst: finalized facts=<n> artifacts=<n>` |
 | `1` | The Analyst's own code failed, or a fact, artifact, or result value was refused |
-| `2` | The inputs are missing, invalid, unsupported, or unverifiable |
+| `2` | The inputs or segment media are missing, invalid, unsupported, or unverifiable (`segment-media-missing`, `segment-media-unexpected`, `segment-manifest-mismatch`, `segment-media-digest-mismatch`, `segment-manifest-invalid`, `unsupported-version`) |
 
 On failure the SDK removes everything it placed in the result mount and writes one line
 `socalytics-analyst: failed <category>` to standard error. Messages never carry payloads, file contents, or job fields

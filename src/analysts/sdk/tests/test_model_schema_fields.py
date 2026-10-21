@@ -9,7 +9,7 @@ import pytest
 from pydantic import BaseModel
 
 from socalytics_analyst import schemas
-from socalytics_analyst.models import attempt, common, facts, job, manifest, upstream
+from socalytics_analyst.models import attempt, common, facts, job, manifest, segment, upstream
 
 COMMON_ID = schemas.COMMON_ID
 CAPABILITY = common.CapabilityRef
@@ -58,6 +58,17 @@ MODELS: dict[str, dict[str, type[BaseModel]]] = {
         "#/properties/capability": CAPABILITY,
         "#/properties/facts/items": facts.Fact,
     },
+    "segment-manifest": {
+        "#": segment.SegmentManifest,
+        "#/properties/identity": segment.SegmentIdentity,
+        "#/properties/segmentationPolicy": segment.SegmentationPolicy,
+        "#/properties/nominalWindow": segment.HalfOpenInterval,
+        "#/properties/requestedSourceInterval": segment.HalfOpenInterval,
+        "#/properties/encodedInterval": segment.HalfOpenInterval,
+        "#/properties/timelineSpans/items": segment.TimelineSpan,
+        "#/properties/media": segment.MediaObject,
+        "#/properties/producer": segment.Producer,
+    },
 }
 
 # The SDK reads only these parts of an upstream-results page (as the staged coverage.json); the model of the
@@ -81,7 +92,7 @@ UPSTREAM_PATHS = {
 
 def _current_schema(kind: str) -> tuple[str, dict[str, Any]]:
     folder, stem, _ = schemas.KINDS[kind]
-    contents = schemas._read(f"analysis/{folder}/v1/{stem}.schema.json")
+    contents = schemas._read(f"{folder}/v1/{stem}.schema.json")
     return contents["$id"], contents
 
 

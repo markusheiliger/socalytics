@@ -19,13 +19,14 @@ CONTRACTS_PACKAGE = "socalytics_analyst"
 CONTRACTS_ROOT = "contracts"
 COMMON_ID = "https://socalytics.invalid/contracts/common/v1/common.schema.json"
 
-# Document kind -> (folder under contracts/analysis, schema file stem, supported versions per research R5).
+# Document kind -> (folder under contracts, schema file stem, supported versions per research R5).
 KINDS: dict[str, tuple[str, str, tuple[str, ...]]] = {
-    "analyst-job": ("analyst-job", "analyst-job", ("1.0.0", "1.1.0", "1.2.0")),
-    "analyst-attempt": ("analyst-attempt", "analyst-attempt", ("1.0.0",)),
-    "upstream-results": ("upstream-results", "upstream-results", ("1.0.0", "1.1.0")),
-    "result-manifest": ("result-manifest", "result-manifest", ("1.0.0", "1.1.0")),
-    "fact-artifact": ("fact-artifact", "fact-artifact", ("1.0.0",)),
+    "analyst-job": ("analysis/analyst-job", "analyst-job", ("1.0.0", "1.1.0", "1.2.0")),
+    "analyst-attempt": ("analysis/analyst-attempt", "analyst-attempt", ("1.0.0",)),
+    "upstream-results": ("analysis/upstream-results", "upstream-results", ("1.0.0", "1.1.0")),
+    "result-manifest": ("analysis/result-manifest", "result-manifest", ("1.0.0", "1.1.0")),
+    "fact-artifact": ("analysis/fact-artifact", "fact-artifact", ("1.0.0",)),
+    "segment-manifest": ("segments/segment-manifest", "segment-manifest", ("1.0.0",)),
 }
 
 _VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
@@ -62,7 +63,7 @@ def registry() -> Registry:
     """Registry keyed by `$id` with the common definitions and the current schema of every kind."""
     entries = [_read("common/v1/common.schema.json")]
     for folder, stem, _ in KINDS.values():
-        entries.append(_read(f"analysis/{folder}/v1/{stem}.schema.json"))
+        entries.append(_read(f"{folder}/v1/{stem}.schema.json"))
     resources_ = [(entry["$id"], Resource.from_contents(entry, DRAFT202012)) for entry in entries]
     return Registry().with_resources(resources_)
 
@@ -70,7 +71,7 @@ def registry() -> Registry:
 @lru_cache(maxsize=None)
 def _validator(kind: str, version: str) -> Draft202012Validator:
     folder, stem, _ = KINDS[kind]
-    schema = _read(f"analysis/{folder}/v1/releases/{version}.schema.json")
+    schema = _read(f"{folder}/v1/releases/{version}.schema.json")
     return Draft202012Validator(schema, registry=registry(), format_checker=_FORMATS)
 
 
@@ -127,7 +128,7 @@ def validate(kind: str, document: object, *, output: bool = False) -> str:
 def _fragment_validator(kind: str, fragment: str) -> Draft202012Validator:
     version = supported_versions(kind)[-1]
     folder, stem, _ = KINDS[kind]
-    schema = _read(f"analysis/{folder}/v1/releases/{version}.schema.json")
+    schema = _read(f"{folder}/v1/releases/{version}.schema.json")
     base = schema["$id"]
     resolved = registry().with_resource(base, Resource.from_contents(schema, DRAFT202012))
     return Draft202012Validator({"$ref": f"{base}#{fragment}"}, registry=resolved, format_checker=_FORMATS)
