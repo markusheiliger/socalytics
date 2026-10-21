@@ -176,6 +176,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.ClaimAgentInvocationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.CompleteAgentAttemptHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.RenewAgentAttemptLeaseHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.ReadPinnedAgentArtifactsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.RecordAgentCheckpointHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.FailAgentAttemptHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.MonitorAgentAttemptsHandler>();
