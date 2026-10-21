@@ -90,7 +90,7 @@ steps:
   - name: Check out the Spec Kit tooling
     uses: actions/checkout@v5
     with:
-      ref: ${{ github.event.repository.default_branch }}
+      ref: ${{ github.sha }}
       path: .speckit-tooling
       persist-credentials: false
   # The findings the last correction round fixed, so the analysis can say which of them are resolved.
@@ -138,7 +138,7 @@ safe-outputs:
         - name: Check out the Spec Kit tooling
           uses: actions/checkout@v5
           with:
-            ref: ${{ github.event.repository.default_branch }}
+            ref: ${{ github.sha }}
             persist-credentials: false
         - name: Set up Node.js
           uses: actions/setup-node@v5

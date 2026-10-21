@@ -396,11 +396,6 @@ export function normalizeWriterGuidance(text) {
   return String(text ?? '').trim().replace(/\s+/g, ' ').slice(0, MAX_WRITER_GUIDANCE).trim();
 }
 
-export function appendWriterGuidance(prompt, guidance, label = 'Guidance from the person who retried this implementation') {
-  const value = normalizeWriterGuidance(guidance);
-  return value ? `${prompt} ${label}: ${value}` : prompt;
-}
-
 export function renderRepairMarker(repair) {
   return `<!-- speckit-implement:repair ${Buffer.from(JSON.stringify(repair), 'utf8').toString('base64')} -->`;
 }
@@ -421,18 +416,6 @@ export function unresolvedRepair(comments) {
     }
   }
   return [...repairs.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0] ?? null;
-}
-
-export function renderRepairPrompt({ repair, guidance, folder }) {
-  const tasks = Array.isArray(repair.tasks) && repair.tasks.length > 0 ? repair.tasks.join(', ') : 'the implemented scope';
-  const prompt = [
-    `Repair the already-landed implementation for ${tasks} in spec ${folder}.`,
-    `The ${repair.scope} verification failed after the related tasks were committed and checked in tasks.md.`,
-    'Do not untick, rewrite, or add tasks. Do not commit. Change only implementation or directly related tests needed to make the failed verification pass.',
-    repair.run ? `Failure evidence from workflow run ${repair.run}, if downloadable, is in .speckit-repair-evidence/ inside your working directory; inspect it directly and report if unavailable.` : '',
-    'If no code change is needed, leave the tree unchanged and explain why; a successful agent exit still requires separate reverification of the failed scope.',
-  ].filter(Boolean).join(' ');
-  return appendWriterGuidance(prompt, guidance, 'Writer-approved guidance');
 }
 
 // The comment that starts a new attempt window; it persists the retry, so a replaced run cannot lose
@@ -1014,46 +997,6 @@ export function attemptCheckId({ kind, task = null, attempt }) {
 export function parseAttemptCheckId(externalId) {
   const match = String(externalId ?? '').match(/^speckit:attempt:(task|repair|converge|resolve):(T\d{3,})?:(\d+)$/);
   return match ? { kind: match[1], task: match[2] ?? null, attempt: Number(match[3]) } : null;
-}
-
-// The verification after the agent runs the full test suite; the agent running it as well doubled the time of a task.
-export const TASK_TEST_SCOPE = 'Build what you change and run only the tests that cover this task (the tests you add or change, for example through a test filter). Do not run the whole test suite: the full verification runs automatically after you, and its failures come back to the next attempt.';
-
-// The task is named together with its spec folder: task IDs repeat across specs, and an agent that searched the whole
-// repository for one picked another spec's task.
-export function renderTaskPrompt(taskId, folder, { archived = false } = {}) {
-  const where = folder ? ` of the spec in \`${specDir(folder, { archived })}/\` (its \`tasks.md\`); ignore the other specs` : '';
-  return `/speckit-implement Implement only task ${taskId}${where}. Do not implement any other task. Do not edit \`tasks.md\`: the tooling checks the task's box after verification. Do not commit and do not push. ${TASK_TEST_SCOPE}`;
-}
-
-export function renderConvergePrompt() {
-  return '/speckit-converge Assess the implementation and append remaining work as new tasks if needed. Do not commit and do not push.';
-}
-
-export function renderResolvePrompt({ folder, files, base, forkPoint = null, archived = false, guidance = '' }) {
-  const spec = specDir(folder, { archived });
-  const own = forkPoint ? `\`git diff --name-only ${forkPoint} HEAD\`` : `\`git diff --name-only $(git merge-base HEAD MERGE_HEAD) HEAD\``;
-  const prompt = [
-    `The working tree is in the middle of merging the base branch \`${base}\` into the implementation branch of the spec \`${spec}\`.`,
-    `Git reported merge conflicts in these files: ${files.map((file) => `\`${file}\``).join(', ')}.`,
-    'Resolve every conflict: remove all conflict markers, and combine both sides so that the',
-    `intent of the spec and the changes from \`${base}\` are both kept. Use the spec, plan, and tasks in`,
-    `\`${spec}\` to understand the implementation side.`,
-    'The merged result must also build and pass its tests as a whole. Both sides can clash without a textual conflict,',
-    'for example two migrations with the same sequence number, an identifier both sides added, or implementation code',
-    `that uses something \`${base}\` renamed or removed. Fix such clashes on the implementation's side, keeping what`,
-    `\`${base}\` has as it is: besides the conflicted files you may change the files this implementation branch changed`,
-    `itself (${own}) and add new files, for example to renumber this implementation's migration to the next free number`,
-    `(rename it with \`git mv\`) and update every reference to it. Only when the merged result cannot pass otherwise, you`,
-    `may also make the smallest change to other files of \`${base}\` (for example add a setting this implementation`,
-    'made required to a test that the base branch added); never delete them, and never weaken a test, assertion, or',
-    'requirement on either side to make it pass. A person reviews such changes before the implementation merges. Do not',
-    `change anything under \`.github/\`, \`.specify/\`, or \`specs/\`, except conflicted files of \`${spec}\` itself: combine both sides there, keep every`,
-    'task of the implementation branch, and keep every checked box checked (a person reviews these files before the merge).',
-    'Build what the merge touches and run the tests that cover it;',
-    'the full verification runs after you. Do not run git commit, merge, checkout, reset, restore, stash, rebase, or push.',
-  ].join(' ');
-  return appendWriterGuidance(prompt, guidance);
 }
 
 // Number of convergence phases that /speckit-converge appended to a tasks.md.

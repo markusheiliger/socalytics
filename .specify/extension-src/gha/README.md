@@ -22,13 +22,81 @@ extension with the ID `github`.
 | Workflow | Run | Purpose |
 | --- | --- | --- |
 | `author` ([`workflows/author/workflow.yml`](workflows/author/workflow.yml)) | `/speckit-author [feature idea or folder]` in Copilot Chat, `specify workflow run author -i feature="…"` in a terminal (with `TZ=UTC`), or `/speckit author` on an implementation pull request (the GitHub workflow Spec Kit author runs it unattended) | Author one spec deterministically through specify, clarify, plan (repaired with `/speckit-gha-architecture`), tasks (repaired with `/speckit-gha-refine`), analyze, and the publish checks, and push the spec folder; every decision comes from `.github/scripts/speckit-author-flow.mjs`, gates ask a person, and `mode=unattended` takes every recommended choice |
+| `implement-task` ([`workflows/implement-task/workflow.yml`](workflows/implement-task/workflow.yml)) | `specify workflow run implement-task -i folder=<folder> -i task=T004` | Implement one task with `/speckit-implement` and check the change with the rules of the GitHub land job (only this task's box may change in `tasks.md`, no protected paths) |
+| `converge` ([`workflows/converge/workflow.yml`](workflows/converge/workflow.yml)) | `specify workflow run converge -i folder=<folder>` once every task is checked | Run `/speckit-converge` with its drift check and accept only one appended convergence section of new, unchecked tasks |
+| `repair` ([`workflows/repair/workflow.yml`](workflows/repair/workflow.yml)) | `specify workflow run repair -i folder=<folder> -i tasks=T004,T005 -i scope=phase [-i evidence=<folder>]` | Repair implemented tasks whose verification failed, without touching `tasks.md` or protected paths (environment specs may change the environment actions with `-i environment=true`) |
+| `resolve` ([`workflows/resolve/workflow.yml`](workflows/resolve/workflow.yml)) | `git merge <base>`, then `specify workflow run resolve -i folder=<folder> -i base=<base>` | Resolve the conflicts of a base branch merge: no conflict marker may remain, `tasks.md` keeps every task and checked box, and base branch files it had to change are reported for review |
 
-Spec Kit extensions cannot declare workflows, so the extension carries the
+Spec Kit extensions cannot declare workflows, so the extension carries each
 workflow as a folder that its install copies to
 `.specify/extensions/gha/workflows/`, and it is registered from there (see
-Install or Update). `/speckit-author` is a hand-maintained repository skill
+Install or Update). On GitHub the work jobs of the implementation run the
+implementation workflows through the `speckit-workflow` action (see the
+workflows README, "Spec Kit workflows in the jobs"), and Spec Kit author runs
+`author`. `/speckit-author` is a hand-maintained repository skill
 (`.github/skills/speckit-author/`) rather than an extension command, because
 Spec Kit renders extension commands only as `speckit-gha-*` skills.
+
+## Workflow Design
+
+Every workflow the extension ships follows one design, so the GitHub workflows
+can own the flow and the state of issues and pull requests while the Spec Kit
+workflows own everything on the level of a Spec Kit command:
+
+- **Deterministic helper:** each workflow has one helper script
+  (`.github/scripts/speckit-author-flow.mjs` for `author`,
+  `.github/scripts/speckit-implement-flow.mjs` for the four implementation
+  workflows) whose subcommands make every decision and print one JSON object
+  for the workflow's conditions. Agent steps only run Spec Kit commands
+  (`command` steps) or prompts (`prompt` steps with an explicit timeout) and
+  write the files the helper validates. What the helpers share lives in
+  `.github/scripts/speckit-flow.mjs`.
+- **Shape:** `start` validates the inputs and records the starting point, the
+  agent step does the work, `check` applies the rules the GitHub land jobs
+  apply (the same validators), an optional review gate asks a person, and
+  `result` writes `result.json`.
+- **Run folder:** `.specify/workflows/runs/<run id>/` (ignored by Git) holds the
+  engine's `inputs.json` and `state.json`, the helper's state, the files agent
+  steps write, `changes.diff` for the review, and `result.json`: the outcome in
+  one shape for every workflow (`{ workflow, outcome, folder, files, ... }`).
+- **Inputs:** every workflow takes `mode` (`interactive`, the default, or
+  `unattended`) and `integration`; the implementation workflows also take
+  `folder`, `guidance` (from the person who started the work), and
+  `feedback` (for a revised change).
+- **Gates:** only in interactive mode. Each gate is a top-level step or alone in
+  a top-level `if`, names its verdict input after its id (`review-verdict` →
+  `review_verdict`), and lists its recommended option first, so a run without
+  a terminal pauses there and `specify workflow resume <run> -i <input>=<choice>`
+  answers it. `revise` stops the run and prints the command that runs it again
+  with `-i feedback="…"`.
+- **No Git state changes:** the implementation workflows never commit, push, or
+  check a task's box; on GitHub the land jobs do that after the verification,
+  locally the person does. They measure a change against the working tree at
+  `start` (a tree object written through a temporary index), so earlier
+  uncommitted work and a merge in progress stay as they are. Only `author`
+  commits and pushes its spec folder, when its handover says so.
+- **Interactive on the client, unattended on the server:** on GitHub a run
+  always has `mode=unattended`, gets an empty standard input, and is never
+  resumed: it finishes or fails inside the job that started it, and a retry
+  is a new run. Its run folder lives only on the runner, so a sync of the
+  default branch into a pull request branch never meets a run in progress. A
+  run that pauses there stopped at a gate, which is a defect of the workflow.
+- **Trusted tooling:** on GitHub the definition and its helper come from the
+  trusted tooling checkout, never from the checked-out branch: the job runs
+  `specify workflow run "$SPECKIT_TOOLING/.specify/workflows/<id>/workflow.yml"
+  -i tooling="$SPECKIT_TOOLING" …` in the workspace, and every shell step calls
+  `node "{{ inputs.tooling }}/.github/scripts/<helper>.mjs"` (locally
+  `tooling` is `.`). Every job of one GitHub run checks the tooling out at the
+  same commit (`github.sha`), so the job that runs a workflow and the job that
+  applies its `result.json` follow the same rules. The Spec Kit skills the
+  agent steps run come from the workspace, whose `.github/` and `.specify/` an
+  implementation cannot change.
+- **Resume guard:** the engine resumes a run from its own copy of the
+  definition, but the helper comes from the checkout. `start` records a hash
+  of the helper (`tooling.json`), and every later subcommand but `pending`
+  refuses a run whose helper changed since, for example through a merge while
+  it waited at a gate: start the workflow again; the changes stay in the
+  working tree. `result.json` carries `format` and that fingerprint.
 
 ## Keeping the Architecture in Sync
 
@@ -170,10 +238,17 @@ foreach ($name in 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagn
 }
 ```
 
-Then register the workflow the extension ships from its installed copy. This
-generates `.specify/workflows/author/workflow.yml` and its entry in
-`.specify/workflows/workflow-registry.json`; commit both with the extension:
+Then register the workflows the extension ships from their installed copies.
+This generates `.specify/workflows/<id>/workflow.yml` and their entries in
+`.specify/workflows/workflow-registry.json`. On Windows the registry records
+the source paths with backslashes, so normalize them; commit everything with the
+extension (a drift test in `speckit-author-flow.test.mjs` checks that the
+copies and the registry match this source):
 
 ```powershell
-specify workflow add --dev .specify/extensions/gha/workflows/author
+foreach ($id in 'author', 'implement-task', 'converge', 'repair', 'resolve') {
+    specify workflow add --dev ".specify/extensions/gha/workflows/$id"
+}
+$registry = '.specify/workflows/workflow-registry.json'
+(Get-Content -Raw $registry) -replace '\\\\', '/' | Set-Content -NoNewline $registry
 ```

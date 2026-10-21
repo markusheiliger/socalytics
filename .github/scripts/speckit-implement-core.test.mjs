@@ -84,7 +84,6 @@ import {
   MAX_PULL_BODY,
   neutralizeMarkers,
   normalizeWriterGuidance,
-  appendWriterGuidance,
   nextTask,
   nextTaskGroup,
   parseGuidance,
@@ -101,9 +100,7 @@ import {
   parseMaxActiveSpecs,
   planTasks,
   describeParallelGroups,
-  renderConvergePrompt,
   renderGuidanceMarker,
-  renderRepairPrompt,
   renderRepairMarker,
   unresolvedRepair,
   renderAmendmentHowTo,
@@ -115,13 +112,10 @@ import {
   parseNextCommand,
   renderPullRequestBody,
   renderPullRequestTitle,
-  renderResolvePrompt,
   renderRetryComment,
   renderStartComment,
   renderAttemptMarker,
   renderImplementRunName,
-  renderTaskPrompt,
-  TASK_TEST_SCOPE,
   LEGACY_RESUME_COMMENT_MARKER,
   START_COMMENT_MARKER,
   setAmendmentStatus,
@@ -279,13 +273,6 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.deepEqual(parseAttemptCheckId('speckit:attempt:converge::1'), { kind: 'converge', task: null, attempt: 1 });
   assert.deepEqual(parseAttemptCheckId('speckit:attempt:repair::2'), { kind: 'repair', task: null, attempt: 2 });
   assert.equal(parseAttemptCheckId(CHECK_ATTEMPT), null);
-  assert.equal(renderTaskPrompt('T004'), `/speckit-implement Implement only task T004. Do not implement any other task. Do not edit \`tasks.md\`: the tooling checks the task's box after verification. Do not commit and do not push. ${TASK_TEST_SCOPE}`);
-  assert.match(TASK_TEST_SCOPE, /Do not run the whole test suite/);
-  assert.match(renderTaskPrompt('T004', 'f'), /^\/speckit-implement Implement only task T004 of the spec in `specs\/f\/` \(its `tasks\.md`\); ignore the other specs\. Do not implement any other task\./);
-  assert.match(renderConvergePrompt(), /^\/speckit-converge /);
-  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs', 'b.md'] }), /`specs\/f`[\s\S]*`a\.cs`, `b\.md`[\s\S]*smallest change to other files[\s\S]*never delete them, and never weaken a test, assertion, or requirement[\s\S]*A person reviews such changes/);
-  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs'], base: 'main', guidance: '  Keep\nboth sides.  ' }), /Guidance from the person who retried this implementation: Keep both sides\.$/);
-  assert.match(renderRepairPrompt({ repair: { scope: 'group', tasks: ['T001'] }, folder: 'f', guidance: '  Reuse\nexisting coverage. ' }), /Writer-approved guidance: Reuse existing coverage\.$/);
   assert.equal(kindLabel({ kind: 'task', task: 'T001' }), 'T001');
   assert.equal(kindLabel({ kind: 'converge' }), 'convergence');
 });
@@ -400,7 +387,6 @@ test('carries guidance through a marker, and validates amendments', () => {
   assert.equal(parseGuidance('<!-- speckit-implement:guidance !!! -->'), null);
   assert.equal(normalizeWriterGuidance('  first\n\n second  '), 'first second');
   assert.equal(normalizeWriterGuidance(` ${'x'.repeat(MAX_WRITER_GUIDANCE + 100)} `).length, MAX_WRITER_GUIDANCE);
-  assert.equal(appendWriterGuidance('Do the work.', ''), 'Do the work.');
   const retried = renderRetryComment('Retried.', 'x'.repeat(MAX_WRITER_GUIDANCE + 100));
   assert.equal(parseGuidance(retried)?.length, MAX_WRITER_GUIDANCE, 'retry guidance is capped');
 
@@ -745,7 +731,7 @@ test('the implementation workflows give task, group, repair, convergence, confli
   assert.doesNotMatch(task, /inputs\.kind|SPECKIT_KIND/, 'the task workflow has no operation discriminator');
   assert.match(converge, /speckit-converge\.mjs" package[\s\S]*speckit-converge\.mjs land-tasks/);
   assert.match(resolve, /speckit-resolve\.mjs" integrate[\s\S]*speckit-resolve\.mjs" package[\s\S]*speckit-resolve\.mjs" verdict[\s\S]*speckit-resolve\.mjs land-tasks/);
-  assert.match(job(resolve, 'work'), /SPECKIT_GUIDANCE: \$\{\{ matrix\.guidance \}\}/);
+  assert.match(job(resolve, 'work'), /workflow: resolve\n[\s\S]*guidance=\$\{\{ matrix\.guidance \}\}/, 'the guidance reaches the Spec Kit workflow resolve');
   assert.equal([...job(repair, 'work').matchAll(/^ {6}SPECKIT_REPAIR_SCOPE:/gm)].length, 1, 'repair work declares its scope once');
   // Pull model: every run first merges the base branch in its own job; decide follows, so a conflict is resolved in
   // the same run, and the work after decide also runs when that merge failed.
@@ -885,6 +871,4 @@ test('finds the spec of an implementation branch in specs/ or, once archived for
   assert.match(validateTaskChange({ folder: 'f', archived: true, taskId: 'T001', before, after, changedPaths: ['specs/f/tasks.md'] }).join(), /changed protected paths: specs\/f\/tasks\.md/);
   assert.match(validateAmendment({ folder: 'f', archived: true, changedPaths: ['specs/f/plan.md'], beforeTasks: before, afterTasks: before }).reasons.join(), /may only change files in `specs\/archive\/f\/`/);
   assert.deepEqual(environmentExclusivityReasons({ folder: 'f', branchPaths: ['.github/actions/environment-verify/action.yml', 'specs/archive/f/tasks.md'] }), []);
-  assert.match(renderTaskPrompt('T001', 'f', { archived: true }), /of the spec in `specs\/archive\/f\/`/);
-  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs'], base: 'release', archived: true }), /base branch `release` into the implementation branch of the spec `specs\/archive\/f`/);
 });

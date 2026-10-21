@@ -778,7 +778,8 @@ test('chain: decide picks the phase, and plan-phase plans its task order with pr
     const order = JSON.parse(decided.outputs.order);
     assert.deepEqual(order.map((entry) => entry.include.map((entry) => [entry.task, entry.attempt, entry.verify_mode])), [[['T001', 1, 'task'], ['T002', 1, 'task']], [['T003', 1, 'task']]], 'the last task is verified like every other; the phase is verified on its own');
     assert.match(decided.text, /- Then the full verification of the phase\./);
-    assert.match(order[0].include[0].prompt, /^\/speckit-implement Implement only task T001 of the spec in `specs\/a\/` \(its `tasks\.md`\); ignore the other specs\./);
+    assert.equal(order[0].include[0].guidance, '', 'the agents\' prompts live in the Spec Kit workflows; the order only carries guidance');
+    assert.ok(!('prompt' in order[0].include[0]));
     assert.equal(order[1].include[0].summary, '[US1] Build it');
     assert.equal(progress.external_id, 'speckit:attempt:task:T001:1', 'the first attempt takes over the queued progress check run');
     assert.deepEqual(github.repo.checkRuns.filter((check) => String(check.external_id).startsWith('speckit:attempt:')).map((check) => [check.external_id, check.status]), [['speckit:attempt:task:T001:1', 'in_progress'], ['speckit:attempt:task:T002:1', 'in_progress']]);
@@ -814,7 +815,7 @@ test('chain: a retry after the limit starts a new attempt window with its guidan
     assert.equal(retried.outputs.action, 'implement');
     const [first] = JSON.parse((await planPhase(github, root, twin, retried.outputs.phase)).outputs.order);
     assert.deepEqual([first.include[0].task, first.include[0].attempt], ['T001', 1], 'a retry starts a new attempt window');
-    assert.match(first.include[0].prompt, /Keep the helper\.$/);
+    assert.match(first.include[0].guidance, /Keep the helper\.$/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -842,7 +843,7 @@ test('chain: a durable repair blocks normal planning until a writer authorizes g
     const authorized = await decide(github, root, twin);
     assert.equal(authorized.outputs.action, 'repair');
     assert.equal(JSON.parse(authorized.outputs.repair).id, repair.id);
-    assert.match(authorized.outputs.prompt, /Writer-approved guidance: Fix the combined registration/);
+    assert.match(authorized.outputs.guidance, /^Fix the combined registration/);
     assert.equal(authorized.outputs.attempt, '1');
     assert.equal(authorized.outputs.verify_only, 'false');
   } finally {
@@ -901,8 +902,8 @@ test('chain: decide stops at the attempt limit, retries with guidance, and does 
     assert.equal(parseGuidance(comment.body), 'Use the existing helper.');
     const [first, second] = JSON.parse((await planPhase(github, root, twin, retried.outputs.phase)).outputs.order);
     assert.deepEqual([first.include[0].task, first.include[0].attempt], ['T001', 1], 'a retry starts a new attempt window');
-    assert.match(first.include[0].prompt, /Guidance from the person who retried this implementation: Use the existing helper\.$/);
-    assert.doesNotMatch(second.include[0].prompt, /Guidance/, 'guidance applies to the stopped task only');
+    assert.equal(first.include[0].guidance, 'Use the existing helper.');
+    assert.equal(second.include[0].guidance, '', 'guidance applies to the stopped task only');
 
     github.mergeBranchOutcome = null;
     twin.labels = twin.labels.filter((label) => ![IMPLEMENT, IMPLEMENTING].includes(label.name));
@@ -1017,13 +1018,13 @@ test('clean sync preserves unconsumed guidance for the first continued task, whi
       const chosen = await decide(github, root, twin);
       assert.equal(chosen.outputs.action, 'implement');
       const planned = await planPhase(github, root, twin, chosen.outputs.phase);
-      const prompt = JSON.parse(planned.outputs.order)[0].include[0].prompt;
-      assert.equal(prompt.includes('Guidance from the person who retried this implementation: Preserve both registrations'), !consumed);
+      const guidance = JSON.parse(planned.outputs.order)[0].include[0].guidance;
+      assert.equal(guidance.includes('Preserve both registrations'), !consumed);
       for (const check of github.repo.checkRuns) check.status = 'completed';
       await attemptComment(github, pull.number, 'T001', 'success');
       github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', ' '));
       const next = await planPhase(github, root, twin, chosen.outputs.phase);
-      assert.doesNotMatch(JSON.parse(next.outputs.order)[0].include[0].prompt, /Preserve both registrations/, 'guidance ends after the first continued task succeeds');
+      assert.doesNotMatch(JSON.parse(next.outputs.order)[0].include[0].guidance, /Preserve both registrations/, 'guidance ends after the first continued task succeeds');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1043,7 +1044,7 @@ test('sync carries unconsumed guidance to a pending repair but does not repeat g
       const next = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
       assert.equal(next.outputs.action, 'repair');
       assert.equal(next.outputs.verify_only, String(consumed));
-      assert.equal(next.outputs.prompt.includes('Writer-approved guidance: Keep the combined registrations'), !consumed);
+      assert.equal(next.outputs.guidance.includes('Keep the combined registrations'), !consumed);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1277,7 +1278,7 @@ test('chain: decide converges, merges, and resolves conflicts', async () => {
     assert.deepEqual([converge.outputs.action, converge.outputs.job_name], ['converge', 'Convergence']);
     assert.match(converge.text, new RegExp(`^Next: Spec Kit implement task #${twin.number} · Convergence\\.$`, 'm'));
     const [entry] = JSON.parse(converge.outputs.order);
-    assert.deepEqual([entry.include[0].task, entry.include[0].attempt, entry.include[0].prompt.startsWith('/speckit-converge')], ['', 1, true]);
+    assert.deepEqual([entry.include[0].task, entry.include[0].attempt, entry.include[0].guidance], ['', 1, '']);
     assert.ok(github.repo.checkRuns.some((check) => check.external_id === 'speckit:attempt:converge::1' && check.status === 'in_progress'));
 
     for (const check of github.repo.checkRuns) check.status = 'completed';

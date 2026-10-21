@@ -134,7 +134,7 @@ jobs:
       attempt: ${{ steps.decide.outputs.attempt }}
       check_run: ${{ steps.decide.outputs.check_run }}
       repair: ${{ steps.decide.outputs.repair }}
-      prompt: ${{ steps.decide.outputs.prompt }}
+      guidance: ${{ steps.decide.outputs.guidance }}
       verify_only: ${{ steps.decide.outputs.verify_only }}
     steps:
       - name: Check out the default branch
@@ -197,7 +197,7 @@ jobs:
       base: ${{ needs.decide.outputs.base_branch }}
       repair: ${{ needs.decide.outputs.repair }}
       head: ${{ needs.decide.outputs.head }}
-      prompt: ${{ needs.decide.outputs.prompt }}
+      guidance: ${{ needs.decide.outputs.guidance }}
       verify_only: ${{ needs.decide.outputs.verify_only == 'true' }}
       attempt: ${{ fromJSON(needs.decide.outputs.attempt) }}
       check_run: ${{ fromJSON(needs.decide.outputs.check_run) }}

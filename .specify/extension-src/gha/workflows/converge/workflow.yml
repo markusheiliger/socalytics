@@ -1,0 +1,92 @@
+schema_version: "1.0"
+workflow:
+  id: "converge"
+  name: "Converge a spec's implementation"
+  version: "1.1.0"
+  author: "socalytics"
+  description: >-
+    Runs /speckit-converge (with its mandatory drift check of docs/architecture/) once every task of a spec is checked,
+    checks that it only appended one convergence section of new tasks to tasks.md, and writes result.json with the
+    appended tasks. It never commits or pushes. Every decision comes from .github/scripts/speckit-implement-flow.mjs.
+
+# Common design of the gha workflows (see .specify/extension-src/gha/README.md, "Workflow design"): start → agent step →
+# check → review gate (interactive mode only) → result.
+
+requires:
+  speckit_version: ">=1.0.13"
+  integrations:
+    any:
+      - "copilot"
+
+inputs:
+  folder:
+    type: string
+    default: ""
+    prompt: "Spec folder (specs/<folder>)"
+  guidance:
+    type: string
+    default: ""
+    prompt: "Guidance for the agent (optional)"
+  feedback:
+    type: string
+    default: ""
+    prompt: "What should change in the previous run's convergence, which is still in tasks.md (optional)"
+  mode:
+    type: string
+    default: "interactive"
+    prompt: "interactive (review the appended tasks) or unattended"
+  tooling:
+    type: string
+    default: "."
+    prompt: "Folder with the trusted .github/scripts helpers (GitHub passes its tooling checkout; locally the repository)"
+  integration:
+    type: string
+    default: "auto"
+    prompt: "Integration to use ('auto' uses the project's initialized integration)"
+  review_verdict: {type: string, default: ""}
+
+steps:
+  - id: start
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" start --run {{ context.run_id }} --workflow converge'
+    output_format: json
+
+  - id: converge
+    type: command
+    command: speckit.converge
+    integration: "{{ inputs.integration }}"
+    input:
+      args: >-
+        Assess the implementation of the spec in `{{ steps.start.output.data.spec_dir }}/` and append the remaining
+        work as new tasks if needed: at most one `## Phase N: Convergence` section with new, unchecked task IDs at the
+        end of `{{ steps.start.output.data.tasks_path }}`. Change no other line and no other file. Do not commit and do
+        not push. {{ steps.start.output.data.extra }}
+
+  - id: check
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" check --run {{ context.run_id }}'
+    output_format: json
+
+  - id: review
+    type: if
+    condition: "{{ steps.start.output.data.interactive }}"
+    then:
+      - id: review-verdict
+        type: gate
+        message: "The convergence {{ steps.check.output.data.summary }}. Accept it, revise it (the run stops and says how to give feedback), or abort."
+        show_file: ".specify/workflows/runs/{{ context.run_id }}/changes.diff"
+        options: ["accept", "revise", "abort"]
+        on_reject: abort
+        verdict_input: review_verdict
+      - id: revise
+        type: if
+        condition: "{{ steps.review-verdict.output.choice == 'revise' }}"
+        then:
+          - id: stop-for-feedback
+            type: shell
+            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" revise --run {{ context.run_id }}'
+
+  - id: result
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" result --run {{ context.run_id }}'
+    output_format: json

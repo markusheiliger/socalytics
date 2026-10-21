@@ -1,0 +1,100 @@
+schema_version: "1.0"
+workflow:
+  id: "implement-task"
+  name: "Implement one task of a spec"
+  version: "1.1.0"
+  author: "socalytics"
+  description: >-
+    Implements one task of a spec with /speckit-implement, checks the change with the rules the GitHub land job
+    applies, and writes result.json. It never commits, pushes, or checks the task's box: on GitHub the land job does
+    after the verification, locally the person does. Every decision comes from .github/scripts/speckit-implement-flow.mjs.
+
+# Common design of the gha workflows (see .specify/extension-src/gha/README.md, "Workflow design"): start → agent step →
+# check → review gate (interactive mode only) → result. The gate is alone in a top-level `if`, names its verdict input
+# after its id, and lists its recommended option first; `revise` stops the run and says how to run it again with
+# feedback.
+
+requires:
+  speckit_version: ">=1.0.13"
+  integrations:
+    any:
+      - "copilot"
+
+inputs:
+  folder:
+    type: string
+    default: ""
+    prompt: "Spec folder (specs/<folder>)"
+  task:
+    type: string
+    default: ""
+    prompt: "Task ID to implement, for example T004"
+  guidance:
+    type: string
+    default: ""
+    prompt: "Guidance for the agent (optional)"
+  feedback:
+    type: string
+    default: ""
+    prompt: "What should change in the previous run's change, which is still in the working tree (optional)"
+  mode:
+    type: string
+    default: "interactive"
+    prompt: "interactive (review the change) or unattended"
+  tooling:
+    type: string
+    default: "."
+    prompt: "Folder with the trusted .github/scripts helpers (GitHub passes its tooling checkout; locally the repository)"
+  integration:
+    type: string
+    default: "auto"
+    prompt: "Integration to use ('auto' uses the project's initialized integration)"
+  review_verdict: {type: string, default: ""}
+
+steps:
+  - id: start
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" start --run {{ context.run_id }} --workflow implement-task'
+    output_format: json
+
+  - id: implement
+    type: command
+    command: speckit.implement
+    integration: "{{ inputs.integration }}"
+    input:
+      args: >-
+        Implement locally. Implement only task {{ steps.start.output.data.task }} of the spec in
+        `{{ steps.start.output.data.spec_dir }}/` (its `tasks.md`); ignore the other specs. Do not implement any other
+        task. Do not edit `tasks.md`: the box is checked after the verification. Do not commit and do not push. Build
+        what you change and run only the tests that cover this task (the tests you add or change, for example through
+        a test filter). Do not run the whole test suite: the full verification runs after you.
+        {{ steps.start.output.data.extra }}
+
+  - id: check
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" check --run {{ context.run_id }}'
+    output_format: json
+
+  - id: review
+    type: if
+    condition: "{{ steps.start.output.data.interactive }}"
+    then:
+      - id: review-verdict
+        type: gate
+        message: "The change for {{ steps.start.output.data.task }} {{ steps.check.output.data.summary }}. Accept it, revise it (the run stops and says how to give feedback), or abort."
+        show_file: ".specify/workflows/runs/{{ context.run_id }}/changes.diff"
+        options: ["accept", "revise", "abort"]
+        on_reject: abort
+        verdict_input: review_verdict
+      - id: revise
+        type: if
+        condition: "{{ steps.review-verdict.output.choice == 'revise' }}"
+        then:
+          - id: stop-for-feedback
+            type: shell
+            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" revise --run {{ context.run_id }}'
+
+  - id: result
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-implement-flow.mjs" result --run {{ context.run_id }}'
+    output_format: json

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -25,6 +25,7 @@ import {
   questions,
   readState,
   ready,
+  result,
   revise,
   revisedStage,
   runDir,
@@ -395,6 +396,16 @@ test('publish: commits the spec folder and its architecture changes as Spec: <ti
   });
 });
 
+test('result: writes result.json in the common shape with the folder, the title, and what the handover did', () => {
+  withRepo(stateFile({ folder: FOLDER, title: 'Fleet status' }), (rootDir) => {
+    publish({ rootDir, run: RUN, choice: 'none', git: fakeGit().git });
+    const written = result({ rootDir, run: RUN, git: fakeGit().git });
+    assert.deepEqual(written, { format: 1, outcome: 'completed', files: [`specs/${FOLDER}/`], tooling: {}, workflow: 'author', folder: FOLDER, title: 'Fleet status', publish: { action: 'none', folder: FOLDER, committed: false, pushed: false } });
+    assert.deepEqual(JSON.parse(readFileSync(path.join(runDir(rootDir, RUN), 'result.json'), 'utf8')), written);
+  });
+  withRepo(stateFile({}), (rootDir) => assert.throws(() => result({ rootDir, run: RUN, git: fakeGit().git }), /The run has no spec folder/));
+});
+
 test('main prints one ASCII-only JSON object per command and rejects unknown ones', () => withRepo({ ...inputsFile({}), ...runFile('questions.json', [{ ...QUESTIONS[0], question: 'Wer sieht Manager offline? ←' }]) }, (rootDir) => {
   let printed = '';
   main(['questions', '--run', RUN], { rootDir, git: fakeGit().git, log: (text) => { printed += text; } });
@@ -405,17 +416,22 @@ test('main prints one ASCII-only JSON object per command and rejects unknown one
   assert.throws(() => main(['nope', '--run', RUN], { rootDir }), /Unknown command "nope"/);
 }));
 
-test('drift: the installed copies of the workflow author match its source in the gha extension', () => {
+test('drift: the installed copies of every gha workflow match their source, and each is registered', () => {
   const repo = (file) => new URL(`../../${file}`, import.meta.url);
   const read = (file) => readFileSync(repo(file), 'utf8').replaceAll('\r\n', '\n');
-  const source = read('.specify/extension-src/gha/workflows/author/workflow.yml');
-  const reinstall = 'reinstall the extension and re-register the workflow (see .specify/extension-src/gha/README.md)';
-  for (const copy of ['.specify/extensions/gha/workflows/author/workflow.yml', '.specify/workflows/author/workflow.yml']) {
-    assert.equal(read(copy), source, `${copy} differs from the source: ${reinstall}`);
+  const reinstall = 'reinstall the extension and re-register the workflows (see .specify/extension-src/gha/README.md)';
+  const ids = readdirSync(repo('.specify/extension-src/gha/workflows/'), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  assert.deepEqual(ids, ['author', 'converge', 'implement-task', 'repair', 'resolve']);
+  const registry = JSON.parse(read('.specify/workflows/workflow-registry.json')).workflows ?? {};
+  assert.deepEqual(Object.keys(registry).sort(), ids, `the registry lists exactly the extension's workflows: ${reinstall}`);
+  for (const id of ids) {
+    const source = read(`.specify/extension-src/gha/workflows/${id}/workflow.yml`);
+    assert.match(source, new RegExp(`^\\s+id: "${id}"$`, 'm'), `${id}: the workflow id matches its folder`);
+    for (const copy of [`.specify/extensions/gha/workflows/${id}/workflow.yml`, `.specify/workflows/${id}/workflow.yml`]) {
+      assert.equal(read(copy), source, `${copy} differs from the source: ${reinstall}`);
+    }
+    const version = source.match(/^\s+version:\s*"?([\w.-]+)"?\s*$/m)?.[1];
+    assert.equal(registry[id].version, version, `${id}: the registry lists version ${registry[id].version}, the source ${version}: ${reinstall}`);
+    assert.equal(registry[id].source, `.specify/extensions/gha/workflows/${id}`, `${id}: the registry names the installed extension folder with forward slashes`);
   }
-  const version = source.match(/^\s+version:\s*"?([\w.-]+)"?\s*$/m)?.[1];
-  const entry = JSON.parse(read('.specify/workflows/workflow-registry.json')).workflows?.author;
-  assert.ok(entry, 'the workflow author is registered');
-  assert.equal(entry.version, version, `the registry lists version ${entry.version}, the source ${version}: ${reinstall}`);
-  assert.equal(entry.source, '.specify/extensions/gha/workflows/author', 'the registry names the installed extension folder with forward slashes');
 });
