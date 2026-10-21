@@ -58,8 +58,8 @@ A maintainer running the Integration suite, or the verification of any implement
 
 ## Assumptions
 
-- **Cause**: The test belongs to [Email Notifications](../archive/20261013-140140-email-notifications/spec.md) and races the hosted email delivery worker (diagnosis of #184, round 8). The defect is in the test, not in the platform or the member invitations.
+- **Cause**: The test belongs to [Email Notifications](../20261013-140140-email-notifications/spec.md) and races the hosted email delivery worker (diagnosis of #184, round 8). The defect is in the test, not in the platform or the member invitations.
 - **Smallest fix**: Start the harness for this test with the background workers disabled (`Analysis:Workers:Enabled` = `false`), so that only the test's explicit `DeliverAsync` sends. The submission does not need any worker. The plan may pick another equivalent mechanism; the requirements decide acceptance.
-- **Dependencies**: The owning feature is Email Notifications (archived). [Member Invitations](../20261017-202624-member-invitations/spec.md), whose implementation is #184, depends on this spec and waits for it, together with [Timing Margins for Intermittent Integration Tests](../archive/20261019-221242-harden-integration-test-timing/spec.md), which covers `SecretHygieneTests`; this spec does not repeat that fix.
+- **Dependencies**: The owning feature is Email Notifications (archived). [Member Invitations](../../20261017-202624-member-invitations/spec.md), whose implementation is #184, depends on this spec and waits for it, together with [Timing Margins for Intermittent Integration Tests](../20261019-221242-harden-integration-test-timing/spec.md), which covers `SecretHygieneTests`; this spec does not repeat that fix.
 - **Out of scope**: Production code and defaults, `SecretHygieneTests`, other flaky tests, and skipping or retrying whole tests.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

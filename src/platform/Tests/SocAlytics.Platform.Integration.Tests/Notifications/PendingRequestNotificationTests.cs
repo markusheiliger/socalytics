@@ -170,7 +170,12 @@ public sealed class PendingRequestNotificationTests(PostgresContainerFixture pos
 	public async Task AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing()
 	{
 		var ct = TestContext.Current.CancellationToken;
-		await using var h = await EmailApiHarness.StartAsync(postgres, mailpit, ct, RegistrySettings);
+		// Without the background workers only the explicit delivery in CountAsync sends, after the role is gone.
+		var settings = new Dictionary<string, string?>(RegistrySettings)
+		{
+			["Analysis:Workers:Enabled"] = "false",
+		};
+		await using var h = await EmailApiHarness.StartAsync(postgres, mailpit, ct, settings);
 		var address = Address();
 		var admin = await TestMembers.SeedAsync(h.Db, "admin-2", clubRoles: ["club-admin"], cancellationToken: ct);
 		await VerifyAddressAsync(h.Db, admin, address, ct);
