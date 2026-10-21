@@ -15,6 +15,7 @@ public static class ApplicationServiceCollectionExtensions
 
         services.TryAddSingleton<ApplicationLayerMarker>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Segments.SegmentManifestBuilder>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Segments.RequestSegmentMaterializationHandler>();
         services.TryAddScoped<ITeamScopeResolver, TeamScopeResolver>();
         services.TryAddScoped<IAccessAuthorizer, AccessAuthorizer>();
         services.TryAddScoped<ApplyBreakGlassRecoveryHandler>();

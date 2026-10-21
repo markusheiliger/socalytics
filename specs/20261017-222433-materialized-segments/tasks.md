@@ -174,7 +174,7 @@ segments become `available` once, manifests validate, and the jobs become ready 
 
 ### Materialization
 
-- [ ] T015 [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/RequestSegmentMaterialization.cs`:
+- [x] T015 [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/RequestSegmentMaterialization.cs`:
   validate the identity, the policy version (`segmentation-policy-unknown` unless `1`) and the digest binding
   (`segmentation-policy-conflict`), recording-set membership and match and team scope through the Recordings lineage
   queries (`segment-scope-mismatch`), and the coverage intersection (`segment-coverage-empty`); rejections create no
