@@ -79,6 +79,12 @@ public sealed class SetAgentEnablementHandler(
             return OperationFailure.Validation(new FieldViolation("version", "invalid-value"));
         }
 
+        // Versions are never deleted, so an unknown one is refused before the write would violate the enablement's foreign key.
+        if (command.Version is not null && await versions.FindAsync(command.AgentId, command.Version, cancellationToken) is null)
+        {
+            return OperationFailure.Validation(new FieldViolation("version", "unknown-version"));
+        }
+
         var changedAt = time.GetUtcNow();
         var write = await enablements.SetAsync(command.AgentId, command.Version, memberId.ToString(), changedAt, command.ExpectedVersion, cancellationToken);
         if (write.Outcome != VersionedWriteOutcome.Applied)
