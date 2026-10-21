@@ -79,17 +79,17 @@ the facts inside result artifacts under `contracts/analysis/fact-artifact/`. The
 Analyst SDK added the `analyst-attempt` contract for the attempt context in
 the Analyst container and the additive Analyst job version 1.1.0 with the run's
 workflow and the segment window. Materialized
-Video Segments will add the segment manifest contract under
+Video Segments added the segment manifest contract under
 `contracts/segments/segment-manifest/v1/`, the Manager-facing
 `analysis/segment-media` response, and the additive Analyst job version 1.2.0
-with the pinned segment media (decided, not yet implemented). The remaining documented Analyst workflow contracts (logical
-segments and capability declarations) will follow and extend the same
+with the pinned segment media. The remaining documented Analyst workflow
+contracts (capability declarations) will follow and extend the same
 directory, index, and contract command. It excludes service implementation, unrelated administration and
 identity APIs, deployment contracts, production SDK adapters, and AsyncAPI.
 
-The accepted logical-segment architecture is an input. Future
-machine-readable schemas will encode its decisions without reopening identity,
-boundaries, publication, retry, or migration behavior. Agent-specific schemas
+The accepted logical-segment architecture is an input. The segment manifest
+schema encodes its decisions without reopening identity, boundaries,
+publication, retry, or migration behavior; future schemas do the same. Agent-specific schemas
 and operations will follow the same conventions when their implementation
 slice begins.
 

@@ -358,7 +358,7 @@ refused and in-use segments are kept.
 
 ### Documentation
 
-- [ ] T030 [P] Make `docs/architecture/` describe the merged state: re-read the narratives and every status statement
+- [x] T030 [P] Make `docs/architecture/` describe the merged state: re-read the narratives and every status statement
   listed in the plan's Architecture Updates (On-Demand Video Segmentation and Segment Contract, Implementation
   Validation, Readiness And Dependencies, Runtime Preflight And Status and Analyst Manager Responsibilities,
   Capability-Scoped Result Access, Contracts and Compatibility Scope And Dependencies, Data Organization, section 4 of
