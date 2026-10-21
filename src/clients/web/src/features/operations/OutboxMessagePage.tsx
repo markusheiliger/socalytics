@@ -5,7 +5,7 @@ import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { useConnectivity } from '../../connectivity/useConnectivity';
@@ -16,6 +16,7 @@ import { useSession } from '../../session/sessionContext';
 import { NotFoundPage } from '../../shell/NotFoundPage';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { FailureAlert } from '../shared/FailureAlert';
+import { CopyableValue } from './CopyableValue';
 import { enumerationText, formatDuration, formatTimestamp } from './formatOperations';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -126,41 +127,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         {children}
       </Typography>
     </div>
-  );
-}
-
-type CopyState = 'idle' | 'copied' | 'failed';
-
-/** A full identifier as selectable plain text with a copy control. */
-function CopyableValue({ value }: { value: string }) {
-  const { t } = useTranslation('operations');
-  const [copy, setCopy] = useState<CopyState>('idle');
-
-  const copyValue = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopy('copied');
-    } catch {
-      setCopy('failed');
-    }
-  };
-
-  return (
-    <Box component="span" sx={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 1 }}>
-      <Box component="code" sx={{ fontFamily: 'monospace', userSelect: 'all', overflowWrap: 'anywhere' }}>
-        {value}
-      </Box>
-      <Button size="small" aria-label={t('common.copyLabel', { value })} onClick={() => void copyValue()}>
-        {t('common.copy')}
-      </Button>
-      <Box component="span" role="status">
-        {copy === 'copied' ? t('common.copied') : ''}
-      </Box>
-      {copy === 'failed' && (
-        <Box component="span" role="alert">
-          {t('common.copyFailed')}
-        </Box>
-      )}
-    </Box>
   );
 }

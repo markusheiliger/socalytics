@@ -119,7 +119,15 @@
     "outcome": "Outcome",
     "rejectionCategory": "Rejection category",
     "runId": "Run ID",
-    "receivedAt": "Received"
+    "receivedAt": "Received",
+    "openReceipt": "Receipt for message {{id}}",
+    "fields": "Receipt fields"
+  },
+  "rejectionCategory": {
+    "schema-invalid": "The notification did not match the expected format",
+    "lineage-not-found": "The recording set version in the notification was not found",
+    "lineage-mismatch": "The notification did not match the recording set lineage",
+    "scope-mismatch": "The notification did not match the expected club or team scope"
   },
   "reconcile": {
     "title": "Run reconciliation",
