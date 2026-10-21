@@ -58,7 +58,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 ### Contract registration
 
-- [ ] T004 Register the three contract changes: index rows in `contracts/README.md` (segment-manifest owner "Segment
+- [x] T004 Register the three contract changes: index rows in `contracts/README.md` (segment-manifest owner "Segment
   Service (control-plane deployment)", segment-media owner "Scheduler and Job Registry; Analyst Manager as consumer",
   analyst-job version `1.2.0` with its released copies), schema ids in
   `src/platform/SocAlytics.Platform.Application/Abstractions/ContractSchemaIds.cs`, catalog entries in
