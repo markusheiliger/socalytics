@@ -117,7 +117,7 @@ description: "Task list for Analysis Run Supersession"
 
 ### Model and adapter
 
-- [ ] T016 [US4] Add `isCurrent: boolean`, `supersededBy?: { runId, recordingSetVersionId, recordingSetFinalizedAt: Date }`, `supersededAt?: Date`, and `cancellationCause?: 'member' | 'superseded'` to `AnalysisRunSummary` in `src/clients/web/src/platform/models/recordings.ts`, map them in `src/clients/web/src/platform/adapters/analysisRunAdapter.ts` for `listByMatch` and the cancellation feature's `cancel` over the Kiota client that `npm run build` regenerates from the refreshed snapshot, and update existing unit-test fixtures that construct `AnalysisRunSummary` (contracts/web-ui-supersession-markers.md; FR-019, FR-021)
+- [x] T016 [US4] Add `isCurrent: boolean`, `supersededBy?: { runId, recordingSetVersionId, recordingSetFinalizedAt: Date }`, `supersededAt?: Date`, and `cancellationCause?: 'member' | 'superseded'` to `AnalysisRunSummary` in `src/clients/web/src/platform/models/recordings.ts`, map them in `src/clients/web/src/platform/adapters/analysisRunAdapter.ts` for `listByMatch` and the cancellation feature's `cancel` over the Kiota client that `npm run build` regenerates from the refreshed snapshot, and update existing unit-test fixtures that construct `AnalysisRunSummary` (contracts/web-ui-supersession-markers.md; FR-019, FR-021)
 
 ### Run list markers
 
