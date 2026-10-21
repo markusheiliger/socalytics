@@ -221,7 +221,7 @@ results are accepted, media is verified, and nothing remains after the attempt.
 
 ### Media read, Manager client, and SDK media model
 
-- [ ] T019 [P] [US2] Implement `src/platform/SocAlytics.Platform.Application/Analysis/Results/GetSegmentMedia.cs` and map
+- [x] T019 [P] [US2] Implement `src/platform/SocAlytics.Platform.Application/Analysis/Results/GetSegmentMedia.cs` and map
   `GET /api/v1/analysis/attempts/{attemptId}/segment-media` (`getAnalysisSegmentMedia`) in
   `src/platform/SocAlytics.Platform.Api/Analysis/AnalystManagerEndpoints.cs` per
   `specs/20261017-222433-materialized-segments/contracts/segment-media-read.md` (ownership, fencing token, active and

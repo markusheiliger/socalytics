@@ -55,6 +55,12 @@ internal sealed record UpstreamResultsDto(
 	string ContractVersion, UpstreamDependencyDto Upstream, IReadOnlyList<UpstreamResultDto> Results,
 	IReadOnlyList<UpstreamCoverageDto> Coverage, string? ContinuationToken);
 
+internal sealed record SegmentMediaGrantDto(string Name, string Url, string ExpiresAt);
+
+internal sealed record SegmentMediaDto(
+	string ContractVersion, string AttemptId, string LogicalJobId, string ManifestChecksum, JsonElement Manifest,
+	IReadOnlyList<SegmentMediaGrantDto> Grants);
+
 internal sealed record LeaseRenewedDto(Guid AttemptId, DateTimeOffset LeaseExpiresAt);
 
 internal static partial class AnalystManagerEndpoints
@@ -124,7 +130,50 @@ internal static partial class AnalystManagerEndpoints
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict)
 			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+		routes.MapGet("/api/v1/analysis/attempts/{attemptId:guid}/segment-media", GetSegmentMediaAsync)
+			.RequireAnalystManager()
+			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
+			.WithName("getAnalysisSegmentMedia")
+			.WithTags("Analyst Manager attempts")
+			.Produces<SegmentMediaDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 		return routes;
+	}
+
+	private static async Task<IResult> GetSegmentMediaAsync(
+		Guid attemptId, HttpContext http, GetSegmentMediaHandler handler, ILoggerFactory loggers, CancellationToken cancellationToken)
+	{
+		long? fencingToken = null;
+		if (http.Request.Query.TryGetValue("fencingToken", out var raw) && raw.Count > 0)
+		{
+			if (raw.Count != 1
+				|| !long.TryParse(raw[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n))
+			{
+				return ProblemResults.From(OperationFailure.Validation(new FieldViolation("fencingToken", "type")));
+			}
+
+			fencingToken = n;
+		}
+
+		var result = await handler.HandleAsync(new GetSegmentMediaQuery(attemptId, fencingToken), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		var v = result.Value;
+		loggers.CreateLogger("SocAlytics.Platform.Api.Analysis.SegmentMedia").LogInformation(
+			"Served segment media for attempt {AttemptId} of job {LogicalJobId} in run {RunId}", attemptId, v.LogicalJobId, v.RunId);
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Ok(
+			new SegmentMediaDto(
+				"1.0.0", v.AttemptId.ToString(), v.LogicalJobId.ToString(), v.ManifestChecksum, v.Manifest,
+				v.Grants.Select(g => new SegmentMediaGrantDto(g.Name, g.Url.AbsoluteUri, Timestamp(g.ExpiresAt))).ToList()));
 	}
 
 	private static string Timestamp(DateTimeOffset value) =>
