@@ -374,11 +374,13 @@ refused and in-use segments are kept.
 
 ### Validation
 
-- [ ] T032 Run the quickstart validation: `dotnet restore`, `dotnet build --no-restore`, and
-  `dotnet test --no-build` for `src/platform/SocAlytics.Platform.slnx` and
-  `src/analysts/manager/SocAlytics.Analysts.Manager.slnx`, `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`,
-  `uv run --no-sync pytest` in `src/analysts/sdk`, and `npm ci`, `npm run build`, and `npm test` in `src/clients/web` (the
-  OpenAPI snapshot changed); fix failures in the files of the tasks above
+The full quickstart validation is not a task: a validation-only task changes no file, and the task workflow refuses a
+task whose agent made no changes (T032 failed twice with every check passing). The same checks run as the verification
+of the implementation: `dotnet restore`, `dotnet build --no-restore`, and `dotnet test --no-build` for
+`src/platform/SocAlytics.Platform.slnx` and `src/analysts/manager/SocAlytics.Analysts.Manager.slnx`,
+`dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`, `uv run --no-sync pytest` in `src/analysts/sdk`,
+and `npm ci`, `npm run build`, and `npm test` in `src/clients/web`, run by the phase and finalize verification and by
+`/speckit-converge`; a failure there is fixed in the files of the tasks above.
 
 ---
 
@@ -395,7 +397,7 @@ refused and in-use segments are kept.
   T019, T021, T023).
 - **US3 (Phase 5)**: T025 (needs T016), T026 (needs T018, T025), T027 (needs T019, T025).
 - **US4 (Phase 6)**: T028 (needs T009, T016), T029 (needs T028; after T019 because both refresh `openapi/v1.json`).
-- **Polish (Phase 7)**: T030 and T031 in parallel after all stories; T032 last.
+- **Polish (Phase 7)**: T030 and T031 in parallel after all stories; the quickstart validation is the implementation verification, not a task.
 
 ### User Story Dependencies
 
