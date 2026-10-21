@@ -1,4 +1,4 @@
-import { artifactUrl, isImplementRequested, renderSpecLine, specDir } from './speckit-prepare-core.mjs';
+import { artifactUrl, isImplementRequested, parseTwinFolder, renderSpecLine, specDir } from './speckit-prepare-core.mjs';
 
 export const BRANCH_PREFIX = 'speckit/';
 export const CHECK_RUN_NAME = 'Spec Kit implementation';
@@ -797,8 +797,11 @@ export async function setBlocked(client, number, blocked, { explain = null } = {
 
 // Why an implementation waits for the open blocked-by dependencies of its twin, for setBlocked. `blockers` are twin
 // numbers or the twin issues; an issue without an implementation request (isImplementRequested) never starts by
-// itself, so the explanation then recommends requesting it with `/speckit implement` on that twin.
-export function dependencyBlock(blockers) {
+// itself, so the explanation then recommends requesting it with `/speckit implement` on that twin. `pulls` maps a
+// blocker twin number to the number of its open implementation pull request (explainDependencyBlock); those pull
+// requests are listed as the work that has to be merged first, and are part of the key, so a blocker whose
+// implementation pull request opens later is explained again with it.
+export function dependencyBlock(blockers, { pulls = new Map() } = {}) {
   const issues = new Map();
   for (const blocker of blockers) {
     const number = Number(typeof blocker === 'object' && blocker !== null ? blocker.number : blocker);
@@ -823,11 +826,24 @@ export function dependencyBlock(blockers) {
       ...(others.length > 0 ? [`- ${others.map((number) => `#${number}`).join(', ')} ${others.length === 1 ? 'is' : 'are'} not requested either; comment the same there.`] : []),
     ]
     : [];
+  const pullOf = (number) => (Number.isInteger(pulls.get(number)) ? pulls.get(number) : null);
+  const blockingPulls = numbers.map(pullOf).filter((pull) => pull !== null);
+  const pullLines = blockingPulls.length > 0
+    ? [
+      '',
+      `**Implementation pull request${blockingPulls.length === 1 ? '' : 's'} to finish first**:`,
+      '',
+      ...numbers.map((number) => (pullOf(number) !== null
+        ? `- #${pullOf(number)} implements #${number}; this implementation resumes once it is merged.`
+        : `- #${number} has no open implementation pull request yet.`)),
+    ]
+    : [];
   return {
-    key: { blockers: numbers, ...(unrequested.length > 0 ? { unrequested } : {}) },
+    key: { blockers: numbers, ...(unrequested.length > 0 ? { unrequested } : {}), ...(blockingPulls.length > 0 ? { pulls: blockingPulls } : {}) },
     lines: [
       `**Blocked** by prerequisite ${list}: the spec twin of this implementation depends on ${one ? 'it' : 'them'}, so this implementation waits instead of continuing.${first ? '' : ' Nothing is needed on this pull request.'}`,
       ...request,
+      ...pullLines,
       '',
       `- **Unblocks by itself** once ${list} ${one ? 'is' : 'are'} implemented: this implementation then continues with a fresh attempt count on its current phase base.`,
       `- **To follow the prerequisite**: watch ${list} and ${one ? 'its' : 'their'} implementation pull request; if that implementation stops, it asks for help there.`,
@@ -835,6 +851,24 @@ export function dependencyBlock(blockers) {
       '- If a prerequisite is closed without being implemented, the block is lifted and this pull request lists what you can do next.',
     ],
   };
+}
+
+// dependencyBlock for blocker twin issues, with the open implementation pull request of each (its `speckit/<folder>`
+// branch, from the twin's spec link line). A lookup that fails leaves that blocker without a pull request.
+export async function explainDependencyBlock(client, blockers) {
+  const pulls = new Map();
+  for (const blocker of blockers) {
+    if (typeof blocker !== 'object' || blocker === null) continue;
+    const folder = parseTwinFolder(blocker.body);
+    if (!folder) continue;
+    try {
+      const pull = (await client.listPullRequestsForHead(implementationBranch(folder))).find((item) => item.state === 'open');
+      if (pull) pulls.set(Number(blocker.number), pull.number);
+    } catch {
+      // The explanation still names the blocker twin.
+    }
+  }
+  return dependencyBlock(blockers, { pulls });
 }
 
 // The open blocked-by twins of a spec twin.
@@ -850,7 +884,7 @@ export async function maintainDependencyBlock(client, env, { implementation, twi
   const blockers = await client.listBlockedBy(twin);
   const open = blockers.filter((blocker) => blocker.state === 'open');
   if (open.length > 0) {
-    await setBlocked(client, implementation.number, true, { explain: dependencyBlock(open) });
+    await setBlocked(client, implementation.number, true, { explain: await explainDependencyBlock(client, open) });
     return { outcome: 'blocked', blocked: true, blockers: open.map((blocker) => blocker.number) };
   }
   if (hold) return { outcome: 'held', blocked: true, blockers: [] };
