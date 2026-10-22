@@ -85,6 +85,13 @@ function ArtifactRecordView({ kindSegment, artifactId, version }: { kindSegment:
           </Box>
           <Typography>{t('common.registeredBy', { value: who(record.registeredBy), interpolation: { escapeValue: false } })}</Typography>
           <Typography>{t('common.registeredAt', { value: record.registeredAt.toLocaleString() })}</Typography>
+          {['prompt-template', 'model-selection', 'tool-policy', 'safety-policy'].includes(kind) && (
+            <Typography sx={{ mt: 2 }}>
+              <Link to={`/agent-catalog/artifacts/${kindSegment}/new?fromId=${encodeURIComponent(record.id)}&fromVersion=${encodeURIComponent(record.version)}`}>
+                {t('common.newVersionFrom')}
+              </Link>
+            </Typography>
+          )}
           <RecordDocument kind={kind} record={record} />
         </>
       )}

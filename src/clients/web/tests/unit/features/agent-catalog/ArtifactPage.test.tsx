@@ -33,6 +33,14 @@ describe('ArtifactPage', () => {
     expect(screen.getByRole('link', { name: 'Prompt templates' })).toHaveAttribute('href', '/agent-catalog/artifacts/prompt-templates');
   });
 
+  it('links to a new version prefilled from the record', async () => {
+    renderPage(fakeAgentCatalogAdapter(), '/agent-catalog/artifacts/prompt-templates/specialist-prompt/versions/0.1.0');
+    expect(await screen.findByRole('link', { name: 'New version from this' })).toHaveAttribute(
+      'href',
+      '/agent-catalog/artifacts/prompt-templates/new?fromId=specialist-prompt&fromVersion=0.1.0',
+    );
+  });
+
   it('shows a tool policy, a model selection, and a safety policy', async () => {
     renderPage(fakeAgentCatalogAdapter(), '/agent-catalog/artifacts/tool-policies/specialist-tools/versions/0.1.0');
     expect(await screen.findByText('evidence.read')).toBeInTheDocument();

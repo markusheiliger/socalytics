@@ -21,6 +21,7 @@ import { RegistrationPage } from './features/managers/RegistrationPage';
 import { AgentCatalogOverviewPage } from './features/agent-catalog/AgentCatalogOverviewPage';
 import { AgentPage } from './features/agent-catalog/AgentPage';
 import { AgentVersionPage } from './features/agent-catalog/AgentVersionPage';
+import { ArtifactCreatePage } from './features/agent-catalog/ArtifactCreatePage';
 import { ArtifactPage } from './features/agent-catalog/ArtifactPage';
 import { ArtifactsPage } from './features/agent-catalog/ArtifactsPage';
 import { CatalogBaselinePage } from './features/agent-catalog/CatalogBaselinePage';
@@ -132,6 +133,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/agent-catalog/agents/:agentId', element: clubAdminOnly(<AgentPage />) },
           { path: '/agent-catalog/agents/:agentId/versions/:version', element: clubAdminOnly(<AgentVersionPage />) },
           { path: '/agent-catalog/artifacts/:kind', element: clubAdminOnly(<ArtifactsPage />) },
+          { path: '/agent-catalog/artifacts/:kind/new', element: clubAdminOnly(<ArtifactCreatePage />) },
           { path: '/agent-catalog/artifacts/:kind/:artifactId/versions/:version', element: clubAdminOnly(<ArtifactPage />) },
         ],
       },

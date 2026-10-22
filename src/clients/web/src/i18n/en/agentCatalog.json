@@ -196,6 +196,13 @@
     "unsupportedView": "This kind has no dedicated view yet. The stored document is shown as text.",
     "document": "Stored document"
   },
+  "create": {
+    "title": "Register a {{kind}}",
+    "submit": "Register",
+    "replayed": "Already registered, nothing changed.",
+    "openRecord": "Show the stored record",
+    "unsupported": "Registering records of this kind is not available in the Web UI yet."
+  },
   "fields": {
     "id": "Identifier",
     "version": "Version",
@@ -289,6 +296,7 @@
     "itemLength": "Up to {{max}} characters each",
     "perDimensionBound": "Whole numbers from 1 to 3",
     "maxPositiveMovement": "Whole numbers from 1 to 10",
+    "idFormat": "Lower-case letters, digits, and single hyphens, for example specialist-prompt",
     "versionProposed": "Proposed: the next patch version above the highest registered version",
     "versionFormat": "A SemVer 2.0.0 version without build metadata, for example 0.1.0",
     "dimensionNotice": "Weights of dimensions that the chosen dimension set does not contain were dropped: {{ids}}",
