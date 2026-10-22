@@ -2,7 +2,7 @@ schema_version: "1.0"
 workflow:
   id: "author"
   name: "Author a ready-to-implement spec"
-  version: "1.2.0"
+  version: "1.4.0"
   author: "socalytics"
   description: >-
     Authors one spec through specify, clarify, plan, tasks, and analyze until it is ready to implement, then commits
@@ -47,6 +47,10 @@ inputs:
     type: string
     default: "ask"
     prompt: "Unattended runs: push, commit, or none (ask means none)"
+  tooling:
+    type: string
+    default: "."
+    prompt: "Folder with the trusted .github/scripts helpers (GitHub passes its tooling checkout; locally the repository)"
   integration:
     type: string
     default: "auto"
@@ -89,7 +93,7 @@ steps:
   # ── Start: a new feature, the next logical spec, or an existing folder at its next step ─────────────────────────
   - id: start
     type: shell
-    run: "node .github/scripts/speckit-author-flow.mjs start --run {{ context.run_id }}"
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" start --run {{ context.run_id }}'
     output_format: json
 
   - id: active-feature
@@ -105,7 +109,7 @@ steps:
 
   - id: begin
     type: shell
-    run: "node .github/scripts/speckit-author-flow.mjs begin --run {{ context.run_id }} --choice {{ steps.continue-active.output.choice }}"
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" begin --run {{ context.run_id }} --choice {{ steps.continue-active.output.choice }}'
     output_format: json
 
   - id: discovery
@@ -134,7 +138,7 @@ steps:
           other file.
       - id: proposal
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs proposal --run {{ context.run_id }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" proposal --run {{ context.run_id }}'
         output_format: json
 
   - id: choose-candidate
@@ -156,7 +160,7 @@ steps:
     then:
       - id: pick
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs pick --run {{ context.run_id }} --choice {{ steps.candidate.output.choice }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" pick --run {{ context.run_id }} --choice {{ steps.candidate.output.choice }}'
         output_format: json
       - id: specify
         command: speckit.specify
@@ -165,13 +169,13 @@ steps:
           args: "{{ steps.pick.output.data.feature }}"
       - id: created
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs created --run {{ context.run_id }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" created --run {{ context.run_id }}'
         output_format: json
 
   # ── Define: clarify, at most three rounds, one gate per question ──────────────────────────────────────────────────
   - id: clarify-stage
     type: shell
-    run: "node .github/scripts/speckit-author-flow.mjs stage --run {{ context.run_id }} --name clarify"
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" stage --run {{ context.run_id }} --name clarify'
     output_format: json
 
   - id: spec-feedback
@@ -206,7 +210,7 @@ steps:
           options, with the suggested answer among them. Write [] when the scan finds no critical ambiguity.
       - id: questions-1
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs questions --run {{ context.run_id }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" questions --run {{ context.run_id }}'
         output_format: json
   - id: ask-1-1
     type: if
@@ -239,7 +243,7 @@ steps:
     then:
       - id: answers-1
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs answers --run {{ context.run_id }} --choices {{ steps.answer-1-1.output.choice }},{{ steps.answer-1-2.output.choice }},{{ steps.answer-1-3.output.choice }},{{ steps.answer-1-4.output.choice }},{{ steps.answer-1-5.output.choice }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" answers --run {{ context.run_id }} --choices {{ steps.answer-1-1.output.choice }},{{ steps.answer-1-2.output.choice }},{{ steps.answer-1-3.output.choice }},{{ steps.answer-1-4.output.choice }},{{ steps.answer-1-5.output.choice }}'
         output_format: json
       - id: apply-answers-1
         command: speckit.clarify
@@ -258,7 +262,7 @@ steps:
       - {id: ask-2, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *ask}
       - id: questions-2
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs questions --run {{ context.run_id }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" questions --run {{ context.run_id }}'
         output_format: json
   - id: ask-2-1
     type: if
@@ -291,7 +295,7 @@ steps:
     then:
       - id: answers-2
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs answers --run {{ context.run_id }} --choices {{ steps.answer-2-1.output.choice }},{{ steps.answer-2-2.output.choice }},{{ steps.answer-2-3.output.choice }},{{ steps.answer-2-4.output.choice }},{{ steps.answer-2-5.output.choice }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" answers --run {{ context.run_id }} --choices {{ steps.answer-2-1.output.choice }},{{ steps.answer-2-2.output.choice }},{{ steps.answer-2-3.output.choice }},{{ steps.answer-2-4.output.choice }},{{ steps.answer-2-5.output.choice }}'
         output_format: json
       - id: apply-answers-2
         command: speckit.clarify
@@ -310,7 +314,7 @@ steps:
       - {id: ask-3, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *ask}
       - id: questions-3
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs questions --run {{ context.run_id }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" questions --run {{ context.run_id }}'
         output_format: json
   - id: ask-3-1
     type: if
@@ -343,7 +347,7 @@ steps:
     then:
       - id: answers-3
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs answers --run {{ context.run_id }} --choices {{ steps.answer-3-1.output.choice }},{{ steps.answer-3-2.output.choice }},{{ steps.answer-3-3.output.choice }},{{ steps.answer-3-4.output.choice }},{{ steps.answer-3-5.output.choice }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" answers --run {{ context.run_id }} --choices {{ steps.answer-3-1.output.choice }},{{ steps.answer-3-2.output.choice }},{{ steps.answer-3-3.output.choice }},{{ steps.answer-3-4.output.choice }},{{ steps.answer-3-5.output.choice }}'
         output_format: json
       - id: apply-answers-3
         command: speckit.clarify
@@ -362,7 +366,7 @@ steps:
       - {id: ask-final, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *ask}
       - id: questions-final
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs questions --run {{ context.run_id }} --final"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" questions --run {{ context.run_id }} --final'
         output_format: json
 
   - id: review-spec
@@ -382,12 +386,12 @@ steps:
         then:
           - id: stop-for-spec-feedback
             type: shell
-            run: "node .github/scripts/speckit-author-flow.mjs revise --run {{ context.run_id }} --stage clarify"
+            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" revise --run {{ context.run_id }} --stage clarify'
 
   # ── Design: plan, with its mandatory Architecture Updates and the environment check ──────────────────────────────
   - id: plan-stage
     type: shell
-    run: "node .github/scripts/speckit-author-flow.mjs stage --run {{ context.run_id }} --name plan"
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" stage --run {{ context.run_id }} --name plan'
     output_format: json
 
   - id: design-plan
@@ -401,7 +405,7 @@ steps:
           args: "{{ steps.plan-stage.output.data.feedback }}"
       - id: plan-check
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs check --run {{ context.run_id }} --after plan"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after plan'
         output_format: json
       - id: plan-repair
         type: if
@@ -414,7 +418,7 @@ steps:
               args: "{{ steps.plan-stage.output.data.folder }}"
           - id: plan-recheck
             type: shell
-            run: "node .github/scripts/speckit-author-flow.mjs check --run {{ context.run_id }} --after plan --strict"
+            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after plan --strict'
             output_format: json
       - id: environment-scan
         type: prompt
@@ -431,7 +435,7 @@ steps:
           no other file.
       - id: environment
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs environment --run {{ context.run_id }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" environment --run {{ context.run_id }}'
         output_format: json
 
   - id: environment-decision
@@ -462,12 +466,12 @@ steps:
         then:
           - id: stop-for-plan-feedback
             type: shell
-            run: "node .github/scripts/speckit-author-flow.mjs revise --run {{ context.run_id }} --stage plan"
+            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" revise --run {{ context.run_id }} --stage plan'
 
   # ── Design: tasks, with the mandatory refinement of the [P] groups ───────────────────────────────────────────────
   - id: tasks-stage
     type: shell
-    run: "node .github/scripts/speckit-author-flow.mjs stage --run {{ context.run_id }} --name tasks"
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" stage --run {{ context.run_id }} --name tasks'
     output_format: json
 
   - id: design-tasks
@@ -481,7 +485,7 @@ steps:
           args: "{{ steps.tasks-stage.output.data.feedback }}"
       - id: tasks-check
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs check --run {{ context.run_id }} --after tasks"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after tasks'
         output_format: json
       # A plan with Architecture Updates needs its documentation task; /speckit-tasks writes it on a second pass.
       - id: docs-task-repair
@@ -497,7 +501,7 @@ steps:
                 the outcome-based documentation task the plan's Architecture Updates section requires.
       - id: tasks-groups
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs check --run {{ context.run_id }} --after tasks"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after tasks'
         output_format: json
       - id: tasks-repair
         type: if
@@ -510,7 +514,7 @@ steps:
               args: "{{ steps.tasks-stage.output.data.folder }}"
       - id: tasks-final
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs check --run {{ context.run_id }} --after tasks --strict"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after tasks --strict'
         output_format: json
 
   - id: review-tasks
@@ -530,12 +534,12 @@ steps:
         then:
           - id: stop-for-tasks-feedback
             type: shell
-            run: "node .github/scripts/speckit-author-flow.mjs revise --run {{ context.run_id }} --stage tasks"
+            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" revise --run {{ context.run_id }} --stage tasks'
 
   # ── Gate: analyze; while it proposes fixes, remediate (after approval) and analyze again, at most three analyses ──
   - id: analyze-stage
     type: shell
-    run: "node .github/scripts/speckit-author-flow.mjs stage --run {{ context.run_id }} --name analyze"
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" stage --run {{ context.run_id }} --name analyze'
     output_format: json
 
   - id: analysis-1
@@ -555,7 +559,7 @@ steps:
           other file.
       - id: findings-1
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs findings --run {{ context.run_id }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" findings --run {{ context.run_id }}'
         output_format: json
 
   # Each remediation round asks about up to five fixable findings, the most severe first (unattended: applies all),
@@ -591,7 +595,7 @@ steps:
     then:
       - id: approve-2
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs approve --run {{ context.run_id }} --choices {{ steps.fix-2-1.output.choice }},{{ steps.fix-2-2.output.choice }},{{ steps.fix-2-3.output.choice }},{{ steps.fix-2-4.output.choice }},{{ steps.fix-2-5.output.choice }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" approve --run {{ context.run_id }} --choices {{ steps.fix-2-1.output.choice }},{{ steps.fix-2-2.output.choice }},{{ steps.fix-2-3.output.choice }},{{ steps.fix-2-4.output.choice }},{{ steps.fix-2-5.output.choice }}'
         output_format: json
   - id: analysis-2
     type: if
@@ -609,7 +613,7 @@ steps:
       - {id: analyze-2, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *analyze}
       - id: findings-2
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs findings --run {{ context.run_id }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" findings --run {{ context.run_id }}'
         output_format: json
 
   - id: ask-fix-3-1
@@ -643,7 +647,7 @@ steps:
     then:
       - id: approve-3
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs approve --run {{ context.run_id }} --choices {{ steps.fix-3-1.output.choice }},{{ steps.fix-3-2.output.choice }},{{ steps.fix-3-3.output.choice }},{{ steps.fix-3-4.output.choice }},{{ steps.fix-3-5.output.choice }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" approve --run {{ context.run_id }} --choices {{ steps.fix-3-1.output.choice }},{{ steps.fix-3-2.output.choice }},{{ steps.fix-3-3.output.choice }},{{ steps.fix-3-4.output.choice }},{{ steps.fix-3-5.output.choice }}'
         output_format: json
   - id: analysis-3
     type: if
@@ -653,14 +657,14 @@ steps:
       - {id: analyze-3, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *analyze}
       - id: findings-3
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs findings --run {{ context.run_id }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" findings --run {{ context.run_id }}'
         output_format: json
 
   # ── Handover: the publish checks, then commit and push the spec folder ───────────────────────────────────────────
   # Markdown findings are formatting: one agent step fixes them before the publish checks run the check again.
   - id: markdown
     type: shell
-    run: "node .github/scripts/speckit-author-flow.mjs markdown --run {{ context.run_id }}"
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" markdown --run {{ context.run_id }}'
     output_format: json
 
   - id: markdown-repair
@@ -680,7 +684,7 @@ steps:
 
   - id: ready
     type: shell
-    run: "node .github/scripts/speckit-author-flow.mjs ready --run {{ context.run_id }}"
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" ready --run {{ context.run_id }}'
     output_format: json
 
   - id: handover-interactive
@@ -695,7 +699,7 @@ steps:
         verdict_input: publish_verdict
       - id: publish-chosen
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs publish --run {{ context.run_id }} --choice {{ steps.publish-verdict.output.choice }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" publish --run {{ context.run_id }} --choice {{ steps.publish-verdict.output.choice }}'
         output_format: json
 
   - id: handover-unattended
@@ -704,5 +708,11 @@ steps:
     then:
       - id: publish-input
         type: shell
-        run: "node .github/scripts/speckit-author-flow.mjs publish --run {{ context.run_id }} --choice {{ inputs.publish }}"
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" publish --run {{ context.run_id }} --choice {{ inputs.publish }}'
         output_format: json
+
+  # ── Result: result.json in the common shape of the gha workflows (speckit-flow.mjs) ──────────────────────────────
+  - id: result
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" result --run {{ context.run_id }}'
+    output_format: json

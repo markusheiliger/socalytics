@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-catalog/safety-policy/v1/safety-policy.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent safety policy v1",
+  "description": "Immutable, digest-addressed Agent Catalog safety policy artifact: the conversation routes, hard boundaries, escalation and refusal categories, and rules of one agent version. A Coach Agent policy routes only user-to-coach conversations and requires the simulation-disclosure, non-impersonation, and non-fabrication rules; a Specialist Agent policy routes user-to-specialist and coach-to-specialist conversations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "id", "version", "group", "routes", "hardBoundaries", "escalationCategories", "refusalCategories", "rules"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "kind": { "const": "safety-policy" },
+    "id": { "type": "string", "minLength": 3, "maxLength": 100, "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "version": {
+      "type": "string",
+      "maxLength": 100,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "group": { "enum": ["coach", "specialist"] },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["user-to-coach", "user-to-specialist", "coach-to-specialist"] }
+    },
+    "hardBoundaries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+    },
+    "escalationCategories": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/category" }
+    },
+    "refusalCategories": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/category" }
+    },
+    "rules": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "simulation-disclosure",
+          "non-impersonation",
+          "non-fabrication",
+          "evidence-citation",
+          "tool-allowlist-only",
+          "no-raw-data-access"
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "group": { "const": "coach" } }, "required": ["group"] },
+      "then": {
+        "properties": {
+          "routes": { "items": { "const": "user-to-coach" } },
+          "rules": {
+            "allOf": [
+              { "contains": { "const": "simulation-disclosure" } },
+              { "contains": { "const": "non-impersonation" } },
+              { "contains": { "const": "non-fabrication" } }
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "routes": { "items": { "enum": ["user-to-specialist", "coach-to-specialist"] } }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "category": {
+      "enum": [
+        "medical",
+        "safeguarding",
+        "welfare",
+        "privacy",
+        "sensitive-traits",
+        "raw-data-access",
+        "unauthorized-data",
+        "autonomous-decision"
+      ]
+    }
+  }
+}

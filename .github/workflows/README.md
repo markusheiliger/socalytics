@@ -245,7 +245,8 @@ guidance (`RENAMED_COMMANDS` in `speckit-commands.mjs`).
 Writer-supplied text after `/speckit retry`, `/speckit sync`, or `/speckit author` and their flags is called
 **guidance**. Retry and sync guidance is stored in a bot-authored pull request marker so a replaced dispatch or
 scheduled continuation cannot lose it. Copilot-bound guidance is whitespace-normalized, capped at 4,000 characters, and
-added to every task in the first retried group, or to the first convergence, repair, or conflict-resolution prompt.
+passed as the `guidance` input of the Spec Kit workflow that runs every task in the first retried group, or the first
+convergence, repair, or conflict resolution; the workflow adds it to its agent's prompt.
 Later units do not inherit it, and it expires after successful work or a newer person-authored push. A clean merge and a verification-only repair restart invoke no agent, so they consume
 no prompt guidance; clean sync verification keeps unconsumed guidance for the first continued work. Fix guidance goes
 to the agent that authors the new spec. Guidance only steers an agent's prompt: it never changes which work
@@ -344,19 +345,20 @@ Architecture impact: none. This changes repository automation, not the product d
 
 Most of the automation is script code. AI runs only in the places below, each in a read-only job whose output a
 separate job validates before anything is pushed. Model levels come from
-[models.json](../actions/speckit-copilot/models.json) through the `speckit-copilot` action; the agentic workflows use
-the `copilot` engine of GitHub Agentic Workflows.
+[models.json](../actions/speckit-copilot/models.json) through the `speckit-copilot` action, or through the
+`speckit-workflow` action for the agent steps of the gha Spec Kit workflows; the agentic workflows use the `copilot`
+engine of GitHub Agentic Workflows.
 
 <!-- speckit-ai:start -->
 | Flow branch | Workflow | AI | Command guidance reaches it |
 | --- | --- | --- | --- |
 | Dependency inference for new twins | Spec Kit prepare | Copilot CLI, level `light` | never |
 | Scheduling, chains, the decide and `sync` jobs | Spec Kit orchestrate, implement spec | none (script) | never |
-| One task | Spec Kit implement task | Copilot CLI, level `standard` | `retry`: every task of the first group after the restart |
+| One task | Spec Kit implement task | Copilot CLI, level `standard`, in the Spec Kit workflow `implement-task` | `retry`: every task of the first group after the restart |
 | Phase and group verification | Spec Kit implement phase, group | none (script) | never |
-| Guided repair of landed code | Spec Kit implement repair | Copilot CLI, level `strong` | `retry` with a pending repair: the repair agent (without guidance only reverification runs) |
-| Convergence | Spec Kit implement convergence | Copilot CLI, level `strong` | `retry`: when the convergence is the first work after the restart |
-| Conflict resolution | Spec Kit implement conflict resolution | Copilot CLI, level `standard`, only for conflicts left after the archive script | `retry` or `sync`: when it is the first work; a clean merge passes `sync` guidance on to the next work |
+| Guided repair of landed code | Spec Kit implement repair | Copilot CLI, level `strong`, in the Spec Kit workflow `repair` | `retry` with a pending repair: the repair agent (without guidance only reverification runs) |
+| Convergence | Spec Kit implement convergence | Copilot CLI, level `strong`, in the Spec Kit workflow `converge` | `retry`: when the convergence is the first work after the restart |
+| Conflict resolution | Spec Kit implement conflict resolution | Copilot CLI, level `standard`, in the Spec Kit workflow `resolve`, only for conflicts left after the archive script | `retry` or `sync`: when it is the first work; a clean merge passes `sync` guidance on to the next work |
 | Archive, merge verification, squash merge | Spec Kit implement merge | none (script) | never |
 | Comment commands | Spec Kit commands | none (script) | stores the guidance in a marker for the work above |
 | Diagnosis, amendment correction and rework | Spec Kit diagnose | agentic (`copilot` engine) | never (it reads recent comments as context; rework rounds use analysis findings and review feedback) |
@@ -365,7 +367,7 @@ the `copilot` engine of GitHub Agentic Workflows.
 <!-- speckit-ai:end -->
 
 A test (`speckit-docs.test.mjs`) keeps the table in line with the workflows: every workflow that runs the
-`speckit-copilot` action or is agentic has a row with its level or engine.
+`speckit-copilot` or `speckit-workflow` action or is agentic has a row with its level or engine.
 
 ## Pull requests that need attention
 
@@ -418,11 +420,42 @@ The workflow run titles of Spec Kit diagnose, analyze, and author follow Spec Ki
 spec #<twin> · <why the run started>`, for example `Spec Kit author spec #66 · Write a new spec that unblocks the
 implementation`.
 
+## Spec Kit workflows in the jobs
+
+The agents of the implementation do not get prompts from these workflows: each read-only work job runs the Spec Kit
+workflow of the gha extension that owns that work, through the composite action
+[speckit-workflow](../actions/speckit-workflow/action.yml): `implement-task` (Spec Kit implement task),
+`converge` (convergence), `repair` (guided repair), and `resolve` (conflict resolution, after the integrate step
+merged the base branch). The GitHub workflows own the flow and the state of issues and pull requests (what runs next,
+attempts, check runs, comments, commits, ticks); the Spec Kit workflows own the work on the level of a Spec Kit
+command: the prompt, the agent step, and the check of the change with the land jobs' validators (see "Workflow Design"
+in the [gha extension README](../../.specify/extension-src/gha/README.md)). The jobs pass only inputs: the folder, the
+task, the guidance, and for a repair its tasks, scope, and evidence.
+
+- **Unattended, inside the job:** the action runs `specify workflow run` with `mode=unattended` and an empty standard
+  input, within the job's time limit (`timeout`, default 60 minutes). A run never outlives its job and is never
+  resumed; a retry is a new run. A run that paused stopped at a gate, which is reported as a defect of the workflow.
+- **Trusted tooling:** the definition (`.specify/workflows/<id>/workflow.yml`) and its helper come from the tooling
+  checkout the action is loaded from (input `tooling`), never from the implementation branch. Every job of one run
+  checks the tooling out at the same commit (`github.sha`), so the work job and the land job apply the same rules.
+- **Same contract with the package step:** the action collects the run into the result folder: `agent-exit.txt` (0
+  completed, 124 time limit, 1 otherwise), `agent.jsonl` (the agent's output, through `SPECKIT_AGENT_LOG` of
+  `speckit-copilot.mjs exec`), `workflow.json` (the outcome and the workflow's own message, which becomes the
+  attempt's reason), and `workflow-run/` (the run folder, for the diagnosis). It removes the run folder from the
+  workspace before the package step stages the change. The package, verify, and land steps validate the change again
+  and stay as they are.
+
+The logic lives in [speckit-workflow-job.mjs](../scripts/speckit-workflow-job.mjs); a test checks that every
+`speckit-workflow` step names a workflow the tooling has and passes only inputs that workflow declares. The server's
+Spec Kit author job runs the Spec Kit workflow `author` the same way (from the tooling checkout, unattended).
+
 ## Copilot CLI and model levels
 
 Every Copilot CLI run of these workflows goes through the composite action
-[speckit-copilot](../actions/speckit-copilot/action.yml), loaded from the trusted default-branch checkout, so an agent
-cannot change its own model, flags, or deny lists. The agentic workflows (diagnose, analyze) use gh-aw's own engine
+[speckit-copilot](../actions/speckit-copilot/action.yml), or through the Spec Kit workflows the composite action
+[speckit-workflow](../actions/speckit-workflow/action.yml) runs (see
+[Spec Kit workflows in the jobs](#spec-kit-workflows-in-the-jobs)), loaded from the trusted default-branch checkout, so
+an agent cannot change its own model, flags, or deny lists. The agentic workflows (diagnose, analyze) use gh-aw's own engine
 settings instead. The Spec Kit workflow `author`, which Spec Kit author runs, calls Copilot CLI itself for its agent
 steps; on GitHub its executable is `speckit-copilot.mjs exec` (`SPECKIT_INTEGRATION_COPILOT_EXECUTABLE`), which applies
 the level in `SPECKIT_LEVEL` and the same arguments and deny lists as the action, and drops the `--yolo` and model the

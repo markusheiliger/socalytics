@@ -28,8 +28,13 @@ internal static class ProblemResults
 		int status, string code, IReadOnlyList<FieldViolation>? violations = null, IReadOnlyDictionary<string, string>? extensions = null) =>
 		new ProblemResult(status, code, violations, extensions);
 
+	/// <summary>A problem whose additional members are structured JSON values rather than strings.</summary>
+	public static IResult Problem(int status, string code, IReadOnlyDictionary<string, object?> members) =>
+		new ProblemResult(status, code, null, null, members);
+
 	private sealed class ProblemResult(
-		int status, string code, IReadOnlyList<FieldViolation>? violations, IReadOnlyDictionary<string, string>? extensions) : IResult
+		int status, string code, IReadOnlyList<FieldViolation>? violations, IReadOnlyDictionary<string, string>? extensions,
+		IReadOnlyDictionary<string, object?>? members = null) : IResult
 	{
 		public Task ExecuteAsync(HttpContext httpContext)
 		{
@@ -51,6 +56,14 @@ internal static class ProblemResults
 				foreach (var (name, value) in extensions)
 				{
 					body[name] = value;
+				}
+			}
+
+			if (members is not null)
+			{
+				foreach (var (name, value) in members)
+				{
+					body.TryAdd(name, value);
 				}
 			}
 

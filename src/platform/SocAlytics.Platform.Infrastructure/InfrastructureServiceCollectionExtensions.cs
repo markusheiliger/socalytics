@@ -87,6 +87,11 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IAgentAttemptStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentAttemptStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IAgentWorkloadOperationStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentWorkloadOperationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IAgentWorkloadTokenStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentWorkloadTokenStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentCatalogArtifactStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentCatalogArtifactStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentVersionStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentVersionStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentEnablementStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentEnablementStore>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Enablement.ICatalogEnvironment, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.HostCatalogEnvironment>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentInvocationPinStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentInvocationPinStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisRunQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.IFactQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.FactQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisOperationalQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisOperationalQueries>();
@@ -142,6 +147,7 @@ public static class InfrastructureServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowOptions.SectionName);
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionResolver, SocAlytics.Platform.Infrastructure.Registry.RegistryWorkflowDefinitionResolver>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowSeeder>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.AgentOrchestration.Catalog.AgentCatalogSeeder>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionAvailability, SocAlytics.Platform.Infrastructure.Registry.WorkflowDefinitionAvailability>();
         services.AddSingleton<SocAlytics.Platform.Infrastructure.Registry.AnalysisWorkflowHealthCheck>();
         services.AddOptions<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckServiceOptions>()

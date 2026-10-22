@@ -3,8 +3,8 @@ schema_version: "1.0"
 extension:
   id: gha
   name: "GitHub Actions implementation routing"
-  version: "2.0.0"
-  description: "Author a spec to ready-to-implement with the deterministic Spec Kit workflow author that this extension ships (workflows/author), on the developer's machine and on GitHub, keep docs/architecture in sync with each plan and implementation, route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow, refine the parallel task groups after /speckit-tasks, diagnose implementations that stopped, and archive implemented specs"
+  version: "2.1.0"
+  description: "Author a spec to ready-to-implement with the deterministic Spec Kit workflow author that this extension ships (workflows/author), on the developer's machine and on GitHub, implement one task, converge, repair, and resolve merge conflicts with the deterministic workflows implement-task, converge, repair, and resolve, keep docs/architecture in sync with each plan and implementation, route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow, refine the parallel task groups after /speckit-tasks, diagnose implementations that stopped, and archive implemented specs"
   author: socalytics
   repository: https://github.com/markusheiliger/socalytics
   license: MIT

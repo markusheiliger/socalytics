@@ -15,7 +15,8 @@ function workflows() {
         file,
         name: text.match(/^name: (.+)$/m)?.[1].trim(),
         levels: [...new Set([...text.matchAll(/^\s+level: (\w+)$/gm)].map((match) => match[1]))],
-        copilot: /actions\/speckit-copilot/.test(text),
+        // Copilot runs directly (speckit-copilot) or in a gha Spec Kit workflow (speckit-workflow).
+        copilot: /actions\/speckit-(copilot|workflow)\b/.test(text),
         engine: text.match(/^engine: (\w+)$/m)?.[1] ?? null,
       };
     });

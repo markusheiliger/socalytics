@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "philosophy-profile",
+  "id": "coach-jurgen-klopp",
+  "version": "1.0.0",
+  "dimensionSet": { "id": "coach-philosophy-dimensions", "version": "1.0.0" },
+  "weights": {
+    "pressing-intensity": { "weight": 20, "rationale": "Provisional hypothesis: pressing participation as a primary attention share.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "possession-control": { "weight": 10, "rationale": "Provisional hypothesis: possession is a means to win the ball back and progress.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "positional-structure": { "weight": 10, "rationale": "Provisional hypothesis: structure supports pressing rather than leading.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "spatial-compactness": { "weight": 15, "rationale": "Provisional hypothesis: compact distances enable collective pressing.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "transition-threat": { "weight": 20, "rationale": "Provisional hypothesis: fast recovery-to-progression as a primary attention share.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "set-play-leverage": { "weight": 5, "rationale": "Provisional hypothesis: restarts receive a small attention share.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "vertical-progression": { "weight": 15, "rationale": "Provisional hypothesis: direct advancement after regains.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "game-state-adaptation": { "weight": 5, "rationale": "Provisional hypothesis: a consistent plan with limited state-driven change.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." }
+  },
+  "author": "SocAlytics architecture",
+  "reviewers": { "architecture": ["architecture-review"], "footballDomain": ["football-domain-review"] }
+}

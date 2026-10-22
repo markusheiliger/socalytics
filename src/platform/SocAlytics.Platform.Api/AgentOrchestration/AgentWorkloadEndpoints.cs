@@ -21,6 +21,12 @@ internal sealed record AgentLeaseRequestDto(string? FencingToken);
 
 internal sealed record AgentLeaseResponseDto(Guid AttemptId, DateTimeOffset LeaseExpiresAt);
 
+internal sealed record PinnedAgentVersionDto(string AgentId, string Version, string Digest, JsonElement Document);
+
+internal sealed record PinnedArtifactDto(string Kind, string Id, string Version, string Digest, JsonElement Document);
+
+internal sealed record PinnedAgentArtifactsDto(PinnedAgentVersionDto AgentVersion, IReadOnlyList<PinnedArtifactDto> Artifacts);
+
 internal sealed record AgentCheckpointResponseDto(Guid AttemptId, int Sequence, bool Replayed);
 
 internal sealed record AgentCompletionResponseDto(Guid AttemptId, Guid InvocationId, string InvocationState, bool Replayed);
@@ -96,6 +102,17 @@ internal static class AgentWorkloadEndpoints
 			.ProducesProblem(StatusCodes.Status400BadRequest)
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict);
+		routes.MapPost("/api/v1/agent-orchestration/attempts/{attemptId:guid}/pinned-artifacts", ReadPinnedArtifactsAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AgentWorkload)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithTags("Agent workload")
+			.WithName("readPinnedAgentArtifacts")
+			.Accepts<AgentLeaseRequestDto>("application/json")
+			.Produces<PinnedAgentArtifactsDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
 		routes.MapPost("/api/v1/agent-orchestration/attempts/{attemptId:guid}/checkpoints", RecordCheckpointAsync)
 			.RequireAuthorization(AuthorizationPolicyNames.AgentWorkload)
 			.AddEndpointFilter<RequireHttpsEndpointFilter>()
@@ -138,6 +155,33 @@ internal static class AgentWorkloadEndpoints
 		return result.IsSuccess
 			? Results.Ok(new AgentLeaseResponseDto(result.Value.AttemptId, result.Value.LeaseExpiresAt))
 			: Failure(result.Failure);
+	}
+
+	private static async Task<IResult> ReadPinnedArtifactsAsync(
+		Guid attemptId, HttpContext http, ReadPinnedAgentArtifactsHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		if (ClientId(http) is not { } clientId)
+		{
+			return ProblemResults.From(OperationFailure.Unauthenticated());
+		}
+
+		var body = await ReadBodyAsync<AgentLeaseRequestDto>(http, cancellationToken);
+		if (string.IsNullOrWhiteSpace(body?.FencingToken) || body.FencingToken.Length > 255)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("fencingToken", "invalid")));
+		}
+
+		var result = await handler.HandleAsync(new ReadPinnedAgentArtifactsCommand(attemptId, clientId, body.FencingToken), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return Failure(result.Failure);
+		}
+
+		var value = result.Value;
+		return Results.Ok(new PinnedAgentArtifactsDto(
+			new PinnedAgentVersionDto(value.AgentVersion.AgentId, value.AgentVersion.Version, value.AgentVersion.Digest, value.AgentVersion.Document),
+			[.. value.Artifacts.Select(a => new PinnedArtifactDto(a.Kind, a.Id, a.Version, a.Digest, a.Document))]));
 	}
 
 	private static async Task<IResult> RecordCheckpointAsync(

@@ -6,6 +6,7 @@ import { specDir, stageLabelChange } from './speckit-prepare-core.mjs';
 import { archiveSpec, referenceOnlySpecChanges, refreshArchivedReferences, resolveSpecConflicts } from './speckit-archive.mjs';
 import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
+import { workflowFailure } from './speckit-workflow-job.mjs';
 import {
   CHECK_CONFLICT,
   CHECK_DONE,
@@ -44,7 +45,6 @@ import {
   renderFlakyLines,
   renderNextSteps,
   renderRepairMarker,
-  renderResolvePrompt,
   renderSyncSkippedMarker,
   renderBaseOwnedMarker,
   baseOwnedChanges,
@@ -174,7 +174,7 @@ function isSafeRelativePath(file) {
 // `baseOwned`, recorded on the pull request, and hold the final merge for a person's review. Deleting such files,
 // protected paths, and the environment actions stay off limits. Runs during the uncommitted merge, so HEAD is the
 // implementation branch.
-function resolutionScope({ git, baseSha, paths, deleted = [] }) {
+export function resolutionScope({ git, baseSha, paths, deleted = [] }) {
   if (paths.length === 0) return { reasons: [], baseOwned: [] };
   const reasons = [];
   if (paths.length > MAX_CHANGED_FILES) reasons.push(`the resolution changes more than ${MAX_CHANGED_FILES} files besides the conflicts`);
@@ -235,9 +235,13 @@ export function checkStagedConvergence({ git, workspace, folder, patchBytes }) {
   return { ...validation, reasons: [...sizeReasons(patchBytes, paths), ...validation.reasons], paths };
 }
 
+// The agent runs as a Spec Kit workflow (the speckit-workflow action): a run that did not complete reports the
+// workflow's own reason (workflow.json); agent-exit.txt says whether it completed.
 function agentReasons(resultDir) {
   const exitFile = path.join(resultDir, 'agent-exit.txt');
   const agentExit = existsSync(exitFile) ? Number(readFileSync(exitFile, 'utf8').trim()) : null;
+  const failure = workflowFailure(resultDir);
+  if (failure) return { agentExit, reasons: [failure] };
   if (agentExit === 124) return { agentExit, reasons: ['the agent did not finish within 60 minutes'] };
   if (agentExit !== 0) return { agentExit, reasons: [agentExit === null ? 'the agent did not run' : `the agent exited with code ${agentExit}`] };
   return { agentExit, reasons: [] };
@@ -275,7 +279,6 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   const baseBranch = baseBranchFromEnv(env);
   const baseSha = gitOrThrow(git, ['rev-parse', `refs/remotes/origin/${baseBranch}`]).trim();
   const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
-  const forkPoint = git(['merge-base', 'HEAD', baseSha]);
   const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', baseSha]);
   const root = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
   const specs = resolveSpecConflicts({ git, root, folder });
@@ -316,14 +319,6 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   setOutput(env, 'agent', String(agent));
   setOutput(env, 'verify', String(inputs.kind === 'merge' && conflicts.length === 0 && result.reasons.length === 0));
   setOutput(env, 'environment', String(inputs.kind === 'merge' && result.environment));
-  setOutput(env, 'prompt', agent ? renderResolvePrompt({
-    folder,
-    files: conflicts,
-    base: baseBranch,
-    forkPoint: forkPoint.status === 0 ? forkPoint.stdout.trim() : null,
-    archived: isArchivedIn(root, folder),
-    guidance: env.SPECKIT_GUIDANCE,
-  }) : '');
   log(conflicts.length > 0 ? `Conflicts with ${baseBranch} (${baseSha}): ${conflicts.join(', ')}` : `Merged ${baseBranch} (${baseSha}) cleanly.`);
   return { exitCode: 0, result };
 }

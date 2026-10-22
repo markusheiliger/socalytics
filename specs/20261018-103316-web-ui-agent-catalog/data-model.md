@@ -3,7 +3,7 @@
 The Web UI stores nothing durable. These are the application-owned client models in
 `src/clients/web/src/platform/models/agentCatalog.ts` that `agentCatalogAdapter` maps from the generated client; they
 live only in the in-memory query cache and in open form state. Field meanings and limits are defined by
-[Agent Catalog Registry](../20261018-101517-agent-catalog-registry/data-model.md) and the contracts under
+[Agent Catalog Registry](../archive/20261018-101517-agent-catalog-registry/data-model.md) and the contracts under
 `contracts/agent-catalog/`; unknown enumeration values are kept as raw strings (FR-022).
 
 ## Read models

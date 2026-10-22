@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "model-selection",
+  "id": "specialist-openai-default",
+  "version": "1.0.0",
+  "provider": "openai",
+  "model": "gpt-4.1",
+  "deployment": "specialist-default",
+  "parameters": {
+    "temperature": 0.2,
+    "topP": 1,
+    "maxOutputTokens": 4096,
+    "reasoningEffort": "medium"
+  }
+}

@@ -11,7 +11,7 @@ description: "Task list for Web UI Agent Catalog Administration"
 
 **Tests**: Required. FR-023 asks for automated tests of the adapter mapping, every violation and refusal explanation, the form hints, the confirmations with cancellation, self-approval note, and differentiation acknowledgement, the "has changed" handling, role-based access, accessibility rule checks, verbatim prompt text, the online-only rule, and a browser test against the running platform; test work is part of the tasks below.
 
-**Organization**: Tasks are grouped by user story so each story can be implemented and tested independently. All paths are relative to the repository root; Web UI paths start with `src/clients/web/`. The area builds on [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md) and on [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/spec.md) (its `ResponseMetadataHandler`, `sendWithMetadataFor`, `digest.ts`, `DigestText.tsx`, and `memberNames.ts`), which are merged before this feature is implemented.
+**Organization**: Tasks are grouped by user story so each story can be implemented and tested independently. All paths are relative to the repository root; Web UI paths start with `src/clients/web/`. The area builds on [Agent Catalog Registry](../archive/20261018-101517-agent-catalog-registry/spec.md) and on [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/spec.md) (its `ResponseMetadataHandler`, `sendWithMetadataFor`, `digest.ts`, `DigestText.tsx`, and `memberNames.ts`), which are merged before this feature is implemented.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -57,7 +57,7 @@ description: "Task list for Web UI Agent Catalog Administration"
 ### Shared components and simulated API
 
 - [ ] T012 [P] Create `src/clients/web/src/features/agent-catalog/CatalogText.tsx` (verbatim, pre-formatted, bounded, scrollable plain text through React text nodes, no markup interpretation) and `src/clients/web/src/features/agent-catalog/ViolationSummary.tsx` (violations without a known location above a form, announced to assistive technology), with `src/clients/web/tests/unit/features/agent-catalog/CatalogText.test.tsx` (markup and `{{…}}` placeholders shown verbatim) and `src/clients/web/tests/unit/features/agent-catalog/ViolationSummary.test.tsx` (FR-012, FR-021)
-- [ ] T013 [P] Extend `src/clients/web/tests/e2e/support/simulatedApi.ts` with the agent catalog operations of `specs/20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md` and in-memory state seeded like the Development and Test seed (nine baseline agents, `specialist-tactics` and `specialist-video-analysis` `0.1.0` approved and enabled with their four artifacts), returning `ETag`, `201`/`200` replays, every validation problem and refusal, `412`/`428` for stale `If-Match`, and controls to inject agent versions in any state registered by any member, Coach Agent artifacts, distances, and stale changes (FR-023)
+- [ ] T013 [P] Extend `src/clients/web/tests/e2e/support/simulatedApi.ts` with the agent catalog operations of `specs/archive/20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md` and in-memory state seeded like the Development and Test seed (nine baseline agents, `specialist-tactics` and `specialist-video-analysis` `0.1.0` approved and enabled with their four artifacts), returning `ETag`, `201`/`200` replays, every validation problem and refusal, `412`/`428` for stale `If-Match`, and controls to inject agent versions in any state registered by any member, Coach Agent artifacts, distances, and stale changes (FR-023)
 - [ ] T014 [P] Create `src/clients/web/tests/unit/features/agent-catalog/fixtures.ts` with shared view-test fixtures (baseline, agents, versions, enablements, one record of every kind, distances with and without `reviewRequired`) and a fake `agentCatalogAdapter` (FR-023)
 
 ### Navigation entry
@@ -197,7 +197,7 @@ description: "Task list for Web UI Agent Catalog Administration"
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: no dependencies; needs [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md) and [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/spec.md) merged.
+- **Setup (Phase 1)**: no dependencies; needs [Agent Catalog Registry](../archive/20261018-101517-agent-catalog-registry/spec.md) and [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/spec.md) merged.
 - **Foundational (Phase 2)**: depends on Setup; blocks all user stories.
 - **US1 (Phase 3)**: depends on Foundational.
 - **US2 (Phase 4)**: depends on US1 (it adds actions to `AgentPage.tsx` and `AgentVersionPage.tsx`).

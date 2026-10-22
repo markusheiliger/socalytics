@@ -119,7 +119,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           path: tooling
           persist-credentials: false
 
@@ -229,15 +229,16 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_STAGE: ${{ steps.inputs.outputs.stage }}
         run: |
-          args=(-i mode=unattended -i publish=commit)
+          args=(-i mode=unattended -i publish=commit -i "tooling=$SPECKIT_TOOLING")
           if [ "$SPECKIT_MODE" = "author" ]; then
             args+=(-i "feature=$(cat .speckit-author/feature.txt)")
             if [ -n "$SPECKIT_STAMP" ]; then args+=(-i "stamp=$SPECKIT_STAMP"); fi
           else
             args+=(-i "feature=$SPECKIT_FOLDER" -i "stage=$SPECKIT_STAGE" -i "feedback=$(cat .speckit-author/feedback.txt)")
           fi
-          # An empty standard input: the run never waits for a person.
-          specify workflow run author --json "${args[@]}" < /dev/null > .speckit-author/run.json || true
+          # The definition and its helper come from the trusted tooling checkout, not from the checked-out branch; the
+          # run works on the workspace. An empty standard input: the run never waits for a person.
+          specify workflow run "$SPECKIT_TOOLING/.specify/workflows/author/workflow.yml" --json "${args[@]}" < /dev/null > .speckit-author/run.json || true
           cat .speckit-author/run.json
 
       - name: Package the result
@@ -289,7 +290,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           path: tooling
           persist-credentials: false
 
