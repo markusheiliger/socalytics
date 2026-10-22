@@ -13,7 +13,7 @@ workflow:
 # - Every gate is a top-level step or alone (with what follows it) in a top-level `if`: resuming a paused nested step
 #   reruns its parent's whole body, which must never repeat an agent step. Loops are therefore unrolled.
 # - Every gate names its verdict input after its id (`spec-verdict` → `spec_verdict`), so a run without a terminal
-#   pauses at the gate and `specify workflow resume <run> -i <input>=<choice>` answers it (the /speckit-author skill);
+#   pauses at the gate and `specify workflow resume <run> -i <input>=<choice>` answers it (the /speckit-gha-author skill);
 #   in a terminal the gate asks directly. The first option of a gate is its recommended one.
 
 requires:
