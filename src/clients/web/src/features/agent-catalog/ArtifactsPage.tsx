@@ -12,7 +12,7 @@ import { DigestText } from '../registry/DigestText';
 import { FailureAlert } from '../shared/FailureAlert';
 import { useArtifacts } from './agentCatalogKeys';
 
-const KIND_OF_PATH: Record<string, string> = {
+export const KIND_OF_PATH: Record<string, string> = {
   'prompt-templates': 'prompt-template',
   'model-selections': 'model-selection',
   'tool-policies': 'tool-policy',

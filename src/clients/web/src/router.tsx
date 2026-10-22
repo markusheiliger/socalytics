@@ -18,6 +18,12 @@ import { MyRequestPage } from './features/managers/MyRequestPage';
 import { MyRequestsPage } from './features/managers/MyRequestsPage';
 import { PairingPage } from './features/managers/PairingPage';
 import { RegistrationPage } from './features/managers/RegistrationPage';
+import { AgentCatalogOverviewPage } from './features/agent-catalog/AgentCatalogOverviewPage';
+import { AgentPage } from './features/agent-catalog/AgentPage';
+import { AgentVersionPage } from './features/agent-catalog/AgentVersionPage';
+import { ArtifactPage } from './features/agent-catalog/ArtifactPage';
+import { ArtifactsPage } from './features/agent-catalog/ArtifactsPage';
+import { CatalogBaselinePage } from './features/agent-catalog/CatalogBaselinePage';
 import { ImagePage } from './features/registry/ImagePage';
 import { ImagesPage } from './features/registry/ImagesPage';
 import { ProfileCreatePage } from './features/registry/ProfileCreatePage';
@@ -113,6 +119,12 @@ export const appRoutes: RouteObject[] = [
           { path: '/registry/workflows', element: clubAdminOnly(<WorkflowsPage />) },
           { path: '/registry/workflows/new', element: clubAdminOnly(<WorkflowCreatePage />) },
           { path: '/registry/workflows/:workflowId/versions/:version', element: clubAdminOnly(<WorkflowVersionPage />) },
+          { path: '/agent-catalog', element: clubAdminOnly(<AgentCatalogOverviewPage />) },
+          { path: '/agent-catalog/baseline', element: clubAdminOnly(<CatalogBaselinePage />) },
+          { path: '/agent-catalog/agents/:agentId', element: clubAdminOnly(<AgentPage />) },
+          { path: '/agent-catalog/agents/:agentId/versions/:version', element: clubAdminOnly(<AgentVersionPage />) },
+          { path: '/agent-catalog/artifacts/:kind', element: clubAdminOnly(<ArtifactsPage />) },
+          { path: '/agent-catalog/artifacts/:kind/:artifactId/versions/:version', element: clubAdminOnly(<ArtifactPage />) },
         ],
       },
     ],
