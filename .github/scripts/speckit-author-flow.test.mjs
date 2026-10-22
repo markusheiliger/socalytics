@@ -26,7 +26,6 @@ import {
   readState,
   ready,
   result,
-  revise,
   revisedStage,
   runDir,
   stage,
@@ -313,16 +312,10 @@ test('markdown: checks the spec folder and the changed architecture, and collect
   assert.throws(() => markdownCheck({ rootDir, run: RUN, git, markdown: () => { throw new Error('Markdown diagnostics requires "markdownlint-cli2". Install it.'); } }), FlowError);
 }));
 
-test('revise records the reviewed stage and says how to give the feedback', () => withRepo(stateFile({ folder: FOLDER }), (rootDir) => {
-  assert.throws(() => revise({ rootDir, run: RUN, stage: 'plan' }), (error) => error instanceof FlowError && error.message.includes(`specify workflow run author -i feature=${FOLDER} -i stage=plan -i feedback="what should change"`));
-  assert.equal(readState(rootDir, RUN).revise, 'plan');
-  assert.throws(() => revise({ rootDir, run: RUN, stage: 'analyze' }), /revise needs --stage/);
-}));
-
 test('pending: says which gate a paused run waits for, and asks a round of questions or findings at once', () => {
   const paused = (step, output) => ({ status: 'paused', current_step_id: step, step_results: { [step]: { status: 'paused', output } } });
-  withRepo(runFile('state.json', paused('plan-verdict', { message: 'Review the plan', options: ['continue', 'revise', 'abort'], show_file: `specs/${FOLDER}/plan.md` })), (rootDir) => {
-    assert.deepEqual(pending({ rootDir, run: RUN }), { status: 'paused', kind: 'gate', step: 'plan-verdict', input: 'plan_verdict', message: 'Review the plan', options: ['continue', 'revise', 'abort'], recommended: 'continue', file: `specs/${FOLDER}/plan.md` });
+  withRepo(runFile('state.json', paused('publish-verdict', { message: 'Push it, commit only, or leave it uncommitted?', options: ['push', 'commit', 'none'] })), (rootDir) => {
+    assert.deepEqual(pending({ rootDir, run: RUN }), { status: 'paused', kind: 'gate', step: 'publish-verdict', input: 'publish_verdict', message: 'Push it, commit only, or leave it uncommitted?', options: ['push', 'commit', 'none'], recommended: 'push', file: null });
   });
   withRepo({ ...runFile('state.json', paused('answer-2-1', { message: 'q', options: ['recommended', 'A'] })), ...runFile('questions.json', QUESTIONS) }, (rootDir) => {
     const result = pending({ rootDir, run: RUN });
@@ -336,8 +329,8 @@ test('pending: says which gate a paused run waits for, and asks a round of quest
   withRepo({ ...runFile('state.json', { status: 'completed', current_step_id: 'handover-interactive', step_results: { 'publish-chosen': { output: { data: { action: 'push', pushed: true } } } } }), ...stateFile({ folder: FOLDER }) }, (rootDir) => {
     assert.deepEqual(pending({ rootDir, run: RUN }), { status: 'completed', step: 'handover-interactive', folder: FOLDER, publish: { action: 'push', pushed: true } });
   });
-  withRepo({ ...runFile('state.json', { status: 'failed', current_step_id: 'stop-for-plan-feedback', error: 'Shell command exited with code 1.', step_results: { 'stop-for-plan-feedback': { output: { stderr: 'Revision requested for specs/x. Run …\nShell command exited with code 1.' } } } }), ...stateFile({ folder: FOLDER, revise: 'plan' }) }, (rootDir) => {
-    assert.deepEqual(pending({ rootDir, run: RUN }), { status: 'failed', step: 'stop-for-plan-feedback', folder: FOLDER, error: 'Revision requested for specs/x. Run …', revise: 'plan' });
+  withRepo({ ...runFile('state.json', { status: 'failed', current_step_id: 'ready', error: 'Shell command exited with code 1.', step_results: { ready: { output: { stderr: 'specs/x is not ready to implement:\n- a blocker\nShell command exited with code 1.' } } } }), ...stateFile({ folder: FOLDER }) }, (rootDir) => {
+    assert.deepEqual(pending({ rootDir, run: RUN }), { status: 'failed', step: 'ready', folder: FOLDER, error: 'specs/x is not ready to implement:\n- a blocker' });
   });
 });
 

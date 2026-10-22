@@ -556,36 +556,21 @@ export function result({ rootDir, run, git }) {
   return writeResult(rootDir, run, { workflow: 'author', folder, title, publish: published, files: changed });
 }
 
-// Stops the run when a person chose to revise a stage (recorded for `pending`), and says how to run the workflow again
-// with the feedback; the next run starts at that stage.
-export function revise({ rootDir, run, stage: reviewed }) {
-  if (!FEEDBACK_STAGES.includes(reviewed)) throw new UsageError(`revise needs --stage ${FEEDBACK_STAGES.join(', --stage ')}.`);
-  const state = readState(rootDir, run);
-  writeState(rootDir, run, { ...state, revise: reviewed });
-  throw new FlowError([
-    `Revision requested for specs/${state.folder}. Run the workflow again with what should change:`,
-    '',
-    `  specify workflow run author -i feature=${state.folder} -i stage=${reviewed} -i feedback="what should change"`,
-    '',
-    `The run starts again at ${reviewed} and keeps everything before it.`,
-  ].join('\n'));
-}
-
 // What a paused run waits for, for the /speckit-gha-author skill, which asks the person in Chat and resumes the run with
-// `-i <input>=<choice>`. Every gate of the workflow names its verdict input after its id (`spec-verdict` →
-// `spec_verdict`); the gates of a clarification round (`answer-<round>-<n>`) and of a remediation round
+// `-i <input>=<choice>`. Every gate of the workflow names its verdict input after its id (`publish-verdict` →
+// `publish_verdict`); the gates of a clarification round (`answer-<round>-<n>`) and of a remediation round
 // (`fix-<round>-<n>`) are returned together, so they can be asked at once and answered in one resume. The first
 // option of a gate is its recommended one.
 export function pending({ rootDir, run }) {
   const described = describeRun(rootDir, run);
   const { status, step, state } = described;
-  const { folder = null, revise: reviewed = null } = readState(rootDir, run);
+  const { folder = null } = readState(rootDir, run);
   if (status === 'completed') {
     const results = state.step_results ?? {};
     const published = results['publish-chosen']?.output?.data ?? results['publish-input']?.output?.data ?? null;
     return { status, step, folder, publish: published };
   }
-  if (status !== 'paused') return { status, step, folder, error: described.error, revise: described.error.startsWith('Revision requested') ? reviewed : null };
+  if (status !== 'paused') return { status, step, folder, error: described.error };
   const questionRound = String(step).match(/^answer-(\d+)-\d+$/)?.[1];
   if (questionRound) {
     const list = validateQuestions(readJson(path.join(runDir(rootDir, run), 'questions.json'), 'The clarification questions'));
@@ -641,7 +626,6 @@ export function main(argv, { rootDir = process.cwd(), env = process.env, git = d
     ready: (run) => ready(at(run)),
     publish: (run) => publish({ ...at(run), choice: option(argv, 'choice') ?? '' }),
     result: (run) => result(at(run)),
-    revise: (run) => revise({ ...at(run), stage: option(argv, 'stage') }),
     pending: (run) => pending(at(run)),
   };
   return runFlowCommand(argv, commands, { script: 'speckit-author-flow.mjs', rootDir, helper: import.meta.url, log });

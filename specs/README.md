@@ -60,6 +60,9 @@ and you pick one. The skill runs the Spec Kit workflow
 the `gha` extension ships, and asks you its gates in
 Chat; it changes nothing itself. In autopilot the run takes every recommended
 choice (`/speckit-gha-author <idea> and push` pushes at the end).
+`/speckit-gha-author --repeat 3 and push` authors three proposed specs one after
+another, pushing each before the next run proposes the following one; it stops
+at the first run that fails.
 
 The same workflow runs in a terminal, where its gates ask directly:
 
@@ -77,29 +80,31 @@ you where a person decides:
    a gate asks you each one (its recommended option is marked), and the skill
    records your answers; at most three rounds, until no question is left. When
    a fourth scan still finds questions, the run stops and lists them, and you
-   answer them in your own words in the next run. A gate then shows the spec.
+   answer them in your own words in the next run.
 3. `/speckit-plan` selects the technical approach from the architecture and
    checks it against the constitution; a plan without `## Architecture Updates`
    is repaired with `/speckit-gha-architecture`. When the plan needs new
    frameworks, SDKs, or tools, an environment spec must be authored and merged
-   first. A gate shows the plan.
+   first.
 4. `/speckit-tasks` writes `tasks.md`; a missing documentation task for the
    Architecture Updates is added by a second pass, and `[P]` group warnings are
-   repaired with `/speckit-gha-refine`. A gate shows the phases and groups.
+   repaired with `/speckit-gha-refine`.
 5. `/speckit-analyze` checks the artifacts against each other; a gate asks you
    about each finding with a fix (up to five per round, the most severe first)
    before the approved ones are remediated, at most three analyses.
 6. Markdown findings in the spec are fixed by a formatting-only step. The
    publish checks require stage `tasked`, no open clarification markers,
    checklist items, or CRITICAL and HIGH findings, and a clean Markdown check.
-7. Your last decision: push the spec folder and the `docs/architecture/`
-   changes of its plan (committed together as `Spec: <title>`), commit them
-   only, or leave them uncommitted. The gate warns when you are not on the
-   default branch.
+7. Your review and last decision: the skill shows the spec, the plan with its
+   Architecture Updates, and the phases and `[P]` groups, and you push the spec
+   folder and the `docs/architecture/` changes of its plan (committed together
+   as `Spec: <title>`), commit them only, leave them uncommitted, or revise
+   them. The gate warns when you are not on the default branch.
 
-Choosing `revise` at a gate stops the run; `/speckit-gha-author` then asks what
-should change and starts again, and in a terminal the run prints how to
-continue, for example
+The run moves from spec to plan to tasks to analysis without asking. Choosing
+`revise` at the publish gate commits nothing; `/speckit-gha-author` asks what
+should change in the spec, plan, or tasks and starts a new run for that stage.
+In a terminal, choose `none` and run it again, for example
 `specify workflow run author -i feature=<folder> -i stage=plan -i feedback="split the read model"`:
 the run starts again at that stage and keeps everything before it. With
 `-i mode=unattended` every decision takes the recommended choice and

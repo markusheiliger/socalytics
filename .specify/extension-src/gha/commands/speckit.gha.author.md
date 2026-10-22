@@ -1,5 +1,5 @@
 ---
-description: Author one spec until it is ready to implement by running the deterministic Spec Kit workflow `author` and answering its gates in Chat; without input the workflow proposes the next logical spec from the architecture, and at the end it pushes the spec folder so the GitHub automation takes over.
+description: Author one spec (or, with --repeat <n>, n specs one after another) until it is ready to implement by running the deterministic Spec Kit workflow `author` and answering its gates in Chat; without input the workflow proposes the next logical spec from the architecture, and at the end it pushes the spec folder so the GitHub automation takes over.
 ---
 
 ## User Input
@@ -13,6 +13,11 @@ The input is empty (the workflow offers to continue the active spec, or proposes
 folder to continue at its next step, or a spec folder followed by a note: then pass the folder as `feature` and the note
 as `feedback` (the run reworks the stage before the folder's next step). A trailing `and push`, `and commit`, or
 `no commit` only matters in autopilot (see Modes).
+
+A leading `--repeat <n>` (`n` a positive integer) authors `n` specs one after another: one run of the workflow per
+spec, each proposing the next logical spec (see Repeat). It only goes with an otherwise empty input (besides the
+trailing publish words): refuse it together with a feature idea or a spec folder, and say that `--repeat` authors
+proposed specs only. `--repeat 1` is the same as no flag.
 
 ## Role
 
@@ -35,7 +40,13 @@ with the answers, and report.
 - **Interactive** (default): every gate is asked in Chat with the question tool.
 - **Autopilot** (the person set the Copilot session to autopilot; not part of the input): start the run with
   `-i mode=unattended` and `-i publish=<push | commit | none>` (`push` for `and push`, `commit` for `and commit`,
-  otherwise `none`). It takes every recommended choice and does not pause; go straight to the Report.
+  otherwise `none`; with `--repeat` above 1 always `push`, see Repeat). It takes every recommended choice and does
+  not pause; go straight to the Report.
+
+The workflow only stops where a person improves the spec or decides what is authored or published: which spec to author
+(an unpublished active spec, the proposed candidates), the clarification questions, missing tooling, the fixes of the
+analysis, and the publish gate. It moves from spec to plan to tasks to analysis without asking; the publish gate is
+where the person reviews the result before anything is committed.
 
 ## Running the workflow
 
@@ -64,15 +75,23 @@ leave the input out when it is empty. `run` prints JSON with the `run_id`; remem
    - `kind: "findings"` (a remediation round of the analysis): ask about every finding of `findings` in one form,
      one field per finding, titled with its severity, id, and summary, with its `fix` in the description and the
      `options` (`apply` first, as the recommended one). Then resume with one `-i <input>=<choice>` per finding.
-   - `kind: "gate"`: read the file it names, if any, and show the person its essentials in a few bullets: user
-     stories and clarifications for `spec.md`; decisions, structure, and Architecture Updates for `plan.md`; phases
-     and `[P]` groups for the task order; each candidate and why for the proposed specs; the spec folder and what is
-     published with it for the publish gate. Then ask the gate's `message` with its `options`, the first as the
+   - `kind: "gate"` with `input: "publish_verdict"` (the publish gate): this is the review point. Show the person the
+     essentials of the spec folder in a few bullets per artifact: the user stories and clarifications of `spec.md`;
+     the key decisions and the Architecture Updates of `plan.md`; the phases and `[P]` groups of `tasks.md` (print
+     them with `node .github/scripts/speckit-tasks-groups.mjs <folder>`); and the gate's `message` (what is published
+     with it, and a warning when the checkout is not on the default branch). Then ask with the gate's options plus
+     `revise`: `push` (recommended), `commit`, `none`, `revise`. For `push`, `commit`, or `none` resume with
+     `-i publish_verdict=<choice>`. For `revise`, resume with `-i publish_verdict=none` (nothing is committed), ask
+     in one form what should change (free text) and in which artifact (`spec`, `plan`, or `tasks`), then start a new
+     run with `-i feature=<folder> -i stage=<clarify for spec | plan | tasks> -i feedback="<their answer>"` (it reworks
+     that stage, keeps everything before it, and runs everything after it again) and continue at step 2.
+   - any other `kind: "gate"`: read the file it names, if any, and show the person its essentials in a few bullets
+     (each candidate and why for the proposed specs; the spec folder for an unpublished active spec; the missing
+     tooling for the environment gate). Then ask the gate's `message` with its `options`, the first as the
      recommended one, and resume with `-i <input>=<choice>`.
 3. **When `pending` reports `completed`:** go to the Report.
-4. **When it reports `failed` with a `revise` stage:** the person chose `revise`. Ask what should change (free text),
-   then start a new run with `-i feature=<folder> -i stage=<revise> -i feedback="<their answer>"` (it starts again at
-   that stage and keeps everything before it) and continue at step 2.
+4. **When it reports `failed` because the folder's next step does not allow a stage:** show the error and start the
+   run again without `stage`, with the feedback only (it reworks the stage before the folder's next step).
 5. **When it reports `failed` because clarification questions remain after three rounds:** ask the person the listed
    questions as free text in one form, then start a new run with
    `-i feature=<folder> -i stage=clarify -i feedback="<the questions with their answers>"`, and continue at step 2.
@@ -84,10 +103,27 @@ leave the input out when it is empty. `run` prints JSON with the `run_id`; remem
    run starts at the stage that stopped); for a git failure, fixing the checkout (for example checking out a branch)
    and running this skill again for the folder. Do not retry on your own.
 
+## Repeat
+
+With `--repeat <n>` and `n` above 1, run the Outline `n` times in a row, one run at a time and each without a
+`feature` input, so every run proposes the next logical spec from the specs that exist by then:
+
+- Every spec must be pushed before the next run starts: the next run would otherwise find it unpublished and continue
+  it instead of proposing a new one. In autopilot, start every run with `-i publish=push`; refuse `and commit` and
+  `no commit` together with `--repeat` above 1 before starting anything. Interactive runs still ask the publish gate;
+  when the person does not push, the next run asks whether to continue that spec or propose a new one.
+- Say before each run which of the `n` it is (for example "Authoring spec 2 of 3").
+- Stop at the first run that fails, is aborted, or stops for missing tooling (Outline steps 4 to 7 apply to it): do
+  not start the remaining runs, and report the authored specs, the stopped run, and its error.
+
 ## Report
 
 End with one short report: the spec folder (as a link), what the run published (`publish` from `pending`: pushed,
-committed, or left uncommitted, and the `docs/architecture/` files published with it), the decisions taken (the gates
-and the answers; in autopilot, that every decision took the recommended choice), and exactly one recommended next step: after a push, checking the spec twin that the
-`Spec Kit prepare` workflow creates and commenting `/speckit implement` on it; after a commit only, pushing it; when
-left uncommitted, running this skill again for the folder with `and push`, or pushing it by hand.
+committed, or left uncommitted, and the `docs/architecture/` files published with it), the essentials of the spec,
+plan, and tasks (the user stories, the key decisions and Architecture Updates, and the phases and `[P]` groups, in a
+few bullets), the decisions taken (the gates and the answers; in autopilot, that every decision took the recommended
+choice), and exactly one recommended next step: after a push, checking the spec twin that the `Spec Kit prepare`
+workflow creates and commenting `/speckit implement` on it; after a commit only, pushing it; when left uncommitted,
+running this skill again for the folder with `and push`, or pushing it by hand. With `--repeat`, report every spec
+this way in one report, in the order they were authored (and the stopped run, if any), and end with one recommended
+next step for all of them.
