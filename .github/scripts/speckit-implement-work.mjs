@@ -270,7 +270,7 @@ const isProtected = isProtectedPath;
 // A file of the implemented spec's own folder (active or archived).
 const isOwnSpecPath = (file, folder) => [specDir(folder), specDir(folder, { archived: true })].some((dir) => file.startsWith(`${dir}/`));
 
-// Spec Kit implement task (a conflict resolution) and Spec Kit implement, job "Verify the merged result": merges the base branch
+// Spec Kit implement task (a conflict resolution) and Spec Kit implement merge, job "Verify the merged result": merges the base branch
 // (SPECKIT_BASE_BRANCH) into the checked-out implementation branch without committing, records the base branch SHA and
 // any conflicted files, and prepares the agent prompt for conflict resolution. Conflicts in protected paths need a
 // person. After a clean merge it writes the paths the implementation changes compared to the base branch for the
@@ -592,7 +592,7 @@ export function combinedGroupEdits(git, start, head = 'HEAD') {
   return [...files].sort();
 }
 
-// Spec Kit implement, job "Verify the parallel tasks together" (read-only): decides whether the parallel tasks need a combined verification.
+// Spec Kit implement group, job "Verify the parallel tasks together" (read-only): decides whether the parallel tasks need a combined verification.
 // Writes combined=true|false and the combined files; the workflow verifies only a combination.
 export function runCombinedEdits({ git, env, log }) {
   const start = String(env.SPECKIT_GROUP_START ?? '').trim();
@@ -1111,7 +1111,7 @@ export async function runLandTasks({ client, git, env, folder, workspace, result
   return { exitCode: ok ? 0 : 1, ok, head, combined, outcomes };
 }
 
-// Spec Kit implement, job "Report the group verification" (write token, never runs agent-written code): after parallel tasks land,
+// Spec Kit implement group, job "Report the group verification" (write token, never runs agent-written code): after parallel tasks land,
 // the group decides how the phase continues. Without combined edits (SPECKIT_COMBINED=false) nothing was verified
 // together, because each task passed its own verification and the phase verification covers them; with combined
 // edits the affected tests of the group's changes ran. Success: the next tasks are shown as in progress on the new
@@ -1415,7 +1415,7 @@ function baseOwnedDiff(git, baseSha, files, baseBranch) {
   return ['', `<details><summary>Changes to files of \`${baseBranch}\`</summary>`, '', ['```diff', neutralizeMarkers(text).replaceAll('```', "'''"), '```'].join('\n'), '', '</details>'];
 }
 
-// Spec Kit implement, job "Merge into the base branch" (write token, no checkout of workspace code): reports the verified integration
+// Spec Kit implement merge, job "Merge into the base branch" (write token, no checkout of workspace code): reports the verified integration
 // and squash-merges the implementation into its base branch (the pull request's base), or asks for review when
 // automatic merging is off.
 export async function runMergeLand({ client, env, inputs, resultDir, workResult, log }) {
@@ -1647,7 +1647,7 @@ export async function pointPullRequestLinks(client, pull, folder, { baseBranch, 
   }
 }
 
-// Spec Kit implement, job "Archive the spec before the merge" (write token, trusted tooling; it never runs agent-written code): archives
+// Spec Kit implement merge, job "Archive the spec before the merge" (write token, trusted tooling; it never runs agent-written code): archives
 // the implemented spec on the implementation branch right before the merge, so the move to specs/archive/<folder> and
 // every rewritten reference land with the implementation. It works on the branch merged with the base branch, because
 // specs merged there since may link to this one, and it also points references to specs archived there since to the

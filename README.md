@@ -481,16 +481,18 @@ posts.
   and a run that reacts to a pull request, comment, or issue after that item
   by number (for example
   `Spec Kit orchestrate · pull request #214 synchronize · Implement: …`). Every run first prepares itself with the reusable
-  `Spec Kit implement decide` (`speckit-implement-decide.yml`, shown as
+  `Spec Kit implement prepare` (`speckit-implement-prepare.yml`, shown as
   `Prepare the run`): it decides what comes next from the state on GitHub
   (`Decide what comes next`), runs only the jobs of its kind, and starts the
   next run in the workflow of that run's kind (`Start the next run`), until
   the implementation is merged, waits for review, or needs a person. The run
   that starts the next one predicts its work without changing anything; when
   the state changed in the meantime, the run hands the work over to the right
-  workflow before it starts any attempt. `Spec Kit implement`
-  (`speckit-implement.yml`) starts a chain when the next work cannot be told
-  and reports stops. Every run starts with `Merge the base branch`,
+  workflow before it starts any attempt. A run without work (a stop at an
+  attempt limit, a failure, a finished implementation) runs in `Spec Kit
+  implement decide` (`speckit-implement-decide.yml`), which reports the stop,
+  starts the diagnosis, or marks the implementation done, and the chain ends
+  there. Every run starts with `Merge the base branch`,
   which merges the base branch when it is ahead and the next work is a phase
   that has not started, the convergence, or the merge; a conflict
   is resolved by the conflict resolution in the same run. Each task,

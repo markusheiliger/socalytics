@@ -71,7 +71,7 @@ import {
   MAX_PARALLEL_TASKS,
 } from './speckit-implement-core.mjs';
 
-// The implementation chain of one spec (workflow Spec Kit implement): every run decides one unit of work from the state
+// The implementation chain of one spec (the Spec Kit implement workflows): every run decides one unit of work from the state
 // on GitHub (job "decide"), runs it (a sequential or parallel group of tasks, the verification of a finished phase, a
 // guided repair, the convergence, a conflict resolution, or the merge), and starts the next run (job "continue"),
 // until the implementation is merged, waits for review, or needs a person.
@@ -452,7 +452,7 @@ async function reportSyncGivenUp(client, { decision, report }) {
   report.line(`Gave up merging \`${base}\`; the implementation continues on its current base.`);
 }
 
-// Spec Kit implement, job "decide" (write access to check runs, issues, and pull requests; never runs agent code):
+// Spec Kit implement prepare, job "decide" (write access to check runs, issues, and pull requests; never runs agent code):
 // validates the twin and its pull request, reports orphaned attempts, decides what comes next, reports stops (attempt
 // limit, diagnosis), and prepares it with its check runs: a group of tasks (`mode` sequential or parallel, `entries`
 // the matrix of the group's jobs), the verification of a finished phase, a writer-approved repair, the convergence or
@@ -620,7 +620,7 @@ function taskSummaries(tasksMarkdown) {
 }
 
 // What the next run of a twin's chain will work on, decided without changing anything: its subject for the run name
-// (renderRunSubject) and the workflow of its kind (implementWorkflowFor); Spec Kit implement when it cannot be told.
+// (renderRunSubject) and the workflow of its kind (implementWorkflowFor); Spec Kit implement decide when it cannot be told.
 export async function predictNextRun(client, env, { twin, pull }) {
   try {
     const folder = resolveTwins([await client.getIssue(Number(twin))]).byFolder.keys().next().value;
@@ -664,7 +664,7 @@ export async function runSync({ client, env, log, now = Date.now }) {
   return finish(result);
 }
 
-// Spec Kit implement, job "Record the phase verification" (write access to check runs and pull requests; never runs
+// Spec Kit implement verify, job "Record the phase verification" (write access to check runs and pull requests; never runs
 // agent code): records the verification of a finished phase (SPECKIT_VERIFY_RESULT is the verify job's result). A pass
 // is recorded as a successful verify attempt of the phase, so the chain moves on; a failure stops the implementation
 // for a person with a pending repair of the phase (or of its only task), like a failed task verification.

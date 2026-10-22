@@ -17,9 +17,9 @@ flowchart TD
     commands["<b>⚙ Spec Kit commands</b><br/>/speckit comments and<br/>amendment feedback"]
 
     subgraph chain["Implementation chain · one per spec"]
-        spec["<b>⚙ Spec Kit implement</b><br/>starts a chain, reports stops,<br/>hands work over to its kind"]
+        spec["<b>⚙ Spec Kit implement decide</b><br/>a run without work: reports stops,<br/>starts the diagnosis, marks done"]
         kinds["<b>⚙ Spec Kit implement group · phase verification · repair · merge</b><br/>one unit per run: a sequential or parallel group (≤ 5 at once),<br/>the verification of a phase, a repair, or the merge"]
-        decide["<b>⚙ Spec Kit implement decide</b><br/>merge the base branch → decide what comes next"]
+        prepare["<b>⚙ Spec Kit implement prepare</b><br/>merge the base branch → decide what comes next"]
         work["<b>🤖✍ Spec Kit implement task</b><br/>a task, the convergence, a repair, or a conflict resolution:<br/>gha Spec Kit workflow → verify → land"]
     end
 
@@ -44,8 +44,8 @@ flowchart TD
     orchestrate -- "creates branch, draft pull request" --> implPr
     orchestrate -- "starts or restarts" --> spec
 
-    spec == "prepare the run" ==> decide
-    kinds == "prepare the run" ==> decide
+    spec == "prepare the run" ==> prepare
+    kinds == "prepare the run" ==> prepare
     spec -- "start the work's kind" --> kinds
     kinds -- "start the next run" --> kinds
     kinds -- "stop, wait, done" --> spec
@@ -90,12 +90,12 @@ They become ready only after final verification, immediately before an automatic
 | --- | --- | --- | --- |
 | Spec Kit prepare | [speckit-prepare.yml](speckit-prepare.yml) | Push to `specs/**`, stage label changes (restored when a person made them), manual | Keeps one twin issue per spec folder, infers dependencies between new twins, validates implement requests; a dispatched, applying run then dispatches `Spec Kit orchestrate`. |
 | Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; requested twins that block running implementations start regardless and first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
-| Spec Kit implement | [speckit-implement.yml](speckit-implement.yml) | Orchestrate, commands, the chain | Starts the implementation chain of a spec when the next work cannot be told, reports stops (attempt limit, diagnosis), and hands any work over to the workflow of its kind. |
+| Spec Kit implement decide | [speckit-implement-decide.yml](speckit-implement-decide.yml) | Orchestrate, commands, the chain | The run without work: when the next work is none (a stop at an attempt limit, a failure, a running merge, a finished implementation) or cannot be told, it decides and acts on it (reports the stop, starts the diagnosis, marks the implementation done); work it finds after all is handed over to the workflow of its kind. |
 | Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Orchestrate, commands, the chain | A sequential group (consecutive tasks without `[P]`, one at a time), a parallel group (consecutive `[P]` tasks under one heading, at most 5 at once, verified together only when a landing merged a sibling's edits to the same files), or the convergence or a conflict resolution as a group of one; then starts the next run. |
 | Spec Kit implement verify | [speckit-implement-verify.yml](speckit-implement-verify.yml) | The chain | The full verification of a finished phase in a run of its own; a failure stops with a pending repair. |
 | Spec Kit implement repair | [speckit-implement-repair.yml](speckit-implement-repair.yml) | The chain | A writer-approved repair of landed code and the reverification of its original failed scope. |
 | Spec Kit implement merge | [speckit-implement-merge.yml](speckit-implement-merge.yml) | The chain | Archives the spec, verifies the prospective merged tree with a read-only token, then squash-merges or hands to a person. |
-| Spec Kit implement decide | [speckit-implement-decide.yml](speckit-implement-decide.yml) | Every workflow of the chain (`workflow_call`) | Prepares a run: checks the spec issue, merges the base branch when the next work needs it, and decides what comes next; work of another kind than the calling workflow's is handed over before any attempt starts. |
+| Spec Kit implement prepare | [speckit-implement-prepare.yml](speckit-implement-prepare.yml) | Every workflow of the chain (`workflow_call`) | Prepares a run: checks the spec issue, merges the base branch when the next work needs it, and decides what comes next; work of another kind than the calling workflow's is handed over before any attempt starts. |
 | Spec Kit implement task | [speckit-implement-task.yml](speckit-implement-task.yml) | Implement group, repair (`workflow_call`) | One task, the convergence, a repair, or a conflict resolution: runs its gha Spec Kit workflow with a read-only token, packages and verifies the change, then validates, ticks, commits, pushes, and reports it through a write-isolated land job. |
 | Spec Kit commands | [speckit-commands.yml](speckit-commands.yml) | Pull request comments, reviews, and events | Handles `/speckit` commands (`retry`, `sync`, `author`, and `implement` on twin issues, `help`) and feedback on amendments and authored spec pull requests; keeps Spec Kit pull requests out of stacks. |
 | Spec Kit diagnose | [speckit-diagnose.md](speckit-diagnose.md) ([lock](speckit-diagnose.lock.yml)) | The implementation chain, analyze | Automatically explains why an implementation stopped and recommends one ready-to-post command that fits the category, chosen from the "Commands you can recommend" reference its evidence generates from `PR_COMMANDS`; for spec artifact defects opens and reworks an amendment pull request. |
@@ -138,7 +138,7 @@ contracts differ.
 Each run of the chain does one of these, in the workflow of its kind: a sequential or parallel group, the convergence
 (`/speckit-converge`), or a conflict resolution (Spec Kit implement group), the verification of a finished phase (Spec
 Kit implement verify), a guided repair (Spec Kit implement repair), or the merge (Spec Kit implement
-merge). Every run first prepares itself with Spec Kit implement decide; the run that starts the next one predicts its
+merge). Every run first prepares itself with Spec Kit implement prepare; the run that starts the next one predicts its
 work without changing anything and starts the workflow of its kind. When the state changed in the meantime (a person
 pushed, the base branch moved), the run hands the work over to the right workflow before it starts any attempt, so no
 attempt is charged to it. A run that finds no work (a stop, a wait, or a finished implementation) reports it itself. A failed verification of already-landed code records
@@ -209,7 +209,7 @@ from the implementation branch, so a branch created before it existed gets it wi
 
 The merge first archives the spec to `specs/archive/<folder>` on the implementation branch (job `archive`),
 so the archive lands with the implementation. Each workflow of the chain runs only its own jobs, one after another:
-`Prepare the run` (Spec Kit implement decide: `Merge the base branch`, `Decide what comes next`), the jobs of its kind
+`Prepare the run` (Spec Kit implement prepare: `Merge the base branch`, `Decide what comes next`), the jobs of its kind
 (for example `T013 / Implement T013`, `Verify the parallel tasks together`, `Report the group verification`), and
 `Start the next run`. Prepare, orchestrate, the workflows of the chain, and author also have a `refuse` job that only
 runs, and fails, when started from a branch other than the default branch.
@@ -217,7 +217,7 @@ runs, and fails, when started from a branch other than the default branch.
 The workflows that work on one spec (the workflows of the implementation chain, author, diagnose, and analyze) take
 its spec twin as the input `issue` and check it first: the step "Check the spec issue" (`speckit-issue.mjs check`)
 fails unless the number names an issue, not a pull request, labelled `speckit:spec`, and the jobs that write run only
-when it passed. The chain checks it in `Merge the base branch` of Spec Kit implement decide (and `decide` runs only
+when it passed. The chain checks it in `Merge the base branch` of Spec Kit implement prepare (and `decide` runs only
 after it passed) and in the work job of Spec Kit implement task (its `land` job runs only after it passed). The scripts keep calling it the twin
 (`SPECKIT_TWIN`).
 
@@ -368,7 +368,7 @@ engine of GitHub Agentic Workflows.
 | Flow branch | Workflow | AI | Command guidance reaches it |
 | --- | --- | --- | --- |
 | Dependency inference for new twins | Spec Kit prepare | Copilot CLI, level `light` | never |
-| Scheduling, chains, the decide and `sync` jobs | Spec Kit orchestrate, implement, implement decide | none (script) | never |
+| Scheduling, chains, the decide and `sync` jobs | Spec Kit orchestrate, implement decide, implement prepare | none (script) | never |
 | One task | Spec Kit implement task | Copilot CLI, level `standard`, in the Spec Kit workflow `implement-task` | `retry`: every task of the first group after the restart |
 | Guided repair of landed code | Spec Kit implement task | Copilot CLI, level `strong`, in the Spec Kit workflow `repair` | `retry` with a pending repair: the repair agent (without guidance only reverification runs) |
 | Convergence | Spec Kit implement task | Copilot CLI, level `strong`, in the Spec Kit workflow `converge` | `retry`: when the convergence is the first work after the restart |
