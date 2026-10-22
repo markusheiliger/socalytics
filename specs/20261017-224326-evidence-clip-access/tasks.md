@@ -85,7 +85,7 @@ uses.
 
 ### Web UI media origin and test media
 
-- [ ] T006 [P] Change `media-src` to `blob: <object-storage-origin>` when `SOCALYTICS_OBJECT_STORAGE_ORIGIN` is set
+- [x] T006 [P] Change `media-src` to `blob: <object-storage-origin>` when `SOCALYTICS_OBJECT_STORAGE_ORIGIN` is set
   (else `blob:`) in both policies of `src/clients/web/vite.config.ts`, and update the expected preview policy in
   `src/clients/web/tests/e2e/simulated/headers.spec.ts` (FR-022; contracts/media-origin-and-storage.md)
 - [x] T007 [P] Extend `src/clients/web/tests/e2e/support/fakeObjectStorage.mjs` and `fakeObjectStorage.d.mts` with

@@ -20,12 +20,12 @@ describe('container/default.conf.template', () => {
   });
 
   it.each([0, 1])('policy %i without an origin equals the module output', (index) => {
-    expect(policies[index].replace(` ${placeholder}`, '')).toBe(contentSecurityPolicy());
+    expect(policies[index].replaceAll(` ${placeholder}`, '')).toBe(contentSecurityPolicy());
   });
 
   it.each([0, 1])('policy %i with an origin equals the module output', (index) => {
     const origin = 'https://storage.example.test';
-    expect(policies[index].replace(placeholder, origin)).toBe(contentSecurityPolicy(origin));
+    expect(policies[index].replaceAll(placeholder, origin)).toBe(contentSecurityPolicy(origin));
   });
 
   it.each(Object.entries(commonHeaders))('sets %s with the module value', (name, value) => {
@@ -40,14 +40,15 @@ describe('contentSecurityPolicy', () => {
 
   it('keeps connect-src to self without an origin', () => {
     expect(contentSecurityPolicy()).toContain("connect-src 'self';");
+    expect(contentSecurityPolicy()).toContain('media-src blob:;');
     expect(contentSecurityPolicy()).not.toContain('http');
   });
 
-  it('adds the origin to connect-src only', () => {
+  it('adds the origin to connect-src and media-src only', () => {
     const without = contentSecurityPolicy().split('; ');
     const withOrigin = contentSecurityPolicy(origin).split('; ');
     expect(withOrigin).toHaveLength(without.length);
     const changed = withOrigin.filter((directive, index) => directive !== without[index]);
-    expect(changed).toEqual([`connect-src 'self' ${origin}`]);
+    expect(changed).toEqual([`media-src blob: ${origin}`, `connect-src 'self' ${origin}`]);
   });
 });
