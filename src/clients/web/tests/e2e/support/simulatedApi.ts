@@ -275,7 +275,20 @@ export interface SeededNode {
   executionScope: string;
   state: string;
   blockedByNodeKey: string | null;
-  jobs: { waiting: number; ready: number; claimed: number; completed: number; failed: number; blocked: number };
+  jobs: { waiting: number; ready: number; claimed: number; completed: number; failed: number; blocked: number; cancelled?: number };
+  /** `undefined` and `null` both answer `null` (not reported); an empty list is a reported empty dependency list. */
+  inputCoverage?: SeededInputCoverage[] | null;
+}
+
+export interface SeededInputCoverage {
+  upstreamNodeKey: string;
+  coverageMode: string;
+  minimumAcceptedFraction?: number | null;
+  accepted: number;
+  failed: number;
+  blocked: number;
+  skipped: number;
+  missing: number;
 }
 
 export interface SeededAnalysisRun {
@@ -291,6 +304,13 @@ export interface SeededAnalysisRun {
   runningAt: Date | null;
   terminatedAt: Date | null;
   requestedCapabilities: string[];
+  /** Status-read metadata; a seeded run is not current and not superseded unless the test says so. */
+  isCurrent?: boolean;
+  supersededBy?: { runId: string; recordingSetVersionId: string; recordingSetFinalizedAt: Date } | null;
+  supersededAt?: Date | null;
+  cancelledBy?: { memberId: string; accountName: string } | null;
+  cancellationReason?: string | null;
+  cancellationCause?: string | null;
   nodes: SeededNode[];
   streams: SeededFactStream[];
   /** Applied one per status read after the first, so a running run changes between polls; see `advanceAnalysisRun`. */
@@ -663,7 +683,14 @@ export class SimulatedApi {
   readonly analysisStates = new Map<string, SeededAnalysisRun>();
   /** Fact page size of the simulated platform (its default page size); tests may lower it to page. */
   factPageSize = 50;
+  /** Page size of the match's run list; `null` answers every run in one page, as before. */
+  analysisRunPageSize: number | null = null;
+  /** Opt-in controls for the status read of one run: a delay, a failure answered a number of times, and revoked access (404, as for a lost team scope). */
+  readonly analysisStatusDelays = new Map<string, number>();
+  readonly analysisStatusFailures = new Map<string, { status: number; remaining: number }>();
+  readonly revokedAnalysisRuns = new Set<string>();
   private readonly statusReads = new Map<string, number>();
+  private currentUrl = 'http://localhost/';
 
   /** Operational fixtures behind `/operations/**`; tests may replace or mutate them. */
   operationalSummary: SimulatedOperationalSummary = operationalSummaryFixture();
@@ -719,6 +746,12 @@ export class SimulatedApi {
       runningAt: run.runningAt,
       terminatedAt: run.terminatedAt,
       failureReason: run.failureReason,
+      cancelledBy: run.cancelledBy ?? null,
+      cancellationReason: run.cancellationReason ?? null,
+      cancellationCause: run.cancellationCause ?? null,
+      isCurrent: run.isCurrent ?? false,
+      supersededBy: run.supersededBy ?? null,
+      supersededAt: run.supersededAt ?? null,
       version: 1,
     };
     const index = this.analysisRuns.findIndex((r) => r.runId === run.runId);
@@ -734,13 +767,21 @@ export class SimulatedApi {
   ): Promise<void> {
     const parsed = /^\/analysis\/runs\/([^/]+)(?:\/(fact-streams|facts))?$/.exec(path);
     const run = parsed && this.analysisStates.get(parsed[1]);
-    const permitted = run && (members[role].teamRoles ?? []).some((r) => r.teamId === run.teamId);
+    const permitted =
+      run && !this.revokedAnalysisRuns.has(run.runId) && (members[role].teamRoles ?? []).some((r) => r.teamId === run.teamId);
     if (!parsed || !run || !permitted) return json(404, problem(404, 'Not found'));
 
     if (!parsed[2]) {
       const reads = this.statusReads.get(run.runId) ?? 0;
       this.statusReads.set(run.runId, reads + 1);
       if (reads > 0) this.advanceAnalysisRun(run.runId);
+      const delay = this.analysisStatusDelays.get(run.runId);
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      const failure = this.analysisStatusFailures.get(run.runId);
+      if (failure && failure.remaining > 0) {
+        failure.remaining--;
+        return json(failure.status, problem(failure.status, 'Simulated failure'));
+      }
       return json(200, {
         runId: run.runId,
         teamId: run.teamId,
@@ -754,8 +795,19 @@ export class SimulatedApi {
         runningAt: run.runningAt,
         terminatedAt: run.terminatedAt,
         version: 1,
+        cancelledBy: run.cancelledBy ?? null,
+        cancellationReason: run.cancellationReason ?? null,
+        cancellationCause: run.cancellationCause ?? null,
+        isCurrent: run.isCurrent ?? false,
+        supersededBy: run.supersededBy ?? null,
+        supersededAt: run.supersededAt ?? null,
         requestedCapabilities: run.requestedCapabilities,
-        nodes: run.nodes.map((n, i) => ({ nodeId: `00000000-0000-4000-8000-${String(900 + i).padStart(12, '0')}`, ...n })),
+        nodes: run.nodes.map((n, i) => ({
+          nodeId: `00000000-0000-4000-8000-${String(900 + i).padStart(12, '0')}`,
+          ...n,
+          jobs: { cancelled: 0, ...n.jobs },
+          inputCoverage: (n.inputCoverage ?? null)?.map((c) => ({ minimumAcceptedFraction: null, ...c })) ?? null,
+        })),
       });
     }
 
@@ -1767,6 +1819,7 @@ export class SimulatedApi {
       route.fulfill = (options) => fulfill({ ...options, headers: { ...options?.headers, 'SocAlytics-Minimum-Web-Version': version } });
     }
     const request = route.request();
+    this.currentUrl = request.url();
     const path = new URL(request.url()).pathname.replace(/^\/api\/v1/, '');
     const method = request.method();
     this.requests.push({ method, path, headers: request.headers() });
@@ -2005,6 +2058,22 @@ export class SimulatedApi {
     return json(200, run);
   }
 
+  /** Registers the recording set a seeded run refers to, so exact reads and supersession find it; `members` default to none. */
+  seedRecordingSet(run: Pick<SeededAnalysisRun, 'matchId' | 'teamId' | 'recordingSetVersionId'>, overrides: Partial<RecordingSetVersionDto> = {}): RecordingSetVersionDto {
+    const set: RecordingSetVersionDto = {
+      id: run.recordingSetVersionId,
+      matchId: run.matchId,
+      teamId: run.teamId,
+      finalizedAt: now,
+      members: [],
+      ...overrides,
+    };
+    const index = this.recordingSetVersions.findIndex((v) => v.id === set.id);
+    if (index >= 0) this.recordingSetVersions[index] = set;
+    else this.recordingSetVersions.push(set);
+    return set;
+  }
+
   /** Marks `runId` as superseded by `byRunId`, as the platform does when a run of a newer recording set starts; an unfinished run is cancelled without a member. */
   supersedeAnalysisRun(runId: string, byRunId: string, at = new Date()): void {
     const run = this.analysisRuns.find((r) => r.runId === runId);
@@ -2021,6 +2090,18 @@ export class SimulatedApi {
       run.cancellationCause = 'superseded';
     }
     run.version = (run.version ?? 0) + 1;
+    const seeded = this.analysisStates.get(runId);
+    const seededBy = this.analysisStates.get(byRunId);
+    if (seededBy) seededBy.isCurrent = true;
+    if (seeded) {
+      Object.assign(seeded, {
+        isCurrent: false,
+        supersededBy: run.supersededBy,
+        supersededAt: run.supersededAt,
+        cancellationCause: run.cancellationCause ?? seeded.cancellationCause,
+      });
+      if (run.state === 'Cancelled') Object.assign(seeded, { state: 'Cancelled', terminatedAt: at });
+    }
   }
 
   private handleMatchReads(path: string, json: (status: number, body: unknown) => Promise<void>) {
@@ -2040,7 +2121,18 @@ export class SimulatedApi {
       });
     }
     if (path === `/matches/${matchId}/analysis-runs`) {
-      return json(200, { items: this.analysisRuns.filter((r) => r.matchId === matchId), continuationToken: null });
+      const all = this.analysisRuns.filter((r) => r.matchId === matchId);
+      if (this.analysisRunPageSize === null) return json(200, { items: all, continuationToken: null });
+      const token = new URL(this.currentUrl).searchParams.get('continuationToken');
+      const offset = token === null ? 0 : /^simulated-runs:(\d+)$/.test(token) ? Number(token.split(':')[1]) : -1;
+      if (offset < 0) return json(400, problem(400, 'Validation failed', { errors: [{ field: 'continuationToken', code: 'invalid' }] }));
+      const end = offset + this.analysisRunPageSize;
+      return json(200, { items: all.slice(offset, end), continuationToken: end < all.length ? `simulated-runs:${end}` : null });
+    }
+    const setId = /^\/matches\/[^/]+\/recording-set-versions\/([^/]+)$/.exec(path)?.[1];
+    if (setId) {
+      const found = this.recordingSetVersions.find((v) => v.id === setId && v.matchId === matchId);
+      return found ? json(200, found) : json(404, problem(404, 'Not found'));
     }
     const upload = /^\/matches\/[^/]+\/upload-sessions\/([^/]+)$/.exec(path)?.[1];
     if (upload) {
