@@ -5,7 +5,7 @@ description: "Task list for Reference Analyst Container on the Python SDK"
 
 # Tasks: Reference Analyst Container on the Python SDK
 
-**Input**: Design documents from `specs/20261018-095952-reference-analyst/`
+**Input**: Design documents from `specs/archive/20261018-095952-reference-analyst/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
@@ -33,7 +33,7 @@ the fact feature's member fact read. The image is foundational because User Stor
 
 **Purpose**: The locked capability project that the environment's verification recognizes
 
-- [ ] T001 Create the independent project `src/analysts/capabilities/reference-media-probe/` (research R1, R6; FR-001,
+- [x] T001 Create the independent project `src/analysts/capabilities/reference-media-probe/` (research R1, R6; FR-001,
   FR-002): `pyproject.toml` (`[project].name` `socalytics-reference-media-probe`, version `1.0.0`, `requires-python`
   `>=3.12,<3.13`, dependency `socalytics-analyst-sdk` with `[tool.uv.sources]` `socalytics-analyst-sdk = { path =
   "../../sdk" }`, hatchling build backend with the `src/reference_media_probe` package, locked `dev` group with
@@ -57,7 +57,7 @@ the fact feature's member fact read. The image is foundational because User Stor
 
 ### Test support and payload schema
 
-- [ ] T002 [P] Add the capability test support (research R11): `tests/support/__init__.py`;
+- [x] T002 [P] Add the capability test support (research R11): `tests/support/__init__.py`;
   `tests/support/media.py` that creates synthetic MP4 media at test time with the `ffmpeg` on `PATH` (`testsrc2`,
   `64x64`, native `mpeg4`, a given frame rate (default 25), keyframe interval equal to the frame rate, a given duration
   and timestamp offset) inside a pytest temporary directory and fails the test with a message naming the missing tool
@@ -70,7 +70,7 @@ the fact feature's member fact read. The image is foundational because User Stor
   `result/` and `scratch/`; and `tests/conftest.py` with fixtures for both; `tests/test_support.py` validates each
   written document against the SDK's bundled schemas, so the support itself cannot drift from the contracts (all paths
   under `src/analysts/capabilities/reference-media-probe/`)
-- [ ] T003 [P] Add the payload schema `src/analysts/capabilities/reference-media-probe/schemas/frame-second-probe.payload.schema.json`
+- [x] T003 [P] Add the payload schema `src/analysts/capabilities/reference-media-probe/schemas/frame-second-probe.payload.schema.json`
   exactly as contracts/reference-media-probe.md § Fact Payload (JSON Schema 2020-12, `additionalProperties: false`,
   `"decodedFrames": { "type": "integer", "minimum": 0 }`, `meanLuma` with required `min`, `mean`, `max`, each
   `"minimum": 0, "maximum": 255`) and `src/analysts/capabilities/reference-media-probe/tests/test_payload_schema.py`
@@ -79,7 +79,7 @@ the fact feature's member fact read. The image is foundational because User Stor
 
 ### Analyst
 
-- [ ] T004 Implement the decoder in `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/probe.py`
+- [x] T004 Implement the decoder in `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/probe.py`
   (research R3; FR-008): read the video stream's `time_base` with `ffprobe -v error -select_streams v:0
   -show_entries stream=time_base -of csv=p=0 <path>`; then stream `ffprobe -v error -f lavfi -i
   movie=<escaped path>,signalstats -show_entries frame=best_effort_timestamp:frame_tags=lavfi.signalstats.YAVG
@@ -90,7 +90,7 @@ the fact feature's member fact read. The image is foundational because User Stor
   timestamp; add `src/analysts/capabilities/reference-media-probe/tests/test_probe.py` (25 fps synthetic media yields
   25 frames per second with increasing timestamps and luma in `[0, 255]`; an offset start keeps source timestamps;
   bytes that are not media raise `media-decode-failed`)
-- [ ] T005 Implement the facts and the entry point (research R2, R4; data-model "Frame-Second Fact"; FR-004 to FR-007):
+- [x] T005 Implement the facts and the entry point (research R2, R4; data-model "Frame-Second Fact"; FR-004 to FR-007):
   `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/facts.py` aggregates the probe's frames
   per match-second while streaming: a frame counts only when its media time lies inside the manifest's
   `requestedSourceInterval`, `SegmentMedia.to_match_ms` returns a match time, and that match time lies inside the
@@ -110,7 +110,7 @@ the fact feature's member fact read. The image is foundational because User Stor
 
 ### Declaration and image
 
-- [ ] T006 Add `src/analysts/capabilities/reference-media-probe/analyst-manifest.json` with exactly the values of
+- [x] T006 Add `src/analysts/capabilities/reference-media-probe/analyst-manifest.json` with exactly the values of
   data-model.md § Capability Declaration (`reference-media-probe` `1.0.0`, `low-level`, `segment`, `upstream: []`,
   `videoAccess: required`, `output.schemaVersion: 1.0.0`, `compatibleProfiles: ["reference-media-probe-dev"]`,
   `model.digest` `sha-256:` followed by 64 zeros, `runtime.constraints: ["linux-amd64"]`, `accelerators: []`,
@@ -120,7 +120,7 @@ the fact feature's member fact read. The image is foundational because User Stor
   `contracts/analysis/analyst-manifest/v1/analyst-manifest.schema.json` (with the common schema registered) located by
   walking up to the repository root, and asserts the capability id and version equal the package constants (research
   R8; FR-003, FR-009)
-- [ ] T007 Add the image (research R5 to R9; contracts/reference-media-probe.md § Build and § Run; FR-009 to FR-012):
+- [x] T007 Add the image (research R5 to R9; contracts/reference-media-probe.md § Build and § Run; FR-009 to FR-012):
   `src/analysts/capabilities/reference-media-probe/docker/fetch_verified.py` (standard library only: download a URL,
   verify its SHA-256 before extraction, extract only named members of a `tar.gz` or `tar.xz` archive without path
   traversal, and exit non-zero with a message naming the archive on any mismatch);
@@ -155,7 +155,7 @@ are accepted, indexed, and readable by members
 **Independent Test**: Build and register the image, finalize the synthetic recording under the 5-second test policy,
 let a Docker-runtime Manager execute the run, and read the reference capability's facts
 
-- [ ] T008 [US1] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/ReferenceAnalystImage.cs` (research
+- [x] T008 [US1] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/ReferenceAnalystImage.cs` (research
   R9, R12): find the repository root from `AppContext.BaseDirectory`, copy `src/analysts/sdk/` and
   `src/analysts/capabilities/reference-media-probe/` (without `.venv`, `__pycache__`, `.pytest_cache`, `dist`, and
   `tests`) to the same relative paths in a temporary context directory, build it with Testcontainers'
@@ -163,7 +163,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
   push it with the existing `DockerEngine` exactly as `TestAnalystImage.BuildAndPushAsync` does, delete the temporary
   context, and return a `PushedAnalystImage`; constants `CapabilityId = "reference-media-probe"`,
   `ProfileId = "reference-media-probe-dev"`, and the no-model digest
-- [ ] T009 [US1] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ReferenceAnalystEndToEndTests.cs` (research
+- [x] T009 [US1] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ReferenceAnalystEndToEndTests.cs` (research
   R12; FR-013, FR-014, FR-018; SC-001, SC-002, SC-004): start the harness with the OCI registry fixture as
   `DockerRuntimeEndToEndTests` does; build and push through `ReferenceAnalystImage`; register the image by digest,
   create and approve the `reference-media-probe-dev` profile (data-model.md § Analyst Profile: `videoPolicy`
@@ -191,7 +191,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 
 ### Packaging evidence
 
-- [ ] T010 [P] [US2] Add `src/analysts/capabilities/reference-media-probe/tests/test_dockerfile.py` (FR-010, FR-016,
+- [x] T010 [P] [US2] Add `src/analysts/capabilities/reference-media-probe/tests/test_dockerfile.py` (FR-010, FR-016,
   FR-017): parse the Dockerfile and assert the uv and FFmpeg `ARG` defaults (URL and SHA-256) equal
   `.github/actions/environment-setup/analyst-media-toolchain.json` (located by walking up to the repository root), the
   base images are pinned by `@sha256:` digest, the five `io.socalytics.*` label values equal the manifest's
@@ -199,7 +199,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
   user is non-root and numeric, the final stage copies only the Python environment, `ffmpeg`, `ffprobe`, the FFmpeg
   license notice, and the manifest, the last layer-creating instruction copies only the manifest to
   `/opt/socalytics/analyst-manifest.json`, and no `ENV` names a credential, address, or token
-- [ ] T011 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ReferenceAnalystImageTests.cs` (FR-009,
+- [x] T011 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ReferenceAnalystImageTests.cs` (FR-009,
   FR-011, FR-013; SC-004): build and push through `ReferenceAnalystImage`, register it by digest and assert the stored
   capability declaration equals the project's `analyst-manifest.json` and the response states the capability id and
   version; inspect the image through `DockerEngine.GetJsonAsync` and assert the configured user is non-root, the labels
@@ -218,7 +218,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 
 **Independent Test**: Run the capability project's tests with the environment's locked verification sequence
 
-- [ ] T012 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_time_mapping.py` (FR-005, FR-006; edge
+- [x] T012 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_time_mapping.py` (FR-005, FR-006; edge
   cases; SC-002) and correct `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/facts.py` where
   a case fails: media with one second of keyframe context before `requestedSourceInterval` yields no fact for it; a
   nominal window only partly covered by the mapping yields facts only for the covered part, the last one clipped; a
@@ -226,11 +226,11 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
   exactly on a second boundary counts in the later second and a frame at the window's end counts in none; a 0.5 fps
   clip with a mapped second without a decoded frame yields that second with `decodedFrames` 0 and no `meanLuma`; no fact
   lies outside the nominal window in any case
-- [ ] T013 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_determinism.py` (FR-007; SC-003) and
+- [x] T013 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_determinism.py` (FR-007; SC-003) and
   correct `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/facts.py` where needed: two runs
   of the entry point over the same job and media in two mount roots produce byte-identical `facts.json`; luma values
   that differ only beyond the third decimal round half-even to the same payload
-- [ ] T014 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_failures.py` (FR-002, FR-004, FR-008;
+- [x] T014 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_failures.py` (FR-002, FR-004, FR-008;
   edge cases) and correct `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/__main__.py` or
   `probe.py` where needed: a job without `segmentMedia` and without a media directory exits 2 with the category
   `segment-media-required`; staged media whose digest differs from its manifest exits 2 through the SDK; media with a
@@ -249,7 +249,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 
 **Independent Test**: Follow the documented procedure against a local development stamp
 
-- [ ] T015 [US4] Write `src/analysts/capabilities/reference-media-probe/README.md` (research R13; FR-014, FR-015, FR-020):
+- [x] T015 [US4] Write `src/analysts/capabilities/reference-media-probe/README.md` (research R13; FR-014, FR-015, FR-020):
   what the capability is (development reference, not a catalog capability, never published, convention-only exclusion
   from production), its facts (kind, ranges, payload with a link to the payload schema), its test commands (the
   environment's locked sequence), the image build command from the repository root and its pinned inputs (including
@@ -270,11 +270,11 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 
 ### Documentation
 
-- [ ] T016 [P] Update `src/analysts/README.md` (the reference capability as the first project under `capabilities/`,
+- [x] T016 [P] Update `src/analysts/README.md` (the reference capability as the first project under `capabilities/`,
   development evidence only), `README.md` (the capability's test and image build commands), and `AGENTS.md` (Current
   State: the reference Analyst and its end-to-end evidence; the capability's commands) to describe the merged state
   (FR-020)
-- [ ] T017 [P] Make `docs/architecture/` describe the merged state (plan.md § Architecture Updates; FR-020): re-read
+- [x] T017 [P] Make `docs/architecture/` describe the merged state (plan.md § Architecture Updates; FR-020): re-read
   `docs/architecture/` at implementation time and make every listed narrative and every status statement the feature
   affects true, including planned, future-tense, or unimplemented wording outside the listed sections; at least turn
   the "decided … and not yet implemented" paragraph on `reference-media-probe` in
@@ -288,10 +288,13 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 
 ### Validation
 
-- [ ] T018 Run [quickstart.md](quickstart.md) steps 1 to 3 (capability tests with the locked sequence, image build and
+- [x] T018 Run [quickstart.md](quickstart.md) steps 1 to 3 (capability tests with the locked sequence, image build and
   inspection, and `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --no-build --filter
   ReferenceAnalyst`), plus `dotnet test src/platform/SocAlytics.Platform.slnx --no-build` and the SDK project's tests,
-  and fix any failure in the files of this feature
+  and fix any failure in the files of this feature; then append a `## Validation Record` section to
+  `src/analysts/capabilities/reference-media-probe/README.md` (never to a file under `specs/`, which agents cannot
+  change) that lists, per step, the command and its observed outcome (counts of passed tests, the image's user and
+  label check, and the last-layer check), so the task always lands a reviewable change
 
 ---
 
