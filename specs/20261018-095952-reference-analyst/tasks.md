@@ -291,7 +291,9 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 - [ ] T018 Run [quickstart.md](quickstart.md) steps 1 to 3 (capability tests with the locked sequence, image build and
   inspection, and `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --no-build --filter
   ReferenceAnalyst`), plus `dotnet test src/platform/SocAlytics.Platform.slnx --no-build` and the SDK project's tests,
-  and fix any failure in the files of this feature
+  and fix any failure in the files of this feature; then append a `## Validation Record` section to
+  [quickstart.md](quickstart.md) that lists, per step, the command and its observed outcome (counts of passed tests,
+  the image's user and label check, and the last-layer check), so the task always lands a reviewable change
 
 ---
 
