@@ -285,6 +285,7 @@
     "range": "From {{min}} to {{max}}",
     "wholeRange": "Whole numbers from {{min}} to {{max}}",
     "itemsBetween": "{{min}} to {{max}} entries",
+    "toolsRule": "{{min}} to {{max}} unique tools from the allowlist ({{count}} chosen)",
     "itemLength": "Up to {{max}} characters each",
     "perDimensionBound": "Whole numbers from 1 to 3",
     "maxPositiveMovement": "Whole numbers from 1 to 10",
