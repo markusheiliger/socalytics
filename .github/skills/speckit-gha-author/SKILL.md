@@ -22,13 +22,12 @@ $ARGUMENTS
 The input is empty (the workflow offers to continue the active spec, or proposes the next logical spec from
 `docs/architecture/`, the existing specs, the spec twin issues, and the code), a feature idea in free text, a spec
 folder to continue at its next step, or a spec folder followed by a note: then pass the folder as `feature` and the note
-as `feedback` (the run reworks the stage before the folder's next step). A trailing `and push`, `and commit`, or
-`no commit` only matters in autopilot (see Modes).
+as `feedback` (the run reworks the stage before the folder's next step).
 
 A leading `--repeat <n>` (`n` a positive integer) authors `n` specs one after another: one run of the workflow per
-spec, each proposing the next logical spec (see Repeat). It only goes with an otherwise empty input (besides the
-trailing publish words): refuse it together with a feature idea or a spec folder, and say that `--repeat` authors
-proposed specs only. `--repeat 1` is the same as no flag.
+spec, each proposing the next logical spec (see Repeat). It only goes with an otherwise empty input: refuse it
+together with a feature idea or a spec folder, and say that `--repeat` authors proposed specs only. `--repeat 1` is
+the same as no flag.
 
 ## Role
 
@@ -48,11 +47,11 @@ with the answers, and report.
 
 ## Modes
 
-- **Interactive** (default): every gate is asked in Chat with the question tool.
+- **Interactive** (default): every gate is asked in Chat with the question tool; committing and pushing are the
+  person's choice at the publish gate.
 - **Autopilot** (the person set the Copilot session to autopilot; not part of the input): start the run with
-  `-i mode=unattended` and `-i publish=<push | commit | none>` (`push` for `and push`, `commit` for `and commit`,
-  otherwise `none`; with `--repeat` above 1 always `push`, see Repeat). It takes every recommended choice and does
-  not pause; go straight to the Report.
+  `-i mode=unattended -i publish=push` (with `--repeat`, see Repeat). It takes every recommended choice, does not
+  pause, and commits and pushes the spec at the end; go straight to the Report.
 
 The workflow only stops where a person improves the spec or decides what is authored or published: which spec to author
 (an unpublished active spec, the proposed candidates), the clarification questions, missing tooling, the fixes of the
@@ -117,15 +116,17 @@ leave the input out when it is empty. `run` prints JSON with the `run_id`; remem
 ## Repeat
 
 With `--repeat <n>` and `n` above 1, run the Outline `n` times in a row, one run at a time and each without a
-`feature` input, so every run proposes the next logical spec from the specs that exist by then:
+`feature` input, so every run proposes the next logical spec from the specs that exist by then (a committed spec only
+waiting for its push is not continued, and the proposal sees it):
 
-- Every spec must be pushed before the next run starts: the next run would otherwise find it unpublished and continue
-  it instead of proposing a new one. In autopilot, start every run with `-i publish=push`; refuse `and commit` and
-  `no commit` together with `--repeat` above 1 before starting anything. Interactive runs still ask the publish gate;
-  when the person does not push, the next run asks whether to continue that spec or propose a new one.
+- In autopilot, every run commits its spec and the last one pushes all of them: start runs 1 to `n - 1` with
+  `-i mode=unattended -i publish=commit` and run `n` with `-i mode=unattended -i publish=push`.
+- Interactive runs ask the publish gate every time, so the person commits or pushes each spec; when a spec is left
+  uncommitted, the next run asks whether to continue it or propose a new one.
 - Say before each run which of the `n` it is (for example "Authoring spec 2 of 3").
 - Stop at the first run that fails, is aborted, or stops for missing tooling (Outline steps 4 to 7 apply to it): do
-  not start the remaining runs, and report the authored specs, the stopped run, and its error.
+  not start the remaining runs, and report the authored specs, the stopped run, and its error. In autopilot the specs
+  committed so far are not pushed yet: say so, and recommend pushing them (`git push`) or running this skill again.
 
 ## Report
 
@@ -134,7 +135,7 @@ committed, or left uncommitted, and the `docs/architecture/` files published wit
 plan, and tasks (the user stories, the key decisions and Architecture Updates, and the phases and `[P]` groups, in a
 few bullets), the decisions taken (the gates and the answers; in autopilot, that every decision took the recommended
 choice), and exactly one recommended next step: after a push, checking the spec twin that the `Spec Kit prepare`
-workflow creates and commenting `/speckit implement` on it; after a commit only, pushing it; when left uncommitted,
-running this skill again for the folder with `and push`, or pushing it by hand. With `--repeat`, report every spec
+workflow creates and commenting `/speckit implement` on it; after a commit only, pushing it (`git push`); when left
+uncommitted, running this skill again for the folder, which asks the publish gate again. With `--repeat`, report every spec
 this way in one report, in the order they were authored (and the stopped run, if any), and end with one recommended
 next step for all of them.

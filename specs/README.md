@@ -59,10 +59,10 @@ and you pick one. The skill runs the Spec Kit workflow
 [`author`](../.specify/extension-src/gha/workflows/author/workflow.yml), which
 the `gha` extension ships, and asks you its gates in
 Chat; it changes nothing itself. In autopilot the run takes every recommended
-choice (`/speckit-gha-author <idea> and push` pushes at the end).
-`/speckit-gha-author --repeat 3 and push` authors three proposed specs one after
-another, pushing each before the next run proposes the following one; it stops
-at the first run that fails.
+choice and commits and pushes the spec at the end; interactively you decide at
+the publish gate. `/speckit-gha-author --repeat 3` authors three proposed specs
+one after another; in autopilot each run commits its spec and the last one
+pushes them all. It stops at the first run that fails.
 
 The same workflow runs in a terminal, where its gates ask directly:
 

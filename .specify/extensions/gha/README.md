@@ -136,8 +136,8 @@ stages, gates, and inputs. It moves from spec to plan to tasks to analysis
 without asking; at the publish gate `/speckit-gha-author` shows the spec, plan,
 and tasks and offers push, commit, none, or revise. `/speckit-gha-author
 --repeat <n>` runs the workflow `n` times in a row, each run proposing the next
-logical spec and pushing it before the next run starts, and stops at the first
-run that fails.
+logical spec; in autopilot each run commits its spec and the last one pushes
+them all. It stops at the first run that fails.
 
 `node .github/scripts/speckit-author.mjs status [folder] [--json]` reports a
 spec's next Spec Kit step, its publish blockers, and its Git state, which is how

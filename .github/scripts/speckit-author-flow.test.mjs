@@ -63,7 +63,7 @@ const stateFile = (state) => runFile('author.json', state);
 const specFiles = (extra = {}) => ({ [`specs/${FOLDER}/spec.md`]: SPEC, [`specs/${FOLDER}/checklists/requirements.md`]: '- [x] ok\n', ...extra });
 
 // A git double: answers the status queries of speckit-author.mjs and the publish commands, and records every call.
-function fakeGit({ upstream = 'origin/main', published = false, fail = {}, staged = true, files = '', branch = 'main', architecture = '' } = {}) {
+function fakeGit({ upstream = 'origin/main', published = false, committed = false, fail = {}, staged = true, files = '', branch = 'main', architecture = '' } = {}) {
   const calls = [];
   const git = (args) => {
     const key = args.join(' ');
@@ -71,9 +71,9 @@ function fakeGit({ upstream = 'origin/main', published = false, fail = {}, stage
     if (fail[args[0]]) return { status: 1, stdout: '', stderr: fail[args[0]] };
     if (key === 'rev-parse --abbrev-ref HEAD') return { status: 0, stdout: `${branch}\n`, stderr: '' };
     if (key.startsWith('status --porcelain') && key.includes('docs/architecture')) return { status: 0, stdout: architecture, stderr: '' };
-    if (key.startsWith('status --porcelain')) return { status: 0, stdout: published ? '' : `?? specs/${FOLDER}/\n`, stderr: '' };
+    if (key.startsWith('status --porcelain')) return { status: 0, stdout: published || committed ? '' : `?? specs/${FOLDER}/\n`, stderr: '' };
     if (key === 'rev-parse --abbrev-ref @{u}') return upstream ? { status: 0, stdout: `${upstream}\n`, stderr: '' } : { status: 128, stdout: '', stderr: 'no upstream' };
-    if (args[0] === 'log') return { status: 0, stdout: '', stderr: '' };
+    if (args[0] === 'log') return { status: 0, stdout: committed ? 'abc1234\n' : '', stderr: '' };
     if (args[0] === 'symbolic-ref') return { status: 0, stdout: 'origin/main\n', stderr: '' };
     if (args[0] === 'ls-files') return { status: 0, stdout: files, stderr: '' };
     if (args[0] === 'diff') return { status: staged ? 1 : 0, stdout: '', stderr: '' };
@@ -128,6 +128,9 @@ test('start asks before continuing the active feature; begin continues it or dis
     assert.equal(begin({ rootDir, run: RUN, git: fakeGit().git, env: UTC, gh: fakeGh(), choice: 'propose' }).kind, 'discover');
     writeFileSync(path.join(rootDir, 'specs', FOLDER, 'tasks.md'), TASKS);
     assert.equal(start({ rootDir, run: RUN, git: fakeGit({ published: true }).git, env: UTC }).active, false, 'a pushed spec is not offered');
+    assert.equal(start({ rootDir, run: RUN, git: fakeGit({ committed: true }).git, env: UTC }).active, false, 'a committed spec that only waits for its push is not offered, so --repeat proposes the next one');
+    assert.equal(start({ rootDir, run: RUN, git: fakeGit({ committed: true, upstream: null }).git, env: UTC }).active, false, 'also on a branch without upstream');
+    assert.equal(start({ rootDir, run: RUN, git: fakeGit().git, env: UTC }).active, true, 'an uncommitted tasked spec is still offered');
   });
 });
 

@@ -88,6 +88,13 @@ function continueAt(rootDir, folder, inputs, git, env) {
   return from;
 }
 
+// A spec the workflow committed after its publish checks and that only waits for its push (for example between the
+// runs of /speckit-gha-author --repeat, which pushes after the last one): nothing to continue, so a run without a
+// feature proposes the next spec instead. Only a tasked spec gets this far; its folder has no uncommitted change.
+export function waitsForPush(status) {
+  return status.nextStep === 'analyze' && Array.isArray(status.git?.uncommitted) && status.git.uncommitted.length === 0;
+}
+
 export function start({ rootDir, run, git, env = {} }) {
   // /speckit-specify names the folder after the current time, which AGENTS.md requires in UTC; every agent and script
   // the run starts inherits this environment.
@@ -101,7 +108,8 @@ export function start({ rootDir, run, git, env = {} }) {
     let active = null;
     try {
       active = resolveFolder({ folder: null, env, rootDir });
-      if (['published', 'done', 'specify'].includes(statusOf(rootDir, active, git, env).nextStep)) active = null;
+      const status = statusOf(rootDir, active, git, env);
+      if (['published', 'done', 'specify'].includes(status.nextStep) || waitsForPush(status)) active = null;
     } catch {
       active = null;
     }
