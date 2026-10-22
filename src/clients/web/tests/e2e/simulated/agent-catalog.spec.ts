@@ -437,3 +437,159 @@ test.describe('Enablement', () => {
     expect(enablementOf(api)).toBe('0.1.0');
   });
 });
+
+test.describe('Registration', () => {
+  const PROMPT = `${AGENT}-prompt`;
+  const textbox = (page: Page, name: RegExp) => page.getByRole('textbox', { name });
+  const register = (page: Page) => page.getByRole('button', { name: 'Register', exact: true }).click();
+  const fromPrompt = `/agent-catalog/artifacts/prompt-templates/new?fromId=${PROMPT}&fromVersion=0.1.0`;
+  const refusalAlert = (page: Page, text: string | RegExp) => page.getByRole('alert').filter({ hasText: text });
+
+  test('registers a prompt template from the seeded one with the proposed 0.1.1 (acceptance 2, 7; SC-003)', async ({ page, api }) => {
+    await open(page, fromPrompt);
+    await expect(textbox(page, /^Identifier/)).toHaveValue(PROMPT);
+    await expect(textbox(page, /^Version/)).toHaveValue('0.1.1');
+    await expect(textbox(page, /^Prompt text/)).toContainText('Provide decision support');
+    await expectNoAxeViolations(page);
+
+    await textbox(page, /^Prompt text/).fill('Revised: provide decision support; the human coach decides.');
+    await register(page);
+    await expect(page).toHaveURL(new RegExp(`/agent-catalog/artifacts/prompt-templates/${PROMPT}/versions/0\\.1\\.1$`));
+    await expect(page.getByRole('heading', { level: 2, name: `${PROMPT} version 0.1.1` })).toBeVisible();
+    const stored = api.catalogArtifacts.find((a) => a.id === PROMPT && a.version === '0.1.1')!;
+    expect(stored.document.text).toBe('Revised: provide decision support; the human coach decides.');
+    expect(stored.registeredBy).not.toBe('system:seed');
+  });
+
+  test('proposes 0.1.0 for a new identifier (acceptance 7)', async ({ page }) => {
+    await open(page, '/agent-catalog/artifacts/prompt-templates/new');
+    await textbox(page, /^Identifier/).fill('fresh-prompt');
+    await expect(textbox(page, /^Version/)).toHaveValue('0.1.0');
+  });
+
+  test('refuses a tool outside the allowlist next to the tool and keeps the entries (acceptance 3)', async ({ page, api }) => {
+    api.seedCatalogArtifact({ schemaVersion: '1.0.0', kind: 'tool-policy', id: 'legacy-tools', version: '1.0.0', tools: ['get_match', 'bogus_tool'] });
+    await open(page, '/agent-catalog/artifacts/tool-policies/new?fromId=legacy-tools&fromVersion=1.0.0');
+    await expect(textbox(page, /^Version/)).toHaveValue('1.0.1');
+    await register(page);
+
+    await expect(refusalAlert(page, 'The platform refused the registration')).toBeVisible();
+    const tool = page.getByRole('group', { name: 'Permitted tools' }).locator('div').filter({ has: page.getByRole('checkbox', { name: 'bogus_tool' }) }).last();
+    await expect(tool.getByRole('alert')).toContainText('is not on the tool allowlist');
+    await expect(page.getByRole('checkbox', { name: 'get_match' })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'bogus_tool' })).toBeChecked();
+    await expect(page).toHaveURL(/\/artifacts\/tool-policies\/new/);
+    expect(api.catalogArtifacts.some((a) => a.id === 'legacy-tools' && a.version === '1.0.1')).toBe(false);
+  });
+
+  test('refuses an out-of-baseline tool next to the tool list and hints it beforehand (acceptance 1, 3)', async ({ page, api }) => {
+    await open(page, '/agent-catalog/artifacts/tool-policies/new?agentId=specialist-video-analysis');
+    await textbox(page, /^Identifier/).fill('video-tools');
+    const outside = page.getByRole('checkbox', { name: 'get_player_stats' });
+    await outside.check();
+    await page.getByRole('checkbox', { name: 'get_match' }).check();
+    await expect(page.getByText('Outside the baseline of specialist-video-analysis')).toHaveCount(1);
+    api.refuseCatalogNext('registerAgentCatalogArtifact', {
+      status: 400,
+      code: 'agent-catalog-validation-failed',
+      extra: { violations: [{ code: 'tool-outside-baseline', pointer: '/tools/0', detail: 'get_player_stats' }] },
+    });
+    await register(page);
+
+    const tool = page.getByRole('group', { name: 'Permitted tools' }).locator('div').filter({ has: outside }).last();
+    await expect(tool.getByRole('alert')).toContainText('outside the permitted-tool baseline of this agent');
+    await expect(outside).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'get_match' })).toBeChecked();
+    expect(api.catalogArtifacts.some((a) => a.id === 'video-tools')).toBe(false);
+  });
+
+  test('refuses a model selection with an invalid name next to the field (acceptance 3)', async ({ page, api }) => {
+    await open(page, '/agent-catalog/artifacts/model-selections/new');
+    await textbox(page, /^Identifier/).fill('bad-model');
+    await textbox(page, /^Model/).fill('bad model!');
+    await textbox(page, /^Deployment/).fill('deployment-1');
+    api.refuseCatalogNext('registerAgentCatalogArtifact', {
+      status: 400,
+      code: 'agent-catalog-validation-failed',
+      extra: { violations: [{ code: 'schema-violation', pointer: '/model', detail: 'The name does not match the pattern.' }] },
+    });
+    await register(page);
+
+    await expect(refusalAlert(page, 'The record does not match its format')).toHaveCount(1);
+    await expect(textbox(page, /^Model/)).toHaveValue('bad model!');
+    await expect(textbox(page, /^Deployment/)).toHaveValue('deployment-1');
+    await expect(textbox(page, /^Identifier/)).toHaveValue('bad-model');
+    await expect(page.getByText('Problems without a field')).toHaveCount(0);
+    expect(api.catalogArtifacts.some((a) => a.id === 'bad-model')).toBe(false);
+  });
+
+  test('lists a violation without a known location in the summary above the form (acceptance 3)', async ({ page, api }) => {
+    await open(page, fromPrompt);
+    api.refuseCatalogNext('registerAgentCatalogArtifact', {
+      status: 400,
+      code: 'agent-catalog-validation-failed',
+      extra: { violations: [{ code: 'schema-violation', pointer: '', detail: 'The record is not an object of this kind.' }] },
+    });
+    await register(page);
+
+    const summary = refusalAlert(page, 'Problems without a field');
+    await expect(summary).toBeVisible();
+    await expect(summary).toContainText('The record does not match its format');
+    await expect(textbox(page, /^Prompt text/)).toContainText('Provide decision support');
+    await expectNoAxeViolations(page);
+  });
+
+  test('says "already registered, nothing changed" for equal content (acceptance 4)', async ({ page, api }) => {
+    await open(page, fromPrompt);
+    await textbox(page, /^Version/).fill('0.1.0');
+    const before = api.catalogArtifacts.length;
+    await register(page);
+
+    await expect(page.getByRole('status').filter({ hasText: 'Already registered, nothing changed.' })).toBeVisible();
+    await page.getByRole('link', { name: 'Show the stored record' }).click();
+    await expect(page.getByRole('heading', { level: 2, name: `${PROMPT} version 0.1.0` })).toBeVisible();
+    expect(api.catalogArtifacts).toHaveLength(before);
+  });
+
+  test('explains that an existing version with different content never changes (acceptance 4)', async ({ page, api }) => {
+    await open(page, fromPrompt);
+    await textbox(page, /^Version/).fill('0.1.0');
+    await textbox(page, /^Prompt text/).fill('Different content for the same version.');
+    const before = api.catalogArtifacts.length;
+    await register(page);
+
+    await expect(refusalAlert(page, 'registered versions never change')).toBeVisible();
+    await expect(textbox(page, /^Prompt text/)).toHaveValue('Different content for the same version.');
+    expect(api.catalogArtifacts).toHaveLength(before);
+    expect(api.catalogArtifacts.find((a) => a.id === PROMPT && a.version === '0.1.0')!.document.text).not.toBe('Different content for the same version.');
+  });
+
+  test('registers agent version 0.2.0 from 0.1.0 and shows it as a draft (acceptance 5, 6; SC-003)', async ({ page, api }) => {
+    const prompt = api.seedCatalogArtifact({
+      schemaVersion: '1.0.0',
+      kind: 'prompt-template',
+      id: PROMPT,
+      version: '0.1.1',
+      group: 'specialist',
+      responseContract: 'agent-response/1',
+      text: 'Revised prompt.',
+      slots: [],
+    });
+    await open(page, `/agent-catalog/agents/${AGENT}/versions/new?from=0.1.0`);
+    await expect(textbox(page, /^Display name/)).toHaveValue('Tactics Specialist');
+    await expect(page.getByLabel(/^Prompt template/)).toHaveValue(`${PROMPT}@0.1.0`);
+    await expect(textbox(page, /^Version/)).toHaveValue('0.1.1');
+
+    await textbox(page, /^Version/).fill('0.2.0');
+    await page.getByLabel(/^Prompt template/).selectOption(`${PROMPT}@0.1.1`);
+    await register(page);
+
+    await expect(page).toHaveURL(new RegExp(`/agent-catalog/agents/${AGENT}/versions/0\\.2\\.0$`));
+    await expect(page.getByRole('heading', { level: 2, name: `${AGENT} version 0.2.0` })).toBeVisible();
+    await expect(page.locator('dl').first().getByText('draft', { exact: true })).toBeVisible();
+    const stored = api.catalogVersions.find((v) => v.agentId === AGENT && v.version === '0.2.0')!;
+    expect(stored.state).toBe('draft');
+    expect(stored.document.artifacts.promptTemplate).toMatchObject({ id: PROMPT, version: '0.1.1', digest: prompt.digest });
+    await expect(page.locator('dl').first().locator('code').first()).toHaveText(stored.digest.slice(0, 'sha-256:'.length + 12));
+  });
+});
