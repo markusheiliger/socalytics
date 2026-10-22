@@ -76,7 +76,7 @@ uses.
   `analysis_indexed_facts` filtered by `run_id`); add
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/RunFactLookupTests.cs` (found, other
   run, unknown ordinal) (FR-001, FR-013)
-- [ ] T005 [P] Create `src/platform/SocAlytics.Platform.Application/Analysis/Evidence/SegmentManifestOffsets.cs`:
+- [x] T005 [P] Create `src/platform/SocAlytics.Platform.Application/Analysis/Evidence/SegmentManifestOffsets.cs`:
   validate a manifest document against `contracts/segments/segment-manifest/v1/` and translate a part's half-open
   match-time window to `startOffsetMs` and `endOffsetMs` with
   `offset(t) = span.mediaStartMs + (t − span.matchStartMs) − encodedInterval.startMs`, refusing windows outside one
