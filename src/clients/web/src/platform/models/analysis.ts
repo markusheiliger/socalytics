@@ -12,6 +12,24 @@ export interface JobCounts {
   blocked: number;
 }
 
+/** One reported dependency of a node; `coverageMode` stays raw so unfamiliar policies are not interpreted. */
+export interface NodeInputCoverage {
+  upstreamNodeKey: string;
+  coverageMode: string;
+  minimumAcceptedFraction?: number;
+  accepted: number;
+  missing: number;
+  failed: number;
+  blocked: number;
+  skipped: number;
+}
+
+export interface RunSupersession {
+  runId: string;
+  recordingSetVersionId: string;
+  recordingSetFinalizedAt: Date;
+}
+
 export interface NodeStatus {
   nodeKey: string;
   capabilityId: string;
@@ -21,6 +39,8 @@ export interface NodeStatus {
   state: string;
   blockedByNodeKey?: string;
   jobs: JobCounts;
+  /** `undefined` means not reported, which differs from a reported empty list. */
+  inputCoverage?: NodeInputCoverage[];
 }
 
 export interface AnalysisRunStatus {
@@ -35,6 +55,10 @@ export interface AnalysisRunStatus {
   createdAt: Date;
   runningAt?: Date;
   terminatedAt?: Date;
+  /** Explicit from the status response; false does not by itself mean superseded. */
+  isCurrent: boolean;
+  supersededBy?: RunSupersession;
+  supersededAt?: Date;
   requestedCapabilities: string[];
   nodes: NodeStatus[];
 }
@@ -120,4 +144,11 @@ export type FactsOutcome =
 export function isRunInProgress(state: string | undefined): boolean {
   const normalized = state?.toLowerCase();
   return normalized === 'requested' || normalized === 'running';
+}
+
+const TERMINAL_STATES = ['completed', 'partiallycompleted', 'failed', 'cancelled'];
+
+/** True only for the known terminal states; unknown states are not assumed terminal. */
+export function isRunTerminal(state: string | undefined): boolean {
+  return state !== undefined && TERMINAL_STATES.includes(state.toLowerCase());
 }

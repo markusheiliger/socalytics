@@ -38,6 +38,7 @@ const runDto = (over: Record<string, unknown> = {}) => ({
   workflowVersion: '3',
   state: 'Completed',
   createdAt: '2026-10-12T12:00:00Z',
+  isCurrent: true,
   requestedCapabilities: ['detect'],
   nodes: [
     {
