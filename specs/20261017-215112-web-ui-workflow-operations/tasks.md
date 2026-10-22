@@ -124,11 +124,10 @@ description: "Task list for Web UI Workflow Operations for Club Admins"
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-**Purpose**: Platform browser evidence, documentation, and final validation.
+**Purpose**: Platform browser evidence and documentation. The quickstart validation is run by the phase and finalize verification and by `/speckit-converge`, which run the same commands.
 
 - [x] T022 [P] Create `src/clients/web/tests/e2e/platform/operations.spec.ts` against the AppHost `e2e` mode: sign in as the seeded Club Admin, open **Operations**, read the summary with its observation time, open the outgoing messages list and, when it has entries from the earlier upload flow, one message's detail, open the receipts list, and run a reconciliation and see its counts and times; add the chained project `platform-operations` (`testMatch: /operations\.spec\.ts$/` in `./tests/e2e/platform`, depending on the last platform project at implementation time) to `src/clients/web/playwright.config.ts` so it runs last (FR-023; research.md § R11)
 - [x] T023 [P] Update the architecture and repository documentation so it is true for the merged state: make the narratives and every status statement listed in `## Architecture Updates` of `specs/20261017-215112-web-ui-workflow-operations/plan.md` true, re-reading `docs/architecture/` (at least `docs/architecture/client-applications.md` and `docs/architecture/platform-implementation.md`), `AGENTS.md` "Current State", `src/clients/README.md`, and the root `README.md` at implementation time and correcting every statement this feature makes false, including planned, future-tense, or "decided, not yet implemented" wording about the workflow operations area, with the plan's rewrites as examples rather than the whole job; run `node .github/scripts/check-markdown.mjs` (constitution Principle I)
-- [ ] T024 Run the validation of `specs/20261017-215112-web-ui-workflow-operations/quickstart.md`: `dotnet build src/platform/SocAlytics.Platform.slnx`, the `WorkflowOperationsOpenApiTests` Host tests, and in `src/clients/web` `npm run build`, `npm test`, and `npm run test:e2e` (all projects), and fix any failure in the files of this feature
 
 ---
 
@@ -156,7 +155,7 @@ description: "Task list for Web UI Workflow Operations for Club Admins"
 - Phase 2: T003, T004, T005, T006, T007 (Host test, adapter, formatting and filters, paging hook, simulated API).
 - Phase 4: T011, T012 (list and detail views).
 - Phase 7: T020, T021 (browser quality evidence, service-worker test).
-- Phase 8: T022, T023 (platform browser test, documentation), then T024.
+- Phase 8: T022, T023 (platform browser test, documentation).
 
 ---
 
