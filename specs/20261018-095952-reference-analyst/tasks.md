@@ -33,7 +33,7 @@ the fact feature's member fact read. The image is foundational because User Stor
 
 **Purpose**: The locked capability project that the environment's verification recognizes
 
-- [ ] T001 Create the independent project `src/analysts/capabilities/reference-media-probe/` (research R1, R6; FR-001,
+- [x] T001 Create the independent project `src/analysts/capabilities/reference-media-probe/` (research R1, R6; FR-001,
   FR-002): `pyproject.toml` (`[project].name` `socalytics-reference-media-probe`, version `1.0.0`, `requires-python`
   `>=3.12,<3.13`, dependency `socalytics-analyst-sdk` with `[tool.uv.sources]` `socalytics-analyst-sdk = { path =
   "../../sdk" }`, hatchling build backend with the `src/reference_media_probe` package, locked `dev` group with
