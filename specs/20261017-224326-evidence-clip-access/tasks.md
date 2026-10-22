@@ -143,7 +143,7 @@ short-lived, never stored or logged, audited, authorized per request, and rate-l
 
 ### Resolution tests
 
-- [ ] T012 [P] [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceResolutionTests.cs`:
+- [x] T012 [P] [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceResolutionTests.cs`:
   one piece inside a segment and two across a boundary in match-time order covering the range without gap or overlap;
   offsets checked with `ffprobe` packet timestamps of the stored media to within one frame; the link downloads bytes
   whose SHA-256 equals `mediaDigest` and stops working after its expiry; context extension, clipping at zero, and
