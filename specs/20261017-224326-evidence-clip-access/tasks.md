@@ -59,7 +59,7 @@ uses.
 
 ### Planner, fact lookup, and offsets
 
-- [ ] T003 [P] Create the pure Domain planner
+- [x] T003 [P] Create the pure Domain planner
   `src/platform/SocAlytics.Platform.Domain/Analysis/Evidence/EvidenceCoveragePlanner.cs` and
   `EvidencePartState.cs` (`available`, `materializing`, `rematerializing`, `failed`, `not-covered`): from a half-open
   requested range, the run's recording-set members in membership order (recording version id, timeline-mapping
