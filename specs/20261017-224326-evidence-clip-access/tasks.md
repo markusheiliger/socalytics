@@ -155,7 +155,7 @@ short-lived, never stored or logged, audited, authorized per request, and rate-l
 - [x] T014 [P] [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceAuditAndLoggingTests.cs`:
   one `analysis.evidence-media.granted` event per resolution with links and its fields; none without links; no link,
   `X-Amz-Signature`, or object key in audit details, captured logs, or stored rows (SC-002; FR-012, FR-014)
-- [ ] T015 [P] [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceRateLimitTests.cs`
+- [x] T015 [P] [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceRateLimitTests.cs`
   with a low `ResolutionsPerMinute`: the request over the limit receives `429` `evidence-rate-limited` with
   `Retry-After`, issues no link, records no demand, and the limit is per member (FR-015)
 
