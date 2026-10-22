@@ -152,7 +152,7 @@ short-lived, never stored or logged, audited, authorized per request, and rate-l
   Club Admin, Coach, and Viewer allowed; members of other teams or clubs, missing runs, and facts of other runs
   receive `404`; a Coach whose role is revoked after a successful resolution receives `404` with no link; no session
   receives `401` (SC-003; FR-013)
-- [ ] T014 [P] [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceAuditAndLoggingTests.cs`:
+- [x] T014 [P] [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceAuditAndLoggingTests.cs`:
   one `analysis.evidence-media.granted` event per resolution with links and its fields; none without links; no link,
   `X-Amz-Signature`, or object key in audit details, captured logs, or stored rows (SC-002; FR-012, FR-014)
 - [ ] T015 [P] [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceRateLimitTests.cs`
