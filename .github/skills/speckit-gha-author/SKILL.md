@@ -1,14 +1,16 @@
 ---
-name: speckit-author
+name: speckit-gha-author
 description: Author one spec until it is ready to implement by running the deterministic
   Spec Kit workflow `author` and answering its gates in Chat; without input the workflow
-  proposes the next logical spec from the architecture, and at the end it pushes the spec
-  folder so the GitHub automation takes over.
-compatibility: Requires the specify CLI, Node.js, and the Copilot CLI (on Windows the standalone copilot.exe)
+  proposes the next logical spec from the architecture, and at the end it pushes the
+  spec folder so the GitHub automation takes over.
+compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: socalytics
-  source: repository (.github/skills/speckit-author, maintained by hand; see AGENTS.md)
+  source: extension:gha
 ---
+
+# Gha Author Skill
 
 ## User Input
 
@@ -23,6 +25,8 @@ as `feedback` (the run reworks the stage before the folder's next step). A trail
 `no commit` only matters in autopilot (see Modes).
 
 ## Role
+
+Requires the specify CLI, Node.js, and the Copilot CLI (on Windows the standalone `copilot.exe`).
 
 You operate the Spec Kit workflow `author`, which the `gha` extension ships (source
 `.specify/extension-src/gha/workflows/author/workflow.yml`). The workflow does the work: its

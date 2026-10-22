@@ -322,7 +322,7 @@ The project constitution in
 every specification, plan, and task list.
 
 Using the committed skills in GitHub Copilot needs only Python 3.11+ on `PATH`
-as `python`. The `specify` CLI is needed to author specs with `/speckit-author`
+as `python`. The `specify` CLI is needed to author specs with `/speckit-gha-author`
 or the Spec Kit workflow `author` (see [specs/README.md](specs/README.md#author)), to upgrade
 Spec Kit, or to add extensions. It requires [uv](https://docs.astral.sh/uv/) and is installed from
 the pinned release tag:
@@ -353,8 +353,7 @@ Run the skills in GitHub Copilot Chat, one at a time, reviewing each result:
 amends the constitution. Do not use `/speckit-taskstoissues`: this repository
 mirrors features, not tasks, to GitHub through spec twins (see below).
 
-The skills under `.github/skills/speckit-*` (except the hand-maintained
-`.github/skills/speckit-author/`) and the files under `.specify/`
+The skills under `.github/skills/speckit-*` and the files under `.specify/`
 other than the constitution, the `gha` extension source
 (`.specify/extension-src/`, which also holds the source of the `author`
 workflow), and `.specify/.gitignore` are managed by the `specify` CLI. Do not edit them
