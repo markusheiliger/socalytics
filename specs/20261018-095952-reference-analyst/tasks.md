@@ -155,7 +155,7 @@ are accepted, indexed, and readable by members
 **Independent Test**: Build and register the image, finalize the synthetic recording under the 5-second test policy,
 let a Docker-runtime Manager execute the run, and read the reference capability's facts
 
-- [ ] T008 [US1] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/ReferenceAnalystImage.cs` (research
+- [x] T008 [US1] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/ReferenceAnalystImage.cs` (research
   R9, R12): find the repository root from `AppContext.BaseDirectory`, copy `src/analysts/sdk/` and
   `src/analysts/capabilities/reference-media-probe/` (without `.venv`, `__pycache__`, `.pytest_cache`, `dist`, and
   `tests`) to the same relative paths in a temporary context directory, build it with Testcontainers'
