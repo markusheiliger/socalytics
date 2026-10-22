@@ -123,3 +123,18 @@ the repository: the configured Registry seed stays unchanged.
 
 The platform's Segment Service needs `ffmpeg` and `ffprobe` of the pinned toolchain found through
 `Segments:Toolchain` (the AppHost reads `SOCALYTICS_FFMPEG_PATH` and `SOCALYTICS_FFPROBE_PATH`).
+
+## Validation Record
+
+Observed on Linux (amd64) with CPython 3.12.15, `uv` 0.13.5, the pinned FFmpeg and ffprobe 8.1 on `PATH`, and Docker
+Engine 28.0.4. It is development evidence only.
+
+| Step | Command | Observed outcome |
+| ---- | ------- | ---------------- |
+| Capability tests | From this folder: `UV_PYTHON_DOWNLOADS=never`, `uv sync --locked --all-groups --no-install-local --no-build`, `uv sync --locked --all-groups --no-build-isolation`, `uv build --wheel --no-build-isolation --python .venv/bin/python`, `uv run --no-sync pytest` | The wheel `socalytics_reference_media_probe-1.0.0-py3-none-any.whl` built; 57 passed, 0 failed |
+| Image build | `docker build -f src/analysts/capabilities/reference-media-probe/Dockerfile -t reference-media-probe:local .` | Built without build arguments |
+| Image inspection | `docker image inspect reference-media-probe:local` | `linux/amd64`; user `65532:65532` (non-root); labels equal the manifest (`io.socalytics.analyst-manifest.sha256` `31c94a2a…56c5f` equals the SHA-256 of `analyst-manifest.json`, version `1.0.0`, capability `reference-media-probe` `1.0.0`) |
+| Last layer | `docker save` and listing the last layer of `manifest.json` | The last layer holds only `opt/socalytics/analyst-manifest.json` |
+| End to end | `dotnet build src/platform/SocAlytics.Platform.slnx`, then `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --no-build --filter ReferenceAnalyst` | Build with 0 errors; 2 passed, 0 failed, 0 skipped (`ReferenceAnalystEndToEndTests` and `ReferenceAnalystImageTests`) |
+| SDK tests | From `src/analysts/sdk`: the locked sync sequence, then `uv run --no-sync pytest` | 306 passed, 0 failed |
+| Platform solution tests | `dotnet test src/platform/SocAlytics.Platform.slnx --no-build` | Not run for this record: the full solution suite is run by the verification that follows the task, so no outcome is recorded here |

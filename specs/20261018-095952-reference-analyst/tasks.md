@@ -288,7 +288,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 
 ### Validation
 
-- [ ] T018 Run [quickstart.md](quickstart.md) steps 1 to 3 (capability tests with the locked sequence, image build and
+- [x] T018 Run [quickstart.md](quickstart.md) steps 1 to 3 (capability tests with the locked sequence, image build and
   inspection, and `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --no-build --filter
   ReferenceAnalyst`), plus `dotnet test src/platform/SocAlytics.Platform.slnx --no-build` and the SDK project's tests,
   and fix any failure in the files of this feature; then append a `## Validation Record` section to
