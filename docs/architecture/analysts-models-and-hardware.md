@@ -86,7 +86,7 @@ register images from the Web UI's Registry administration, see
   registry host and repository prefix.
 
 A development reference Analyst is implemented as development evidence (see the
-[reference Analyst contract](../../specs/20261018-095952-reference-analyst/contracts/reference-media-probe.md)).
+[reference Analyst contract](../../specs/archive/20261018-095952-reference-analyst/contracts/reference-media-probe.md)).
 The capability `reference-media-probe` is the first Analyst built on the
 Analyst SDK: the independent locked Python project
 `src/analysts/capabilities/reference-media-probe/`, a low-level,

@@ -5,7 +5,7 @@ description: "Task list for Reference Analyst Container on the Python SDK"
 
 # Tasks: Reference Analyst Container on the Python SDK
 
-**Input**: Design documents from `specs/20261018-095952-reference-analyst/`
+**Input**: Design documents from `specs/archive/20261018-095952-reference-analyst/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
