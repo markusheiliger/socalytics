@@ -17,8 +17,8 @@ describe('role-based navigation', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('offers a Club Admin club, seasons, teams, members, Analyst Managers, Analyst Registry, pairing, and account', async () => {
-    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Analyst Registry', 'Pair a Manager', 'Account']);
+  it('offers a Club Admin club, seasons, teams, members, Analyst Managers, Analyst Registry, Agent catalog, pairing, and account', async () => {
+    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Analyst Registry', 'Agent catalog', 'Pair a Manager', 'Account']);
   });
 
   it('offers a team member only teams and account', async () => {
@@ -43,6 +43,11 @@ describe('role-based navigation', () => {
       expect(screen.queryByRole('link', { name: 'Analyst Registry' })).not.toBeInTheDocument();
     },
   );
+
+  it.each([['Coach'], ['Viewer'], ['Registrar']])('does not offer the Agent catalog to a %s', async (role) => {
+    const roles = role === 'Registrar' ? await navLinks(['Registrar'], []) : await navLinks([], [{ ...team, role: role as TeamRole['role'] }]);
+    expect(roles).not.toContain('Agent catalog');
+  });
 
   it('shows the not-found view for unknown addresses', async () => {
     renderApp(fakeAdapter({ restore: vi.fn().mockResolvedValue(makeSession()) }), '/nowhere');
