@@ -8,7 +8,7 @@ and why), and later `plan.md`, design artifacts, and `tasks.md` from
 restating it, as required by the
 [constitution](../.specify/memory/constitution.md).
 
-New specs are authored with `/speckit-author` in Copilot Chat, which runs the
+New specs are authored with `/speckit-gha-author` in Copilot Chat, which runs the
 Spec Kit workflow `author`; see [Workflow Per Feature](#workflow-per-feature).
 
 ## Index
@@ -50,7 +50,7 @@ helper scripts use the machine's local time, so set the environment variable
 
 ### Author
 
-Run `/speckit-author` in GitHub Copilot Chat, with a feature idea, a spec
+Run `/speckit-gha-author` in GitHub Copilot Chat, with a feature idea, a spec
 folder to continue at its next step (optionally followed by a note on what
 should change), or nothing: then the run offers to continue the spec you are
 working on, or an agent proposes up to three next logical specs from
@@ -59,7 +59,7 @@ and you pick one. The skill runs the Spec Kit workflow
 [`author`](../.specify/extension-src/gha/workflows/author/workflow.yml), which
 the `gha` extension ships, and asks you its gates in
 Chat; it changes nothing itself. In autopilot the run takes every recommended
-choice (`/speckit-author <idea> and push` pushes at the end).
+choice (`/speckit-gha-author <idea> and push` pushes at the end).
 
 The same workflow runs in a terminal, where its gates ask directly:
 
@@ -97,7 +97,7 @@ you where a person decides:
    only, or leave them uncommitted. The gate warns when you are not on the
    default branch.
 
-Choosing `revise` at a gate stops the run; `/speckit-author` then asks what
+Choosing `revise` at a gate stops the run; `/speckit-gha-author` then asks what
 should change and starts again, and in a terminal the run prints how to
 continue, for example
 `specify workflow run author -i feature=<folder> -i stage=plan -i feedback="split the read model"`:
@@ -133,4 +133,4 @@ The skills locate the active feature through the machine-local
 folder, point it there, for example
 `{ "feature_directory": "specs/<folder>" }`, set the
 `SPECIFY_FEATURE_DIRECTORY` environment variable, or pass the folder to
-`/speckit-author` (the `feature` input of the `author` workflow).
+`/speckit-gha-author` (the `feature` input of the `author` workflow).

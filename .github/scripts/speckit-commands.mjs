@@ -306,7 +306,7 @@ const HANDLERS = {
 function implementNextStep(folder, computedStage, openChecklistItems) {
   if (['specified', 'planned'].includes(computedStage)) {
     return [
-      `**Recommended next step**: Complete the spec with \`/speckit-author ${folder}\` in Copilot Chat (plan, tasks, analysis, and the publish checks; it pushes the spec at the end), then comment \`/speckit implement\` here again.`,
+      `**Recommended next step**: Complete the spec with \`/speckit-gha-author ${folder}\` in Copilot Chat (plan, tasks, analysis, and the publish checks; it pushes the spec at the end), then comment \`/speckit implement\` here again.`,
       '',
       '- **Why**: Implementation can only be requested for a spec with its task list (`tasked`).',
     ];

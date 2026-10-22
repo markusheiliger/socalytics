@@ -571,7 +571,7 @@ export function revise({ rootDir, run, stage: reviewed }) {
   ].join('\n'));
 }
 
-// What a paused run waits for, for the /speckit-author skill, which asks the person in Chat and resumes the run with
+// What a paused run waits for, for the /speckit-gha-author skill, which asks the person in Chat and resumes the run with
 // `-i <input>=<choice>`. Every gate of the workflow names its verdict input after its id (`spec-verdict` →
 // `spec_verdict`); the gates of a clarification round (`answer-<round>-<n>`) and of a remediation round
 // (`fix-<round>-<n>`) are returned together, so they can be asked at once and answered in one resume. The first
