@@ -150,6 +150,7 @@
     "disable": "Disable",
     "enabledMarker": "enabled",
     "versionEntry": "Version {{version}}",
+    "versionState": "{{version}} ({{state}})",
     "state": "State"
   },
   "version": {
