@@ -70,7 +70,7 @@ uses.
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceCoveragePlannerTests.cs`
   (inside one segment, across a boundary, start and end exactly at boundaries, span gaps, several recordings with
   overlapping and disjoint coverage, context at zero, shortening) (FR-001–FR-005; research R2)
-- [ ] T004 [P] Add `GetRunFactAsync(runId, acceptedResultId, ordinal)` returning the fact's `startMs` and `endMs` or
+- [x] T004 [P] Add `GetRunFactAsync(runId, acceptedResultId, ordinal)` returning the fact's `startMs` and `endMs` or
   null to `src/platform/SocAlytics.Platform.Application/Analysis/Facts/IFactQueries.cs` and
   `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Analysis/FactQueries.cs` (reading
   `analysis_indexed_facts` filtered by `run_id`); add
