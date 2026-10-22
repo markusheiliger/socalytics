@@ -18,8 +18,9 @@ through approved changes.
     runtime and tooling ownership boundary.
 - [`src/analysts/`](src/analysts/README.md) contains the executable Analyst
     Manager desktop app under `src/analysts/manager/`, the executable Python
-    Analyst SDK under `src/analysts/sdk/`, and records the planned Analyst
-    capability ownership boundary.
+    Analyst SDK under `src/analysts/sdk/`, the development reference Analyst
+    capability under `src/analysts/capabilities/reference-media-probe/`, and
+    records the planned catalog Analyst capability ownership boundary.
 - [`docs/`](docs/README.md) indexes architecture, component, and operational documentation.
 - [`contracts/`](contracts/README.md) holds the canonical machine-readable
     contracts (JSON Schema 2020-12), the golden-fixture set shared by the
@@ -298,6 +299,33 @@ uv run --no-sync python scripts/sync_contracts.py --check
 On Windows use `.venv\Scripts\python.exe` for the build. The SDK carries a copy
 of the canonical schemas; `scripts/sync_contracts.py` refreshes it after a
 contract change. This is development evidence, not a published package or
+production readiness.
+
+### Reference Analyst capability
+
+The development reference Analyst `reference-media-probe` lives in
+`src/analysts/capabilities/reference-media-probe/` (Python 3.12, `uv`, the
+pinned `ffmpeg` and `ffprobe` on `PATH`; author documentation in its
+`README.md`). From that directory, run the same locked sequence as for the SDK:
+
+```text
+UV_PYTHON_DOWNLOADS=never
+uv sync --locked --all-groups --no-install-local --no-build
+uv sync --locked --all-groups --no-build-isolation
+uv build --wheel --no-build-isolation --python .venv/bin/python
+uv run --no-sync pytest
+```
+
+From the repository root, build its `linux/amd64` image (a Linux engine is
+required; the build takes no build arguments) and run its Docker-backed
+end-to-end evidence:
+
+```text
+docker build -f src/analysts/capabilities/reference-media-probe/Dockerfile -t reference-media-probe:local .
+dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ReferenceAnalyst"
+```
+
+This is development evidence, not a catalog capability, a published image, or
 production readiness.
 
 ### Contracts

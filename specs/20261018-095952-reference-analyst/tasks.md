@@ -270,7 +270,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 
 ### Documentation
 
-- [ ] T016 [P] Update `src/analysts/README.md` (the reference capability as the first project under `capabilities/`,
+- [x] T016 [P] Update `src/analysts/README.md` (the reference capability as the first project under `capabilities/`,
   development evidence only), `README.md` (the capability's test and image build commands), and `AGENTS.md` (Current
   State: the reference Analyst and its end-to-end evidence; the capability's commands) to describe the merged state
   (FR-020)
