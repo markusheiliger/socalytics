@@ -80,6 +80,28 @@ public class DockerLaunchSpecTests
     }
 
     [Fact]
+    public void Binds_the_media_directory_read_only_only_when_the_job_has_media()
+    {
+        var withMedia = Build(Launch() with { MediaDirectory = "/attempts/a/media" });
+        var binds = withMedia["HostConfig"]!["Binds"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
+
+        binds.ShouldBe(
+        [
+            "/attempts/a/job.json:/socalytics/job.json:ro",
+            "/attempts/a/attempt.json:/socalytics/attempt.json:ro",
+            "/attempts/a/inputs:/socalytics/inputs:ro",
+            "/attempts/a/media:/socalytics/media:ro",
+            "/attempts/a/result:/socalytics/result:rw",
+            "/attempts/a/scratch:/socalytics/scratch:rw",
+        ]);
+        withMedia["NetworkDisabled"]!.GetValue<bool>().ShouldBeTrue();
+        withMedia["HostConfig"]!["NetworkMode"]!.GetValue<string>().ShouldBe("none");
+
+        Build()["HostConfig"]!["Binds"]!.AsArray()
+            .Select(n => n!.GetValue<string>()).ShouldNotContain(b => b.Contains("/socalytics/media", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Binds_the_attempt_file_read_only_and_adds_no_environment_variable()
     {
         var body = Build();

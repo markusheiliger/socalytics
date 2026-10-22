@@ -35,7 +35,7 @@ ordered by start time; the overall result confidence is `1.0` (or the SDK's defa
 whole-second alignment makes facts comparable across segments because nominal windows are whole multiples of the
 segmentation duration. Rounding and decimal arithmetic make the bytes independent of floating-point summation order
 (FR-007). The time rules restate the [Segment Contract](../../docs/architecture/match-data-pipeline.md#segment-contract)
-and the [container interface additions](../20261017-222433-materialized-segments/contracts/container-interface.md)
+and the [container interface additions](../archive/20261017-222433-materialized-segments/contracts/container-interface.md)
 for this capability (FR-005, FR-006).
 
 **Alternatives considered**: One fact per frame (rejected: thousands of facts per real segment for no evidence value);

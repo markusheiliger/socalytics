@@ -18,6 +18,7 @@ internal enum WorkOperation
     Completion,
     ResultGrants,
     UpstreamRead,
+    SegmentMediaRead,
     RegistryCredentials,
     WorkflowCapabilities,
 }
@@ -184,6 +185,7 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
                 : workPath.EndsWith("/heartbeats", StringComparison.Ordinal) ? WorkOperation.Heartbeat
                 : workPath.EndsWith("/result-grants", StringComparison.Ordinal) ? WorkOperation.ResultGrants
                 : workPath.EndsWith("/upstream-results", StringComparison.Ordinal) ? WorkOperation.UpstreamRead
+                : workPath.EndsWith("/segment-media", StringComparison.Ordinal) ? WorkOperation.SegmentMediaRead
                 : WorkOperation.Completion;
             lock (Requests)
             {

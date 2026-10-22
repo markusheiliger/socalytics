@@ -16,6 +16,8 @@
   <ItemGroup>
     <EmbeddedResource Include="Runtime/runtime-compatibility.json" LogicalName="SocAlytics.Analysts.Manager.Runtime.runtime-compatibility.json" />
     <EmbeddedResource Include="..\..\..\..\contracts\analysis\result-manifest\**\*.schema.json" Exclude="..\..\..\..\contracts\**\releases\**;..\..\..\..\contracts\**\examples\**" LogicalName="contracts/analysis/result-manifest/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\..\..\contracts\analysis\segment-media\**\*.schema.json" Exclude="..\..\..\..\contracts\**\releases\**;..\..\..\..\contracts\**\examples\**" LogicalName="contracts/analysis/segment-media/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\..\..\contracts\segments\segment-manifest\**\*.schema.json" Exclude="..\..\..\..\contracts\**\releases\**;..\..\..\..\contracts\**\examples\**" LogicalName="contracts/segments/segment-manifest/%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\..\..\contracts\common\**\*.schema.json" Exclude="..\..\..\..\contracts\**\releases\**;..\..\..\..\contracts\**\examples\**" LogicalName="contracts/common/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 

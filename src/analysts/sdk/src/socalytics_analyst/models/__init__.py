@@ -17,6 +17,7 @@ from socalytics_analyst.models.job import (
     Pinned,
     PolicyPin,
     Resources,
+    SegmentMedia,
     SegmentWindow,
     Timeouts,
     WorkflowRef,
@@ -36,6 +37,7 @@ from socalytics_analyst.models.manifest import (
     ValidityWindow,
 )
 from socalytics_analyst.models.manifest import WorkflowRef as ManifestWorkflowRef
+from socalytics_analyst.models.segment import SegmentManifest
 from socalytics_analyst.models.upstream import CoveragePolicy, StagedCoverage, StagedUpstream
 
 __all__ = [
@@ -67,6 +69,8 @@ __all__ = [
     "Provenance",
     "Resources",
     "ResultManifest",
+    "SegmentManifest",
+    "SegmentMedia",
     "SegmentWindow",
     "StagedCoverage",
     "StagedUpstream",

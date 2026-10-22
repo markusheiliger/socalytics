@@ -76,7 +76,7 @@ def test_attempt_violating_its_schema_is_invalid(mount_factory):
     assert raised.value.category == errors.INPUT_INVALID
 
 
-@pytest.mark.parametrize("version", ["1.2.0", "2.0.0", "0.9.0"])
+@pytest.mark.parametrize("version", ["1.3.0", "2.0.0", "0.9.0"])
 def test_unsupported_job_version(mount_factory, version):
     mount = mount_factory(adjust_job=lambda job: job.update(contractVersion=version))
     with pytest.raises(errors.InputError) as raised:

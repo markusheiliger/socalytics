@@ -90,6 +90,35 @@ def test_segment_window_bounds_and_unknown_property():
             LogicalJob.model_validate(data)
 
 
+def test_segment_job_with_media_exposes_typed_fields():
+    job = LogicalJob.model_validate(load("valid", "segment-job-with-media"))
+    assert job.segment_media.video_policy == "required"
+    assert job.segment_media.manifest_checksum.startswith("sha-256:")
+    assert LogicalJob.model_validate(load("valid", "segment-job-with-window")).segment_media is None
+
+
+def test_segment_media_on_match_job_is_rejected():
+    data = load("valid", "match-job-with-workflow")
+    data["segmentMedia"] = load("valid", "segment-job-with-media")["segmentMedia"]
+    with pytest.raises(ValidationError):
+        LogicalJob.model_validate(data)
+
+
+def test_segment_media_policy_digest_and_unknown_property():
+    base = load("valid", "segment-job-with-media")
+    digest = base["segmentMedia"]["manifestChecksum"]
+    for media in (
+        {"videoPolicy": "forbidden", "manifestChecksum": digest},
+        {"videoPolicy": "required", "manifestChecksum": "abc"},
+        {"videoPolicy": "required"},
+        {"videoPolicy": "required", "manifestChecksum": digest, "extra": 1},
+    ):
+        data = copy.deepcopy(base)
+        data["segmentMedia"] = media
+        with pytest.raises(ValidationError):
+            LogicalJob.model_validate(data)
+
+
 def test_input_status_rules():
     base = load("valid", "match-job-with-workflow")
 

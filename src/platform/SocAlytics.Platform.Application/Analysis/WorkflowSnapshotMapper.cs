@@ -96,5 +96,6 @@ public sealed class WorkflowSnapshotMapper(ICanonicalJson canonicalJson)
         ["leaseSeconds"] = n.LeaseSeconds,
         ["staleTimeoutSeconds"] = n.StaleTimeoutSeconds,
         ["executionTimeoutSeconds"] = n.ExecutionTimeoutSeconds,
+        ["videoPolicy"] = n.VideoPolicy,
     };
 }

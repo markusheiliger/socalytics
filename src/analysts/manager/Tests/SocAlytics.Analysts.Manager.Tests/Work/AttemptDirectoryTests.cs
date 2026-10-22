@@ -3,6 +3,8 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Json.Schema;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Time.Testing;
 using Shouldly;
 using Xunit;
@@ -87,6 +89,90 @@ public sealed class AttemptDirectoryTests
         }
 
         return await task.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    private static JsonObject SegmentMediaJob(string manifestChecksum)
+    {
+        var job = MatchJob();
+        job["contractVersion"] = "1.2.0";
+        job["executionScope"] = "segment";
+        job["recordingSetVersionId"] = "rsv-1";
+        job["segment"] = new JsonObject { ["recordingVersionId"] = "rv-1", ["segmentNumber"] = 1 };
+        job["segmentMedia"] = new JsonObject { ["videoPolicy"] = "required", ["manifestChecksum"] = manifestChecksum };
+        return job;
+    }
+
+    [Fact]
+    public async Task Verified_segment_media_is_staged_before_launch_and_deleted_with_the_attempt()
+    {
+        var media = System.Text.Encoding.UTF8.GetBytes("not really an mp4");
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "contracts", "segments", "segment-manifest", "v1", "examples", "valid", "segment-manifest.json")))!.AsObject();
+        manifest["media"]!["digest"] = ResultPublisher.Digest(media);
+        manifest["media"]!["sizeBytes"] = media.Length;
+        var manifestBytes = System.Text.Encoding.UTF8.GetBytes(manifest.ToJsonString());
+        var checksum = ResultPublisher.Digest(manifestBytes);
+        _platform.Script(WorkOperation.SegmentMediaRead, () => Json(HttpStatusCode.OK, new JsonObject
+        {
+            ["contractVersion"] = "1.0.0",
+            ["attemptId"] = _attemptId.ToString(),
+            ["logicalJobId"] = "logical-job-0001",
+            ["manifestChecksum"] = checksum,
+            ["manifest"] = JsonNode.Parse(manifestBytes),
+            ["grants"] = new JsonArray(Grant("segment-manifest.json"), Grant("segment.mp4")),
+        }.ToJsonString()));
+        _runtime.Outcome = AttemptOutcome.Failure("analyst lost");
+        var storage = new FixedStorage(new Dictionary<string, byte[]> { ["/segment-manifest.json"] = manifestBytes, ["/segment.mp4"] = media });
+        var logs = new FakeLogCollector();
+        var observed = new List<string>();
+        _runtime.OnStart = launch =>
+        {
+            var directory = launch.MediaDirectory!;
+            observed.Add(Path.GetFileName(directory));
+            observed.AddRange(Directory.EnumerateFiles(directory).Select(f => Path.GetFileName(f)).Order(StringComparer.Ordinal));
+        };
+
+        var stager = new SegmentMediaStager(_client, new HttpClient(storage), _time, new StagingOptions(), false, LoggerFactory.Create(b => b.AddProvider(new FakeLoggerProvider(logs))).CreateLogger<SegmentMediaStager>());
+        var runner = new AttemptRunner(_client, _runtime, _time, mediaStager: stager);
+        var task = runner.RunAsync(new InMemoryDelivery(_platform, SegmentMediaJob(checksum).ToJsonString()), () => _session, null, CancellationToken.None);
+        for (var i = 0; i < 3000 && !task.IsCompleted; i++)
+        {
+            _time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(1);
+        }
+
+        (await task.WaitAsync(TimeSpan.FromSeconds(10))).ShouldBe(AttemptRunEnd.Completed);
+
+        var launch = _runtime.Launch.ShouldNotBeNull(string.Join("\n", logs.GetSnapshot().Select(r => r.Message)));
+        launch.MediaDirectory.ShouldBe(Path.Combine(UpstreamStager.DirectoryFor(_attemptId), "media"));
+        observed.ShouldBe(["media", "segment-manifest.json", "segment.mp4"]);
+        Directory.Exists(UpstreamStager.DirectoryFor(_attemptId)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_job_without_segment_media_gets_no_media_directory()
+    {
+        _runtime.Outcome = AttemptOutcome.Failure("analyst lost");
+
+        (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
+
+        _runtime.Launch.ShouldNotBeNull().MediaDirectory.ShouldBeNull();
+        _runtime.Observed.ShouldNotContain("media");
+    }
+
+    private static JsonObject Grant(string name) => new()
+    {
+        ["name"] = name,
+        ["url"] = $"https://storage.test/{name}?sig=abc",
+        ["expiresAt"] = "2026-10-12T14:10:00Z",
+    };
+
+    private sealed class FixedStorage(Dictionary<string, byte[]> objects) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(objects.TryGetValue(request.RequestUri!.AbsolutePath, out var bytes)
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) }
+                : new HttpResponseMessage(HttpStatusCode.NotFound));
     }
 
     private int Heartbeats => _platform.Headers.Count(h => h.Operation == WorkOperation.Heartbeat);
@@ -252,6 +338,8 @@ public sealed class AttemptDirectoryTests
 
         public bool Throw { get; set; }
 
+        public Action<AttemptLaunch>? OnStart { get; set; }
+
         public void Release() => _release.TrySetResult();
 
         public Task<RuntimeProbe> ProbeAsync(RuntimeProbeRequest request, CancellationToken cancellationToken) =>
@@ -260,6 +348,7 @@ public sealed class AttemptDirectoryTests
         public async Task<IAttemptExecution> StartAttemptAsync(AttemptLaunch launch, CancellationToken cancellationToken)
         {
             Launch = launch;
+            OnStart?.Invoke(launch);
             var directory = Path.GetDirectoryName(launch.JobFile)!;
             Observed = Directory.EnumerateFileSystemEntries(directory).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList()!;
             JobBytes = await File.ReadAllBytesAsync(launch.JobFile!, cancellationToken);

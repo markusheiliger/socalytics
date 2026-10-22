@@ -54,6 +54,6 @@ data; the platform test plays the evidence of a fact of an uploaded synthetic re
 2. Open the run's analysis review, choose a capability, and choose "Play evidence" on a fact: the dialog plays 5
    seconds before the fact, the fact, and 5 seconds after it.
 3. As a Club Admin, purge the match's materialized segments
-   ([member operations](../20261017-222433-materialized-segments/contracts/member-operations.md)) and play the evidence
+   ([member operations](../archive/20261017-222433-materialized-segments/contracts/member-operations.md)) and play the evidence
    again: the dialog reports that the video is being prepared and plays once it is available.
 4. Check that the API logs and the security audit trail contain no presigned link.

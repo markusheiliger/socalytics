@@ -24,7 +24,7 @@
   unchanged.
 - Q: How should an Analyst Manager too old to stage segment media be kept from running jobs that carry segment media?
   → A: Through the stamp's minimum Manager version from
-  [Analyst Manager Minimum Version](../archive/20261017-213549-manager-minimum-version/spec.md): environments that use
+  [Analyst Manager Minimum Version](../20261017-213549-manager-minimum-version/spec.md): environments that use
   video-permitting profiles set it to at least the first Manager version that stages media; no new mechanism is added.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -218,7 +218,7 @@ job is reported as in use and kept.
   Manager.
 - **FR-002**: The Segment Service MUST materialize a logical segment only when it is requested, keyed by the complete
   materialized identity `(recording-version-id, timeline-mapping-digest, segmentation-policy-digest, segment-number)`
-  as defined by the [Segment Contract](../../docs/architecture/match-data-pipeline.md#segment-contract), and MUST
+  as defined by the [Segment Contract](../../../docs/architecture/match-data-pipeline.md#segment-contract), and MUST
   derive the nominal window, requested source interval, and coverage clipping exactly as that contract defines.
 - **FR-003**: Materialized media MUST be independently decodable, MUST cover the complete requested interval, MAY
   extend beyond it only for keyframe decoding context, and MUST be produced by the toolchain that the environment
@@ -354,32 +354,32 @@ job is reported as in use and kept.
 
 ### Dependencies
 
-- [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) (twin #143)
+- [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) (twin #143)
   provides the pinned FFmpeg and ffprobe build in verification; it MUST merge before this feature.
-- [Python Analyst SDK](../archive/20261017-220709-python-analyst-sdk/spec.md) (batch sibling) completes the container
+- [Python Analyst SDK](../20261017-220709-python-analyst-sdk/spec.md) (batch sibling) completes the container
   interface (verbatim job file, analyst-job 1.1.0 with the segment window, attempt context) and creates the SDK this
   feature extends; it MUST merge before this feature.
-- [Analyst Manager Minimum Version](../archive/20261017-213549-manager-minimum-version/spec.md) (batch sibling) provides the
+- [Analyst Manager Minimum Version](../20261017-213549-manager-minimum-version/spec.md) (batch sibling) provides the
   stamp's minimum Manager version that keeps Managers unable to stage segment media from admitting work; it MUST merge
   before this feature, and this feature's Manager documentation names the first Manager version that stages media.
-- [Recording Lineage and Upload](../archive/20261005-130702-recording-lineage-upload/spec.md),
-  [Durable Analysis Workflow](../archive/20261005-130703-durable-analysis-workflow/spec.md),
-  [Analysis Result Read for Jobs](../archive/20261013-134112-analysis-result-read/spec.md),
-  [Analyst Manager Work Execution](../archive/20261012-141233-manager-work-execution/spec.md),
-  [Docker Desktop Runtime Adapter for Analyst Execution](../archive/20261015-092159-docker-runtime-adapter/spec.md),
+- [Recording Lineage and Upload](../20261005-130702-recording-lineage-upload/spec.md),
+  [Durable Analysis Workflow](../20261005-130703-durable-analysis-workflow/spec.md),
+  [Analysis Result Read for Jobs](../20261013-134112-analysis-result-read/spec.md),
+  [Analyst Manager Work Execution](../20261012-141233-manager-work-execution/spec.md),
+  [Docker Desktop Runtime Adapter for Analyst Execution](../20261015-092159-docker-runtime-adapter/spec.md),
   and the Analyst Registry (profile video policy) are implemented and provide recording versions and mappings, object
   storage, logical segment identities at run creation, the Manager-mediated staging pattern, and the container
   runtimes.
 
 ### Architecture Alignment
 
-- Implements [On-Demand Video Segmentation](../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation)
-  with its [Segment Contract](../../docs/architecture/match-data-pipeline.md#segment-contract),
-  [Segment And Match Analysis Scope](../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope),
-  and [Implementation Validation](../../docs/architecture/match-data-pipeline.md#implementation-validation); step 1 of
-  [Readiness And Dependencies](../../docs/architecture/job-processing.md#readiness-and-dependencies); the
-  logical-segment contract row of [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md);
-  and the media staging parts of [Analyst Runtime and Recovery](../../docs/architecture/analyst-runtime-and-recovery.md).
+- Implements [On-Demand Video Segmentation](../../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation)
+  with its [Segment Contract](../../../docs/architecture/match-data-pipeline.md#segment-contract),
+  [Segment And Match Analysis Scope](../../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope),
+  and [Implementation Validation](../../../docs/architecture/match-data-pipeline.md#implementation-validation); step 1 of
+  [Readiness And Dependencies](../../../docs/architecture/job-processing.md#readiness-and-dependencies); the
+  logical-segment contract row of [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md);
+  and the media staging parts of [Analyst Runtime and Recovery](../../../docs/architecture/analyst-runtime-and-recovery.md).
 - The run-pinned Analyst profile's video policy (`required`, `optional`, `forbidden`) is the capability's video
   permission; it is already validated against the capability declaration's video access.
 

@@ -1,6 +1,6 @@
 # Contract: Segment Manifest and Analysis Contract Changes
 
-All changes follow [Versioning And Compatibility](../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility):
+All changes follow [Versioning And Compatibility](../../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility):
 released copies stay immutable, new `releases/<version>.schema.json` copies are added, `x-socalytics-version` is set,
 and `contracts/README.md` has one index row per schema. Shared definitions (`identifier`, `sha256Digest`,
 `contractVersionV1`, UTC timestamps) come from `contracts/common/v1/common.schema.json`.

@@ -40,6 +40,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<IRecordingLineageQueries, RecordingLineageQueries>();
         services.TryAddScoped<IRecordingSetLookup, RecordingSetLookup>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Analysis.IAnalysisSegmentSource, SocAlytics.Platform.Infrastructure.Analysis.LineageAnalysisSegmentSource>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Segments.ISegmentStore, SocAlytics.Platform.Infrastructure.Persistence.Segments.SegmentStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Segments.ISegmentSourceLookup, SocAlytics.Platform.Infrastructure.Segments.SegmentSourceLookup>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IAnalysisRunStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IRunSupersessionStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.RunSupersessionStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.ILogicalJobStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.LogicalJobStore>();
@@ -105,6 +107,8 @@ public static class InfrastructureServiceCollectionExtensions
             .Validate(static o => !string.IsNullOrWhiteSpace(o.Bucket), "ObjectStorage:Bucket is required.")
             .ValidateOnStart();
         services.TryAddSingleton<IObjectStorage, S3ObjectStorage>();
+        services.TryAddSingleton<SocAlytics.Platform.Infrastructure.Segments.ToolchainProbe>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Segments.ISegmentExtractor, SocAlytics.Platform.Infrastructure.Segments.FfmpegSegmentExtractor>();
         services.AddHostedService<DevelopmentBucketInitializer>();
         services.AddHostedService<UploadSessionExpiryWorker>();
 
@@ -167,6 +171,7 @@ public static class InfrastructureServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.AnalysisNotificationOptions.SectionName);
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.RecordingsFinalizedConsumerWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.LeaseExpiryWorker>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.SegmentMaterializationWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentAttemptMonitorWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentWorkReconciliationWorker>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IPublicationReconciliationStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.PublicationReconciliationStore>();

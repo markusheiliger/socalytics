@@ -9,7 +9,7 @@ rules, Application handlers and ports, Infrastructure persistence, toolchain run
 runs as a hosted background worker in the API host, like the existing analysis workers under
 `SocAlytics.Platform.Infrastructure/Workers/`. No new project, deployment unit, or HTTP operation handles media bytes.
 
-**Rationale**: [Platform Implementation Profile](../../docs/architecture/platform-implementation.md#data-organization)
+**Rationale**: [Platform Implementation Profile](../../../docs/architecture/platform-implementation.md#data-organization)
 already decides that segment materialization runs on demand within the control-plane deployment until measured
 scaling justifies extraction, and the platform is one layered monolith whose functional areas are folders. The worker
 reads source media from and writes segment media to object storage directly; no API operation reads or relays the
@@ -79,7 +79,7 @@ each span's 1:1 rate. An empty intersection rejects the request (`segment-covera
 intersected span as `{ mediaStartMs, mediaEndMs, matchStartMs }` so Analysts convert media time to match time and
 know which media time is unmapped.
 
-**Rationale**: Implements the [Segment Contract](../../docs/architecture/match-data-pipeline.md#segment-contract)
+**Rationale**: Implements the [Segment Contract](../../../docs/architecture/match-data-pipeline.md#segment-contract)
 exactly, keeps one media artifact per identity, and gives Analysts the information they need to emit match-time facts
 inside the nominal window. It agrees with the existing `LineageAnalysisSegmentSource` numbering.
 
@@ -115,7 +115,7 @@ manifestReference }` into the job's input snapshot and emits analyst-job 1.2.0 w
 with a waiting job on that identity in the same unit of work; the existing reconciliation worker re-applies it after
 restarts. Retries of an attempt reuse the pinned association.
 
-**Rationale**: Matches step 1 of [Readiness And Dependencies](../../docs/architecture/job-processing.md#readiness-and-dependencies)
+**Rationale**: Matches step 1 of [Readiness And Dependencies](../../../docs/architecture/job-processing.md#readiness-and-dependencies)
 and the clarifications, reuses the input snapshot as lineage, and keeps NATS out of state decisions.
 
 **Alternatives considered**: Materializing only when a job's other dependencies are satisfied (rejected: delays the
@@ -163,7 +163,7 @@ consumers: Analyst Manager, Analyst SDK) and `contracts/analysis/segment-media/v
 Python Analyst SDK feature's 1.1.0 with optional `segmentMedia`, allowed only for segment-scoped jobs. Each has a
 released copy, valid and invalid examples with expectations, and an index row. The result manifest is unchanged.
 
-**Rationale**: [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md) assigns
+**Rationale**: [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md) assigns
 logical-segment manifests to the Segment Service and requires additive minor versions within a major version.
 
 **Alternatives considered**: Placing the manifest under `contracts/recordings/` (rejected: the Segment Service, not the

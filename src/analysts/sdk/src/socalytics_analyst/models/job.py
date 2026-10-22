@@ -1,4 +1,4 @@
-"""Logical Job: the typed analyst-job 1.0.0 and 1.1.0 ready-work message."""
+"""Logical Job: the typed analyst-job 1.0.0, 1.1.0, and 1.2.0 ready-work message."""
 
 from __future__ import annotations
 
@@ -83,6 +83,11 @@ class SegmentWindow(ContractModel):
     end_ms: PositiveInt
 
 
+class SegmentMedia(ContractModel):
+    video_policy: Literal["required", "optional"]
+    manifest_checksum: Digest
+
+
 class LogicalJob(ContractModel):
     contract_version: ContractVersionV1
     message_id: Identifier
@@ -101,6 +106,7 @@ class LogicalJob(ContractModel):
     execution_scope: Literal["segment", "match"]
     segment: AnalysisSegmentReference | None = None
     segment_window: SegmentWindow | None = None
+    segment_media: SegmentMedia | None = None
     workflow: WorkflowRef | None = None
     inputs: tuple[InputEntry, ...]
     pinned: Pinned
@@ -120,4 +126,6 @@ class LogicalJob(ContractModel):
                 raise ValueError("a match job must not carry segment")
             if self.segment_window is not None:
                 raise ValueError("a match job must not carry segmentWindow")
+            if self.segment_media is not None:
+                raise ValueError("a match job must not carry segmentMedia")
         return self

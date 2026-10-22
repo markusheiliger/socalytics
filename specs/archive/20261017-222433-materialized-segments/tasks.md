@@ -5,7 +5,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 # Tasks: Materialized Video Segments and Analyst Input Staging
 
-**Input**: Design documents from `specs/20261017-222433-materialized-segments/`
+**Input**: Design documents from `specs/archive/20261017-222433-materialized-segments/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
@@ -28,30 +28,37 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 ### Contract schemas
 
-- [ ] T001 [P] Create `contracts/segments/segment-manifest/v1/segment-manifest.schema.json` 1.0.0 with
+- [x] T001 [P] Create `contracts/segments/segment-manifest/v1/segment-manifest.schema.json` 1.0.0 with
   `releases/1.0.0.schema.json`, `examples/valid/` (`segment-manifest.json`, `clipped-segment-manifest.json`),
   `examples/invalid/` (`missing-media-digest.json`, `plain-digest-form.json`, `zero-segment-number.json`,
   `unknown-property.json`, `audio-media-type.json`), and `examples/invalid/expectations.json`, exactly as specified in
-  `specs/20261017-222433-materialized-segments/contracts/segment-contracts.md` (`mediaType` const `video/mp4`, policy
+  `specs/archive/20261017-222433-materialized-segments/contracts/segment-contracts.md` (`mediaType` const `video/mp4`, policy
   `version` const `1`, `segmentNumber` minimum 1, `timelineSpans` minItems 1, shared definitions from
   `contracts/common/v1/common.schema.json`)
-- [ ] T002 [P] Add `analysis/analyst-job` 1.2.0 to `contracts/analysis/analyst-job/v1/analyst-job.schema.json` on top
+- [x] T002 [P] Add `analysis/analyst-job` 1.2.0 to `contracts/analysis/analyst-job/v1/analyst-job.schema.json` on top
   of 1.1.0: optional `segmentMedia` (`videoPolicy` enum `required`/`optional`, `manifestChecksum` sha-256 digest), the
   `allOf` rule that forbids it for `executionScope = match`, `releases/1.2.0.schema.json`,
   `examples/valid/segment-job-with-media.json`, `examples/invalid/segment-media-on-match-job.json` and
-  `segment-media-forbidden-policy.json` with `expectations.json` entries; earlier releases stay unchanged
+  `segment-media-forbidden-policy.json` with `expectations.json` entries; earlier releases stay unchanged. In the same
+  task, keep the SDK suite green (the SDK embeds a copy of the analysis contracts, and its tests validate every
+  example): refresh the copy with `src/analysts/sdk/scripts/sync_contracts.py`, add `1.2.0` to the supported
+  `analyst-job` versions in `src/analysts/sdk/src/socalytics_analyst/schemas.py`, add the optional `segmentMedia`
+  field (`videoPolicy`, `manifestChecksum`) to `LogicalJob` in `src/analysts/sdk/src/socalytics_analyst/models/job.py`
+  so the model matches the schema, and extend the SDK job tests for it; run `uv run --no-sync pytest` and
+  `uv run --no-sync python scripts/sync_contracts.py --check` in `src/analysts/sdk` (the verification runs the SDK
+  tests, which failed twice when only the contract changed)
 
 ### Segment media response schema
 
-- [ ] T003 Create `contracts/analysis/segment-media/v1/segment-media.schema.json` 1.0.0 with
+- [x] T003 Create `contracts/analysis/segment-media/v1/segment-media.schema.json` 1.0.0 with
   `releases/1.0.0.schema.json`, `examples/valid/segment-media.json`, `examples/invalid/` (`missing-grants.json`,
   `write-grant-name.json`, `single-grant.json`), and `expectations.json`, referencing the segment manifest schema, as
-  specified in `specs/20261017-222433-materialized-segments/contracts/segment-contracts.md` (exactly two grants named
+  specified in `specs/archive/20261017-222433-materialized-segments/contracts/segment-contracts.md` (exactly two grants named
   `segment-manifest.json` and `segment.mp4`)
 
 ### Contract registration
 
-- [ ] T004 Register the three contract changes: index rows in `contracts/README.md` (segment-manifest owner "Segment
+- [x] T004 Register the three contract changes: index rows in `contracts/README.md` (segment-manifest owner "Segment
   Service (control-plane deployment)", segment-media owner "Scheduler and Job Registry; Analyst Manager as consumer",
   analyst-job version `1.2.0` with its released copies), schema ids in
   `src/platform/SocAlytics.Platform.Application/Abstractions/ContractSchemaIds.cs`, catalog entries in
@@ -69,7 +76,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 ### Segment domain, schema, storage, and options
 
-- [ ] T005 [P] Implement the `Segments` domain in `src/platform/SocAlytics.Platform.Domain/Segments/`
+- [x] T005 [P] Implement the `Segments` domain in `src/platform/SocAlytics.Platform.Domain/Segments/`
   (`MaterializedSegmentIdentity` with all four fields required and `segmentNumber > 0`; `SegmentWindowCalculator` for
   the nominal window `[(n-1)·D, n·D)`, the intersection with mapped spans, the requested source interval as the
   smallest contiguous media interval covering every non-empty intersection, the intersected `timelineSpans`, and
@@ -78,7 +85,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
   `src/platform/SocAlytics.Platform.Infrastructure/Analysis/LineageAnalysisSegmentSource.cs` numbering, with tests in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/Domain/SegmentWindowCalculatorTests.cs` (boundary
   ownership at exactly `n·D`, clipping, multi-span coverage, empty intersection, nonpositive values) (FR-002, FR-007)
-- [ ] T006 [P] Add `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/NNNN_segments_materialized_segments.sql`
+- [x] T006 [P] Add `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/NNNN_segments_materialized_segments.sql`
   creating `socalytics.materialized_segments` exactly as in `data-model.md` (unique identity over
   `recording_version_id, timeline_mapping_digest, segmentation_policy_digest, segment_number`; check constraints:
   `segment_number > 0`, `duration_seconds > 0`, `state IN ('absent','materializing','available','failed')`,
@@ -87,14 +94,14 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
   `socalytics.attach_version_trigger`, indexes for claiming (`state`, `demanded`, `next_attempt_at`,
   `lease_expires_at`) and recording-version lookup, the nullable column `segment_rejection_reason` (text) on
   `socalytics.logical_jobs`, and grants for `socalytics_app` as in existing migrations
-- [ ] T007 [P] Add a streaming put with a full-object SHA-256 checksum and content length to
+- [x] T007 [P] Add a streaming put with a full-object SHA-256 checksum and content length to
   `src/platform/SocAlytics.Platform.Application/Abstractions/ObjectStorage/IObjectStorage.cs` and implement it in
   `src/platform/SocAlytics.Platform.Infrastructure/ObjectStorage/S3ObjectStorage.cs` (the store must reject bytes that
   do not match), updating every test double that implements `IObjectStorage` under `src/platform/Tests/`, with an
   integration test against the RustFS test container in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Recordings/` or the existing object-storage test file
   (FR-004)
-- [ ] T008 [P] Add `src/platform/SocAlytics.Platform.Application/Segments/SegmentOptions.cs` binding `Segments:Materialization`
+- [x] T008 [P] Add `src/platform/SocAlytics.Platform.Application/Segments/SegmentOptions.cs` binding `Segments:Materialization`
   (`PollInterval`, `LeaseDuration`, `MaxConcurrentPerInstance`, `MaxAttempts`, `RetryDelay`, `ExecutionTimeout`,
   `MaxSegmentBytes`, `WorkingDirectory`) and `Segments:Toolchain` (`FfmpegPath`, `FfprobePath`,
   `ExpectedVersionPrefix`) with validation (positive durations and counts, non-empty paths) and unit tests in
@@ -102,7 +109,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 ### Segment store and synthetic test media
 
-- [ ] T009 [P] Define `ISegmentStore` in `src/platform/SocAlytics.Platform.Application/Segments/ISegmentStore.cs` and implement
+- [x] T009 [P] Define `ISegmentStore` in `src/platform/SocAlytics.Platform.Application/Segments/ISegmentStore.cs` and implement
   `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Segments/SegmentStore.cs` with Dapper: demand upsert
   (`INSERT … ON CONFLICT DO NOTHING`, re-demand of `failed` resets `attempts_used`), claim with
   `FOR UPDATE SKIP LOCKED` of demanded `absent` rows due for an attempt and of `materializing` rows with expired
@@ -110,7 +117,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
   lookups by identity and by recording versions, waiting-job queries joined with `logical_jobs`, and purge locking;
   tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentStoreTests.cs` (state constraints,
   concurrent claims, stale candidate refusal, version trigger) (FR-005, FR-006)
-- [ ] T010 [P] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Support/SyntheticMedia.cs` that creates a
+- [x] T010 [P] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Support/SyntheticMedia.cs` that creates a
   10-second, 64×64, keyframe-every-second MPEG-4 MP4 with `testsrc2` through the configured `ffmpeg` in a test-owned
   directory and uploads and finalizes it through the existing recording upload handlers with a two-span or single-span
   timeline mapping; it fails visibly with a named message when the toolchain is missing, like Docker-dependent tests
@@ -118,7 +125,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 ### Segment composition
 
-- [ ] T011 Register the Segments options (bound and validated at start), `ISegmentStore`, and the time and storage
+- [x] T011 Register the Segments options (bound and validated at start), `ISegmentStore`, and the time and storage
   dependencies in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs` and
   `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs`; add development
   values to `src/platform/SocAlytics.Platform.Api/appsettings.Development.json` (`MaxConcurrentPerInstance` 2,
@@ -140,7 +147,7 @@ segments become `available` once, manifests validate, and the jobs become ready 
 
 ### Extraction, manifest, and node snapshot
 
-- [ ] T012 [P] [US1] Implement `ISegmentExtractor` (`src/platform/SocAlytics.Platform.Application/Segments/ISegmentExtractor.cs`)
+- [x] T012 [P] [US1] Implement `ISegmentExtractor` (`src/platform/SocAlytics.Platform.Application/Segments/ISegmentExtractor.cs`)
   with `src/platform/SocAlytics.Platform.Infrastructure/Segments/FfmpegSegmentExtractor.cs` and
   `src/platform/SocAlytics.Platform.Infrastructure/Segments/ToolchainProbe.cs` per research R3: input seeking on a
   presigned source read URL that is never logged, `-copyts`, `-map 0:v:0`, stream copy, no metadata, MP4 with
@@ -151,14 +158,14 @@ segments become `available` once, manifests validate, and the jobs become ready 
   registering both in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs`;
   tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/FfmpegSegmentExtractorTests.cs` with
   `SyntheticMedia` (covered interval, keyframe start, only one video stream, missing toolchain) (FR-003)
-- [ ] T013 [P] [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/SegmentManifestBuilder.cs` that builds
+- [x] T013 [P] [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/SegmentManifestBuilder.cs` that builds
   the segment manifest 1.0.0 (identity, policy version and duration, nominal window, requested source interval,
   encoded interval, timeline spans, media reference, `video/mp4`, media digest and size, producer toolchain, UTC
   creation time) and its canonical bytes and SHA-256 checksum, registered in
   `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`, with tests in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentManifestBuilderTests.cs` validating the
   output against the schema (FR-004, SC-001)
-- [ ] T014 [P] [US1] Add the run-pinned profile's `videoPolicy` to the node snapshot in
+- [x] T014 [P] [US1] Add the run-pinned profile's `videoPolicy` to the node snapshot in
   `src/platform/SocAlytics.Platform.Application/Analysis/WorkflowSnapshotMapper.cs` (read from the resolved Analyst
   profile content, carrying it through `src/platform/SocAlytics.Platform.Application/Registry/ResolvedWorkflowDefinition.cs`
   and the resolvers in `src/platform/SocAlytics.Platform.Infrastructure/Registry/` when they do not expose it yet), with
@@ -167,13 +174,13 @@ segments become `available` once, manifests validate, and the jobs become ready 
 
 ### Materialization
 
-- [ ] T015 [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/RequestSegmentMaterialization.cs`:
+- [x] T015 [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/RequestSegmentMaterialization.cs`:
   validate the identity, the policy version (`segmentation-policy-unknown` unless `1`) and the digest binding
   (`segmentation-policy-conflict`), recording-set membership and match and team scope through the Recordings lineage
   queries (`segment-scope-mismatch`), and the coverage intersection (`segment-coverage-empty`); rejections create no
   `available` row, change no existing row, and create no lineage input; accepted requests upsert demand; tests in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentRequestTests.cs` (FR-002, FR-007, FR-010)
-- [ ] T016 [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/MaterializeSegment.cs`: claim, extract,
+- [x] T016 [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/MaterializeSegment.cs`: claim, extract,
   write media and manifest under `segments/{recordingVersionId}/{mappingDigestHex}/{policyDigestHex}/{segmentNumber}/{candidateId}/`,
   confirm the store's attested full-object SHA-256 and size equal the manifest, publish by compare-and-set in a unit of
   work, delete losing or expired candidates' objects, and treat a published association as a cache hit only after its
@@ -181,13 +188,13 @@ segments become `available` once, manifests validate, and the jobs become ready 
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentMaterializationTests.cs` covering manifest
   contents and digest (SC-001), 8 concurrent requests with one association and no leftover candidate objects (SC-002),
   a recording-set-only revision reusing the same association, and coexisting policy digests (FR-004 to FR-006, FR-010)
-- [ ] T017 [US1] Add `src/platform/SocAlytics.Platform.Infrastructure/Workers/SegmentMaterializationWorker.cs` on the
+- [x] T017 [US1] Add `src/platform/SocAlytics.Platform.Infrastructure/Workers/SegmentMaterializationWorker.cs` on the
   existing `WorkerLoop` pattern with `MaxConcurrentPerInstance` parallel claims and a toolchain probe at start, and
   register it where the existing analysis workers are registered; tests in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentWorkerTests.cs` for processing demanded
   rows and reclaiming an expired `materializing` lease after a simulated restart without publishing the old candidate
   (FR-001, FR-006)
-- [ ] T018 [US1] Gate readiness on segment media: request demand at run creation in
+- [x] T018 [US1] Gate readiness on segment media: request demand at run creation in
   `src/platform/SocAlytics.Platform.Application/Analysis/Commands/HandleRecordingsFinalizedNotification.cs` for
   segment-scoped jobs whose node `videoPolicy` is `required` or `optional` (never `forbidden`), recording a rejected
   request's reason in `logical_jobs.segment_rejection_reason` through
@@ -214,10 +221,10 @@ results are accepted, media is verified, and nothing remains after the attempt.
 
 ### Media read, Manager client, and SDK media model
 
-- [ ] T019 [P] [US2] Implement `src/platform/SocAlytics.Platform.Application/Analysis/Results/GetSegmentMedia.cs` and map
+- [x] T019 [P] [US2] Implement `src/platform/SocAlytics.Platform.Application/Analysis/Results/GetSegmentMedia.cs` and map
   `GET /api/v1/analysis/attempts/{attemptId}/segment-media` (`getAnalysisSegmentMedia`) in
   `src/platform/SocAlytics.Platform.Api/Analysis/AnalystManagerEndpoints.cs` per
-  `specs/20261017-222433-materialized-segments/contracts/segment-media-read.md` (ownership, fencing token, active and
+  `specs/archive/20261017-222433-materialized-segments/contracts/segment-media-read.md` (ownership, fencing token, active and
   current attempt with an unexpired lease, `segment-media-not-applicable`, attested checksum and size check, two
   read-only grants expiring at the earlier of `Analysis:Results:GrantLifetime` and the lease expiry, audit events for
   foreign and out-of-scope requests, response valid against `analysis/segment-media` 1.0.0); refresh
@@ -227,25 +234,28 @@ results are accepted, media is verified, and nothing remains after the attempt.
   (stale, fenced, completed, foreign, forbidden-policy, and not-current refusals; grant expiry; no source locations)
   (FR-016, FR-017)
 
-- [ ] T020 [P] [US2] Add `getAnalysisSegmentMedia` to the Manager platform client in
+- [x] T020 [P] [US2] Add `getAnalysisSegmentMedia` to the Manager platform client in
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Platform/PlatformClient.cs` and
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Platform/PlatformWorkContracts.cs` (response validated
   against `analysis/segment-media` 1.0.0, refusals mapped like the upstream read) and parse `segmentMedia` in
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/AnalystJobMessage.cs`, with tests in
   `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Platform/SegmentMediaClientTests.cs` (FR-016, FR-023)
-- [ ] T021 [P] [US2] Extend the SDK in `src/analysts/sdk/`: copy the segment manifest schema and analyst-job 1.2.0
-  into `src/analysts/sdk/src/socalytics_analyst/contracts/` (byte-identical, test-verified), add
+- [x] T021 [P] [US2] Extend the SDK in `src/analysts/sdk/`: copy the segment manifest schema into
+  `src/analysts/sdk/src/socalytics_analyst/contracts/` (byte-identical, test-verified; analyst-job 1.2.0 with its
+  `segmentMedia` model field already arrived with T002) by extending `src/analysts/sdk/scripts/sync_contracts.py`
+  (and its SDK test) to include `segments/segment-manifest/v1` so the copy stays byte-identical and
+  `uv run --no-sync python scripts/sync_contracts.py --check` passes, add
   `src/analysts/sdk/src/socalytics_analyst/models/segment.py` (`SegmentManifest`), add
   `src/analysts/sdk/src/socalytics_analyst/media.py` (`SegmentMedia` with `manifest`, `path`, `to_match_ms`), set
   `AnalystContext.media` in `src/analysts/sdk/src/socalytics_analyst/context.py`, and raise the input errors
   `segment-media-missing`, `segment-media-unexpected`, `segment-manifest-mismatch`, `segment-media-digest-mismatch`,
   `segment-manifest-invalid`, and `unsupported-version` (exit 2) per
-  `specs/20261017-222433-materialized-segments/contracts/container-interface.md`; tests in
-  `src/analysts/sdk/tests/test_media.py` and the contract example tests; run `uv run pytest` (FR-021)
+  `specs/archive/20261017-222433-materialized-segments/contracts/container-interface.md`; tests in
+  `src/analysts/sdk/tests/test_media.py` and the contract example tests; run `uv run --no-sync pytest` (FR-021)
 
 ### Manager staging and mount
 
-- [ ] T022 [US2] Implement `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/SegmentMediaStager.cs`: request
+- [x] T022 [US2] Implement `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/SegmentMediaStager.cs`: request
   the grants for the current attempt with lease renewal as in `UpstreamStager.cs`, download both objects to
   `{attemptDirectory}/media/` as `segment-manifest.json` and `segment.mp4`, verify the manifest's SHA-256 against
   `segmentMedia.manifestChecksum` and against the segment manifest schema, verify the media digest and size against
@@ -253,7 +263,7 @@ results are accepted, media is verified, and nothing remains after the attempt.
   partial staging on any failure with the existing staging categories; tests in
   `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Work/SegmentMediaStagerTests.cs` (digest mismatch,
   checksum mismatch, limit exceeded, refused read, storage unavailable) (FR-018, SC-004)
-- [ ] T023 [US2] Wire media staging into `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/AttemptRunner.cs`
+- [x] T023 [US2] Wire media staging into `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/AttemptRunner.cs`
   before launch, mount `{attemptDirectory}/media/` read-only at `/socalytics/media/` only when present in
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Runtime/Docker/DockerLaunchSpec.cs` and
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Runtime/AttemptExecution.cs`, and make the simulated Analyst in
@@ -262,7 +272,7 @@ results are accepted, media is verified, and nothing remains after the attempt.
   `AttemptDirectoryTests.cs`, and `AttemptCleanupTests.cs` under
   `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/` (mount present only with media, other mounts and
   no-network rules unchanged, media deleted when the attempt ends and at Manager start) (FR-019, FR-020)
-- [ ] T024 [US2] Add end-to-end evidence: a `media` mode in
+- [x] T024 [US2] Add end-to-end evidence: a `media` mode in
   `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/TestAnalyst/analyst.py` that reads
   `/socalytics/media/segment-manifest.json` and `segment.mp4`, verifies the digest, and writes a result inside the
   nominal window; a manifest variant with `videoAccess` `required` and image support in
@@ -285,21 +295,21 @@ observe recovery, contained failure, and refusal.
 
 ### Materialization failures
 
-- [ ] T025 [US3] Implement retries and failure in
+- [x] T025 [US3] Implement retries and failure in
   `src/platform/SocAlytics.Platform.Application/Segments/MaterializeSegment.cs`: transient `source-unavailable`,
   `storage-unavailable`, and `extraction-failed` return the row to demanded `absent` with `next_attempt_at` after
   `RetryDelay` until `MaxAttempts`, then `failed` with `retry-budget-exhausted`; non-retryable reasons end `failed`
   immediately; candidates are never visible between attempts; a new demand for a `failed` identity starts a new cycle;
   tests with an injected extractor and storage in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentFailureTests.cs` (FR-008)
-- [ ] T026 [US3] Propagate segment failure in `src/platform/SocAlytics.Platform.Application/Analysis/RunReadinessCoordinator.cs`:
+- [x] T026 [US3] Propagate segment failure in `src/platform/SocAlytics.Platform.Application/Analysis/RunReadinessCoordinator.cs`:
   when a segment ends `failed`, or a job carries a `segment_rejection_reason`, fail waiting `required` jobs with reason
   `segment-unavailable` (blocking follows the
   normal required, optional, conditional, and partial-coverage rules) and make waiting `optional` jobs ready without
   `segmentMedia`, re-applied for every affected run in the failing unit of work; tests in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/SegmentFailureReadinessTests.cs` showing other
   segments' jobs reach their normal outcome (FR-013, FR-014, SC-005)
-- [ ] T027 [US3] Refuse invalid bytes: when an `available` association's attested checksum or size differs on a cache
+- [x] T027 [US3] Refuse invalid bytes: when an `available` association's attested checksum or size differs on a cache
   hit in `src/platform/SocAlytics.Platform.Application/Segments/MaterializeSegment.cs` or on a media read in
   `src/platform/SocAlytics.Platform.Application/Analysis/Results/GetSegmentMedia.cs`, refuse it
   (`segment-media-invalid`), delete its objects, and set the row `failed` so it is never handed to a new job; tests in
@@ -318,10 +328,10 @@ refused and in-use segments are kept.
 
 ### List and purge
 
-- [ ] T028 [US4] Implement `src/platform/SocAlytics.Platform.Application/Segments/ListMaterializedSegments.cs`,
+- [x] T028 [US4] Implement `src/platform/SocAlytics.Platform.Application/Segments/ListMaterializedSegments.cs`,
   `src/platform/SocAlytics.Platform.Application/Segments/PurgeMaterializedSegments.cs`, and
   `src/platform/SocAlytics.Platform.Application/Segments/SegmentAuditEvents.cs` per
-  `specs/20261017-222433-materialized-segments/contracts/member-operations.md`: Club Admin authorization through
+  `specs/archive/20261017-222433-materialized-segments/contracts/member-operations.md`: Club Admin authorization through
   `IAccessAuthorizer.AuthorizeClubAsync` for the match's club, listing of rows whose recording version belongs to the
   match's finalized recording sets with `inUse`, purge that skips rows that are `materializing` or pinned or awaited by
   `Waiting`, `Ready`, or
@@ -331,7 +341,7 @@ refused and in-use segments are kept.
   repeat, rematerialization of a purged segment for a later run with the same validation (SC-007)) and
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentAccessTests.cs` (Coach, Viewer, and other
   club's Club Admin refused without disclosure) (FR-011, FR-024 to FR-027)
-- [ ] T029 [US4] Map `listMaterializedSegments` and `purgeMaterializedSegments` with `MapMemberApi()` and
+- [x] T029 [US4] Map `listMaterializedSegments` and `purgeMaterializedSegments` with `MapMemberApi()` and
   `ProblemResults` in `src/platform/SocAlytics.Platform.Api/Segments/MaterializedSegmentEndpoints.cs`, call the new
   mapping method from `src/platform/SocAlytics.Platform.Api/Program.cs`, refresh
   `src/platform/SocAlytics.Platform.Api/openapi/v1.json` with
@@ -348,7 +358,7 @@ refused and in-use segments are kept.
 
 ### Documentation
 
-- [ ] T030 [P] Make `docs/architecture/` describe the merged state: re-read the narratives and every status statement
+- [x] T030 [P] Make `docs/architecture/` describe the merged state: re-read the narratives and every status statement
   listed in the plan's Architecture Updates (On-Demand Video Segmentation and Segment Contract, Implementation
   Validation, Readiness And Dependencies, Runtime Preflight And Status and Analyst Manager Responsibilities,
   Capability-Scoped Result Access, Contracts and Compatibility Scope And Dependencies, Data Organization, section 4 of
@@ -356,7 +366,7 @@ refused and in-use segments are kept.
   future-tense, or "decided, not yet implemented" wording anywhere in `docs/architecture/`, treating the plan's
   rewrites as examples rather than the whole job; keep storage cost, policy migration at scale, POL-004, and production
   toolchain and storage values explicitly unresolved; run `node .github/scripts/check-markdown.mjs` (FR-030)
-- [ ] T031 [P] Update `README.md` (toolchain prerequisite for the API host and toolchain-dependent tests), `AGENTS.md`
+- [x] T031 [P] Update `README.md` (toolchain prerequisite for the API host and toolchain-dependent tests), `AGENTS.md`
   (Current State: Segment Service, media mount, segment options, member and Manager operations, the first Manager
   version that stages media and the minimum Manager version to set), `src/platform/README.md`,
   `src/analysts/README.md`, `src/analysts/sdk/README.md` (media access with an example), and the Manager documentation
@@ -364,11 +374,13 @@ refused and in-use segments are kept.
 
 ### Validation
 
-- [ ] T032 Run the quickstart validation: `dotnet restore`, `dotnet build --no-restore`, and
-  `dotnet test --no-build` for `src/platform/SocAlytics.Platform.slnx` and
-  `src/analysts/manager/SocAlytics.Analysts.Manager.slnx`, `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`,
-  `uv run pytest` in `src/analysts/sdk`, and `npm ci`, `npm run build`, and `npm test` in `src/clients/web` (the
-  OpenAPI snapshot changed); fix failures in the files of the tasks above
+The full quickstart validation is not a task: a validation-only task changes no file, and the task workflow refuses a
+task whose agent made no changes (T032 failed twice with every check passing). The same checks run as the verification
+of the implementation: `dotnet restore`, `dotnet build --no-restore`, and `dotnet test --no-build` for
+`src/platform/SocAlytics.Platform.slnx` and `src/analysts/manager/SocAlytics.Analysts.Manager.slnx`,
+`dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`, `uv run --no-sync pytest` in `src/analysts/sdk`,
+and `npm ci`, `npm run build`, and `npm test` in `src/clients/web`, run by the phase and finalize verification and by
+`/speckit-converge`; a failure there is fixed in the files of the tasks above.
 
 ---
 
@@ -385,7 +397,7 @@ refused and in-use segments are kept.
   T019, T021, T023).
 - **US3 (Phase 5)**: T025 (needs T016), T026 (needs T018, T025), T027 (needs T019, T025).
 - **US4 (Phase 6)**: T028 (needs T009, T016), T029 (needs T028; after T019 because both refresh `openapi/v1.json`).
-- **Polish (Phase 7)**: T030 and T031 in parallel after all stories; T032 last.
+- **Polish (Phase 7)**: T030 and T031 in parallel after all stories; the quickstart validation is the implementation verification, not a task.
 
 ### User Story Dependencies
 

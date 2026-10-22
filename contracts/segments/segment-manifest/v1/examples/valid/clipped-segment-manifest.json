@@ -1,0 +1,47 @@
+{
+  "contractVersion": "1.0.0",
+  "identity": {
+    "recordingVersionId": "recording-version-0001",
+    "timelineMappingDigest": "sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "segmentationPolicyDigest": "sha-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "segmentNumber": 2
+  },
+  "segmentationPolicy": {
+    "version": 1,
+    "durationSeconds": 10
+  },
+  "nominalWindow": {
+    "startMs": 10000,
+    "endMs": 20000
+  },
+  "requestedSourceInterval": {
+    "startMs": 3600000,
+    "endMs": 3703000
+  },
+  "encodedInterval": {
+    "startMs": 3599500,
+    "endMs": 3703000
+  },
+  "timelineSpans": [
+    {
+      "mediaStartMs": 3600000,
+      "mediaEndMs": 3604000,
+      "matchStartMs": 10000
+    },
+    {
+      "mediaStartMs": 3700000,
+      "mediaEndMs": 3703000,
+      "matchStartMs": 16000
+    }
+  ],
+  "media": {
+    "artifactReference": "segment.mp4",
+    "mediaType": "video/mp4",
+    "digest": "sha-256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "sizeBytes": 1048576
+  },
+  "producer": {
+    "toolchain": "ffmpeg 7.1"
+  },
+  "createdAt": "2026-10-17T22:30:00Z"
+}

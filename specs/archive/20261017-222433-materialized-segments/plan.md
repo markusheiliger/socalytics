@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-222433-materialized-segments` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-222433-materialized-segments/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-222433-materialized-segments/spec.md`
 
 ## Summary
 
@@ -61,7 +61,7 @@ contract version, one worker, Manager staging extension, SDK media model.
 | III. API-first control plane | Pass: the Segment Service is data-plane processing co-hosted in the control-plane deployment as the architecture decides; no API operation proxies video | Pass: object storage only through the S3 adapter; Manager and members use API operations; contracts in `contracts/` are authoritative |
 | IV. Evidence over claims | Pass: unit, integration, contract, Manager, SDK, and end-to-end tests required | Pass: development evidence only; production values stay explicit and unresolved |
 | V. Focused changes | Pass: one policy version, one media profile, no Web UI, no member media access | Pass: no transcoding profiles, retention policy, or GPU work |
-| Environment prerequisite | Pass: [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) (#143) provides pinned FFmpeg and ffprobe 8.1, Python 3.12, and `uv`; .NET, Docker, and SoftHSM2 are already provided | Pass: no other framework, SDK, or tool is needed; toolchain-dependent tests run where setup installs the pinned build |
+| Environment prerequisite | Pass: [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) (#143) provides pinned FFmpeg and ffprobe 8.1, Python 3.12, and `uv`; .NET, Docker, and SoftHSM2 are already provided | Pass: no other framework, SDK, or tool is needed; toolchain-dependent tests run where setup installs the pinned build |
 
 No violation; Complexity Tracking is empty.
 
@@ -69,21 +69,21 @@ No violation; Complexity Tracking is empty.
 
 **Narratives**:
 
-- [Match Data Pipeline → On-Demand Video Segmentation](../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation),
-  [Segment Contract](../../docs/architecture/match-data-pipeline.md#segment-contract),
-  [Segment And Match Analysis Scope](../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope),
-  and [Implementation Validation](../../docs/architecture/match-data-pipeline.md#implementation-validation).
-- [Job Processing → Readiness And Dependencies](../../docs/architecture/job-processing.md#readiness-and-dependencies)
+- [Match Data Pipeline → On-Demand Video Segmentation](../../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation),
+  [Segment Contract](../../../docs/architecture/match-data-pipeline.md#segment-contract),
+  [Segment And Match Analysis Scope](../../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope),
+  and [Implementation Validation](../../../docs/architecture/match-data-pipeline.md#implementation-validation).
+- [Job Processing → Readiness And Dependencies](../../../docs/architecture/job-processing.md#readiness-and-dependencies)
   (step 1) and the Scheduler sequence diagram.
-- [Analyst Runtime and Recovery → Runtime Preflight And Status](../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status)
-  (container interface) and [Analyst Manager Responsibilities](../../docs/architecture/analyst-runtime-and-recovery.md#analyst-manager-responsibilities).
-- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access).
-- [Contracts and Compatibility → Scope And Dependencies](../../docs/architecture/contracts-and-compatibility.md#scope-and-dependencies)
+- [Analyst Runtime and Recovery → Runtime Preflight And Status](../../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status)
+  (container interface) and [Analyst Manager Responsibilities](../../../docs/architecture/analyst-runtime-and-recovery.md#analyst-manager-responsibilities).
+- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access).
+- [Contracts and Compatibility → Scope And Dependencies](../../../docs/architecture/contracts-and-compatibility.md#scope-and-dependencies)
   and the contract-family table (logical-segment row).
-- [Platform Implementation Profile → Data Organization](../../docs/architecture/platform-implementation.md#data-organization).
-- [Terminology and Principles → 4. Control Plane Never Touches Video](../../docs/architecture/terminology-and-principles.md#4-control-plane-never-touches-video)
+- [Platform Implementation Profile → Data Organization](../../../docs/architecture/platform-implementation.md#data-organization).
+- [Terminology and Principles → 4. Control Plane Never Touches Video](../../../docs/architecture/terminology-and-principles.md#4-control-plane-never-touches-video)
   and the segment terms.
-- [Security and Data Governance → POL-004](../../docs/architecture/security-and-data-governance.md#pol-004-segments-and-media-caches)
+- [Security and Data Governance → POL-004](../../../docs/architecture/security-and-data-governance.md#pol-004-segments-and-media-caches)
   and `DAT-004`.
 
 **Design updates applied now** (worded as decided, not yet implemented; the documentation task turns them into
@@ -149,7 +149,7 @@ segment options, the media mount, the minimum Manager version that stages media)
 ### Documentation (this feature)
 
 ```text
-specs/20261017-222433-materialized-segments/
+specs/archive/20261017-222433-materialized-segments/
 ├── spec.md
 ├── plan.md
 ├── research.md
