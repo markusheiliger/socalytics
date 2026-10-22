@@ -90,7 +90,7 @@ the fact feature's member fact read. The image is foundational because User Stor
   timestamp; add `src/analysts/capabilities/reference-media-probe/tests/test_probe.py` (25 fps synthetic media yields
   25 frames per second with increasing timestamps and luma in `[0, 255]`; an offset start keeps source timestamps;
   bytes that are not media raise `media-decode-failed`)
-- [ ] T005 Implement the facts and the entry point (research R2, R4; data-model "Frame-Second Fact"; FR-004 to FR-007):
+- [x] T005 Implement the facts and the entry point (research R2, R4; data-model "Frame-Second Fact"; FR-004 to FR-007):
   `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/facts.py` aggregates the probe's frames
   per match-second while streaming: a frame counts only when its media time lies inside the manifest's
   `requestedSourceInterval`, `SegmentMedia.to_match_ms` returns a match time, and that match time lies inside the
