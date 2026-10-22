@@ -683,6 +683,8 @@ export interface SimulatedAgent {
   agentId: string;
   group: string;
   domain: string;
+  /** Reported as `enabledVersion`; defaults to the seeded `0.1.0`. */
+  enabledVersion?: string;
 }
 
 /**
@@ -1568,7 +1570,7 @@ export class SimulatedApi {
       .filter((e) => e.enabledVersion)
       .map((e) => baseline.find((a) => a.agentId === e.agentId))
       .filter((a): a is CatalogBaselineDocument['agents'][number] => !!a && a.group === 'specialist')
-      .map((a) => ({ agentId: a.agentId, group: a.group, domain: a.domain }));
+      .map((a) => ({ agentId: a.agentId, group: a.group, domain: a.domain, enabledVersion: this.catalogEnablements.find((e) => e.agentId === a.agentId)!.enabledVersion! }));
   }
 
   private catalogDistances(profileId: string, profileVersion: string): CatalogDistance[] {
@@ -2184,7 +2186,7 @@ export class SimulatedApi {
 
     switch (operation) {
       case 'listAgents':
-        return reply(200, { agents: this.agents });
+        return reply(200, { agents: this.agents.map((a) => ({ ...a, enabledVersion: a.enabledVersion ?? '0.1.0' })) });
       case 'listConversations': {
         if (!this.matches.some((m) => m.id === id)) return refuse(agentRefusals.notFound);
         const items = this.agentConversations.filter((c) => c.matchId === id && c.ownerId === memberId).reverse();
