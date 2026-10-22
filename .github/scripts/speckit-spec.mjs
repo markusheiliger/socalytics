@@ -42,7 +42,6 @@ import {
   listTasks,
   markerTimes,
   neutralizeMarkers,
-  appendWriterGuidance,
   normalizeWriterGuidance,
   parseAttemptCheckId,
   parseAttempts,
@@ -50,15 +49,12 @@ import {
   phaseSubject,
   readSpecTasks,
   renderAttemptMarker,
-  renderConvergePrompt,
   renderFlakyLines,
   renderImplementRunName,
   renderImplementTitle,
   renderNextSteps,
   renderRepairMarker,
-  renderRepairPrompt,
   renderSyncSkippedMarker,
-  renderTaskPrompt,
   setAttention,
   setBlocked,
   specTitleOfPull,
@@ -323,24 +319,23 @@ function readSpecInputs(env) {
   return { twin, pull };
 }
 
-// The matrix entries of each entry of a decision's task order (decideNext, action "tasks"): prompts, verify modes, and
-// task summaries. Guidance from a retry applies to the stopped task, convergence, or conflict resolution, which is always the first entry. Every task is
+// The matrix entries of each entry of a decision's task order (decideNext, action "tasks"): guidance, verify modes, and
+// task summaries; the agents' prompts live in the gha Spec Kit workflows the work jobs run. Guidance from a retry
+// applies to the stopped task, convergence, or conflict resolution, which is always the first entry. Every task is
 // verified on its own (mode `task`); the phase gets its full verification in its own job after its last task, so a
 // failure there is never charged to the task that happens to come last.
-function prepareOrder(decision, folder) {
+function prepareOrder(decision) {
   const guidance = normalizeWriterGuidance(
     decision.requiredSync?.completion?.guidanceConsumed ? '' : decision.requiredSync?.guidance || currentGuidance(decision),
   );
   const texts = new Map(listTasks(decision.tasksMarkdown).map((task) => [task.id, task.text]));
   return decision.order.map((entry, index) => ({
     include: entry.map(({ task, attempt }) => {
-      const prompt = decision.kind === 'task' ? renderTaskPrompt(task, folder, { archived: decision.archived }) : decision.kind === 'converge' ? renderConvergePrompt() : '';
       const activeGuidance = index === 0 ? guidance : '';
       return {
         task: task ?? '',
         attempt,
-        prompt: prompt ? appendWriterGuidance(prompt, activeGuidance) : prompt,
-        ...(decision.kind === 'resolve' && activeGuidance ? { guidance: activeGuidance } : {}),
+        guidance: activeGuidance,
         ...(decision.requiredSync ? { required_sync: decision.requiredSync.request } : {}),
         ...(decision.requiredSync && decision.repair ? { sync_repair: JSON.stringify(decision.repair) } : {}),
         verify_mode: decision.kind === 'resolve' ? 'finalize' : 'task',
@@ -528,14 +523,13 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     if (decision.syncGivenUp) await reportSyncGivenUp(client, { decision, report });
     const entry = { task: null, attempt: decision.attempt, summary: `Repair the failed ${decision.repair.scope} verification.` };
     const checkRun = (await startAttemptChecks(client, { head: common.head, kind: 'repair', entries: [entry] })).repair;
-    const prompt = renderRepairPrompt({ repair: decision.repair, guidance: decision.guidance, folder });
     report.line(`Repairing the failed ${decision.repair.scope} verification, attempt ${decision.attempt}.`);
     return finish('repair', {
       ...common,
       attempt: String(decision.attempt),
       check_run: String(checkRun),
       repair: JSON.stringify(decision.repair),
-      prompt,
+      guidance: normalizeWriterGuidance(decision.guidance),
       verify_only: String(decision.verifyOnly),
       job_name: `Repair ${decision.repair.scope} verification`,
     });
@@ -555,7 +549,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     return finish('implement', { ...common, phase: decision.phase ?? '', job_name: phaseSubject(decision.phase) });
   }
 
-  const order = prepareOrder(decision, folder);
+  const order = prepareOrder(decision);
   await startAttemptChecks(client, { head: common.head, kind: decision.kind, entries: order[0].include });
   const subject = decision.requiredSync ? 'Required base synchronization' : taskSubject(decision.kind, order[0].include);
   report.line(`Next: ${renderImplementTitle('task', twin, subject)}.`);
@@ -616,7 +610,7 @@ export async function runPlanPhase({ client, env, log, now = Date.now }) {
     report.line('Nothing to plan: the phase no longer comes next.');
     return finish({ count: '0', head, order: '[]', task_matrix: JSON.stringify({ include: [] }), phase_check: 'false' });
   }
-  const order = prepareOrder(decision, folder);
+  const order = prepareOrder(decision);
   await startAttemptChecks(client, { head, kind: 'task', entries: order[0].include });
   const phaseCheck = decision.phaseEnd;
   reportOrder(report, 'task', order);

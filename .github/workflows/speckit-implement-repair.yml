@@ -30,10 +30,11 @@ on:
         description: Validated pending repair state as JSON
         required: true
         type: string
-      prompt:
-        description: Writer-approved repair prompt
-        required: true
+      guidance:
+        description: Writer-approved guidance for the repair agent
+        required: false
         type: string
+        default: ""
       verify_only:
         description: Reverify the unchanged branch without running a repair agent
         required: false
@@ -75,7 +76,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           path: tooling
           persist-credentials: false
 
@@ -129,19 +130,38 @@ jobs:
           if [ -d "workspace/specs/$FOLDER" ]; then dir="specs/$FOLDER"; else dir="specs/archive/$FOLDER"; fi
           echo "SPECIFY_FEATURE_DIRECTORY=$dir" >> "$GITHUB_ENV"
 
-      - name: Run Copilot CLI
-        uses: ./tooling/.github/actions/speckit-copilot
+      # The repaired tasks, the failed scope, and the evidence; a merge verification repair may change the environment
+      # actions (the changed actions' self-test failed).
+      - name: Prepare the repair inputs
+        id: repair
+        env:
+          REPAIR: ${{ inputs.repair }}
+        run: |
+          node -e '
+            const repair = JSON.parse(process.env.REPAIR);
+            const tasks = (Array.isArray(repair.tasks) ? repair.tasks : []).filter((id) => /^T\d{3,}$/.test(id));
+            const lines = [`tasks=${tasks.join(",")}`, `scope=${/^[a-z]+$/.test(repair.scope) ? repair.scope : "verification"}`, `environment=${repair.scope === "merge"}`];
+            require("node:fs").appendFileSync(process.env.GITHUB_OUTPUT, lines.map((line) => line + "\n").join(""));
+          '
+          if [ -d workspace/.speckit-repair-evidence ]; then echo "evidence=.speckit-repair-evidence" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Run the Spec Kit workflow repair
+        uses: ./tooling/.github/actions/speckit-workflow
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
         with:
+          workflow: repair
           level: strong
-          mode: agent
-          prompt: ${{ inputs.prompt }}
           ai-credits: ${{ vars.SPECKIT_REPAIR_AI_CREDITS || '1000' }}
-          working-directory: workspace
-          output-format: json
-          output-file: ${{ env.SPECKIT_RESULT_DIR }}/agent.jsonl
-          exit-code-file: ${{ env.SPECKIT_RESULT_DIR }}/agent-exit.txt
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          result-dir: ${{ env.SPECKIT_RESULT_DIR }}
+          inputs: |
+            folder=${{ inputs.folder }}
+            tasks=${{ steps.repair.outputs.tasks }}
+            scope=${{ steps.repair.outputs.scope }}
+            environment=${{ steps.repair.outputs.environment }}
+            evidence=${{ steps.repair.outputs.evidence }}
+            guidance=${{ inputs.guidance }}
 
       - name: Package the repair
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-repair.mjs" package
@@ -188,7 +208,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           path: tooling
           persist-credentials: false
 
@@ -238,7 +258,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           path: tooling
           persist-credentials: false
 
@@ -371,7 +391,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up Node.js

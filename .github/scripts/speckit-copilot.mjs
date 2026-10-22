@@ -121,7 +121,7 @@ export function isRejection(text) {
 // (SPECKIT_INTEGRATION_COPILOT_EXECUTABLE): the prompt, the agent, and the output format are kept; the permissions and
 // the model always come from the level (SPECKIT_LEVEL) and the deny-list, like every other Copilot CLI run of the
 // Spec Kit workflows, so `--yolo` and a model of the caller are dropped.
-export function execArgs(incoming, { levels, env, auto = false }) {
+export function execArgs(incoming, { levels, env, auto = false, json = false }) {
   const valueOf = (flag) => {
     const index = incoming.indexOf(flag);
     return index >= 0 ? incoming[index + 1] : undefined;
@@ -140,24 +140,49 @@ export function execArgs(incoming, { levels, env, auto = false }) {
       effort: auto ? '' : effort,
       denyTools: env.SPECKIT_DENY_TOOLS ?? '',
       aiCredits: env.SPECKIT_AI_CREDITS ?? '',
-      outputFormat: valueOf('--output-format') === 'json' ? 'json' : 'text',
+      outputFormat: json || valueOf('--output-format') === 'json' ? 'json' : 'text',
     }),
   ];
 }
 
+// The messages of the agent in a Copilot CLI JSONL output, for the log.
+export function agentMessages(jsonl) {
+  const messages = [];
+  for (const line of String(jsonl ?? '').split(/\r?\n/)) {
+    try {
+      const event = JSON.parse(line);
+      if (event.type === 'assistant.message' && String(event.data?.content ?? '').trim()) messages.push(String(event.data.content).trim());
+    } catch {
+      // Ignore partial lines.
+    }
+  }
+  return messages;
+}
+
 // Runs one Copilot CLI call for the workflow engine; standard error is passed through after the run, so a rejected
-// model or effort can be retried once with the CLI's default model, as the action does.
-function exec(incoming, { env, modelsFile, spawn = spawnSync }) {
+// model or effort can be retried once with the CLI's default model, as the action does. With SPECKIT_AGENT_LOG the
+// call writes JSONL, which is appended to that file (the reports read the agent's last message from it), and the log
+// shows the agent's messages.
+export function exec(incoming, { env, modelsFile, spawn = spawnSync, stdout = process.stdout, stderr = process.stderr }) {
   const levels = loadLevels(modelsFile);
   const binary = env.SPECKIT_COPILOT_BINARY || 'copilot';
+  const agentLog = String(env.SPECKIT_AGENT_LOG ?? '').trim();
   const run = (auto) => {
-    const result = spawn(binary, execArgs(incoming, { levels, env, auto }), { stdio: ['inherit', 'inherit', 'pipe'], encoding: 'utf8' });
-    process.stderr.write(result.stderr ?? '');
+    const result = spawn(binary, execArgs(incoming, { levels, env, auto, json: Boolean(agentLog) }), {
+      stdio: ['inherit', agentLog ? 'pipe' : 'inherit', 'pipe'],
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+    });
+    if (agentLog) {
+      appendFileSync(agentLog, result.stdout ?? '');
+      for (const message of agentMessages(result.stdout)) stdout.write(`${message}\n`);
+    }
+    stderr.write(result.stderr ?? '');
     return result;
   };
   let result = run(false);
   if (result.status !== 0 && isRejection(result.stderr)) {
-    process.stderr.write('::warning::Copilot CLI rejected the configured model or reasoning effort; retrying once with its default model.\n');
+    stderr.write('::warning::Copilot CLI rejected the configured model or reasoning effort; retrying once with its default model.\n');
     result = run(true);
   }
   if (result.error) throw new CopilotUsageError(`Cannot run ${binary}: ${result.error.message}`);

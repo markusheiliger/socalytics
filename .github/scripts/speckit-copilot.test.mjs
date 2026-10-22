@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { CopilotUsageError, MODELS_FILE, STANDARD_DENY_TOOLS, buildArgs, execArgs, isRejection, loadLevels, main, parseLevels, resolveSelection } from './speckit-copilot.mjs';
+import { CopilotUsageError, MODELS_FILE, STANDARD_DENY_TOOLS, agentMessages, buildArgs, exec, execArgs, isRejection, loadLevels, main, parseLevels, resolveSelection } from './speckit-copilot.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workflowsDir = path.join(here, '..', 'workflows');
@@ -138,14 +138,46 @@ test('exec stands in for the copilot executable of the Spec Kit workflow engine:
   assert.throws(() => execArgs(['-p', 'x'], { levels: LEVELS, env: { SPECKIT_LEVEL: 'huge' } }), /Unknown level/);
 });
 
-test('the action\'s models.json is valid, and every workflow uses a level it defines', () => {
+test('exec with SPECKIT_AGENT_LOG writes JSONL to the log and shows the agent\'s messages', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-exec-'));
+  try {
+    const log = path.join(dir, 'agent.jsonl');
+    const jsonl = [
+      JSON.stringify({ type: 'assistant.message', data: { content: 'Implemented T004.' } }),
+      JSON.stringify({ type: 'tool.call', data: {} }),
+      '{"partial',
+    ].join('\n');
+    const calls = [];
+    const spawn = (binary, args, options) => {
+      calls.push({ binary, args, options });
+      return { status: 0, stdout: jsonl, stderr: '' };
+    };
+    let shown = '';
+    const env = { SPECKIT_LEVEL: 'standard', SPECKIT_AGENT_LOG: log, SPECKIT_COPILOT_BINARY: 'copilot-test' };
+    const code = exec(['-p', '/speckit-implement T004'], { env, modelsFile: MODELS_FILE, spawn, stdout: { write: (text) => { shown += text; } }, stderr: { write: () => {} } });
+    assert.equal(code, 0);
+    assert.equal(calls[0].binary, 'copilot-test');
+    assert.equal(calls[0].args[calls[0].args.indexOf('--output-format') + 1], 'json', 'the log needs JSONL, which the reports read');
+    assert.deepEqual(calls[0].options.stdio, ['inherit', 'pipe', 'pipe']);
+    assert.equal(readFileSync(log, 'utf8'), jsonl);
+    assert.equal(shown, 'Implemented T004.\n');
+    assert.deepEqual(agentMessages(jsonl), ['Implemented T004.']);
+    const plain = [];
+    exec(['-p', 'x'], { env: { SPECKIT_LEVEL: 'standard' }, modelsFile: MODELS_FILE, spawn: (binary, args, options) => { plain.push({ args, options }); return { status: 0, stdout: '', stderr: '' }; }, stdout: { write: () => {} }, stderr: { write: () => {} } });
+    assert.deepEqual(plain[0].options.stdio, ['inherit', 'inherit', 'pipe'], 'without a log the output streams as before');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the action\'s models.json is valid, and every workflow uses a level it defines (directly or through speckit-workflow)', () => {
   const levels = loadLevels(MODELS_FILE);
   const defined = Object.keys(levels);
   assert.ok(defined.length > 0);
   let uses = 0;
   for (const file of readdirSync(workflowsDir).filter((name) => name.endsWith('.yml') && !name.endsWith('.lock.yml'))) {
     const text = readFileSync(path.join(workflowsDir, file), 'utf8').replaceAll('\r\n', '\n');
-    for (const match of text.matchAll(/uses: \.\/tooling\/\.github\/actions\/speckit-copilot\n(?:\s+(?!- ).*\n)*?\s+level: ([^\n]+)/g)) {
+    for (const match of text.matchAll(/uses: \.\/tooling\/\.github\/actions\/speckit-(?:copilot|workflow)\n(?:\s+(?!- ).*\n)*?\s+level: ([^\n]+)/g)) {
       uses += 1;
       const value = match[1].trim();
       const levels = value.startsWith('${{') ? [...value.matchAll(/(?:&&|\|\|)\s*'([a-z]+)'/g)].map((m) => m[1]) : [value];
