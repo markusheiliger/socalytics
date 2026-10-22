@@ -54,7 +54,7 @@ workflow started you): never ask, and turn every open question into a report que
    - Interactive: with `gh`, read the pull request, its comments (the stop comment, the failure comments of the stuck
      task, convergence, or conflict resolution, an earlier diagnosis starting with
      `<!-- speckit-implement:diagnosis -->`), the failed runs of the chain's workflows
-     (`gh run list --workflow speckit-implement-group.yml`, likewise `speckit-implement.yml`,
+     (`gh run list --workflow speckit-implement-group.yml`, likewise `speckit-implement-decide.yml`,
      `speckit-implement-verify.yml`, `speckit-implement-repair.yml`, and `speckit-implement-merge.yml`;
      `gh run view <id> --log-failed`), and an open amendment pull
      request from `speckit-amend/<folder>` with its comments and reviews. Print the command reference with

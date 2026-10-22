@@ -457,8 +457,8 @@ async function orchestrate(github, root, env = {}) {
   return { ...result, text: lines.join('\n') };
 }
 
-// Runs of the chain, in Spec Kit implement and the workflow of each kind of work.
-  const chainRuns = (github) => github.repo.runs.filter((run) => /^speckit-implement(?:-group|-verify|-repair|-merge)?\.yml$/.test(run.workflow));
+// Runs of the chain, in the workflow of each kind of work and Spec Kit implement decide.
+  const chainRuns = (github) => github.repo.runs.filter((run) => /^speckit-implement-(?:decide|group|verify|repair|merge)\.yml$/.test(run.workflow));
 const limitCheck = (github, head) => github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'completed', conclusion: 'failure', external_id: CHECK_LIMIT });
 
 test('orchestrate starts the implementation chain and continues it only when no run is active and there is work', async () => {
@@ -751,7 +751,7 @@ async function decide(github, root, twin, env = {}, run = runDecide) {
 
 const attemptComment = (github, pull, task, outcome, kind = 'task') => github.createComment(pull, `${renderAttemptMarker({ kind, task, attempt: 1, outcome })}\n**${task ?? kind}** ${outcome}`);
 
-// The finished phase was verified (Spec Kit implement's verify-report), so the chain moves on to the next phase or the convergence.
+// The finished phase was verified (Spec Kit implement verify's report), so the chain moves on to the next phase or the convergence.
 const phaseVerified = (github, pull, phase = 'Phase 1: Setup') => github.createComment(pull, `${renderAttemptMarker({ kind: 'verify', attempt: 1, outcome: 'success', phase })}\n**The phase verification passed** for ${phase}.`);
 
 test('chain: decide picks the next group, sequential or parallel, with guidance, verify modes, job names, and the first tasks\' check runs', async () => {
@@ -1351,7 +1351,7 @@ test('chain: a run of another kind hands the work over to its workflow before it
     assert.equal(github.comments.length, comments, 'and nothing is reported on the pull request');
     await runContinue({ client: github, env: { ...envFor(root), SPECKIT_TWIN: String(twin.number), SPECKIT_PULL: String(pull.number) }, log: silent });
     assert.equal(github.repo.runs.at(-1).workflow, 'speckit-implement-group.yml', 'the next run is the group workflow');
-    // The workflow of the work's kind, and Spec Kit implement, which only hands work over, decide as usual.
+    // The workflow of the work's kind decides as usual.
     const group = await decide(github, root, twin, { SPECKIT_WORKFLOW: 'speckit-implement-group.yml' });
     assert.deepEqual([group.outputs.action, group.outputs.kind], ['group', 'implement']);
     assert.equal(attempts(), 1);

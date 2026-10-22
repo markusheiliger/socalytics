@@ -167,7 +167,7 @@ test('retry restarts what stopped with guidance, on the branch as it is', async 
   const github = diagnosisRepo();
   const result = await run(github, '/speckit retry Rerun the verification unchanged');
   assert.equal(result.outcome, 'retried');
-  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement.yml', { issue: '5', pull: '9', title: 'F' }]);
+  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-decide.yml', { issue: '5', pull: '9', title: 'F' }]);
   const retried = github.comments.at(-1);
   assert.match(retried.body, /^<!-- speckit-implement:retry -->[\s\S]*Implementation retried by @dev; what stopped restarts with a fresh attempt count while preserving the current phase base\.[\s\S]*> Rerun the verification unchanged/);
   assert.match(retried.body, /The guidance is added to the prompt of the first work that runs[^\n]* and ends after its first success or a person's push; it changes no check, limit, or verification\./);

@@ -1,6 +1,6 @@
 name: Spec Kit implement merge
 
-# The merge of an implementation (see Spec Kit implement): prepare the run, archive the spec on the implementation
+# The merge of an implementation (see Spec Kit implement decide): prepare the run, archive the spec on the implementation
 # branch (write token, no agent-written code; the archive lands with the implementation, so the base branch never
 # receives references to an active spec folder that no longer exists), verify the prospective merged tree (read-only
 # token), then squash-merge the pull request into its base branch or ask for review (API only), and start the next run.
@@ -52,12 +52,12 @@ jobs:
           echo "::error::Spec Kit workflows only run from the default branch, not ${GITHUB_REF}."
           exit 1
 
-  # Merges the base branch when the next work needs it and decides what comes next (Spec Kit implement decide). A run
+  # Merges the base branch when the next work needs it and decides what comes next (Spec Kit implement prepare). A run
   # that finds work of another kind hands it over to that kind's workflow before it starts anything.
   decide:
     name: Prepare the run
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-    uses: ./.github/workflows/speckit-implement-decide.yml
+    uses: ./.github/workflows/speckit-implement-prepare.yml
     permissions:
       actions: write
       checks: write

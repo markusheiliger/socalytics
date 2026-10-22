@@ -56,9 +56,9 @@ export const MERGE_STALE_MS = 2 * 60 * 60 * 1000;
 // tasks, the verification of a finished phase, a repair, the convergence, a conflict resolution, or the merge), runs
 // it, and starts the next run. Each kind of work has its own workflow (IMPLEMENT_KIND_WORKFLOW_FILES); Spec Kit
 // implement (IMPLEMENT_WORKFLOW_FILE) starts a chain and reports stops. All of them prepare the run with the reusable
-// Spec Kit implement decide, and every task, the convergence, a repair, and a conflict resolution run in the reusable
+// Spec Kit implement prepare, and every task, the convergence, a repair, and a conflict resolution run in the reusable
 // Spec Kit implement task (work, then land).
-export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement.yml';
+export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement-decide.yml';
 // The workflow of each kind of work, by the action decideNext chose (the convergence and a conflict resolution are
 // groups of one).
 export const IMPLEMENT_KIND_WORKFLOW_FILES = Object.freeze({
@@ -69,14 +69,15 @@ export const IMPLEMENT_KIND_WORKFLOW_FILES = Object.freeze({
 });
 // Every workflow whose runs make up a chain, for the scheduler and the diagnosis.
 export const IMPLEMENT_CHAIN_WORKFLOW_FILES = Object.freeze([IMPLEMENT_WORKFLOW_FILE, ...Object.values(IMPLEMENT_KIND_WORKFLOW_FILES)]);
-// The workflow that does a decision's work; Spec Kit implement for a decision without work (a stop, a wait, done).
+// The workflow that does a decision's work; Spec Kit implement decide for a decision without work (a stop, a wait, done).
 export function implementWorkflowFor(action) {
   return IMPLEMENT_KIND_WORKFLOW_FILES[action] ?? IMPLEMENT_WORKFLOW_FILE;
 }
-// The chain before groups (Spec Kit implement spec and its reusable phase, group, and task workflows). Runs started on
-// it finish on their own commit; the scheduler counts them as active, and they share the concurrency group of the new
-// chain, so the two never work on one spec at the same time.
-export const LEGACY_IMPLEMENT_WORKFLOW_FILES = Object.freeze(['speckit-implement-spec.yml']);
+// The chains before the workflows of each kind: Spec Kit implement spec (with its reusable phase, group, and task
+// workflows) and the single Spec Kit implement (speckit-implement.yml). Runs started on them finish on their own
+// commit; the scheduler counts them as active, and they share the concurrency group of the workflows of each kind, so
+// two runs never work on one spec at the same time.
+export const LEGACY_IMPLEMENT_WORKFLOW_FILES = Object.freeze(['speckit-implement-spec.yml', 'speckit-implement.yml']);
 // The verb that names the work of a Spec Kit implement task call (its input `kind` and its script
 // speckit-<verb>.mjs) for the kind of an attempt. Attempt markers keep the kind, so comments already on GitHub stay
 // readable.
@@ -1852,7 +1853,7 @@ export function renderStartComment({ twinNumber, folder, taskCount, base }) {
     START_COMMENT_MARKER,
     `Implementation workspace prepared for #${twinNumber} (\`specs/${folder}\`): ${taskCount} task(s) queued.`,
     '',
-    'The `Spec Kit implement` workflow implements them group by group, in order; consecutive `[P]` tasks run in parallel, and every finished phase is verified. Each task is verified, committed, and reported here.',
+    'The Spec Kit implement workflows implement them group by group, in order; consecutive `[P]` tasks run in parallel, and every finished phase is verified. Each task is verified, committed, and reported here.',
     `Then a convergence checks the result against the spec, and the implementation is merged into its base branch \`${base}\` once it converged and passed the full verification.`,
   ].join('\n');
 }

@@ -1,0 +1,176 @@
+name: Spec Kit implement prepare
+
+# Prepares every run of an implementation chain, never started on its own: merges the base branch when the next work
+# needs it and decides what comes next. Called first by Spec Kit implement decide and by the workflow of each kind of work
+# (group, phase verification, repair, merge), which passes its own file as `workflow`: a run that finds work of
+# another kind (the state changed after it was started) hands it over (action `handover`) before it starts any attempt
+# check, and its "Start the next run" dispatches the right workflow.
+#   sync:    "Merge the base branch": checks the spec issue first, then (pull model) merges the base branch into the
+#            implementation branch through the GitHub API when the next work starts a phase (none of its tasks ticked),
+#            the convergence, or the merge (repository variable SPECKIT_SYNC_BASE, default true). A conflict is
+#            recorded on the head, and decide starts the conflict resolution in the same run: best effort before a
+#            phase or the convergence, required before the merge. A durable /speckit sync request selects the conflict
+#            resolution irrespective of SPECKIT_SYNC_BASE (write token, never runs agent-written code).
+#   decide:  "Decide what comes next": validates the twin, reports stops (attempt limit, diagnosis), and decides the
+#            work of this run.
+on:
+  workflow_call:
+    inputs:
+      issue:
+        description: Spec twin issue number (labelled speckit:spec)
+        required: true
+        type: string
+      pull:
+        description: Implementation pull request number
+        required: true
+        type: string
+      guidance:
+        description: Guidance for the agent of what stopped (optional)
+        required: false
+        type: string
+        default: ""
+      workflow:
+        description: The calling workflow's file; work of another kind is handed over to its workflow
+        required: true
+        type: string
+    outputs:
+      action:
+        value: ${{ jobs.decide.outputs.action }}
+      continue:
+        value: ${{ jobs.decide.outputs.continue }}
+      folder:
+        value: ${{ jobs.decide.outputs.folder }}
+      head:
+        value: ${{ jobs.decide.outputs.head }}
+      base_branch:
+        value: ${{ jobs.decide.outputs.base_branch }}
+      kind:
+        value: ${{ jobs.decide.outputs.kind }}
+      mode:
+        value: ${{ jobs.decide.outputs.mode }}
+      max_parallel:
+        value: ${{ jobs.decide.outputs.max_parallel }}
+      entries:
+        value: ${{ jobs.decide.outputs.entries }}
+      order:
+        value: ${{ jobs.decide.outputs.order }}
+      phase:
+        value: ${{ jobs.decide.outputs.phase }}
+      tasks:
+        value: ${{ jobs.decide.outputs.tasks }}
+      job_name:
+        value: ${{ jobs.decide.outputs.job_name }}
+      attempt:
+        value: ${{ jobs.decide.outputs.attempt }}
+      check_run:
+        value: ${{ jobs.decide.outputs.check_run }}
+      repair:
+        value: ${{ jobs.decide.outputs.repair }}
+      entry:
+        value: ${{ jobs.decide.outputs.entry }}
+      verify_only:
+        value: ${{ jobs.decide.outputs.verify_only }}
+
+permissions: {}
+
+jobs:
+  sync:
+    name: Merge the base branch
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: speckit-publication-${{ inputs.pull }}
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      checks: write
+      contents: write
+      issues: read
+      pull-requests: write
+    outputs:
+      spec: ${{ steps.issue.outputs.spec }}
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Check the spec issue
+        id: issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_ISSUE: ${{ inputs.issue }}
+        run: node .github/scripts/speckit-issue.mjs check
+
+      - name: Merge the base branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_TWIN: ${{ inputs.issue }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+          SPECKIT_SYNC_BASE: ${{ vars.SPECKIT_SYNC_BASE || 'true' }}
+        run: node .github/scripts/speckit-spec.mjs sync
+
+  decide:
+    name: Decide what comes next
+    needs: sync
+    # Decides even when the merge of the base branch failed (the work then continues on the current base), but only for
+    # a spec twin.
+    if: ${{ !cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.sync.outputs.spec == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Never runs agent-written code. contents: write lets a diagnosis it starts delete a superseded amendment branch.
+    permissions:
+      actions: write
+      checks: write
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      action: ${{ steps.decide.outputs.action }}
+      continue: ${{ steps.decide.outputs.continue }}
+      folder: ${{ steps.decide.outputs.folder }}
+      head: ${{ steps.decide.outputs.head }}
+      base_branch: ${{ steps.decide.outputs.base_branch }}
+      kind: ${{ steps.decide.outputs.kind }}
+      mode: ${{ steps.decide.outputs.mode }}
+      max_parallel: ${{ steps.decide.outputs.max_parallel }}
+      entries: ${{ steps.decide.outputs.entries }}
+      order: ${{ steps.decide.outputs.order }}
+      phase: ${{ steps.decide.outputs.phase }}
+      tasks: ${{ steps.decide.outputs.tasks }}
+      job_name: ${{ steps.decide.outputs.job_name }}
+      attempt: ${{ steps.decide.outputs.attempt }}
+      check_run: ${{ steps.decide.outputs.check_run }}
+      repair: ${{ steps.decide.outputs.repair }}
+      entry: ${{ steps.decide.outputs.entry }}
+      verify_only: ${{ steps.decide.outputs.verify_only }}
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Decide what comes next
+        id: decide
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_TWIN: ${{ inputs.issue }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+          SPECKIT_GUIDANCE: ${{ inputs.guidance }}
+          SPECKIT_WORKFLOW: ${{ inputs.workflow }}
+        run: node .github/scripts/speckit-spec.mjs decide

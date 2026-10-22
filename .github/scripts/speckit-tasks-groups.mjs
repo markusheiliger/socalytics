@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import { describeParallelGroups } from './speckit-implement-core.mjs';
 
-// Prints the phases of a spec's tasks.md with the order its unticked tasks will run in, exactly as Spec Kit implement
+// Prints the phases of a spec's tasks.md with the order its unticked tasks will run in, exactly as Spec Kit implement group
 // phase orders them, so `[P]` groups can be reviewed (speckit.gha.refine). Read-only.
 
 export class GroupsUsageError extends Error {}
