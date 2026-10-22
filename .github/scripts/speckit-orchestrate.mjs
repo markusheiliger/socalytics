@@ -32,7 +32,7 @@ import {
   BRANCH_PREFIX,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
-  IMPLEMENT_WORKFLOW_FILE,
+  IMPLEMENT_CHAIN_WORKFLOW_FILES,
   LEGACY_IMPLEMENT_WORKFLOW_FILES,
   ORCHESTRATE_WORKFLOW_FILE,
   START_COMMENT_MARKER,
@@ -292,7 +292,7 @@ function describeDecision(twin) {
 // Whether a run of the twin's implementation chain is queued or running, also one of the chain before groups that
 // started before it was replaced (LEGACY_IMPLEMENT_WORKFLOW_FILES).
 async function chainActive(client, twin, since) {
-  for (const file of [IMPLEMENT_WORKFLOW_FILE, ...LEGACY_IMPLEMENT_WORKFLOW_FILES]) {
+  for (const file of [...IMPLEMENT_CHAIN_WORKFLOW_FILES, ...LEGACY_IMPLEMENT_WORKFLOW_FILES]) {
     let runs = [];
     try {
       runs = await client.listWorkflowRuns(file, since);

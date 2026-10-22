@@ -1,4 +1,4 @@
-name: Spec Kit implement work
+name: Spec Kit implement task
 
 # One piece of an implementation's work, never started on its own: a task, the convergence, a guided repair, or a conflict
 # resolution, called by Spec Kit implement once per matrix job of a group (or for a repair). The work job runs its

@@ -270,7 +270,7 @@ const isProtected = isProtectedPath;
 // A file of the implemented spec's own folder (active or archived).
 const isOwnSpecPath = (file, folder) => [specDir(folder), specDir(folder, { archived: true })].some((dir) => file.startsWith(`${dir}/`));
 
-// Spec Kit implement work (a conflict resolution) and Spec Kit implement, job "Verify the merged result": merges the base branch
+// Spec Kit implement task (a conflict resolution) and Spec Kit implement, job "Verify the merged result": merges the base branch
 // (SPECKIT_BASE_BRANCH) into the checked-out implementation branch without committing, records the base branch SHA and
 // any conflicted files, and prepares the agent prompt for conflict resolution. Conflicts in protected paths need a
 // person. After a clean merge it writes the paths the implementation changes compared to the base branch for the
@@ -863,7 +863,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   let body = pull.body;
   if (inputs.kind === 'task') {
     const task = listTasks(tasksMarkdown).find((item) => item.id === inputs.task);
-    message = [`feat(${folder}): ${inputs.task} ${task?.text ?? ''}`.trimEnd(), `Implemented by the Spec Kit implement work workflow (attempt ${inputs.attempt}).`];
+    message = [`feat(${folder}): ${inputs.task} ${task?.text ?? ''}`.trimEnd(), `Implemented by the Spec Kit implement task workflow (attempt ${inputs.attempt}).`];
     checkTitle = `${inputs.task} implemented`;
     const checks = (result.checks ?? []).map((check) => `${check.name} passed`);
     const verification = result.verification === 'not-configured'

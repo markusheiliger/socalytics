@@ -60,7 +60,9 @@ test('every Spec Kit workflow takes an issue input, not twin, and checks it firs
     assert.doesNotMatch(text, /inputs\.twin\b|^\s+twin:\s*$/m, `${name} still takes a twin input`);
     if (!/^\s+issue:\n\s+description: Spec twin issue number/m.test(text)) continue;
     withIssue.push(name);
+    // The workflows of the implementation chain check it in the reusable Spec Kit implement decide they start with.
+    if (/uses: \.\/\.github\/workflows\/speckit-implement-decide\.yml\n[\s\S]*?issue: \$\{\{ inputs\.issue \}\}/.test(text)) continue;
     assert.match(text, /- name: Check the spec issue\n\s+id: issue\n[\s\S]*?SPECKIT_ISSUE: \$\{\{ inputs\.issue \}\}\n\s+run: node "?[^\n]*\.github\/scripts\/speckit-issue\.mjs"? check\n/, `${name} checks its issue`);
   }
-  assert.deepEqual(withIssue.sort(), ['speckit-analyze.md', 'speckit-author.yml', 'speckit-diagnose.md', 'speckit-implement-work.yml', 'speckit-implement.yml']);
+  assert.deepEqual(withIssue.sort(), ['speckit-analyze.md', 'speckit-author.yml', 'speckit-diagnose.md', 'speckit-implement-decide.yml', 'speckit-implement-group.yml', 'speckit-implement-merge.yml', 'speckit-implement-repair.yml', 'speckit-implement-task.yml', 'speckit-implement-verify.yml', 'speckit-implement.yml']);
 });

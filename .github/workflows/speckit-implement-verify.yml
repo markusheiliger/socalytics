@@ -1,0 +1,221 @@
+name: Spec Kit implement verify
+
+# The verification of a finished phase of an implementation chain (see Spec Kit implement), in a run of its own after
+# the phase's last group: prepare the run, verify the phase (all changes of the implementation branch, mode `phase`),
+# record the result, and start the next run. Each task was verified only with the tests it touched, so a change that
+# breaks other tests shows here, and a failure stops the implementation for a diagnosis with a pending repair instead
+# of using up the attempts of the task that came last.
+run-name: >-
+  Spec Kit implement spec #${{ inputs.issue }}${{ inputs.title && format(' · {0}', inputs.title) || '' }}${{ inputs.subject && format(' · {0}', inputs.subject) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Spec twin issue number (labelled speckit:spec)
+        required: true
+        type: string
+      pull:
+        description: Implementation pull request number
+        required: true
+        type: string
+      guidance:
+        description: Guidance for the agent of what stopped (optional)
+        required: false
+        type: string
+      title:
+        description: The spec title, for the run name (optional; the implementation pull request title without "Implement:")
+        required: false
+        type: string
+      subject:
+        description: What the run will work on, for the run name (optional; decided when it was started)
+        required: false
+        type: string
+
+permissions: {}
+
+# One chain per spec, shared with the chain before groups (Spec Kit implement spec), so runs of both never overlap:
+# GitHub keeps one pending run per group; a replaced pending run is harmless, because every run decides from the state
+# on GitHub.
+concurrency:
+  group: speckit-implement-${{ inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  refuse:
+    name: Refuse non-default-branch runs
+    if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse the run
+        run: |
+          echo "::error::Spec Kit workflows only run from the default branch, not ${GITHUB_REF}."
+          exit 1
+
+  # Merges the base branch when the next work needs it and decides what comes next (Spec Kit implement decide). A run
+  # that finds work of another kind hands it over to that kind's workflow before it starts anything.
+  decide:
+    name: Prepare the run
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    uses: ./.github/workflows/speckit-implement-decide.yml
+    permissions:
+      actions: write
+      checks: write
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      issue: ${{ inputs.issue }}
+      pull: ${{ inputs.pull }}
+      guidance: ${{ inputs.guidance }}
+      workflow: speckit-implement-verify.yml
+
+  # Read-only token; it runs agent-written code.
+  verify:
+    name: Verify the phase
+    needs: decide
+    if: ${{ !cancelled() && needs.decide.outputs.action == 'verify' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      head: ${{ steps.head.outputs.head }}
+      flaky: ${{ steps.verify.outputs.flaky }}
+    env:
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.decide.outputs.head }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record the verified head
+        id: head
+        working-directory: workspace
+        run: echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # All changes of the implementation branch since its base branch, so tasks of the phase that earlier runs
+      # implemented are covered too.
+      - name: List the changes of the implementation
+        working-directory: workspace
+        env:
+          BASE_BRANCH: ${{ needs.decide.outputs.base_branch }}
+        run: |
+          mkdir -p "$SPECKIT_RESULT_DIR"
+          git diff --name-only --no-renames "$(git merge-base HEAD "origin/$BASE_BRANCH")" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
+
+      - name: Set up the solution environment
+        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Verify the phase
+        if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-verify
+        id: verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: phase
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      - name: Upload the phase verification
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-phase-verification
+          path: ${{ env.SPECKIT_RESULT_DIR }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+  report:
+    name: Record the phase verification
+    needs: [decide, verify]
+    if: ${{ always() && needs.decide.outputs.action == 'verify' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      checks: write
+      contents: read
+      issues: read
+      pull-requests: write
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Record the phase verification
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_TWIN: ${{ inputs.issue }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+          SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
+          SPECKIT_PHASE: ${{ needs.decide.outputs.phase }}
+          SPECKIT_TASKS: ${{ needs.decide.outputs.tasks }}
+          SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
+          SPECKIT_CHECK_RUN: ${{ needs.decide.outputs.check_run }}
+          SPECKIT_HEAD: ${{ needs.verify.outputs.head || needs.decide.outputs.head }}
+          SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
+          SPECKIT_VERIFY_FLAKY: ${{ needs.verify.outputs.flaky }}
+        run: node .github/scripts/speckit-spec.mjs verify-report
+
+  # Starts the next run in the workflow of its kind unless this run was cancelled; a stop (attempt limit, diagnosis,
+  # review) is decided by the next run.
+  continue:
+    name: Start the next run
+    needs: [decide, report]
+    if: ${{ !cancelled() && needs.decide.outputs.continue == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Start the next run
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_TWIN: ${{ inputs.issue }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+        run: node .github/scripts/speckit-spec.mjs continue
