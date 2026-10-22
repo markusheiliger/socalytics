@@ -107,7 +107,7 @@ public sealed class OpenApiContractTests
 		path.StartsWith("/api/v1/password-recovery/", StringComparison.Ordinal);
 
 	// Materialized segment operations are verified by MaterializedSegmentEndpointTests against
-	// specs/20261017-222433-materialized-segments/contracts/member-operations.md, not against the Club contract.
+	// specs/archive/20261017-222433-materialized-segments/contracts/member-operations.md, not against the Club contract.
 	private static bool IsMaterializedSegmentPath(string path) =>
 		path.StartsWith("/api/v1/matches/", StringComparison.Ordinal)
 		&& (path.EndsWith("/materialized-segments", StringComparison.Ordinal)

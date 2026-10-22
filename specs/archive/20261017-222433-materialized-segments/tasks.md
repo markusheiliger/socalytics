@@ -5,7 +5,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 # Tasks: Materialized Video Segments and Analyst Input Staging
 
-**Input**: Design documents from `specs/20261017-222433-materialized-segments/`
+**Input**: Design documents from `specs/archive/20261017-222433-materialized-segments/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
@@ -32,7 +32,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
   `releases/1.0.0.schema.json`, `examples/valid/` (`segment-manifest.json`, `clipped-segment-manifest.json`),
   `examples/invalid/` (`missing-media-digest.json`, `plain-digest-form.json`, `zero-segment-number.json`,
   `unknown-property.json`, `audio-media-type.json`), and `examples/invalid/expectations.json`, exactly as specified in
-  `specs/20261017-222433-materialized-segments/contracts/segment-contracts.md` (`mediaType` const `video/mp4`, policy
+  `specs/archive/20261017-222433-materialized-segments/contracts/segment-contracts.md` (`mediaType` const `video/mp4`, policy
   `version` const `1`, `segmentNumber` minimum 1, `timelineSpans` minItems 1, shared definitions from
   `contracts/common/v1/common.schema.json`)
 - [x] T002 [P] Add `analysis/analyst-job` 1.2.0 to `contracts/analysis/analyst-job/v1/analyst-job.schema.json` on top
@@ -53,7 +53,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 - [x] T003 Create `contracts/analysis/segment-media/v1/segment-media.schema.json` 1.0.0 with
   `releases/1.0.0.schema.json`, `examples/valid/segment-media.json`, `examples/invalid/` (`missing-grants.json`,
   `write-grant-name.json`, `single-grant.json`), and `expectations.json`, referencing the segment manifest schema, as
-  specified in `specs/20261017-222433-materialized-segments/contracts/segment-contracts.md` (exactly two grants named
+  specified in `specs/archive/20261017-222433-materialized-segments/contracts/segment-contracts.md` (exactly two grants named
   `segment-manifest.json` and `segment.mp4`)
 
 ### Contract registration
@@ -224,7 +224,7 @@ results are accepted, media is verified, and nothing remains after the attempt.
 - [x] T019 [P] [US2] Implement `src/platform/SocAlytics.Platform.Application/Analysis/Results/GetSegmentMedia.cs` and map
   `GET /api/v1/analysis/attempts/{attemptId}/segment-media` (`getAnalysisSegmentMedia`) in
   `src/platform/SocAlytics.Platform.Api/Analysis/AnalystManagerEndpoints.cs` per
-  `specs/20261017-222433-materialized-segments/contracts/segment-media-read.md` (ownership, fencing token, active and
+  `specs/archive/20261017-222433-materialized-segments/contracts/segment-media-read.md` (ownership, fencing token, active and
   current attempt with an unexpired lease, `segment-media-not-applicable`, attested checksum and size check, two
   read-only grants expiring at the earlier of `Analysis:Results:GrantLifetime` and the lease expiry, audit events for
   foreign and out-of-scope requests, response valid against `analysis/segment-media` 1.0.0); refresh
@@ -250,7 +250,7 @@ results are accepted, media is verified, and nothing remains after the attempt.
   `AnalystContext.media` in `src/analysts/sdk/src/socalytics_analyst/context.py`, and raise the input errors
   `segment-media-missing`, `segment-media-unexpected`, `segment-manifest-mismatch`, `segment-media-digest-mismatch`,
   `segment-manifest-invalid`, and `unsupported-version` (exit 2) per
-  `specs/20261017-222433-materialized-segments/contracts/container-interface.md`; tests in
+  `specs/archive/20261017-222433-materialized-segments/contracts/container-interface.md`; tests in
   `src/analysts/sdk/tests/test_media.py` and the contract example tests; run `uv run --no-sync pytest` (FR-021)
 
 ### Manager staging and mount
@@ -331,7 +331,7 @@ refused and in-use segments are kept.
 - [x] T028 [US4] Implement `src/platform/SocAlytics.Platform.Application/Segments/ListMaterializedSegments.cs`,
   `src/platform/SocAlytics.Platform.Application/Segments/PurgeMaterializedSegments.cs`, and
   `src/platform/SocAlytics.Platform.Application/Segments/SegmentAuditEvents.cs` per
-  `specs/20261017-222433-materialized-segments/contracts/member-operations.md`: Club Admin authorization through
+  `specs/archive/20261017-222433-materialized-segments/contracts/member-operations.md`: Club Admin authorization through
   `IAccessAuthorizer.AuthorizeClubAsync` for the match's club, listing of rows whose recording version belongs to the
   match's finalized recording sets with `inUse`, purge that skips rows that are `materializing` or pinned or awaited by
   `Waiting`, `Ready`, or

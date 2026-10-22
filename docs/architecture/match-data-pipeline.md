@@ -214,7 +214,7 @@ deterministically rematerializes the same logical segment, subject to the same
 manifest and digest validation.
 
 The Segment Service is implemented as development evidence (see
-[Materialized Video Segments and Analyst Input Staging](../../specs/20261017-222433-materialized-segments/spec.md)).
+[Materialized Video Segments and Analyst Input Staging](../../specs/archive/20261017-222433-materialized-segments/spec.md)).
 It is the `Segments` functional area of the platform and runs as a background
 worker of the API host; no API operation reads or relays media bytes. One
 durable record per materialized identity holds its state, its single current
