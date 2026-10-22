@@ -45,7 +45,7 @@ description: "Task list for Evidence Clip Access"
   `src/platform/Tests/SocAlytics.Platform.Architecture.Tests/EndpointSecurityTests.cs`, and
   `src/platform/Tests/SocAlytics.Platform.Host.Tests/MinimumWebVersionTests.cs` (and any other host settings found by
   searching for `Analysis:Reads:GrantLifetime`); run the Host and Architecture tests (FR-016; research R9)
-- [ ] T002 Set the same development values as `Analysis__Evidence__*` in
+- [x] T002 Set the same development values as `Analysis__Evidence__*` in
   `src/platform/SocAlytics.Platform.AppHost/Program.cs` and as `Analysis:Evidence:*` in any API host settings
   dictionary or launch configuration T001 did not cover (searching for `Analysis:Reads:GrantLifetime`), and confirm
   that the Host and Architecture tests pass (FR-016; research R9)
