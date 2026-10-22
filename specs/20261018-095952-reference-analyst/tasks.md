@@ -191,7 +191,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 
 ### Packaging evidence
 
-- [ ] T010 [P] [US2] Add `src/analysts/capabilities/reference-media-probe/tests/test_dockerfile.py` (FR-010, FR-016,
+- [x] T010 [P] [US2] Add `src/analysts/capabilities/reference-media-probe/tests/test_dockerfile.py` (FR-010, FR-016,
   FR-017): parse the Dockerfile and assert the uv and FFmpeg `ARG` defaults (URL and SHA-256) equal
   `.github/actions/environment-setup/analyst-media-toolchain.json` (located by walking up to the repository root), the
   base images are pinned by `@sha256:` digest, the five `io.socalytics.*` label values equal the manifest's
