@@ -93,7 +93,7 @@ uses.
   `Accept-Ranges: bytes`), `403` after the query's expiry, and CORS headers only for the configured origin, keeping
   `PUT` unchanged; extend `src/clients/web/tests/unit/support/fakeObjectStorage.test.ts` (FR-022;
   contracts/media-origin-and-storage.md)
-- [ ] T008 [P] Create `src/clients/web/tests/e2e/support/syntheticVideo.ts` that generates, once per test run, a
+- [x] T008 [P] Create `src/clients/web/tests/e2e/support/syntheticVideo.ts` that generates, once per test run, a
   10-second 64×64 `testsrc2` VP9 MP4 (`libvpx-vp9`, keyframe every second, `+faststart`) with the `ffmpeg` on `PATH`,
   failing visibly with a named message when `ffmpeg` or `libvpx-vp9` is missing (research R12)
 
