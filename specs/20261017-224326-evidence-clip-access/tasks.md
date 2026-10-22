@@ -134,7 +134,7 @@ short-lived, never stored or logged, audited, authorized per request, and rate-l
   `src/platform/SocAlytics.Platform.Api/Program.cs`; refresh `src/platform/SocAlytics.Platform.Api/openapi/v1.json`
   with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter
   OpenApiSnapshotTests` and run the Host and Architecture tests (FR-015, FR-025; research R1, R8)
-- [ ] T011 [P] [US1] Create the shared test support
+- [x] T011 [P] [US1] Create the shared test support
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/Support/EvidenceScenario.cs`: a club,
   team, and match with members per role, a finalized set of the synthetic recording of Materialized Video Segments'
   `SyntheticMedia` (and optionally a second overlapping recording), a run with indexed facts inside one segment and
