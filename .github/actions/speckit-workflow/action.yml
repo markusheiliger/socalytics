@@ -14,7 +14,7 @@ inputs:
     description: Id of the workflow under .specify/workflows/ of the tooling checkout
     required: true
   inputs:
-    description: The workflow inputs, one name=value per line (mode and tooling are set by the action)
+    description: The workflow inputs, one name=value per line (mode and tooling are set by the action); empty lines and lines without a value are skipped
     required: false
     default: ""
   level:
@@ -94,7 +94,7 @@ runs:
         elif [ -n "$folder" ] && [ -d "specs/archive/$folder" ]; then export SPECIFY_FEATURE_DIRECTORY="specs/archive/$folder"; fi
         args=(-i mode=unattended -i "tooling=$tooling")
         while IFS= read -r line; do
-          if [ -n "$line" ]; then args+=(-i "$line"); fi
+          if [ -n "$line" ] && [ -n "${line#*=}" ]; then args+=(-i "$line"); fi
         done <<< "$INPUTS"
         # An empty standard input: a gate would pause the run instead of waiting for a person.
         timeout --kill-after=60s "$TIME_LIMIT" specify workflow run "$definition" --json "${args[@]}" < /dev/null > "$RESULT_DIR/run.json"

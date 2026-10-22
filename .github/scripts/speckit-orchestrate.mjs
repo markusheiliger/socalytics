@@ -33,6 +33,7 @@ import {
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
   IMPLEMENT_WORKFLOW_FILE,
+  LEGACY_IMPLEMENT_WORKFLOW_FILES,
   ORCHESTRATE_WORKFLOW_FILE,
   START_COMMENT_MARKER,
   baseBranchOf,
@@ -288,10 +289,19 @@ function describeDecision(twin) {
   }
 }
 
-// Whether a run of the twin's implementation chain is queued or running.
+// Whether a run of the twin's implementation chain is queued or running, also one of the chain before groups that
+// started before it was replaced (LEGACY_IMPLEMENT_WORKFLOW_FILES).
 async function chainActive(client, twin, since) {
-  return (await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, since))
-    .some((run) => run.status !== 'completed' && isImplementRunOf(run.display_title, twin));
+  for (const file of [IMPLEMENT_WORKFLOW_FILE, ...LEGACY_IMPLEMENT_WORKFLOW_FILES]) {
+    let runs = [];
+    try {
+      runs = await client.listWorkflowRuns(file, since);
+    } catch {
+      // A removed workflow file may not be listed any more.
+    }
+    if (runs.some((run) => run.status !== 'completed' && isImplementRunOf(run.display_title, twin))) return true;
+  }
+  return false;
 }
 
 // Scheduler: selects flagged twins, starts new implementations while fewer than SPECKIT_MAX_ACTIVE_SPECS are active,

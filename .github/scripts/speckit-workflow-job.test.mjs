@@ -74,8 +74,9 @@ test('main collects and writes the status output', () => withDirs(({ root, works
   assert.throws(() => main(['run']), /Usage: speckit-workflow-job\.mjs collect/);
 }));
 
-// The GitHub jobs that run a gha Spec Kit workflow: each names a workflow the tooling has and only inputs it declares.
-test('every speckit-workflow step runs an existing gha workflow with inputs it declares', () => {
+// The GitHub jobs that run a gha Spec Kit workflow: each names workflows the tooling has, and every input it passes is
+// one of them declares (the action skips lines without a value, so a kind only gets the inputs it has values for).
+test('every speckit-workflow step runs existing gha workflows with inputs they declare', () => {
   const declared = (id) => {
     const text = read(`.specify/workflows/${id}/workflow.yml`);
     const block = text.match(/\ninputs:\n([\s\S]*?)\nsteps:/)?.[1] ?? '';
@@ -84,16 +85,21 @@ test('every speckit-workflow step runs an existing gha workflow with inputs it d
   const seen = new Set();
   for (const file of readdirSync(repo('.github/workflows/')).filter((name) => /^speckit-.*\.yml$/.test(name) && !name.endsWith('.lock.yml'))) {
     const text = read(`.github/workflows/${file}`);
-    for (const match of text.matchAll(/uses: \.\/tooling\/\.github\/actions\/speckit-workflow\n((?:\s+(?!- ).*\n)*)/g)) {
-      const id = match[1].match(/^\s+workflow: ([\w-]+)$/m)?.[1];
-      assert.ok(id && existsSync(repo(`.specify/workflows/${id}/workflow.yml`)), `${file} runs the unknown Spec Kit workflow ${id}`);
+    for (const match of text.matchAll(/uses: \.\/tooling\/\.github\/actions\/speckit-workflow\n((?:[ \t]+(?!- ).*\n)*)/g)) {
+      const value = match[1].match(/^\s+workflow: (.+)$/m)?.[1] ?? '';
+      // A literal id, or an expression that picks one per kind (inputs.kind == 'implement' && 'implement-task' || inputs.kind).
+      const ids = value.startsWith('${{')
+        ? [...value.matchAll(/'([\w-]+)'/g)].map((item) => item[1]).filter((id) => existsSync(repo(`.specify/workflows/${id}/workflow.yml`)))
+          .concat(/\|\| inputs\.kind/.test(value) ? ['converge', 'repair'] : [])
+        : [value.trim()];
+      assert.ok(ids.length > 0, `${file} names a Spec Kit workflow`);
+      for (const id of ids) assert.ok(existsSync(repo(`.specify/workflows/${id}/workflow.yml`)), `${file} runs the unknown Spec Kit workflow ${id}`);
       const names = [...(match[1].match(/^\s+inputs: \|\n((?:\s{12}.*\n)*)/m)?.[1] ?? '').matchAll(/^\s+([a-z_]+)=/gm)].map((line) => line[1]);
-      const inputs = declared(id);
-      for (const name of names) assert.ok(inputs.includes(name), `${file} passes ${name}, which ${id} does not declare`);
-      assert.ok(names.includes('folder'), `${file} passes the spec folder to ${id}`);
-      seen.add(id);
+      for (const name of names) assert.ok(ids.some((id) => declared(id).includes(name)), `${file} passes ${name}, which none of ${ids.join(', ')} declares`);
+      assert.ok(names.includes('folder'), `${file} passes the spec folder`);
+      for (const id of ids) seen.add(id);
     }
   }
   assert.deepEqual([...seen].sort(), ['converge', 'implement-task', 'repair', 'resolve']);
-  for (const id of seen) assert.ok(declared(id).includes('tooling') && declared(id).includes('mode'), `${id} takes the inputs the action sets`);
+  for (const id of seen) assert.ok(declared(id).includes('tooling') && declared(id).includes('mode') && declared(id).includes('folder'), `${id} takes the inputs the action sets and the folder`);
 });

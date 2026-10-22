@@ -267,7 +267,7 @@ test('after the merge, the stopped spec depends on the new twin, which waits for
   const retried = github.comments.filter((item) => item.number === 9).at(-1);
   assert.ok(retried.body.startsWith(RETRY_COMMENT_MARKER), 'the retry preserves the current phase base');
   assert.match(retried.body, /<!-- speckit-implement:unblocked -->\n\*\*The block is lifted\*\*: prerequisite #30 is implemented/);
-  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }]);
+  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement.yml', { issue: '5', pull: '9', title: 'F', subject: 'P · T002 Next' }]);
   assert.equal((await dependency()).outcome, 'none', 'retried once');
   assert.equal((await maintain()).outcome, 'linked');
   assert.deepEqual(parseFixEvents(github.comments.filter((item) => item.number === 9)).map((event) => event.event), ['requested', 'created', 'merged', 'linked']);

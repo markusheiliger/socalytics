@@ -1,0 +1,350 @@
+name: Spec Kit implement work
+
+# One piece of an implementation's work, never started on its own: a task, the convergence, a guided repair, or a conflict
+# resolution, called by Spec Kit implement once per matrix job of a group (or for a repair). The work job runs its
+# gha Spec Kit workflow (implement-task, converge, repair, resolve) with a read-only token through the speckit-workflow
+# action and packages and verifies the change; the land job validates, commits, pushes, and reports it without
+# executing agent-written code. A task of a parallel group defers the progress report to the group's verification.
+on:
+  workflow_call:
+    inputs:
+      issue:
+        description: Spec twin issue number (labelled speckit:spec)
+        required: true
+        type: string
+      pull:
+        description: Implementation pull request number
+        required: true
+        type: string
+      folder:
+        description: Spec folder name under specs/
+        required: true
+        type: string
+      base:
+        description: Base branch of the implementation pull request
+        required: true
+        type: string
+      kind:
+        description: What to do, a verb (implement a task, converge, repair, or resolve)
+        required: true
+        type: string
+      order:
+        description: The run's order (JSON), used to land this work and to identify what comes next
+        required: true
+        type: string
+      # The work item as decide built it (JSON), its matrix entry for a task, the convergence, or a conflict
+      # resolution, and decide's output `entry` for a repair. Every kind has `index` (its entry in the order),
+      # `task` (the task to implement, empty for the other kinds), `attempt`, and `guidance` (from the person who
+      # restarted the work, for the agent). A task of a parallel group has `defer_progress: true` (the group's
+      # verification reports the transition to the next work); a repair has `repair` (the validated pending repair);
+      # a conflict resolution that completes a /speckit sync request has `required_sync` (the request) and, when it
+      # carries a pending repair along, `sync_repair`. See prepareOrder in speckit-spec.mjs.
+      entry:
+        description: The work item (JSON) with index, task, attempt, guidance, and the fields of its kind
+        required: true
+        type: string
+    outputs:
+      ok:
+        description: Whether the work landed
+        value: ${{ jobs.land.outputs.ok }}
+      head:
+        description: Head of the implementation branch after the work landed
+        value: ${{ jobs.land.outputs.head }}
+
+permissions: {}
+
+jobs:
+  work:
+    name: >-
+      ${{ inputs.kind == 'implement' && format('Implement {0}', fromJSON(inputs.entry).task) || inputs.kind == 'converge' && 'Check the implementation against the spec'
+      || inputs.kind == 'resolve' && 'Resolve conflicts' || 'Repair the implementation' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      copilot-requests: write
+    outputs:
+      spec: ${{ steps.issue.outputs.spec }}
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_BASE_BRANCH: ${{ inputs.base }}
+      SPECKIT_TWIN: ${{ inputs.issue }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_TASK: ${{ fromJSON(inputs.entry).task }}
+      SPECKIT_ATTEMPT: ${{ fromJSON(inputs.entry).attempt }}
+      SPECKIT_FOLDER: ${{ inputs.folder }}
+      SPECKIT_REPAIR_SCOPE: ${{ inputs.kind == 'repair' && fromJSON(inputs.entry).repair.scope || '' }}
+      SPECKIT_REQUIRED_SYNC: ${{ fromJSON(inputs.entry).required_sync }}
+      SPECKIT_SYNC_REPAIR: ${{ fromJSON(inputs.entry).sync_repair && toJSON(fromJSON(inputs.entry).sync_repair) || '' }}
+      SPECKIT_SYNC_ORIGINAL_SCOPE: ${{ github.workspace }}/failed-verification/changed-files.txt
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_TOOLING: ${{ github.workspace }}/tooling
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: speckit/${{ inputs.folder }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record the start commit
+        run: echo "SPECKIT_HEAD=$(git -C workspace rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Check the spec issue
+        id: issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_ISSUE: ${{ inputs.issue }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-issue.mjs" check
+
+      # Before the solution environment, so its toolchain keeps precedence on the PATH.
+      - name: Set up Python for the Spec Kit scripts
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # A repair gets the evidence of the failed verification inside its workspace, ignored by Git.
+      - name: Reserve ignored evidence inside the agent workspace
+        if: inputs.kind == 'repair'
+        working-directory: workspace
+        run: |
+          test -z "$(git ls-files -- .speckit-repair-evidence)"
+          echo '/.speckit-repair-evidence/' >> .git/info/exclude
+
+      - name: Download the failed verification evidence
+        if: inputs.kind == 'repair' && fromJSON(inputs.entry).repair.run != '' && fromJSON(inputs.entry).repair.artifact != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ fromJSON(inputs.entry).repair.artifact }}
+          run-id: ${{ fromJSON(inputs.entry).repair.run }}
+          github-token: ${{ github.token }}
+          path: ${{ github.workspace }}/workspace/.speckit-repair-evidence
+
+      # A required sync carries a pending repair along; its original failed scope is verified with the merge.
+      - name: Download the original failed verification scope
+        if: inputs.kind == 'resolve' && fromJSON(inputs.entry).sync_repair && fromJSON(inputs.entry).sync_repair.run != '' && fromJSON(inputs.entry).sync_repair.artifact != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ fromJSON(inputs.entry).sync_repair.artifact }}
+          run-id: ${{ fromJSON(inputs.entry).sync_repair.run }}
+          github-token: ${{ github.token }}
+          path: ${{ github.workspace }}/failed-verification
+
+      - name: Set up the solution environment
+        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Merge the base branch
+        id: integrate
+        if: inputs.kind == 'resolve'
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-resolve.mjs" integrate
+
+      # The repaired tasks, the failed scope, and the evidence; a merge verification repair may change the environment
+      # actions (the changed actions' self-test failed).
+      - name: Prepare the repair inputs
+        id: repair
+        if: inputs.kind == 'repair'
+        env:
+          REPAIR: ${{ toJSON(fromJSON(inputs.entry).repair) }}
+        run: |
+          node -e '
+            const repair = JSON.parse(process.env.REPAIR);
+            const tasks = (Array.isArray(repair.tasks) ? repair.tasks : []).filter((id) => /^T\d{3,}$/.test(id));
+            const lines = [`tasks=${tasks.join(",")}`, `scope=${/^[a-z]+$/.test(repair.scope) ? repair.scope : "verification"}`, `environment=${repair.scope === "merge"}`];
+            require("node:fs").appendFileSync(process.env.GITHUB_OUTPUT, lines.map((line) => line + "\n").join(""));
+          '
+          if [ -d workspace/.speckit-repair-evidence ]; then echo "evidence=.speckit-repair-evidence" >> "$GITHUB_OUTPUT"; fi
+
+      # Inputs a kind does not take stay empty and are skipped by the action.
+      - name: Run the Spec Kit workflow ${{ inputs.kind == 'implement' && 'implement-task' || inputs.kind }}
+        if: inputs.kind != 'resolve'
+        uses: ./tooling/.github/actions/speckit-workflow
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          workflow: ${{ inputs.kind == 'implement' && 'implement-task' || inputs.kind }}
+          level: ${{ inputs.kind == 'implement' && 'standard' || 'strong' }}
+          ai-credits: ${{ inputs.kind == 'repair' && vars.SPECKIT_REPAIR_AI_CREDITS || vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          result-dir: ${{ env.SPECKIT_RESULT_DIR }}
+          inputs: |
+            folder=${{ inputs.folder }}
+            task=${{ fromJSON(inputs.entry).task }}
+            tasks=${{ steps.repair.outputs.tasks }}
+            scope=${{ steps.repair.outputs.scope }}
+            environment=${{ steps.repair.outputs.environment }}
+            evidence=${{ steps.repair.outputs.evidence }}
+            guidance=${{ fromJSON(inputs.entry).guidance }}
+
+      # Only for conflicts the archive script left; the agent may not run the git commands that would end the merge.
+      - name: Run the Spec Kit workflow resolve
+        if: inputs.kind == 'resolve' && steps.integrate.outputs.agent == 'true'
+        uses: ./tooling/.github/actions/speckit-workflow
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          workflow: resolve
+          level: standard
+          deny-tools: |
+            shell(git merge:*)
+            shell(git checkout:*)
+            shell(git reset:*)
+            shell(git restore:*)
+            shell(git stash:*)
+            shell(git rebase:*)
+          ai-credits: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          result-dir: ${{ env.SPECKIT_RESULT_DIR }}
+          inputs: |
+            folder=${{ inputs.folder }}
+            base=${{ inputs.base }}
+            guidance=${{ fromJSON(inputs.entry).guidance }}
+
+      - name: Package the result
+        id: package
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-${{ inputs.kind }}.mjs" package
+
+      # A task with the tests it touched, a conflict resolution with the full verification; the convergence changes no
+      # code, and a repair is verified again after it landed.
+      - name: Verify the change
+        id: verify
+        if: >-
+          (inputs.kind == 'implement' || inputs.kind == 'resolve') && steps.package.outputs.verify == 'true' &&
+          hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: ${{ inputs.kind == 'resolve' && 'finalize' || 'task' }}
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      - name: Self-test the synchronized environment setup
+        id: sync_setup
+        if: inputs.kind == 'resolve' && steps.package.outputs.sync_environment == 'true' && hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
+        continue-on-error: true
+        uses: ./workspace/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Self-test the synchronized environment verification
+        id: sync_verify
+        if: inputs.kind == 'resolve' && steps.package.outputs.sync_environment == 'true' && hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./workspace/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: finalize
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/environment-self-test.log
+
+      - name: Record the verdict
+        if: inputs.kind == 'implement' || inputs.kind == 'resolve'
+        env:
+          SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
+          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+          SPECKIT_VERIFY_FLAKY: ${{ steps.verify.outputs.flaky }}
+          SPECKIT_VERIFY_MODE: ${{ inputs.kind == 'resolve' && 'finalize' || '' }}
+          SPECKIT_SYNC_SETUP_OUTCOME: ${{ steps.sync_setup.outcome }}
+          SPECKIT_SYNC_VERIFY_OUTCOME: ${{ steps.sync_verify.outcome }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-${{ inputs.kind }}.mjs" verdict
+
+      - name: Upload the result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-result-${{ inputs.kind == 'implement' && fromJSON(inputs.entry).task || inputs.kind }}
+          path: ${{ github.workspace }}/speckit-result
+          retention-days: 7
+          if-no-files-found: ignore
+
+  land:
+    # A fixed name: the job is skipped for an issue that is not a spec twin, and GitHub shows a skipped job's name
+    # unevaluated. The calling job's name says what lands, for example "T013 / Commit and push".
+    name: Commit and push
+    concurrency:
+      group: speckit-publication-${{ inputs.pull }}
+      queue: max
+      cancel-in-progress: false
+    needs: work
+    # Lands or reports every outcome of the work, but only for a spec twin.
+    if: always() && needs.work.outputs.spec == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      checks: write
+      contents: write
+      issues: read
+      pull-requests: write
+    outputs:
+      ok: ${{ steps.land.outputs.ok }}
+      head: ${{ steps.land.outputs.head }}
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_BASE_BRANCH: ${{ inputs.base }}
+      SPECKIT_TWIN: ${{ inputs.issue }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_FOLDER: ${{ inputs.folder }}
+      SPECKIT_ORDER: ${{ inputs.order }}
+      SPECKIT_ORDER_INDEX: ${{ fromJSON(inputs.entry).index }}
+      SPECKIT_TASK: ${{ fromJSON(inputs.entry).task }}
+      SPECKIT_DEFER_PROGRESS: ${{ fromJSON(inputs.entry).defer_progress == true }}
+      SPECKIT_REPAIR_SCOPE: ${{ inputs.kind == 'repair' && fromJSON(inputs.entry).repair.scope || '' }}
+      SPECKIT_WORK_RESULT: ${{ needs.work.result }}
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_ROOT: ${{ github.workspace }}/results
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: speckit/${{ inputs.folder }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download the work result
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: speckit-result-${{ inputs.kind == 'implement' && fromJSON(inputs.entry).task || inputs.kind }}
+          path: ${{ github.workspace }}/results
+
+      - name: Commit, push, and report the ${{ inputs.kind == 'implement' && fromJSON(inputs.entry).task || inputs.kind }}
+        id: land
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node "tooling/.github/scripts/speckit-${{ inputs.kind }}.mjs" land-tasks
