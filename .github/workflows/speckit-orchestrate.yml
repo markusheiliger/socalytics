@@ -20,6 +20,10 @@ name: Spec Kit orchestrate
 #   - starts one non-blocking `/speckit author` spec per test that passed only on its rerun (flaky) in at least
 #     SPECKIT_FLAKY_THRESHOLD (repository variable, default 3) implementation pull requests, open or merged in the last
 #     14 days, on the open one where it was flaky most recently.
+#   - starts Spec Kit backlog (speckit-backlog.yml) once no spec is left to request with `/speckit implement`; it
+#     authors the next SPECKIT_BACKLOG_SPECS (repository variable, default 5, 0 turns it off) specs like
+#     `/speckit-gha-author --repeat` and publishes them on the default branch. One at a time; after a failed refill
+#     the next one starts a day later.
 # Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows, so the merge and
 # every dispatched, applying Spec Kit prepare run dispatch this workflow; that is the main path after a merge. The
 # schedule is only a fallback for runs that GitHub drops or delays.
@@ -97,4 +101,5 @@ jobs:
           SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_MAX_ACTIVE_SPECS: ${{ vars.SPECKIT_MAX_ACTIVE_SPECS || '3' }}
           SPECKIT_FLAKY_THRESHOLD: ${{ vars.SPECKIT_FLAKY_THRESHOLD }}
+          SPECKIT_BACKLOG_SPECS: ${{ vars.SPECKIT_BACKLOG_SPECS || '5' }}
         run: node .github/scripts/speckit-orchestrate.mjs orchestrate
