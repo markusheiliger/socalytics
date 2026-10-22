@@ -148,7 +148,7 @@ short-lived, never stored or logged, audited, authorized per request, and rate-l
   offsets checked with `ffprobe` packet timestamps of the stored media to within one frame; the link downloads bytes
   whose SHA-256 equals `mediaDigest` and stops working after its expiry; context extension, clipping at zero, and
   shortening; first-recording selection with two recordings; validation problems (SC-001; FR-001–FR-006)
-- [ ] T013 [P] [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceAuthorizationTests.cs`:
+- [x] T013 [P] [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceAuthorizationTests.cs`:
   Club Admin, Coach, and Viewer allowed; members of other teams or clubs, missing runs, and facts of other runs
   receive `404`; a Coach whose role is revoked after a successful resolution receives `404` with no link; no session
   receives `401` (SC-003; FR-013)
