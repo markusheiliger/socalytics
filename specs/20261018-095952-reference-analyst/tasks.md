@@ -274,7 +274,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
   development evidence only), `README.md` (the capability's test and image build commands), and `AGENTS.md` (Current
   State: the reference Analyst and its end-to-end evidence; the capability's commands) to describe the merged state
   (FR-020)
-- [ ] T017 [P] Make `docs/architecture/` describe the merged state (plan.md § Architecture Updates; FR-020): re-read
+- [x] T017 [P] Make `docs/architecture/` describe the merged state (plan.md § Architecture Updates; FR-020): re-read
   `docs/architecture/` at implementation time and make every listed narrative and every status statement the feature
   affects true, including planned, future-tense, or unimplemented wording outside the listed sections; at least turn
   the "decided … and not yet implemented" paragraph on `reference-media-probe` in
