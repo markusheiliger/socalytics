@@ -121,8 +121,8 @@ The accepted logical-segment design uses immutable values, not mutable labels:
   `(recording-version-id, timeline-mapping-digest,
   segmentation-policy-digest, segment-number)`, where the segment number is a
   positive one-based integer. The cache key is a deterministic projection of
-  every field in this tuple; its canonical serialization is deferred to the
-  future machine-readable contract work.
+  every field in this tuple; its canonical serialization is the segment
+  manifest contract `contracts/segments/segment-manifest/v1/`.
 - An **analysis segment reference** combines one finalized
   `recording-set-version-id` with one complete materialized-segment identity.
   Validation confirms that the recording version and exact timeline mapping
@@ -164,8 +164,9 @@ A published segment manifest records:
 - an immutable artifact reference; and
 - an algorithm-qualified media digest, `sha-256:<hex-digest>`.
 
-Machine-readable segment schemas will be introduced with the Segment Service
-implementation and must encode these identities without redefining them.
+The machine-readable segment manifest contract,
+`contracts/segments/segment-manifest/v1/`, encodes these identities without
+redefining them.
 
 Encoded boundaries may extend beyond the requested interval when keyframe
 alignment requires decoding context, but they must cover the complete requested
@@ -212,8 +213,8 @@ implemented initially. Purge never changes logical identity: a later request
 deterministically rematerializes the same logical segment, subject to the same
 manifest and digest validation.
 
-The Segment Service is decided as follows and not yet implemented (see
-[Materialized Video Segments and Analyst Input Staging](../../specs/20261017-222433-materialized-segments/spec.md)).
+The Segment Service is implemented as development evidence (see
+[Materialized Video Segments and Analyst Input Staging](../../specs/archive/20261017-222433-materialized-segments/spec.md)).
 It is the `Segments` functional area of the platform and runs as a background
 worker of the API host; no API operation reads or relays media bytes. One
 durable record per materialized identity holds its state, its single current
@@ -238,7 +239,9 @@ claimed job and returns it to `absent`. A member's evidence resolution (see
 [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access))
 is decided, not yet implemented, to request the materialization of `absent`
 segments it needs as another requester, without pinning them against the
-purge; a purged segment is then rematerialized on demand.
+purge; a purged segment is then rematerialized on demand. Storage cost,
+policy-version migration at scale, the production cache and deletion policy
+(`POL-004`), and the production toolchain and storage values remain unresolved.
 
 ### Segment And Match Analysis Scope
 
@@ -279,10 +282,11 @@ validity window. Result acceptance rejects facts outside that window.
 
 ### Implementation Validation
 
-A prototype must verify keyframe-aligned extraction, stable logical boundaries, concurrent
-cache-miss behavior, storage cost, and policy-version migration. The choice is
-revisited only if measured results challenge the segment identity, cache, and
-materialization boundaries above. Workflow evidence must also verify cross-
+Development tests evidence keyframe-aligned extraction, stable logical
+boundaries, concurrent cache-miss behavior, and the coexistence of
+segmentation-policy versions. Storage cost and policy-version migration at
+scale remain unverified. The choice is revisited only if measured results
+challenge the segment identity, cache, and materialization boundaries above. Workflow evidence must also verify cross-
 segment identity continuity and concepts that span segment boundaries.
 
 ---

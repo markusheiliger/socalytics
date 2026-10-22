@@ -13,7 +13,8 @@ public sealed record RunJobState(
 	AnalysisSegmentReference? Segment,
 	LogicalJobState State,
 	bool HasInputSnapshot,
-	IReadOnlyList<Guid> AcceptedResultIds);
+	IReadOnlyList<Guid> AcceptedResultIds,
+	bool AwaitsSegmentMedia = false);
 
 public sealed record RunGraphState(
 	AnalysisRunState RunState,

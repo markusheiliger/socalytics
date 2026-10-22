@@ -197,7 +197,7 @@ internal sealed partial class ConfiguredWorkflowSeeder(
                 node.LeaseSeconds,
                 node.StaleTimeoutSeconds,
                 node.ExecutionTimeoutSeconds,
-                VideoPolicies.Optional,
+                node.VideoPolicy,
                 upstream.ToDictionary(x => x.Node!.CapabilityId, x => Semver(x.Node!.SchemaVersion), StringComparer.Ordinal),
                 Semver(node.SchemaVersion));
             var version = profileVersions.GetValueOrDefault(node.AnalystProfileId) + 1;
@@ -299,7 +299,7 @@ internal sealed partial class ConfiguredWorkflowSeeder(
                 ["executionScope"] = node.ExecutionScope,
             },
             ["upstream"] = new JsonArray(upstreamEntries.Select(u => (JsonNode)u.Entry).ToArray()),
-            ["videoAccess"] = VideoPolicies.Optional,
+            ["videoAccess"] = node.VideoPolicy,
             ["output"] = new JsonObject { ["schemaVersion"] = Semver(node.SchemaVersion) },
             ["compatibleProfiles"] = new JsonArray(JsonValue.Create(node.AnalystProfileId)),
             ["model"] = new JsonObject { ["digest"] = model },

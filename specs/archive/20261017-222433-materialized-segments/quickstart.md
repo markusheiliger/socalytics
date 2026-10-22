@@ -7,7 +7,7 @@ Validation guide for the implemented feature. Data shapes are in [data-model.md]
 
 - .NET 10 SDK per `src/platform/global.json` and `src/analysts/manager/global.json`; a running Docker-compatible
   runtime; on Linux, SoftHSM2 for Manager and end-to-end tests.
-- FFmpeg and ffprobe of the version the [environment feature](../archive/20261017-163801-analyst-media-environment/spec.md)
+- FFmpeg and ffprobe of the version the [environment feature](../20261017-163801-analyst-media-environment/spec.md)
   pins (8.1 LGPL) on `PATH`, or configured through `Segments__Toolchain__FfmpegPath` and
   `Segments__Toolchain__FfprobePath`. The verification environment provides them; locally install a matching build.
 - Python 3.12 and `uv` for the SDK tests (see the Python Analyst SDK feature).

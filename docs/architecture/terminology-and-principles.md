@@ -98,8 +98,9 @@ the [architecture overview](overview.md) for the system topology.
 Both Analyst tiers use the same OCI packaging and Analyst Manager execution
 model. Neither tier receives database credentials. High-level ACs obtain facts
 through match-scoped API queries performed on their behalf by the Analyst
-Manager, which stages accepted upstream results, and obtain video only through short-lived
-presigned object-storage references.
+Manager, which stages accepted upstream results, and obtain video only as
+segment media the Analyst Manager stages read-only into the attempt's mount
+through short-lived presigned object-storage grants.
 
 Coach and Specialist Agents may use general football methods for interpretation,
 but every current match, team, or player claim requires authorized MCP/API

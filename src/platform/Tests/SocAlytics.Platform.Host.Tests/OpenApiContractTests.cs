@@ -58,7 +58,7 @@ public sealed class OpenApiContractTests
 		// Recording operations are verified by RecordingsOpenApiTests and Registry operations by
 		// RegistryOpenApiTests and AnalystRegistryOpenApiTests, not against the Club contract.
 		var operationCount = paths.EnumerateObject()
-			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name) && !IsExternalSignInPath(p.Name) && !IsPasswordRecoveryPath(p.Name) && !IsAgentOrchestrationPath(p.Name))
+			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name) && !IsExternalSignInPath(p.Name) && !IsPasswordRecoveryPath(p.Name) && !IsAgentOrchestrationPath(p.Name) && !IsMaterializedSegmentPath(p.Name))
 			.Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
 		operationCount.ShouldBe(ContractOperations.All.Count);
 
@@ -105,6 +105,13 @@ public sealed class OpenApiContractTests
 	// specs/archive/20261017-200823-password-recovery/contracts/password-recovery-api.md, not against the Club contract.
 	private static bool IsPasswordRecoveryPath(string path) =>
 		path.StartsWith("/api/v1/password-recovery/", StringComparison.Ordinal);
+
+	// Materialized segment operations are verified by MaterializedSegmentEndpointTests against
+	// specs/archive/20261017-222433-materialized-segments/contracts/member-operations.md, not against the Club contract.
+	private static bool IsMaterializedSegmentPath(string path) =>
+		path.StartsWith("/api/v1/matches/", StringComparison.Ordinal)
+		&& (path.EndsWith("/materialized-segments", StringComparison.Ordinal)
+			|| path.EndsWith("/materialized-segments/purge", StringComparison.Ordinal));
 
 	private static bool IsAnalysisPath(string path) =>
 		path.StartsWith("/api/v1/analysis/", StringComparison.Ordinal)

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 from . import errors, schemas
 from .inputs import load_inputs
+from .media import SegmentMedia, load_media
 from .models.attempt import AttemptContext
 from .models.job import LogicalJob
 
@@ -31,6 +32,7 @@ class AnalystContext:
     result: Any
     scratch: Path
     inputs: Any = ()
+    media: SegmentMedia | None = None
 
 
 def _read_document(root: Path, name: str) -> object:
@@ -81,8 +83,14 @@ def scratch_path(root: Path = DEFAULT_ROOT) -> Path:
     return root / SCRATCH_DIRECTORY
 
 
-def build_context(root: Path, job: LogicalJob, attempt: AttemptContext, result: Any, inputs: Any = None) -> AnalystContext:
-    """Assemble the context from loaded documents and the result writer; staged inputs load unless given."""
+def build_context(
+    root: Path, job: LogicalJob, attempt: AttemptContext, result: Any, inputs: Any = None, media: Any = None
+) -> AnalystContext:
+    """Assemble the context from loaded documents and the result writer; inputs and media load unless given."""
     if inputs is None:
         inputs = load_inputs(root, job)
-    return AnalystContext(job=job, attempt=attempt, result=result, scratch=scratch_path(root), inputs=inputs)
+    if media is None:
+        media = load_media(root, job)
+    return AnalystContext(
+        job=job, attempt=attempt, result=result, scratch=scratch_path(root), inputs=inputs, media=media
+    )

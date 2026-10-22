@@ -598,7 +598,7 @@ Telemetry, Replica, Backup, and Audit copies; backup justification and expiry;
 owner; approvals; and evidence. Backup is permitted only with explicit approved
 need, and an indefinite cache or unsupported backup remains blocking. During
 initial private development, the only purge is the manual Club Admin purge of a
-match's unused materialized segments (decided, not yet implemented; see
+match's unused materialized segments (implemented as development evidence; see
 [On-Demand Video Segmentation](match-data-pipeline.md#on-demand-video-segmentation)),
 which does not resolve this policy.
 

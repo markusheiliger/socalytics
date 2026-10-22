@@ -248,8 +248,8 @@ queryable Analyst manifest cache keyed by immutable image digest. Analysis data
 covers durable runs, DAG state, logical jobs, attempts, accepted-result
 references, and the indexed facts of accepted results (immutable rows written in
 the acceptance transaction). Segment materialization runs on demand within the control-plane
-deployment unless measured scaling later justifies extraction; it is decided,
-not yet implemented, as a background worker of the API host that needs the
+deployment unless measured scaling later justifies extraction; it is implemented as
+development evidence as a background worker of the API host that needs the
 pinned FFmpeg and ffprobe toolchain on the host (see
 [On-Demand Video Segmentation](match-data-pipeline.md#on-demand-video-segmentation)).
 

@@ -120,6 +120,34 @@ public sealed class AttemptCleanupTests : IDisposable
     }
 
     [Fact]
+    public async Task Staged_media_is_deleted_when_the_attempt_ends()
+    {
+        var directory = PlantStagedData(_attemptId);
+        var media = Path.Combine(directory, SegmentMediaStager.MediaFolder);
+        Directory.CreateDirectory(media);
+        File.WriteAllBytes(Path.Combine(media, "segment.mp4"), new byte[1024]);
+
+        (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
+
+        Directory.Exists(media).ShouldBeFalse();
+        Directory.Exists(directory).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Staged_media_left_by_a_crashed_process_is_deleted_at_start()
+    {
+        var directory = PlantStagedData(Guid.NewGuid());
+        var media = Path.Combine(directory, SegmentMediaStager.MediaFolder);
+        Directory.CreateDirectory(media);
+        File.WriteAllBytes(Path.Combine(media, "segment.mp4"), new byte[1024]);
+
+        AttemptRunner.DeleteLeftoverAttemptDirectories();
+
+        Directory.Exists(media).ShouldBeFalse();
+        Directory.Exists(directory).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Nothing_remains_after_a_timed_out_attempt()
     {
         _simulated.Capabilities[Capability] = new SimulatedCapabilityOptions { Outcome = SimulatedOutcome.Hang };

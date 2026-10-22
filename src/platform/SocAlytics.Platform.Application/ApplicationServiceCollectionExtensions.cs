@@ -14,6 +14,11 @@ public static class ApplicationServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<ApplicationLayerMarker>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Segments.SegmentManifestBuilder>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Segments.RequestSegmentMaterializationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Segments.MaterializeSegmentHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Segments.ListMaterializedSegmentsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Segments.PurgeMaterializedSegmentsHandler>();
         services.TryAddScoped<ITeamScopeResolver, TeamScopeResolver>();
         services.TryAddScoped<IAccessAuthorizer, AccessAuthorizer>();
         services.TryAddScoped<ApplyBreakGlassRecoveryHandler>();
@@ -42,6 +47,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.IssueResultGrantsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.ResultManifestVerifier>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.ListUpstreamResultsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.GetSegmentMediaHandler>();
         services.AddOptions<SocAlytics.Platform.Application.Analysis.Commands.AnalysisLeaseOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.Commands.AnalysisLeaseOptions.SectionName);
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.CloseAttemptAsStale>();
@@ -127,6 +133,19 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingUploadOptions>, RecordingUploadOptionsValidator>());
         services.AddOptions<RecordingSetOptions>().BindConfiguration(RecordingSetOptions.SectionName).ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingSetOptions>, RecordingSetOptionsValidator>());
+
+        services.AddOptions<SocAlytics.Platform.Application.Segments.SegmentMaterializationOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Segments.SegmentMaterializationOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Segments.SegmentMaterializationOptions>,
+            SocAlytics.Platform.Application.Segments.SegmentMaterializationOptionsValidator>());
+        services.AddOptions<SocAlytics.Platform.Application.Segments.SegmentToolchainOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Segments.SegmentToolchainOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Segments.SegmentToolchainOptions>,
+            SocAlytics.Platform.Application.Segments.SegmentToolchainOptionsValidator>());
 
         services.AddOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisResultOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.Results.AnalysisResultOptions.SectionName)
