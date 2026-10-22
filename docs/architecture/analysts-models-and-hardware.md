@@ -341,6 +341,15 @@ identifiers. The operation `listAnalysisRunFactStreams` names every capability
 node of the run with its fact count and coverage. Both reads carry a weak ETag
 and never cross runs.
 
+The Web UI's same-match terminal-run comparison is decided but not yet
+implemented (see [Web UI](client-applications.md#web-ui)). It will consume
+each selected run's independently authorized stream summaries and pinned
+provenance, alongside run-status input coverage and recording lineage, without
+downloading fact payloads or introducing a cross-run endpoint. Unique
+capability-and-scope alignment is only a presentation aid; contract, input
+coverage and provenance differences stay explicit, and neither matching
+counts nor metadata establish equal full inputs, equivalent outputs or quality.
+
 The evidence of those facts is decided, but not yet implemented, to be
 resolvable to video by the same members (see
 [Evidence Clip Access](../../specs/20261017-224326-evidence-clip-access/spec.md)):

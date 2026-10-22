@@ -2,7 +2,7 @@ schema_version: "1.0"
 workflow:
   id: "author"
   name: "Author a ready-to-implement spec"
-  version: "1.4.0"
+  version: "1.5.0"
   author: "socalytics"
   description: >-
     Authors one spec through specify, clarify, plan, tasks, and analyze until it is ready to implement, then commits
@@ -12,8 +12,8 @@ workflow:
 # Layout rules (see AGENTS.md):
 # - Every gate is a top-level step or alone (with what follows it) in a top-level `if`: resuming a paused nested step
 #   reruns its parent's whole body, which must never repeat an agent step. Loops are therefore unrolled.
-# - Every gate names its verdict input after its id (`spec-verdict` → `spec_verdict`), so a run without a terminal
-#   pauses at the gate and `specify workflow resume <run> -i <input>=<choice>` answers it (the /speckit-author skill);
+# - Every gate names its verdict input after its id (`publish-verdict` → `publish_verdict`), so a run without a terminal
+#   pauses at the gate and `specify workflow resume <run> -i <input>=<choice>` answers it (the /speckit-gha-author skill);
 #   in a terminal the gate asks directly. The first option of a gate is its recommended one.
 
 requires:
@@ -34,7 +34,7 @@ inputs:
   feedback:
     type: string
     default: ""
-    prompt: "What should change in the spec folder given as feature; the run starts again at the stage you reviewed"
+    prompt: "What should change in the spec folder given as feature; the run reworks the stage before its next step, or the one given as stage"
   stage:
     type: string
     default: ""
@@ -73,10 +73,7 @@ inputs:
   answer_3_3: {type: string, default: ""}
   answer_3_4: {type: string, default: ""}
   answer_3_5: {type: string, default: ""}
-  spec_verdict: {type: string, default: ""}
   environment_verdict: {type: string, default: ""}
-  plan_verdict: {type: string, default: ""}
-  tasks_verdict: {type: string, default: ""}
   fix_2_1: {type: string, default: ""}
   fix_2_2: {type: string, default: ""}
   fix_2_3: {type: string, default: ""}
@@ -369,25 +366,6 @@ steps:
         run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" questions --run {{ context.run_id }} --final'
         output_format: json
 
-  - id: review-spec
-    type: if
-    condition: "{{ steps.clarify-stage.output.data.run and inputs.mode == 'interactive' }}"
-    then:
-      - id: spec-verdict
-        type: gate
-        message: "Review the spec: continue to plan, revise it (the run stops and says how to give feedback), or abort."
-        show_file: "specs/{{ steps.clarify-stage.output.data.folder }}/spec.md"
-        options: ["continue", "revise", "abort"]
-        on_reject: abort
-        verdict_input: spec_verdict
-      - id: revise-spec
-        type: if
-        condition: "{{ steps.spec-verdict.output.choice == 'revise' }}"
-        then:
-          - id: stop-for-spec-feedback
-            type: shell
-            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" revise --run {{ context.run_id }} --stage clarify'
-
   # ── Design: plan, with its mandatory Architecture Updates and the environment check ──────────────────────────────
   - id: plan-stage
     type: shell
@@ -449,25 +427,6 @@ steps:
         on_reject: abort
         verdict_input: environment_verdict
 
-  - id: review-plan
-    type: if
-    condition: "{{ steps.plan-stage.output.data.run and inputs.mode == 'interactive' }}"
-    then:
-      - id: plan-verdict
-        type: gate
-        message: "Review the plan and its Architecture Updates: continue to tasks, revise it (the run stops and says how to give feedback), or abort."
-        show_file: "specs/{{ steps.plan-stage.output.data.folder }}/plan.md"
-        options: ["continue", "revise", "abort"]
-        on_reject: abort
-        verdict_input: plan_verdict
-      - id: revise-plan
-        type: if
-        condition: "{{ steps.plan-verdict.output.choice == 'revise' }}"
-        then:
-          - id: stop-for-plan-feedback
-            type: shell
-            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" revise --run {{ context.run_id }} --stage plan'
-
   # ── Design: tasks, with the mandatory refinement of the [P] groups ───────────────────────────────────────────────
   - id: tasks-stage
     type: shell
@@ -516,25 +475,6 @@ steps:
         type: shell
         run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after tasks --strict'
         output_format: json
-
-  - id: review-tasks
-    type: if
-    condition: "{{ steps.tasks-stage.output.data.run and inputs.mode == 'interactive' }}"
-    then:
-      - id: tasks-verdict
-        type: gate
-        message: "Review the phases and [P] groups: continue to analyze, revise the tasks (the run stops and says how to give feedback), or abort."
-        show_file: "{{ steps.tasks-final.output.data.file }}"
-        options: ["continue", "revise", "abort"]
-        on_reject: abort
-        verdict_input: tasks_verdict
-      - id: revise-tasks
-        type: if
-        condition: "{{ steps.tasks-verdict.output.choice == 'revise' }}"
-        then:
-          - id: stop-for-tasks-feedback
-            type: shell
-            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" revise --run {{ context.run_id }} --stage tasks'
 
   # ── Gate: analyze; while it proposes fixes, remediate (after approval) and analyze again, at most three analyses ──
   - id: analyze-stage

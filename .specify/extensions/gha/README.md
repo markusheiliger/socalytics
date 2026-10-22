@@ -9,6 +9,7 @@ extension with the ID `github`.
 
 | Command | Skill | Purpose |
 | --- | --- | --- |
+| `speckit.gha.author` | `/speckit-gha-author [--repeat <n>] [feature idea or folder]` | Author one spec until it is ready to implement by operating the workflow `author`: start it, ask its gates in Chat, resume it, and report; `--repeat <n>` authors `n` proposed specs one after another (see Authoring Specs) |
 | `speckit.gha.route` | `/speckit-gha-route` | Mandatory `before_implement` hook: choose local implementation or a GitHub request |
 | `speckit.gha.request` | `/speckit-gha-request [folder]` | Request implementation on GitHub directly |
 | `speckit.gha.diagnose` | `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` | Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause |
@@ -21,7 +22,7 @@ extension with the ID `github`.
 
 | Workflow | Run | Purpose |
 | --- | --- | --- |
-| `author` ([`workflows/author/workflow.yml`](workflows/author/workflow.yml)) | `/speckit-author [feature idea or folder]` in Copilot Chat, `specify workflow run author -i feature="…"` in a terminal (with `TZ=UTC`), or `/speckit author` on an implementation pull request (the GitHub workflow Spec Kit author runs it unattended) | Author one spec deterministically through specify, clarify, plan (repaired with `/speckit-gha-architecture`), tasks (repaired with `/speckit-gha-refine`), analyze, and the publish checks, and push the spec folder; every decision comes from `.github/scripts/speckit-author-flow.mjs`, gates ask a person, and `mode=unattended` takes every recommended choice |
+| `author` ([`workflows/author/workflow.yml`](workflows/author/workflow.yml)) | `/speckit-gha-author [feature idea or folder]` in Copilot Chat, `specify workflow run author -i feature="…"` in a terminal (with `TZ=UTC`), or `/speckit author` on an implementation pull request (the GitHub workflow Spec Kit author runs it unattended) | Author one spec deterministically through specify, clarify, plan (repaired with `/speckit-gha-architecture`), tasks (repaired with `/speckit-gha-refine`), analyze, and the publish checks, and push the spec folder; every decision comes from `.github/scripts/speckit-author-flow.mjs`, gates ask a person, and `mode=unattended` takes every recommended choice |
 | `implement-task` ([`workflows/implement-task/workflow.yml`](workflows/implement-task/workflow.yml)) | `specify workflow run implement-task -i folder=<folder> -i task=T004` | Implement one task with `/speckit-implement` and check the change with the rules of the GitHub land job (only this task's box may change in `tasks.md`, no protected paths) |
 | `converge` ([`workflows/converge/workflow.yml`](workflows/converge/workflow.yml)) | `specify workflow run converge -i folder=<folder>` once every task is checked | Run `/speckit-converge` with its drift check and accept only one appended convergence section of new, unchecked tasks |
 | `repair` ([`workflows/repair/workflow.yml`](workflows/repair/workflow.yml)) | `specify workflow run repair -i folder=<folder> -i tasks=T004,T005 -i scope=phase [-i evidence=<folder>]` | Repair implemented tasks whose verification failed, without touching `tasks.md` or protected paths (environment specs may change the environment actions with `-i environment=true`) |
@@ -33,9 +34,7 @@ workflow as a folder that its install copies to
 Install or Update). On GitHub the work jobs of the implementation run the
 implementation workflows through the `speckit-workflow` action (see the
 workflows README, "Spec Kit workflows in the jobs"), and Spec Kit author runs
-`author`. `/speckit-author` is a hand-maintained repository skill
-(`.github/skills/speckit-author/`) rather than an extension command, because
-Spec Kit renders extension commands only as `speckit-gha-*` skills.
+`author`. In Copilot Chat the extension command `/speckit-gha-author` operates it.
 
 ## Workflow Design
 
@@ -67,8 +66,11 @@ workflows own everything on the level of a Spec Kit command:
   a top-level `if`, names its verdict input after its id (`review-verdict` →
   `review_verdict`), and lists its recommended option first, so a run without
   a terminal pauses there and `specify workflow resume <run> -i <input>=<choice>`
-  answers it. `revise` stops the run and prints the command that runs it again
-  with `-i feedback="…"`.
+  answers it. The review gate of the implementation workflows offers `revise`,
+  which stops the run and prints the command that runs it again with
+  `-i feedback="…"`. The workflow `author` only stops where a person improves
+  the spec or decides what is authored or published; its publish gate is the
+  review point, and a revision reruns it with `stage` and `feedback`.
 - **No Git state changes:** the implementation workflows never commit, push, or
   check a task's box; on GitHub the land jobs do that after the verification,
   locally the person does. They measure a change against the working tree at
@@ -124,13 +126,18 @@ both ends of a spec:
 ## Authoring Specs
 
 Specs are authored with the workflow `author` (see Workflows): in Copilot Chat
-through the hand-maintained repository skill `/speckit-author`, which runs it
+through the extension command `/speckit-gha-author`, which runs it
 and asks its gates in Chat, in a terminal with `specify workflow run author`,
 and on GitHub by the workflow Spec Kit author for `/speckit author`. It runs
 one spec through the repository's Spec Kit skills in Spec Kit's order, and
 every decision between them comes from
 `node .github/scripts/speckit-author-flow.mjs`; see `specs/README.md` for the
-stages, gates, and inputs.
+stages, gates, and inputs. It moves from spec to plan to tasks to analysis
+without asking; at the publish gate `/speckit-gha-author` shows the spec, plan,
+and tasks and offers push, commit, none, or revise. `/speckit-gha-author
+--repeat <n>` runs the workflow `n` times in a row, each run proposing the next
+logical spec; in autopilot each run commits its spec and the last one pushes
+them all. It stops at the first run that fails.
 
 `node .github/scripts/speckit-author.mjs status [folder] [--json]` reports a
 spec's next Spec Kit step, its publish blockers, and its Git state, which is how
@@ -228,7 +235,7 @@ without symlink support (the Git default on Windows), so commit them as regular
 files:
 
 ```powershell
-foreach ($name in 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose', 'speckit-gha-refine', 'speckit-gha-archive', 'speckit-gha-architecture', 'speckit-gha-drift') {
+foreach ($name in 'speckit-gha-author', 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose', 'speckit-gha-refine', 'speckit-gha-archive', 'speckit-gha-architecture', 'speckit-gha-drift') {
     $skill = ".github/skills/$name/SKILL.md"
     $content = Get-Content -Raw ".specify/extensions/gha/.specify-dev/extension-skills/$name/SKILL.md"
     Remove-Item $skill -Force
