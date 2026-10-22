@@ -6,8 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { BACKLOG_RETRY_MS, BACKLOG_WORKFLOW_FILE, checkLanded, landSpecs, maintainBacklog, parseBacklogSize, requestableSpecs, runAuthor, runLand } from './speckit-backlog.mjs';
-import { runSync } from './speckit-prepare.mjs';
-import { discoverSpecs } from './speckit-prepare.mjs';
+import { discoverSpecs, runSync } from './speckit-prepare.mjs';
 import { FakeGitHub, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const TASKS = '- [ ] T001 one\n';
