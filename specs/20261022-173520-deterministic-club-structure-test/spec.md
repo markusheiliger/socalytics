@@ -62,7 +62,7 @@ A maintainer running the Web UI browser tests, or the verification of any implem
 
 ### Functional Requirements
 
-- **FR-001**: The implementation MUST first establish the cause of the intermittent failure with evidence (repeated runs with and without CPU load, runs after the other platform projects, and the traces of the failing runs) and record it in a code comment next to the fix and in the commit message.
+- **FR-001**: The implementation MUST first establish the cause of the intermittent failure with evidence (repeated runs with and without CPU load, runs after the other platform projects, and the traces of the failing runs) and record it in a code comment next to the fix and in the `## Evidence` section of `research.md` (the commit message, written by the person or automation that commits, repeats them).
 - **FR-002**: The cause MUST be removed where it lives (the test, its shared support, the Season or Team screens, or the platform) by controlling the racing input, isolating shared state, or waiting on the awaited condition, not by retrying the test, skipping it, or lengthening a timeout.
 - **FR-003**: Every assertion of the test, including the absence of the old team name in the Teams list, MUST remain, and no assertion, expected value, or step MAY be removed, loosened, or skipped.
 - **FR-004**: Production behavior MUST NOT be changed: any Web UI or platform change MUST keep the documented behavior of the season and team screens and the club structure operations in `docs/architecture/`.
@@ -73,14 +73,14 @@ A maintainer running the Web UI browser tests, or the verification of any implem
 
 ### Measurable Outcomes
 
-- **SC-001**: The test passes in 100% of at least 20 consecutive runs of the `platform-club-structure` project alone, in at least 5 consecutive runs under CPU load, and in at least 5 consecutive runs after the platform projects it depends on (`platform-session`, `platform-navigation`) and as part of the whole `platform` chain.
+- **SC-001**: The test passes in 100% of at least 20 consecutive runs of the `platform-club-structure` project alone, in at least 5 consecutive runs under CPU load (one busy-loop process per core for the duration of the runs), and in at least 5 consecutive runs after the platform projects it depends on (`platform-session`, `platform-navigation`) and as part of the whole `platform` chain.
 - **SC-002**: Each of three probes (a team list not refreshed after creation, a season that is not activated, and a save that does not persist the new name) makes the test fail on its assertions; the probes are removed afterward.
-- **SC-003**: The code comment and commit message name the evidenced cause, and the change touches only the files the cause lives in plus this spec folder; no assertion is textually removed.
+- **SC-003**: The code comment and the `## Evidence` section of `research.md` name the evidenced cause (the commit message, written by the person or automation that commits, repeats them), and the change touches only the files the cause lives in plus this spec folder; no assertion is textually removed.
 - **SC-004** (post-merge evidence, observed when #225 retries and not verified by a task of this spec): the verification of #225 reports no flaky `platform-club-structure` test.
 
 ## Assumptions
 
-- **Cause**: The test belongs to the Web UI club structure behavior (the merged Web UI foundation and club structure specs under `specs/archive/`); it races refetches or shared state between specs against one platform instance and one Club Admin. The concrete cause is established during implementation (FR-001).
+- **Cause**: The test belongs to the Web UI club structure behavior (the merged Web UI foundation and club structure specs under `specs/archive/`). The test is presumed to race refetches or shared state between specs against one platform instance and one Club Admin; this is a hypothesis, and the concrete cause is established during implementation (FR-001).
 - **Dependencies**: [Evidence Clip Access](../20261017-224326-evidence-clip-access/spec.md) (implementation #225, twin #162) depends on this spec. Related specs that must not be repeated: [Deterministic Web UI Keyboard and Club Structure Browser Tests](../archive/20261014-172346-fix-web-ui-keyboard-flake/spec.md).
 - **Out of scope**: Other flaky tests, the simulated browser projects, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

@@ -6,7 +6,7 @@
 
 ## Summary
 
-Find, by reproduction, why the `platform-club-structure` browser test passes only on its rerun, and remove that cause where it lives without retries, longer timeouts, or weakened assertions. The plan fixes the method and the search space; the concrete cause is a result of the implementation (FR-001), recorded in a code comment next to the fix and in the commit message. The ranked candidates, from the code path the test exercises, are in [research.md](research.md): the cached, stale team list that the Teams screen shows on remount before its invalidation refetch resolves, the season option and the `created` status that precede the awaited refetch, shared Club Admin and active-season state across the chained platform projects, and the time-derived names.
+Find, by reproduction, why the `platform-club-structure` browser test passes only on its rerun, and remove that cause where it lives without retries, longer timeouts, or weakened assertions. The plan fixes the method and the search space; the concrete cause is a result of the implementation (FR-001), recorded in a code comment next to the fix and in the `## Evidence` section of research.md (the commit message, written by the person or automation that commits, repeats them). The ranked candidates, from the code path the test exercises, are in [research.md](research.md): the cached, stale team list that the Teams screen shows on remount before its invalidation refetch resolves, the season option and the `created` status that precede the awaited refetch, shared Club Admin and active-season state across the chained platform projects, and the time-derived names.
 
 ## Technical Context
 
@@ -77,7 +77,7 @@ src/clients/web/
    - *Shared state*: have the test establish its own start state (no active season through `archiveActiveSeasons` before it, and not only after), and derive names that cannot collide between a rerun or a worker.
    - *External readiness*: wait on the platform's readiness before the first sign-in in the shared support.
 3. **Keep every assertion** and every explicit `timeout` as it is (none lengthened).
-4. **Prove** with the SC-001 runs and the SC-002 probes, remove the probes, and write the cause into the comment and the commit message (SC-003).
+4. **Prove** with the SC-001 runs and the SC-002 probes, remove the probes, and write the cause into the comment and the `## Evidence` section of research.md (the commit message, written by the person or automation that commits, repeats them) (SC-003).
 
 ## Architecture Updates
 
