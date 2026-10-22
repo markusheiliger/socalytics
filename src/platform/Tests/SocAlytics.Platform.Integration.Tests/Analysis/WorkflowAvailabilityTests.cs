@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using NATS.Client.Core;
+using NATS.Client.JetStream;
 using Shouldly;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Registry;
@@ -54,6 +56,23 @@ public sealed class WorkflowAvailabilityTests(
         return false;
     }
 
+    // The NATS container is shared by the whole NatsFaultInjection collection, and its events stream and durable
+    // finalization consumer keep notifications that earlier tests left behind for recording sets that do not exist
+    // in this test's database. This test's consumer would fetch them after recovery and add receipts or consume
+    // fetch windows before the one expected notification. Deleting the stream (and with it the consumer) gives the
+    // test its own notification state; the topology recreates both when the platform starts.
+    private async Task ResetEventsStreamAsync(CancellationToken ct)
+    {
+        await using var connection = new NatsConnection(new NatsOpts { Url = nats.ConnectionString });
+        try
+        {
+            await new NatsJSContext(connection).DeleteStreamAsync("SOCALYTICS_EVENTS", ct);
+        }
+        catch (NatsJSApiException ex) when (ex.Error.Code == 404)
+        {
+        }
+    }
+
     [Fact]
     public async Task Missing_definition_reports_unhealthy_and_keeps_alive()
     {
@@ -77,6 +96,7 @@ public sealed class WorkflowAvailabilityTests(
     {
         var ct = TestContext.Current.CancellationToken;
         var flag = new Switch { Down = true };
+        await ResetEventsStreamAsync(ct);
         await using var s = await SocAlytics.Platform.Integration.Tests.Recordings.Support.FinalizationSetup.StartAsync(
             postgres, rustFs, ct, extraSettings: Settings(), configureServices: services =>
             {
@@ -96,7 +116,10 @@ public sealed class WorkflowAvailabilityTests(
             .ShouldBe(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy);
 
         flag.Down = false;
-        (await WaitAsync(async () => await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct) == 1, ct)).ShouldBeTrue();
+        (await WaitAsync(async () =>
+            await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct) >= 1
+            && await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct) >= 1, ct)).ShouldBeTrue();
+        (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(1);
         (await health.CheckHealthAsync(r => r.Name == "analysis-workflow", ct)).Status
             .ShouldBe(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy);
         (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct)).ShouldBe(1);
