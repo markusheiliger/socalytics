@@ -110,7 +110,7 @@ public sealed class SegmentMediaEndToEndTests
         ["Segments:Toolchain:FfprobePath"] = Path.Combine(Path.GetDirectoryName(SyntheticMedia.FfmpegPath) ?? string.Empty, "ffprobe"),
     };
 
-    private static async Task<Guid> FinalizeAndStartRunAsync(EndToEndHarness harness, CancellationToken ct)
+    internal static async Task<Guid> FinalizeAndStartRunAsync(EndToEndHarness harness, CancellationToken ct)
     {
         var hierarchy = await new ClubHierarchyBuilder(harness.Platform, harness.Admin).CreateAsync(ct);
         var coachId = await TestMembers.SeedAsync(harness.Database, "coach-e2e", cancellationToken: ct);
@@ -132,7 +132,7 @@ public sealed class SegmentMediaEndToEndTests
         return outcome.ShouldBeOfType<NotificationOutcome.RunCreated>().RunId;
     }
 
-    private static async Task WaitForAcceptedAsync(EndToEndHarness harness, Guid runId, CancellationToken ct)
+    internal static async Task WaitForAcceptedAsync(EndToEndHarness harness, Guid runId, CancellationToken ct)
     {
         try
         {
@@ -159,7 +159,7 @@ public sealed class SegmentMediaEndToEndTests
         return (long)(await command.ExecuteScalarAsync(ct))!;
     }
 
-    private static async Task<List<Guid>> AttemptIdsAsync(EndToEndHarness harness, Guid runId, CancellationToken ct)
+    internal static async Task<List<Guid>> AttemptIdsAsync(EndToEndHarness harness, Guid runId, CancellationToken ct)
     {
         await using var sql = new NpgsqlConnection(harness.Database.MigratorConnectionString);
         await sql.OpenAsync(ct);

@@ -204,7 +204,7 @@ readable facts for a finalized recording.
 #### Image
 
 - **FR-009**: The project MUST hold its Dockerfile and its `analyst-manifest.json` side by side and follow the
-  [packaging convention](../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging): the
+  [packaging convention](../../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging): the
   manifest validates against the released manifest schema, the last layer contains only the manifest, and the
   `io.socalytics.*` labels equal the manifest's version, checksum, capability id and version, and model digest; a
   build whose stated manifest checksum differs from the file MUST fail.
@@ -282,35 +282,35 @@ readable facts for a finalized recording.
 
 ### Dependencies
 
-- [Python Analyst SDK](../archive/20261017-220709-python-analyst-sdk/spec.md) (twin #160) provides the SDK, the completed
+- [Python Analyst SDK](../20261017-220709-python-analyst-sdk/spec.md) (twin #160) provides the SDK, the completed
   container interface, the entry point and its exit statuses, and the single `facts.json` fact artifact; it MUST merge
   before this feature.
-- [Materialized Video Segments and Analyst Input Staging](../archive/20261017-222433-materialized-segments/spec.md) (twin #161)
+- [Materialized Video Segments and Analyst Input Staging](../20261017-222433-materialized-segments/spec.md) (twin #161)
   provides materialized segment media, analyst-job 1.2.0, staging at `/socalytics/media/`, the SDK's segment media
   model, the synthetic test recording, and the short test segmentation policy; it MUST merge before this feature.
-- [Accepted Fact Indexing and Capability-Scoped Fact Queries](../archive/20261017-175648-fact-indexing-queries/spec.md)
+- [Accepted Fact Indexing and Capability-Scoped Fact Queries](../20261017-175648-fact-indexing-queries/spec.md)
   (twin #144) provides the fact-artifact contract, fact indexing at acceptance, and the member fact read; it MUST merge
   before this feature.
-- [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) (merged)
+- [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) (merged)
   provides CPython, `uv`, the pinned FFmpeg and ffprobe build, and the locked verification of
   `src/analysts/capabilities/<name>/`.
-- [Docker Desktop Runtime Adapter for Analyst Execution](../archive/20261015-092159-docker-runtime-adapter/spec.md),
-  [Analyst Registry](../archive/20261012-152148-analyst-registry/spec.md),
-  [Analyst Manager Work Execution](../archive/20261012-141233-manager-work-execution/spec.md), and
-  [Analysis Result Manifests and Validated Acceptance](../archive/20261013-125502-analysis-result-manifests/spec.md)
+- [Docker Desktop Runtime Adapter for Analyst Execution](../20261015-092159-docker-runtime-adapter/spec.md),
+  [Analyst Registry](../20261012-152148-analyst-registry/spec.md),
+  [Analyst Manager Work Execution](../20261012-141233-manager-work-execution/spec.md), and
+  [Analysis Result Manifests and Validated Acceptance](../20261013-125502-analysis-result-manifests/spec.md)
   (merged) provide the digest-pinned pulls with platform-issued pull credentials, the launch restrictions, the image
   import by digest, the profiles and workflows, and the result acceptance this feature uses unchanged.
 
 ### Architecture Alignment
 
 - Implements the first SDK-based Analyst image of
-  [Analyst Containers](../../docs/architecture/analysts-models-and-hardware.md#analyst-containers) and
-  [Image Metadata And Packaging](../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging),
+  [Analyst Containers](../../../docs/architecture/analysts-models-and-hardware.md#analyst-containers) and
+  [Image Metadata And Packaging](../../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging),
   and adds real-container evidence to
-  [Implementation Validation](../../docs/architecture/analysts-models-and-hardware.md#implementation-validation) and
+  [Implementation Validation](../../../docs/architecture/analysts-models-and-hardware.md#implementation-validation) and
   the container interface of
-  [Runtime Preflight And Status](../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status).
-- The [Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md) names only production
+  [Runtime Preflight And Status](../../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status).
+- The [Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md) names only production
   capabilities; this reference capability is development evidence and never enters it.
 
 ### Scope Boundaries

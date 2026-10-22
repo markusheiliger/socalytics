@@ -2,7 +2,7 @@
 
 **Branch**: `20261018-095952-reference-analyst` | **Date**: 2026-10-18 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261018-095952-reference-analyst/spec.md`
+**Input**: Feature specification from `specs/archive/20261018-095952-reference-analyst/spec.md`
 
 ## Summary
 
@@ -56,7 +56,7 @@ code; the configured Registry seed stays unchanged.
 | III. API-first, contract authority | Pass: uses shared contracts unchanged; the payload schema is component-local | Pass: no data through the control plane; media reaches the Analyst only through Manager staging |
 | IV. Evidence over claims | Pass: capability tests and end-to-end evidence required | Pass: no publication, production, or catalog claim; byte-identical rebuilds stay open |
 | V. Focused changes | Pass: no platform, Manager, SDK, seed, or AppHost change | Pass: standard-library build helper only; no imaging or numeric library |
-| Environment prerequisite | Pass: [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) provides CPython 3.12.15, uv 0.13.1, FFmpeg/ffprobe, and locked verification of `src/analysts/capabilities/<name>/`; Docker and .NET are already provided | Pass: all Python dependencies are locked wheels (`hatchling`, `pytest`, and the SDK's); the image build needs only Docker, which the end-to-end tests already use |
+| Environment prerequisite | Pass: [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) provides CPython 3.12.15, uv 0.13.1, FFmpeg/ffprobe, and locked verification of `src/analysts/capabilities/<name>/`; Docker and .NET are already provided | Pass: all Python dependencies are locked wheels (`hatchling`, `pytest`, and the SDK's); the image build needs only Docker, which the end-to-end tests already use |
 
 No violation; Complexity Tracking is empty.
 
@@ -64,20 +64,20 @@ No violation; Complexity Tracking is empty.
 
 **Narratives**:
 
-- [Analysts, Models, and Hardware → Analyst Containers](../../docs/architecture/analysts-models-and-hardware.md#analyst-containers)
-  and [Image Metadata And Packaging](../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging):
+- [Analysts, Models, and Hardware → Analyst Containers](../../../docs/architecture/analysts-models-and-hardware.md#analyst-containers)
+  and [Image Metadata And Packaging](../../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging):
   the first SDK-based Analyst image and the packaging convention it follows.
-- [Analysts, Models, and Hardware → Implementation Validation](../../docs/architecture/analysts-models-and-hardware.md#implementation-validation):
+- [Analysts, Models, and Hardware → Implementation Validation](../../../docs/architecture/analysts-models-and-hardware.md#implementation-validation):
   real-container evidence with real segment media.
-- [Analyst Capability Catalog → Catalog Rules](../../docs/architecture/analyst-capability-catalog.md#catalog-rules):
+- [Analyst Capability Catalog → Catalog Rules](../../../docs/architecture/analyst-capability-catalog.md#catalog-rules):
   development reference capabilities are not catalog entries.
-- [Analyst Runtime and Recovery → Built-In Runtime Adapter Profiles](../../docs/architecture/analyst-runtime-and-recovery.md#built-in-runtime-adapter-profiles)
-  and [Runtime Preflight And Status](../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status):
+- [Analyst Runtime and Recovery → Built-In Runtime Adapter Profiles](../../../docs/architecture/analyst-runtime-and-recovery.md#built-in-runtime-adapter-profiles)
+  and [Runtime Preflight And Status](../../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status):
   the Docker Desktop profile's end-to-end verification and the container interface a real Analyst uses.
-- [Platform Implementation Profile → Source And Runtime Baseline](../../docs/architecture/platform-implementation.md#source-and-runtime-baseline),
-  [Analyst Technology](../../docs/architecture/platform-implementation.md#analyst-technology),
-  [Acceptance Evidence](../../docs/architecture/platform-implementation.md#acceptance-evidence), and
-  [Architecture Reassessment](../../docs/architecture/platform-implementation.md#architecture-reassessment): capability
+- [Platform Implementation Profile → Source And Runtime Baseline](../../../docs/architecture/platform-implementation.md#source-and-runtime-baseline),
+  [Analyst Technology](../../../docs/architecture/platform-implementation.md#analyst-technology),
+  [Acceptance Evidence](../../../docs/architecture/platform-implementation.md#acceptance-evidence), and
+  [Architecture Reassessment](../../../docs/architecture/platform-implementation.md#architecture-reassessment): capability
   implementations, locked images, and image reproducibility evidence.
 
 **Design updates applied now** (worded as decided, not yet implemented; the documentation task turns them into present
@@ -122,7 +122,7 @@ and commands).
 ### Documentation (this feature)
 
 ```text
-specs/20261018-095952-reference-analyst/
+specs/archive/20261018-095952-reference-analyst/
 ├── spec.md
 ├── plan.md
 ├── research.md

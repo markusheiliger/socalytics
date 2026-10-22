@@ -10,7 +10,7 @@ project is `src/analysts/capabilities/reference-media-probe/` with the distribut
 `reference-media-probe-dev`. The fact kind is `frame-second-probe`.
 
 **Rationale**: The `reference-` prefix and the `-probe` suffix match no catalog capability
-([Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md)), say that it is a development
+([Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md)), say that it is a development
 reference, and satisfy the common `key` pattern. The location is the one the environment feature verifies.
 
 **Alternatives considered**: `media-context-probe` (rejected: too close to the catalog's `media-context-classification`);
@@ -34,8 +34,8 @@ ordered by start time; the overall result confidence is `1.0` (or the SDK's defa
 **Rationale**: Frame counts and luma statistics are cheap, deterministic, exercise real decoding, and need no model;
 whole-second alignment makes facts comparable across segments because nominal windows are whole multiples of the
 segmentation duration. Rounding and decimal arithmetic make the bytes independent of floating-point summation order
-(FR-007). The time rules restate the [Segment Contract](../../docs/architecture/match-data-pipeline.md#segment-contract)
-and the [container interface additions](../archive/20261017-222433-materialized-segments/contracts/container-interface.md)
+(FR-007). The time rules restate the [Segment Contract](../../../docs/architecture/match-data-pipeline.md#segment-contract)
+and the [container interface additions](../20261017-222433-materialized-segments/contracts/container-interface.md)
 for this capability (FR-005, FR-006).
 
 **Alternatives considered**: One fact per frame (rejected: thousands of facts per real segment for no evidence value);
@@ -123,7 +123,7 @@ directory is `/socalytics/scratch`.
 
 **Rationale**: The Docker adapter runs the container as the Manager's own non-root uid or `65532:65532`, on a read-only
 root with a `noexec` `/tmp` and no environment variables
-([Docker adapter launch spec](../archive/20261015-092159-docker-runtime-adapter/spec.md)); every file the Analyst
+([Docker adapter launch spec](../20261015-092159-docker-runtime-adapter/spec.md)); every file the Analyst
 executes or reads lives in the image and is world-readable.
 
 **Alternatives considered**: Creating a named user (rejected: the Manager overrides the user anyway).
@@ -160,7 +160,7 @@ relative paths from the repository checkout and builds it with Testcontainers' D
 the test registry exactly as `TestAnalystImage` does.
 
 **Rationale**: Matches the repository-root build context of the platform images
-([container-image contract](../archive/20261018-092503-oci-images/contracts/container-images.md)) while staying compatible with
+([container-image contract](../20261018-092503-oci-images/contracts/container-images.md)) while staying compatible with
 a builder that ignores Dockerfile-specific ignore files.
 
 **Alternatives considered**: Context `src/analysts/` (rejected: contains the Manager's build outputs); vendoring the SDK
