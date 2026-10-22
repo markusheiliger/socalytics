@@ -88,7 +88,7 @@ uses.
 - [ ] T006 [P] Change `media-src` to `blob: <object-storage-origin>` when `SOCALYTICS_OBJECT_STORAGE_ORIGIN` is set
   (else `blob:`) in both policies of `src/clients/web/vite.config.ts`, and update the expected preview policy in
   `src/clients/web/tests/e2e/simulated/headers.spec.ts` (FR-022; contracts/media-origin-and-storage.md)
-- [ ] T007 [P] Extend `src/clients/web/tests/e2e/support/fakeObjectStorage.mjs` and `fakeObjectStorage.d.mts` with
+- [x] T007 [P] Extend `src/clients/web/tests/e2e/support/fakeObjectStorage.mjs` and `fakeObjectStorage.d.mts` with
   object seeding (key, bytes, content type), `GET` and `HEAD` with `Range` (`206`, `Content-Range`,
   `Accept-Ranges: bytes`), `403` after the query's expiry, and CORS headers only for the configured origin, keeping
   `PUT` unchanged; extend `src/clients/web/tests/unit/support/fakeObjectStorage.test.ts` (FR-022;
