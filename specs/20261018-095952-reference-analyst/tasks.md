@@ -163,7 +163,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
   push it with the existing `DockerEngine` exactly as `TestAnalystImage.BuildAndPushAsync` does, delete the temporary
   context, and return a `PushedAnalystImage`; constants `CapabilityId = "reference-media-probe"`,
   `ProfileId = "reference-media-probe-dev"`, and the no-model digest
-- [ ] T009 [US1] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ReferenceAnalystEndToEndTests.cs` (research
+- [x] T009 [US1] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ReferenceAnalystEndToEndTests.cs` (research
   R12; FR-013, FR-014, FR-018; SC-001, SC-002, SC-004): start the harness with the OCI registry fixture as
   `DockerRuntimeEndToEndTests` does; build and push through `ReferenceAnalystImage`; register the image by digest,
   create and approve the `reference-media-probe-dev` profile (data-model.md § Analyst Profile: `videoPolicy`
