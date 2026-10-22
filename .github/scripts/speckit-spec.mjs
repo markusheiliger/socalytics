@@ -66,9 +66,12 @@ import {
   taskSubject,
   unresolvedRepair,
   WORK_VERBS,
+  implementWorkflowFor,
+  IMPLEMENT_WORKFLOW_FILE,
+  MAX_PARALLEL_TASKS,
 } from './speckit-implement-core.mjs';
 
-// The implementation chain of one spec (workflow Spec Kit implement): every run decides one unit of work from the state
+// The implementation chain of one spec (the Spec Kit implement workflows): every run decides one unit of work from the state
 // on GitHub (job "decide"), runs it (a sequential or parallel group of tasks, the verification of a finished phase, a
 // guided repair, the convergence, a conflict resolution, or the merge), and starts the next run (job "continue"),
 // until the implementation is merged, waits for review, or needs a person.
@@ -449,7 +452,7 @@ async function reportSyncGivenUp(client, { decision, report }) {
   report.line(`Gave up merging \`${base}\`; the implementation continues on its current base.`);
 }
 
-// Spec Kit implement, job "decide" (write access to check runs, issues, and pull requests; never runs agent code):
+// Spec Kit implement prepare, job "decide" (write access to check runs, issues, and pull requests; never runs agent code):
 // validates the twin and its pull request, reports orphaned attempts, decides what comes next, reports stops (attempt
 // limit, diagnosis), and prepares it with its check runs: a group of tasks (`mode` sequential or parallel, `entries`
 // the matrix of the group's jobs), the verification of a finished phase, a writer-approved repair, the convergence or
@@ -461,7 +464,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   const finish = (action, outputs = {}) => {
     report.flush();
     setOutput(env, 'action', action);
-    setOutput(env, 'continue', String(['group', 'verify', 'repair', 'merge'].includes(action)));
+    setOutput(env, 'continue', String(['group', 'verify', 'repair', 'merge', 'handover'].includes(action)));
     for (const [name, value] of Object.entries(outputs)) setOutput(env, name, value);
     return { exitCode: 0, action, ...outputs };
   };
@@ -498,6 +501,13 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     await client.updateCheckRun(stale.id, { status: 'completed', conclusion: 'failure', output: { title: 'Merge attempt abandoned', summary: 'The merge did not finish within 2 hours.' } });
   }
   const common = { folder, head: pull.head.sha, base_branch: baseBranchOf(pull) };
+  // Work of another kind than this workflow's (SPECKIT_WORKFLOW): the state changed after the run was started. The run
+  // hands over to the right workflow before it starts any attempt check, so no attempt is charged to it.
+  const workflow = implementWorkflowFor(decision.action);
+  if (env.SPECKIT_WORKFLOW && workflow !== IMPLEMENT_WORKFLOW_FILE && workflow !== env.SPECKIT_WORKFLOW) {
+    report.line(`Handover: the next work, ${renderRunSubject(decision, { summaries: taskSummaries(decision.tasksMarkdown) })}, runs in \`${workflow}\`.`);
+    return finish('handover', common);
+  }
   if (decision.action !== 'done') await ensureImplementationDraft(client, pull);
   // A stop waits for a person unless a diagnosis runs for it; a reported diagnosis was labeled when it was recorded
   // (an amendment it created gets the label instead). Everything else is work in progress or ready for review.
@@ -531,17 +541,30 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     if (decision.syncGivenUp) await reportSyncGivenUp(client, { decision, report });
     const entry = { task: null, attempt: decision.attempt, summary: `Repair the failed ${decision.repair.scope} verification.` };
     const checkRun = (await startAttemptChecks(client, { head: common.head, kind: 'repair', entries: [entry] })).repair;
+    // The repair's work item, the single entry of the stage "implement" (Spec Kit implement task).
+    const item = {
+      index: 0,
+      name: `Failed ${decision.repair.scope} verification`,
+      task: '',
+      attempt: decision.attempt,
+      guidance: normalizeWriterGuidance(decision.guidance),
+      repair: decision.repair,
+    };
     report.line(`Repairing the failed ${decision.repair.scope} verification, attempt ${decision.attempt}.`);
     return finish('repair', {
       ...common,
       attempt: String(decision.attempt),
       check_run: String(checkRun),
       repair: JSON.stringify(decision.repair),
-      // The order Spec Kit implement work lands the repair from: one entry without a task; and the work item.
+      // The order Spec Kit implement task lands the repair from: one entry without a task; and the work item.
       order: JSON.stringify([{ include: [{ task: null, attempt: decision.attempt }] }]),
-      entry: JSON.stringify({ index: 0, task: '', attempt: decision.attempt, guidance: normalizeWriterGuidance(decision.guidance), repair: decision.repair }),
+      entry: JSON.stringify(item),
+      kind: WORK_VERBS.repair,
+      mode: 'sequential',
+      max_parallel: '1',
+      entries: JSON.stringify([item]),
       verify_only: String(decision.verifyOnly),
-      job_name: `Repair ${decision.repair.scope} verification`,
+      job_name: item.name,
     });
   }
   if (decision.action === 'verify') {
@@ -583,6 +606,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     ...common,
     kind: WORK_VERBS[decision.kind],
     mode,
+    max_parallel: String(mode === 'parallel' ? MAX_PARALLEL_TASKS : 1),
     order: JSON.stringify(order),
     entries: JSON.stringify(entries),
     phase: decision.phase ?? '',
@@ -595,17 +619,22 @@ function taskSummaries(tasksMarkdown) {
   return new Map(listTasks(tasksMarkdown ?? '').map((task) => [task.id, neutralizeMarkers(summarizeTask(task.text))]));
 }
 
-// What the next run of a twin's chain will work on, for its name (renderRunSubject), decided without changing anything;
-// empty when it cannot be told.
-export async function predictRunSubject(client, env, { twin, pull }) {
+// What the next run of a twin's chain will work on, decided without changing anything: its subject for the run name
+// (renderRunSubject) and the workflow of its kind (implementWorkflowFor); Spec Kit implement decide when it cannot be told.
+export async function predictNextRun(client, env, { twin, pull }) {
   try {
     const folder = resolveTwins([await client.getIssue(Number(twin))]).byFolder.keys().next().value;
-    if (!folder) return '';
+    if (!folder) return { subject: '', workflow: IMPLEMENT_WORKFLOW_FILE };
     const decision = await decideForPull(client, { twin: Number(twin), folder, pullNumber: Number(pull), context: contextFromEnv(env), dryRun: true });
-    return renderRunSubject(decision, { summaries: taskSummaries(decision.tasksMarkdown) });
+    return { subject: renderRunSubject(decision, { summaries: taskSummaries(decision.tasksMarkdown) }), workflow: implementWorkflowFor(decision.action) };
   } catch {
-    return '';
+    return { subject: '', workflow: IMPLEMENT_WORKFLOW_FILE };
   }
+}
+
+// The subject of the next run (predictNextRun).
+export async function predictRunSubject(client, env, options) {
+  return (await predictNextRun(client, env, options)).subject;
 }
 
 // Spec Kit implement spec, job "sync" ("Merge the base branch"; write access to contents, check runs, and pull
@@ -635,7 +664,7 @@ export async function runSync({ client, env, log, now = Date.now }) {
   return finish(result);
 }
 
-// Spec Kit implement, job "Record the phase verification" (write access to check runs and pull requests; never runs
+// Spec Kit implement verify, job "Record the phase verification" (write access to check runs and pull requests; never runs
 // agent code): records the verification of a finished phase (SPECKIT_VERIFY_RESULT is the verify job's result). A pass
 // is recorded as a successful verify attempt of the phase, so the chain moves on; a failure stops the implementation
 // for a person with a pending repair of the phase (or of its only task), like a failed task verification.
@@ -705,7 +734,8 @@ export async function runVerifyReport({ client, env, log }) {
   return { exitCode: 0, verified: false };
 }
 
-// Spec Kit implement, job "Start the next run": dispatches the next run of the chain.
+// Every workflow of the chain, job "Start the next run": dispatches the next run of the chain, in the workflow of its
+// kind.
 export async function runContinue({ client, env, log }) {
   const report = createReporter(env, log);
   const { twin, pull: pullNumber } = readSpecInputs(env);

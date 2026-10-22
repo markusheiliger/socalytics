@@ -471,43 +471,48 @@ posts.
   comparison, conflict check, and link of the implementation uses the base
   branch named on the pull request, never an assumed `main`. The default
   branch only provides the trusted workflows and scripts.
-- Then the spec's implementation chain takes over: runs of
-  `Spec Kit implement` (`speckit-implement.yml`), one at a time per spec,
-  each started by the previous one and named after the spec and what it works
-  on, for example
+- Then the spec's implementation chain takes over: one run at a time per
+  spec, each in the workflow of its kind of work and started by the previous
+  one, and named after the spec and what it works on, for example
   `Spec Kit implement spec #35 · Recording Lineage and Upload · Phase 3: User Story 1 · T013 to T016 one after another`
   (the spec title from the pull request title). Every other Spec Kit run is named
   `Spec Kit <workflow> …` as well: a diagnosis after the stop it diagnoses
   (for example `Spec Kit diagnose spec #35 · T013 reached the attempt limit`),
   and a run that reacts to a pull request, comment, or issue after that item
   by number (for example
-  `Spec Kit orchestrate · pull request #214 synchronize · Implement: …`). Every run decides what comes next from the
-  state on GitHub (job `decide`, shown as `Decide what comes next`),
-  runs it, and starts the next run (job `continue`, shown as
-  `Start the next run`), until the implementation is merged, waits for
-  review, or needs a person. Of what a run can do next only one runs, and the
-  others show as skipped; job names say what a job does, and GitHub shows
-  their order. Every run starts with the job `sync` (`Merge the base branch`),
+  `Spec Kit orchestrate · pull request #214 synchronize · Implement: …`). Every run first prepares itself with the reusable
+  `Spec Kit implement prepare` (`speckit-implement-prepare.yml`, shown as
+  `Prepare the run`): it decides what comes next from the state on GitHub
+  (`Decide what comes next`), runs only the jobs of its kind, and starts the
+  next run in the workflow of that run's kind (`Start the next run`), until
+  the implementation is merged, waits for review, or needs a person. The run
+  that starts the next one predicts its work without changing anything; when
+  the state changed in the meantime, the run hands the work over to the right
+  workflow before it starts any attempt. A run without work (a stop at an
+  attempt limit, a failure, a finished implementation) runs in `Spec Kit
+  implement decide` (`speckit-implement-decide.yml`), which reports the stop,
+  starts the diagnosis, or marks the implementation done, and the chain ends
+  there. Every run starts with `Merge the base branch`,
   which merges the base branch when it is ahead and the next work is a phase
   that has not started, the convergence, or the merge; a conflict
   is resolved by the conflict resolution in the same run. Each task,
   the convergence, a guided repair, and a conflict resolution run in the
-  reusable workflow `Spec Kit implement work` (`speckit-implement-work.yml`),
+  reusable workflow `Spec Kit implement task` (`speckit-implement-task.yml`),
   which appears in the run as a job group named after its work, for example
   `T013 / Implement T013`:
 
   | Next | Runs in | What it does |
   | --- | --- | --- |
-  | A sequential group | job `sequential`, a matrix with one entry per task and `max-parallel: 1` | the consecutive unchecked tasks without `[P]` of the current phase, up to the next `[P]` task or the end of the phase, one after another; a task that does not land cancels the ones after it |
-  | A parallel group | job `parallel`, a matrix with one entry per task and `max-parallel: 5` | the consecutive unchecked `[P]` tasks under one heading (also a single one), at most 5 at once; each lands on its own, and the group is verified together only when a landing merged a sibling's edits to the same files |
-  | Phase verification | job `verify` (`Verify the phase`), in a run of its own after the phase's last group | mode `phase` (the checks with all their tests) for all changes of the implementation branch; a failure stops for a person and a diagnosis with a pending repair, without using up the attempts of the task that came last |
-  | Repair | job `repair`, a unit | after diagnosis and a writer-approved `/speckit retry <guidance>`, repairs an already-landed task, group, phase, or prospective merge verification failure and reverifies that scope before normal planning resumes |
-  | Acceptance gate | job `sequential` with the convergence as its one entry | once all tasks are checked and verified, `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
-  | Conflicts | job `sequential` with the conflict resolution as its one entry | resolves conflicts with the base branch with Copilot CLI, verifies, and pushes the merge commit, in the run whose `sync` job or merge found them; the next run continues the work on the merged branch |
-  | Merge | jobs `merge-archive`, `merge-verify`, and `merge-land` | archive the spec on the branch, build and fully verify the prospective merged tree, and squash-merge the pull request into the base branch or hand it to a person for review |
+  | A sequential group | `Spec Kit implement group` (`speckit-implement-group.yml`), a matrix with one entry per task and `max-parallel: 1` | the consecutive unchecked tasks without `[P]` of the current phase, up to the next `[P]` task or the end of the phase, one after another; a task that does not land cancels the ones after it |
+  | A parallel group | `Spec Kit implement group`, a matrix with one entry per task and `max-parallel: 5`, then `Verify the parallel tasks together` and `Report the group verification` | the consecutive unchecked `[P]` tasks under one heading (also a single one), at most 5 at once; each lands on its own, and the group is verified together only when a landing merged a sibling's edits to the same files |
+  | Phase verification | `Spec Kit implement verify` (`speckit-implement-verify.yml`): `Verify the phase` and `Record the phase verification`, in a run of its own after the phase's last group | mode `phase` (the checks with all their tests) for all changes of the implementation branch; a failure stops for a person and a diagnosis with a pending repair, without using up the attempts of the task that came last |
+  | Repair | `Spec Kit implement repair` (`speckit-implement-repair.yml`): the repair as its one matrix entry (`Failed phase verification / Repair the implementation`), then `Verify the repair` and `Report the repair` | after diagnosis and a writer-approved `/speckit retry <guidance>`, repairs an already-landed task, group, phase, or prospective merge verification failure and reverifies that scope before normal planning resumes |
+  | Acceptance gate | `Spec Kit implement group` with the convergence as its one entry | once all tasks are checked and verified, `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
+  | Conflicts | `Spec Kit implement group` with the conflict resolution as its one entry | resolves conflicts with the base branch with Copilot CLI, verifies, and pushes the merge commit, in the run whose `sync` job or merge found them; the next run continues the work on the merged branch |
+  | Merge | `Spec Kit implement merge` (`speckit-implement-merge.yml`): `Archive the spec before the merge`, `Verify the merged result`, and `Merge into the base branch` | archive the spec on the branch, build and fully verify the prospective merged tree, and squash-merge the pull request into the base branch or hand it to a person for review |
 
   Each job is short, so specs of any size never hit the 6-hour job limit.
-  Every call of `Spec Kit implement work` handles exactly one task, the
+  Every call of `Spec Kit implement task` handles exactly one task, the
   convergence, a repair, or a conflict resolution:
   1. its `work` job sets up the solution
       environment with the optional `.github/actions/environment-setup`
@@ -541,7 +546,7 @@ posts.
   Every call starts from the tip of the implementation branch, which the chain
   alone writes while it runs.
 
-  The merge jobs of `Spec Kit implement` own the complete merge alternative. Its `merge-archive`
+  `Spec Kit implement merge` owns the complete merge alternative. Its `archive`
   job (write token, trusted tooling, never runs agent-written code)
   merges the base branch into the implementation branch, moves the spec folder
   to `specs/archive/<folder>`, rewrites every reference to it in the repository
@@ -551,8 +556,8 @@ posts.
   changes nothing, so the conflict resolution runs first. The archive thus
   lands in the merge commit itself, verified with everything else, and the base
   branch never has a broken link.
-  Its `merge-verify` job (read-only token) builds the prospective merged tree and runs
-  every check of `environment-verify`; its `merge-land` job (write token, API only) squash-merges
+  Its `verify` job (read-only token) builds the prospective merged tree and runs
+  every check of `environment-verify`; its `report` job (write token, API only) squash-merges
   the pull request into its base branch only if the base branch still is the
   commit that was verified, sets the twin to `implemented` and closes it,
   points the twin's links to the archive (when the base branch is the default

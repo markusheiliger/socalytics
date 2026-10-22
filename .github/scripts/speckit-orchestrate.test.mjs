@@ -457,7 +457,8 @@ async function orchestrate(github, root, env = {}) {
   return { ...result, text: lines.join('\n') };
 }
 
-const chainRuns = (github) => github.repo.runs.filter((run) => run.workflow === 'speckit-implement.yml');
+// Runs of the chain, in the workflow of each kind of work and Spec Kit implement decide.
+  const chainRuns = (github) => github.repo.runs.filter((run) => /^speckit-implement-(?:decide|group|verify|repair|merge)\.yml$/.test(run.workflow));
 const limitCheck = (github, head) => github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'completed', conclusion: 'failure', external_id: CHECK_LIMIT });
 
 test('orchestrate starts the implementation chain and continues it only when no run is active and there is work', async () => {
@@ -750,7 +751,7 @@ async function decide(github, root, twin, env = {}, run = runDecide) {
 
 const attemptComment = (github, pull, task, outcome, kind = 'task') => github.createComment(pull, `${renderAttemptMarker({ kind, task, attempt: 1, outcome })}\n**${task ?? kind}** ${outcome}`);
 
-// The finished phase was verified (Spec Kit implement's verify-report), so the chain moves on to the next phase or the convergence.
+// The finished phase was verified (Spec Kit implement verify's report), so the chain moves on to the next phase or the convergence.
 const phaseVerified = (github, pull, phase = 'Phase 1: Setup') => github.createComment(pull, `${renderAttemptMarker({ kind: 'verify', attempt: 1, outcome: 'success', phase })}\n**The phase verification passed** for ${phase}.`);
 
 test('chain: decide picks the next group, sequential or parallel, with guidance, verify modes, job names, and the first tasks\' check runs', async () => {
@@ -771,7 +772,7 @@ test('chain: decide picks the next group, sequential or parallel, with guidance,
     assert.deepEqual(JSON.parse(parallel.outputs.entries).map((entry) => [entry.task, entry.attempt, entry.index, entry.name, entry.defer_progress, entry.guidance]),
       [['T001', 1, 0, 'T001', true, ''], ['T002', 1, 0, 'T002', true, '']], 'a parallel group: one matrix job per task of its single entry');
     const known = ['index', 'name', 'task', 'attempt', 'guidance', 'summary', 'defer_progress', 'repair', 'required_sync', 'sync_repair'];
-    for (const entry of JSON.parse(parallel.outputs.entries)) assert.deepEqual(Object.keys(entry).filter((key) => !known.includes(key)), [], 'work items only carry the fields Spec Kit implement work documents');
+    for (const entry of JSON.parse(parallel.outputs.entries)) assert.deepEqual(Object.keys(entry).filter((key) => !known.includes(key)), [], 'work items only carry the fields Spec Kit implement task documents');
     assert.deepEqual(JSON.parse(parallel.outputs.order).map((entry) => entry.include.map((item) => item.task)), [['T001', 'T002']]);
     assert.ok(!('prompt' in JSON.parse(parallel.outputs.entries)[0]), 'the agents\' prompts live in the Spec Kit workflows');
     assert.equal(progress.external_id, 'speckit:attempt:task:T001:1', 'the first attempt takes over the queued progress check run');
@@ -1334,6 +1335,31 @@ test('chain: decide converges, merges, and resolves conflicts', async () => {
   }
 });
 
+test('chain: a run of another kind hands the work over to its workflow before it starts any attempt', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    const pull = github.repo.pulls[0];
+    github.setFile('speckit/a', 'specs/a/tasks.md', '## Phase 1: Setup\n\n- [ ] T001 Create project\n');
+    const attempts = () => github.repo.checkRuns.filter((check) => String(check.external_id).startsWith('speckit:attempt:')).length;
+    const comments = github.comments.length;
+    // Started as a phase verification, but the next work is a group (a person pushed after the run was started).
+    const handover = await decide(github, root, twin, { SPECKIT_WORKFLOW: 'speckit-implement-verify.yml' });
+    assert.deepEqual([handover.outputs.action, handover.outputs.continue], ['handover', 'true']);
+    assert.match(handover.text, /^Handover: the next work, Phase 1: Setup · T001 Create project, runs in `speckit-implement-group\.yml`\.$/m);
+    assert.equal(attempts(), 0, 'no attempt is started, so none is charged to the handover');
+    assert.equal(github.comments.length, comments, 'and nothing is reported on the pull request');
+    await runContinue({ client: github, env: { ...envFor(root), SPECKIT_TWIN: String(twin.number), SPECKIT_PULL: String(pull.number) }, log: silent });
+    assert.equal(github.repo.runs.at(-1).workflow, 'speckit-implement-group.yml', 'the next run is the group workflow');
+    // The workflow of the work's kind decides as usual.
+    const group = await decide(github, root, twin, { SPECKIT_WORKFLOW: 'speckit-implement-group.yml' });
+    assert.deepEqual([group.outputs.action, group.outputs.kind], ['group', 'implement']);
+    assert.equal(attempts(), 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('chain: continue starts the next run, named after the spec and what it will work on', async () => {
   const { root, github, twin } = await flaggedRepo();
   try {
@@ -1344,7 +1370,7 @@ test('chain: continue starts the next run, named after the spec and what it will
     const comments = github.comments.length;
     await runContinue({ client: github, env, log: silent });
     const run = github.repo.runs.at(-1);
-    assert.deepEqual([run.workflow, run.inputs], ['speckit-implement.yml', { issue: String(twin.number), pull: String(pull.number), title: 'a title', subject: 'Phase 1: Setup · T001 [P] Create project' }]);
+    assert.deepEqual([run.workflow, run.inputs], ['speckit-implement-group.yml', { issue: String(twin.number), pull: String(pull.number), title: 'a title', subject: 'Phase 1: Setup · T001 [P] Create project' }]);
     assert.equal(run.display_title, `Spec Kit implement spec #${twin.number} · a title · Phase 1: Setup · T001 [P] Create project`);
     assert.equal(github.comments.length, comments, 'naming the next run changes nothing on the pull request');
     assert.equal(github.repo.checkRuns.some((check) => String(check.external_id).startsWith('speckit:attempt:')), false, 'and starts no attempt');

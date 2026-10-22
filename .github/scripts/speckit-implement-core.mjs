@@ -52,16 +52,33 @@ export const MAX_TASK_ATTEMPTS = 2;
 export const MAX_CONVERGE_ROUNDS = 3;
 // A merge check run still in progress after this long belongs to a cancelled or crashed run.
 export const MERGE_STALE_MS = 2 * 60 * 60 * 1000;
-// The per-spec implementation chain (Spec Kit implement): every run decides one unit of work for one spec (a sequential
-// or parallel group of tasks, the verification of a finished phase, a repair, the convergence, a conflict resolution, or
-// the merge), runs it, and starts the next run. Every task, the convergence, a repair, and a conflict resolution run in
-// the reusable Spec Kit implement work (work, then land).
-export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement.yml';
-// The chain before groups (Spec Kit implement spec and its reusable phase, group, and task workflows). Runs started on
-// it finish on their own commit; the scheduler counts them as active, and they share the concurrency group of the new
-// chain, so the two never work on one spec at the same time.
-export const LEGACY_IMPLEMENT_WORKFLOW_FILES = Object.freeze(['speckit-implement-spec.yml']);
-// The verb that names the work of a Spec Kit implement work call (its input `kind` and its script
+// The per-spec implementation chain: every run decides one unit of work for one spec (a sequential or parallel group of
+// tasks, the verification of a finished phase, a repair, the convergence, a conflict resolution, or the merge), runs
+// it, and starts the next run. Each kind of work has its own workflow (IMPLEMENT_KIND_WORKFLOW_FILES); Spec Kit
+// implement (IMPLEMENT_WORKFLOW_FILE) starts a chain and reports stops. All of them prepare the run with the reusable
+// Spec Kit implement prepare, and every task, the convergence, a repair, and a conflict resolution run in the reusable
+// Spec Kit implement task (work, then land).
+export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement-decide.yml';
+// The workflow of each kind of work, by the action decideNext chose (the convergence and a conflict resolution are
+// groups of one).
+export const IMPLEMENT_KIND_WORKFLOW_FILES = Object.freeze({
+  tasks: 'speckit-implement-group.yml',
+  verify: 'speckit-implement-verify.yml',
+  repair: 'speckit-implement-repair.yml',
+  merge: 'speckit-implement-merge.yml',
+});
+// Every workflow whose runs make up a chain, for the scheduler and the diagnosis.
+export const IMPLEMENT_CHAIN_WORKFLOW_FILES = Object.freeze([IMPLEMENT_WORKFLOW_FILE, ...Object.values(IMPLEMENT_KIND_WORKFLOW_FILES)]);
+// The workflow that does a decision's work; Spec Kit implement decide for a decision without work (a stop, a wait, done).
+export function implementWorkflowFor(action) {
+  return IMPLEMENT_KIND_WORKFLOW_FILES[action] ?? IMPLEMENT_WORKFLOW_FILE;
+}
+// The chains before the workflows of each kind: Spec Kit implement spec (with its reusable phase, group, and task
+// workflows) and the single Spec Kit implement (speckit-implement.yml). Runs started on them finish on their own
+// commit; the scheduler counts them as active, and they share the concurrency group of the workflows of each kind, so
+// two runs never work on one spec at the same time.
+export const LEGACY_IMPLEMENT_WORKFLOW_FILES = Object.freeze(['speckit-implement-spec.yml', 'speckit-implement.yml']);
+// The verb that names the work of a Spec Kit implement task call (its input `kind` and its script
 // speckit-<verb>.mjs) for the kind of an attempt. Attempt markers keep the kind, so comments already on GitHub stay
 // readable.
 export const WORK_VERBS = Object.freeze({ task: 'implement', converge: 'converge', repair: 'repair', resolve: 'resolve' });
@@ -959,6 +976,16 @@ export function phaseSubject(phase) {
   return String(phase ?? '').trim() || 'Tasks';
 }
 
+// The short name of a phase in run names, so the run's tasks stay visible: the heading up to an explanation after " - "
+// or " (" ("Phase 3: User Story 1" for "Phase 3: User Story 1 - A real … (Priority: P1)"), and only "Phase 3" when that
+// is still longer than 40 characters.
+export function shortPhaseSubject(phase) {
+  const full = phaseSubject(phase);
+  const short = full.split(/\s+[-–—]\s+|\s+\(/)[0].trim();
+  if (short.length <= 40) return short;
+  return full.match(/^Phase\s+\d+/i)?.[0] ?? `${short.slice(0, 39).trimEnd()}…`;
+}
+
 // What one call of the task workflow works on: a single task by its ID and generated title (summarizeTask), `[P]`
 // tasks by their IDs, or the convergence or a conflict resolution.
 export function taskSubject(kind, entries) {
@@ -980,7 +1007,8 @@ export function taskJobName(entries) {
 // Starts (or queues) the next run of the implementation chain of a twin. GitHub keeps one pending run per spec, and a
 // replaced pending run is harmless, because every run decides from the state on GitHub. The run is named after the
 // spec title, which comes from the implementation pull request unless `title` is given, and what it will work on,
-// decided now without changing anything (predictRunSubject); the run decides again when it starts.
+// decided now without changing anything (predictNextRun), which also selects the workflow of its kind; the run decides
+// again when it starts and hands over to the right workflow when the state changed in the meantime.
 export async function dispatchImplementation(client, env, { twin, pull, title, subject = undefined }) {
   let specTitle = title;
   if (!specTitle) {
@@ -991,14 +1019,15 @@ export async function dispatchImplementation(client, env, { twin, pull, title, s
     }
   }
   let next = subject;
+  let workflow = IMPLEMENT_WORKFLOW_FILE;
   if (next === undefined) {
     try {
-      next = await (await import('./speckit-spec.mjs')).predictRunSubject(client, env, { twin, pull });
+      ({ subject: next, workflow } = await (await import('./speckit-spec.mjs')).predictNextRun(client, env, { twin, pull }));
     } catch {
       next = '';
     }
   }
-  await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, defaultBranchOf(env), { issue: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}), ...(next ? { subject: next } : {}) });
+  await client.dispatchWorkflow(workflow, defaultBranchOf(env), { issue: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}), ...(next ? { subject: next } : {}) });
 }
 
 // The attempt marker of an outcome comment. `kind` is what the attempt works on: task, repair, converge, resolve, or verify
@@ -1190,14 +1219,14 @@ export function verifyNeeded(tasksMarkdown, attempts) {
   return null;
 }
 
-// What one run of the chain works on, for its name: the phase and the group's tasks ("Phase 3: … · T010 to T014 one after
-// another", "… · T015, T016 in parallel", "… · T010 Create the model" for a single task), the verification of a phase,
+// What one run of the chain works on, for its name: the short phase name and the group's tasks ("Phase 3: User Story 1 ·
+// T010 to T014 one after another", "… · T015, T016 in parallel", "… · T010 Create the model" for a single task), the verification of a phase,
 // a repair, the convergence, a conflict resolution, the merge, or the stop the run reports; empty when the run has
 // nothing to do. `summaries` maps task IDs to their summarized text.
 export function renderRunSubject(decision, { summaries = new Map() } = {}) {
   const clip = (text) => (text.length > 120 ? `${text.slice(0, 119).trimEnd()}…` : text);
-  if (decision.action === 'verify') return clip(`Verify ${phaseSubject(decision.phase)}`);
-  if (decision.action === 'repair') return `Repair of the ${decision.repair?.scope ?? 'failed'} verification`;
+  if (decision.action === 'verify') return clip(`Verify ${shortPhaseSubject(decision.phase)}`);
+  if (decision.action === 'repair') return `Repair after the failed ${decision.repair?.scope ? `${decision.repair.scope} ` : ''}verification`;
   if (decision.action === 'merge') return 'Merge';
   if (decision.action === 'limit') return `Stop at the attempt limit of ${kindLabel(decision)}`;
   if (decision.action === 'failed') return 'Diagnose the stop';
@@ -1208,7 +1237,7 @@ export function renderRunSubject(decision, { summaries = new Map() } = {}) {
   const tasks = ids.length === 1
     ? `${ids[0]} ${summaries.get(ids[0]) ?? ''}`.trim()
     : `${ids.length <= 3 ? ids.join(', ') : `${ids[0]} to ${ids.at(-1)}`} ${decision.mode === 'parallel' ? 'in parallel' : 'one after another'}`;
-  return clip(`${phaseSubject(decision.phase)} · ${tasks}`);
+  return clip(`${shortPhaseSubject(decision.phase)} · ${tasks}`);
 }
 // Human-readable name of what an attempt works on, for comments and summaries.
 export function kindLabel({ kind, task }) {
@@ -1824,7 +1853,7 @@ export function renderStartComment({ twinNumber, folder, taskCount, base }) {
     START_COMMENT_MARKER,
     `Implementation workspace prepared for #${twinNumber} (\`specs/${folder}\`): ${taskCount} task(s) queued.`,
     '',
-    'The `Spec Kit implement` workflow implements them group by group, in order; consecutive `[P]` tasks run in parallel, and every finished phase is verified. Each task is verified, committed, and reported here.',
+    'The Spec Kit implement workflows implement them group by group, in order; consecutive `[P]` tasks run in parallel, and every finished phase is verified. Each task is verified, committed, and reported here.',
     `Then a convergence checks the result against the spec, and the implementation is merged into its base branch \`${base}\` once it converged and passed the full verification.`,
   ].join('\n');
 }

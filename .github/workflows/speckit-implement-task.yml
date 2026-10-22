@@ -1,7 +1,7 @@
-name: Spec Kit implement work
+name: Spec Kit implement task
 
 # One piece of an implementation's work, never started on its own: a task, the convergence, a guided repair, or a conflict
-# resolution, called by Spec Kit implement once per matrix job of a group (or for a repair). The work job runs its
+# resolution, called by Spec Kit implement group once per matrix job (and by Spec Kit implement repair). The work job runs its
 # gha Spec Kit workflow (implement-task, converge, repair, resolve) with a read-only token through the speckit-workflow
 # action and packages and verifies the change; the land job validates, commits, pushes, and reports it without
 # executing agent-written code. A task of a parallel group defers the progress report to the group's verification.

@@ -19,7 +19,7 @@ import {
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_COMMENT_MARKER,
   MAX_CORRECTION_ROUNDS,
-  IMPLEMENT_WORKFLOW_FILE,
+  IMPLEMENT_CHAIN_WORKFLOW_FILES,
   LEGACY_IMPLEMENT_WORKFLOW_FILES,
   MAX_STALLED_ROUNDS,
   MAX_WRITER_GUIDANCE,
@@ -254,7 +254,7 @@ export async function runEvidence({ client, env, log }) {
   sections.push('## Failed jobs of recent implementation runs', '');
   // Runs of the chain before groups count too while implementations started on it are still open.
   const listed = [];
-  for (const file of [IMPLEMENT_WORKFLOW_FILE, ...LEGACY_IMPLEMENT_WORKFLOW_FILES]) {
+  for (const file of [...IMPLEMENT_CHAIN_WORKFLOW_FILES, ...LEGACY_IMPLEMENT_WORKFLOW_FILES]) {
     try {
       listed.push(...await client.listWorkflowRuns(file, pull.created_at, 2));
     } catch {
