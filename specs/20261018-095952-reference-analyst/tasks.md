@@ -249,7 +249,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 
 **Independent Test**: Follow the documented procedure against a local development stamp
 
-- [ ] T015 [US4] Write `src/analysts/capabilities/reference-media-probe/README.md` (research R13; FR-014, FR-015, FR-020):
+- [x] T015 [US4] Write `src/analysts/capabilities/reference-media-probe/README.md` (research R13; FR-014, FR-015, FR-020):
   what the capability is (development reference, not a catalog capability, never published, convention-only exclusion
   from production), its facts (kind, ranges, payload with a link to the payload schema), its test commands (the
   environment's locked sequence), the image build command from the repository root and its pinned inputs (including
