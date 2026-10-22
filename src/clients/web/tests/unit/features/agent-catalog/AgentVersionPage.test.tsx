@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { vi } from 'vitest';
 import { AgentVersionPage } from '../../../../src/features/agent-catalog/AgentVersionPage';
 import { PlatformFailure } from '../../../../src/platform/failure';
-import { approvedCoach, approvedTactics, draftCoach, fakeAgentCatalogAdapter, retiredTactics, type FakeAgentCatalogAdapter } from './fixtures';
+import { approvedCoach, approvedTactics, draftCoach, draftTactics, fakeAgentCatalogAdapter, retiredTactics, type FakeAgentCatalogAdapter } from './fixtures';
 import '../../../../src/i18n';
 
 const state = vi.hoisted(() => ({ adapter: undefined as unknown }));
@@ -13,11 +14,15 @@ vi.mock('../../../../src/platform/adapters/memberAdapter', () => ({ createMember
 vi.mock('../../../../src/session/sessionContext', () => ({ useSession: () => ({ platform: {} }) }));
 
 function renderPage(adapter: FakeAgentCatalogAdapter, agentId: string, version: string) {
+  renderAndKeep(adapter, agentId, version);
+}
+
+function renderAndKeep(adapter: FakeAgentCatalogAdapter, agentId: string, version: string) {
   state.adapter = adapter;
   const router = createMemoryRouter([{ path: '/agent-catalog/agents/:agentId/versions/:version', element: <AgentVersionPage /> }], {
     initialEntries: [`/agent-catalog/agents/${agentId}/versions/${version}`],
   });
-  render(
+  return render(
     <QueryClientProvider client={new QueryClient()}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
@@ -79,5 +84,30 @@ describe('AgentVersionPage', () => {
     });
     renderPage(adapter, 'specialist-tactics', '9.9.9');
     expect(await screen.findByText('This catalog record was not found.')).toBeInTheDocument();
+  });
+
+  it('enables an approved version that is not enabled after a confirmation', async () => {
+    const adapter = fakeAgentCatalogAdapter({ getAgentVersion: vi.fn(async () => ({ ...approvedTactics, enabled: false })) });
+    renderPage(adapter, approvedTactics.agentId, approvedTactics.version);
+    await userEvent.click(await screen.findByRole('button', { name: 'Enable' }));
+    expect(adapter.setEnablement).not.toHaveBeenCalled();
+    await userEvent.click(await screen.findByRole('button', { name: 'Enable version' }));
+    await waitFor(() => expect(adapter.setEnablement).toHaveBeenCalledWith('specialist-tactics', '0.1.0', '"enablement-tactics-1"'));
+    expect(await screen.findByText(/The enablement was changed/)).toBeInTheDocument();
+  });
+
+  it('offers enabling for an approved Coach Agent version', async () => {
+    renderPage(fakeAgentCatalogAdapter(), approvedCoach.agentId, approvedCoach.version);
+    await userEvent.click(await screen.findByRole('button', { name: 'Enable' }));
+    expect(await screen.findByText(/Coach Agent version/)).toBeInTheDocument();
+  });
+
+  it('offers no enabling for an enabled, draft, or retired version', async () => {
+    for (const v of [approvedTactics, draftTactics, retiredTactics]) {
+      const { unmount } = renderAndKeep(fakeAgentCatalogAdapter(), v.agentId, v.version);
+      await screen.findByText(`${v.agentId} version ${v.version}`);
+      expect(screen.queryByRole('button', { name: 'Enable' })).not.toBeInTheDocument();
+      unmount();
+    }
   });
 });

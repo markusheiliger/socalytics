@@ -1,7 +1,9 @@
+import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { toPlatformFailure } from '../../platform/failure';
@@ -9,6 +11,7 @@ import type { MemberRef } from '../../platform/models/agentCatalog';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { DigestText } from '../registry/DigestText';
 import { FailureAlert } from '../shared/FailureAlert';
+import { ChangeEnablementDialog } from './ChangeEnablementDialog';
 import { useAgentVersions, useCatalogBaseline, useEnablements } from './agentCatalogKeys';
 
 const STATES = ['draft', 'approved', 'retired'];
@@ -25,6 +28,9 @@ export function AgentPage() {
   const baselineQuery = useCatalogBaseline();
   const enablementsQuery = useEnablements();
   const versionsQuery = useAgentVersions({ agentId, state });
+  const approvedQuery = useAgentVersions({ agentId, state: 'approved' });
+  const [dialog, setDialog] = useState<'change' | 'disable' | undefined>();
+  const [nextVersion, setNextVersion] = useState('');
   const queries = [baselineQuery, enablementsQuery, versionsQuery];
   const failures = queries.map((q) => (q.error ? toPlatformFailure(q.error) : undefined));
   const failure = failures.find((f) => f !== undefined);
@@ -34,6 +40,11 @@ export function AgentPage() {
   const agent = baselineQuery.data?.agents.find((a) => a.agentId === agentId);
   const enablement = enablementsQuery.data?.find((e) => e.agentId === agentId);
   const versions = versionsQuery.data;
+  const candidates = (approvedQuery.data ?? []).filter((v) => v.version !== enablement?.enabledVersion);
+  const closeDialog = () => {
+    setDialog(undefined);
+    setNextVersion('');
+  };
   const reload = () => queries.forEach((q) => void q.refetch());
 
   const who = (ref: MemberRef) => {
@@ -74,6 +85,43 @@ export function AgentPage() {
                 <Typography>
                   {t('agent.changedBy', { who: who(enablement.changedBy), when: enablement.changedAt.toLocaleString(), interpolation: { escapeValue: false } })}
                 </Typography>
+              )}
+              {enablement && (
+                <Stack direction="row" spacing={2} sx={{ mt: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {candidates.length === 0 ? (
+                    <Typography>{t('agent.noOtherApproved')}</Typography>
+                  ) : (
+                    <>
+                      <TextField
+                        select
+                        size="small"
+                        label={t('agent.changeVersionLabel')}
+                        value={nextVersion}
+                        onChange={(e) => setNextVersion(e.target.value)}
+                        slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
+                      >
+                        <option value="">{t('agent.changeVersionChoose')}</option>
+                        {candidates.map((v) => (
+                          <option key={v.version} value={v.version}>{v.version}</option>
+                        ))}
+                      </TextField>
+                      <Button variant="contained" disabled={!nextVersion} onClick={() => setDialog('change')}>{t('agent.changeEnabled')}</Button>
+                    </>
+                  )}
+                  {enablement.enabledVersion && (
+                    <Button variant="outlined" color="error" onClick={() => setDialog('disable')}>{t('agent.disable')}</Button>
+                  )}
+                </Stack>
+              )}
+              {enablement && dialog && (
+                <ChangeEnablementDialog
+                  agentId={agentId}
+                  group={agent.group}
+                  current={enablement}
+                  nextVersion={dialog === 'disable' ? null : nextVersion}
+                  open
+                  onClose={closeDialog}
+                />
               )}
             </>
           )}

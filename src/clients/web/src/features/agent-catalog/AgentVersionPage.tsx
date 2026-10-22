@@ -1,8 +1,9 @@
 import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { toPlatformFailure } from '../../platform/failure';
@@ -10,7 +11,8 @@ import type { ArtifactKind, MemberRef } from '../../platform/models/agentCatalog
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { DigestText } from '../registry/DigestText';
 import { FailureAlert } from '../shared/FailureAlert';
-import { useAgentVersion } from './agentCatalogKeys';
+import { useAgentVersion, useEnablements } from './agentCatalogKeys';
+import { ChangeEnablementDialog } from './ChangeEnablementDialog';
 import { CatalogText } from './CatalogText';
 import { DistanceList } from './artifacts/DistanceList';
 
@@ -56,11 +58,14 @@ export function AgentVersionPage() {
   const { t } = useTranslation('agentCatalog');
   const { t: tr } = useTranslation('registry');
   const query = useAgentVersion(agentId, version);
+  const enablementsQuery = useEnablements();
+  const [enabling, setEnabling] = useState(false);
   const failure = query.error ? toPlatformFailure(query.error) : undefined;
 
   if (failure?.kind === 'notPermitted') return <NotPermittedPage />;
 
   const v = query.data;
+  const enablement = enablementsQuery.data?.find((e) => e.agentId === agentId);
   const who = (ref: MemberRef) => {
     if (ref.kind === 'seed') return t('common.developmentSeed');
     if (ref.kind === 'member') return ref.displayName ?? ref.id;
@@ -123,6 +128,19 @@ export function AgentVersionPage() {
           {v.selfApproval && <Typography>{t('version.selfApproval')}</Typography>}
           {v.differentiationAcknowledged && <Typography>{t('version.differentiationAcknowledged')}</Typography>}
           <Typography>{v.enabled ? t('version.enabled') : t('version.notEnabled')}</Typography>
+          {v.state === 'approved' && !v.enabled && enablement && (
+            <Button variant="contained" sx={{ mt: 1 }} onClick={() => setEnabling(true)}>{t('version.enable')}</Button>
+          )}
+          {enabling && enablement && (
+            <ChangeEnablementDialog
+              agentId={agentId}
+              group={v.group}
+              current={enablement}
+              nextVersion={v.version}
+              open
+              onClose={() => setEnabling(false)}
+            />
+          )}
           {v.group === 'coach' && (
             <>
               <Typography variant="h3" sx={{ mt: 2 }}>{t('version.distancesTitle')}</Typography>
