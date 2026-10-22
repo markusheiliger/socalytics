@@ -70,7 +70,7 @@ the fact feature's member fact read. The image is foundational because User Stor
   `result/` and `scratch/`; and `tests/conftest.py` with fixtures for both; `tests/test_support.py` validates each
   written document against the SDK's bundled schemas, so the support itself cannot drift from the contracts (all paths
   under `src/analysts/capabilities/reference-media-probe/`)
-- [ ] T003 [P] Add the payload schema `src/analysts/capabilities/reference-media-probe/schemas/frame-second-probe.payload.schema.json`
+- [x] T003 [P] Add the payload schema `src/analysts/capabilities/reference-media-probe/schemas/frame-second-probe.payload.schema.json`
   exactly as contracts/reference-media-probe.md § Fact Payload (JSON Schema 2020-12, `additionalProperties: false`,
   `"decodedFrames": { "type": "integer", "minimum": 0 }`, `meanLuma` with required `min`, `mean`, `max`, each
   `"minimum": 0, "maximum": 255`) and `src/analysts/capabilities/reference-media-probe/tests/test_payload_schema.py`
