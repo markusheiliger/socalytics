@@ -199,7 +199,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
   user is non-root and numeric, the final stage copies only the Python environment, `ffmpeg`, `ffprobe`, the FFmpeg
   license notice, and the manifest, the last layer-creating instruction copies only the manifest to
   `/opt/socalytics/analyst-manifest.json`, and no `ENV` names a credential, address, or token
-- [ ] T011 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ReferenceAnalystImageTests.cs` (FR-009,
+- [x] T011 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ReferenceAnalystImageTests.cs` (FR-009,
   FR-011, FR-013; SC-004): build and push through `ReferenceAnalystImage`, register it by digest and assert the stored
   capability declaration equals the project's `analyst-manifest.json` and the response states the capability id and
   version; inspect the image through `DockerEngine.GetJsonAsync` and assert the configured user is non-root, the labels

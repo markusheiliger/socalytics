@@ -64,7 +64,7 @@ internal static class ReferenceAnalystImage
 
     public static Task RemoveAsync(PushedAnalystImage image) => TestAnalystImage.RemoveAsync(image);
 
-    private static string FindRepositoryRoot()
+    internal static string FindRepositoryRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
         {
