@@ -230,7 +230,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
   correct `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/facts.py` where needed: two runs
   of the entry point over the same job and media in two mount roots produce byte-identical `facts.json`; luma values
   that differ only beyond the third decimal round half-even to the same payload
-- [ ] T014 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_failures.py` (FR-002, FR-004, FR-008;
+- [x] T014 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_failures.py` (FR-002, FR-004, FR-008;
   edge cases) and correct `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/__main__.py` or
   `probe.py` where needed: a job without `segmentMedia` and without a media directory exits 2 with the category
   `segment-media-required`; staged media whose digest differs from its manifest exits 2 through the SDK; media with a
