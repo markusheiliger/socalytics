@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-215112-web-ui-workflow-operations` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-215112-web-ui-workflow-operations/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-215112-web-ui-workflow-operations/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -53,7 +53,7 @@ or receipts per page
 
 | Principle | Gate | Result |
 | --- | --- | --- |
-| I. Architecture Is the Design Authority | Conforms to [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui), [API And Identity](../../docs/architecture/platform-implementation.md#api-and-identity), and [Production Queue Recovery and Backpressure](../../docs/architecture/job-processing.md#production-queue-recovery-and-backpressure); `## Architecture Updates` names narratives, design updates, and status statements | Pass |
+| I. Architecture Is the Design Authority | Conforms to [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui), [API And Identity](../../../docs/architecture/platform-implementation.md#api-and-identity), and [Production Queue Recovery and Backpressure](../../../docs/architecture/job-processing.md#production-queue-recovery-and-backpressure); `## Architecture Updates` names narratives, design updates, and status statements | Pass |
 | II. Respect Source-Area Ownership | Web UI code in `src/clients/web`; one Host test in `src/platform/Tests`; no new first-level area | Pass |
 | III. API-First Control Plane | The Web UI calls only existing API operations through adapters over the generated client; the OpenAPI snapshot stays the contract; the reconciliation's effect, filter validation, and paging are decided by the platform | Pass |
 | IV. Evidence Over Claims | Vitest, Playwright `simulated` and `platform`, and a Host test; no production-readiness claim | Pass |
@@ -67,7 +67,7 @@ Post-design re-check: Pass (the design adds no operation, dependency, or storage
 ### Documentation (this feature)
 
 ```text
-specs/20261017-215112-web-ui-workflow-operations/
+specs/archive/20261017-215112-web-ui-workflow-operations/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output (client view models)
@@ -130,11 +130,11 @@ changes, so the OpenAPI snapshot is not refreshed.
 
 ### Narratives
 
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): "platform configuration and administration" gains the workflow operations area for Club Admins.
-- [Platform Implementation → API And Identity](../../docs/architecture/platform-implementation.md#api-and-identity): the operations under `/api/v1/operations`, restricted to Club Admins until a stamp-operator role exists, gain a Web UI consumer; authorization and audit unchanged.
-- [Job Processing → Reliable Event Publication](../../docs/architecture/job-processing.md#reliable-event-publication) and [Production Queue Recovery and Backpressure](../../docs/architecture/job-processing.md#production-queue-recovery-and-backpressure): unchanged rules the area shows and explains (observable outbox age, retries, and failure state; reconciliation never authorizes work or overrides accepted state).
-- [Client Applications → Offline Mode](../../docs/architecture/client-applications.md#offline-mode): unchanged rule (online only; no user data in the service worker) that the area follows.
-- [Platform Implementation](../../docs/architecture/platform-implementation.md) (Architecture Reassessment and Acceptance Evidence): Web UI evidence lists that gain the Operations area.
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): "platform configuration and administration" gains the workflow operations area for Club Admins.
+- [Platform Implementation → API And Identity](../../../docs/architecture/platform-implementation.md#api-and-identity): the operations under `/api/v1/operations`, restricted to Club Admins until a stamp-operator role exists, gain a Web UI consumer; authorization and audit unchanged.
+- [Job Processing → Reliable Event Publication](../../../docs/architecture/job-processing.md#reliable-event-publication) and [Production Queue Recovery and Backpressure](../../../docs/architecture/job-processing.md#production-queue-recovery-and-backpressure): unchanged rules the area shows and explains (observable outbox age, retries, and failure state; reconciliation never authorizes work or overrides accepted state).
+- [Client Applications → Offline Mode](../../../docs/architecture/client-applications.md#offline-mode): unchanged rule (online only; no user data in the service worker) that the area follows.
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md) (Architecture Reassessment and Acceptance Evidence): Web UI evidence lists that gain the Operations area.
 
 ### Design updates (applied now, worded as decided but not implemented)
 

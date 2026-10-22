@@ -19,7 +19,7 @@
 
 ## User Scenarios & Testing *(mandatory)*
 
-The actor is the Club Admin, who today is the only role allowed to inspect and reconcile the stamp's analysis workflow ([API And Identity](../../docs/architecture/platform-implementation.md#api-and-identity)). The operations already exist on the platform ([Durable Analysis Workflow](../archive/20261005-130703-durable-analysis-workflow/spec.md), FR-034 and FR-035); this feature adds a connected Web UI area over them. It implements "platform configuration and administration" of [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui) for workflow operations. The platform decides and checks everything; the Web UI shows what the platform returns and explains its refusals.
+The actor is the Club Admin, who today is the only role allowed to inspect and reconcile the stamp's analysis workflow ([API And Identity](../../../docs/architecture/platform-implementation.md#api-and-identity)). The operations already exist on the platform ([Durable Analysis Workflow](../20261005-130703-durable-analysis-workflow/spec.md), FR-034 and FR-035); this feature adds a connected Web UI area over them. It implements "platform configuration and administration" of [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui) for workflow operations. The platform decides and checks everything; the Web UI shows what the platform returns and explains its refusals.
 
 ### User Story 1 - See the analysis workflow's health at a glance (Priority: P1)
 
@@ -128,7 +128,7 @@ The Operations area follows the Web UI's existing rules: it uses the same naviga
 
 - **FR-001**: The Web UI MUST offer an Operations area with its own navigation entry, shown only to members with the Club Admin role; every Operations view MUST be addressable, and opening any Operations address without the Club Admin role MUST show the not-permitted view without requesting operational data.
 - **FR-002**: The platform's authorization MUST stay authoritative: a refusal for lack of permission from any operation MUST show the not-permitted view, and a missing outgoing message MUST show the not-found view.
-- **FR-003**: The Operations navigation entry MUST sit with the other Club Admin administration entries, after the Analyst Manager fleet entry and after the Registry entry of [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/spec.md) when that entry exists, and MUST NOT change the address or position of any existing entry.
+- **FR-003**: The Operations navigation entry MUST sit with the other Club Admin administration entries, after the Analyst Manager fleet entry and after the Registry entry of [Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/spec.md) when that entry exists, and MUST NOT change the address or position of any existing entry.
 
 #### Summary
 
@@ -185,9 +185,9 @@ The Operations area follows the Web UI's existing rules: it uses the same naviga
 
 ## Assumptions
 
-- The Club Admin role stays the only role allowed to use these operations until a dedicated stamp-operator role exists ([API And Identity](../../docs/architecture/platform-implementation.md#api-and-identity)); a stamp-operator role, its navigation, and a move of the area to it are out of scope.
-- The platform operations exist with their current behavior: page sizes and continuation positions, the known state, type, and outcome values, the audit event of a reconciliation, and the reconciliation's effect are decided by the platform ([Durable Analysis Workflow](../archive/20261005-130703-durable-analysis-workflow/spec.md), FR-034 and FR-035; [Production Queue Recovery and Backpressure](../../docs/architecture/job-processing.md#production-queue-recovery-and-backpressure)). The Web UI uses the platform's default page size.
+- The Club Admin role stays the only role allowed to use these operations until a dedicated stamp-operator role exists ([API And Identity](../../../docs/architecture/platform-implementation.md#api-and-identity)); a stamp-operator role, its navigation, and a move of the area to it are out of scope.
+- The platform operations exist with their current behavior: page sizes and continuation positions, the known state, type, and outcome values, the audit event of a reconciliation, and the reconciliation's effect are decided by the platform ([Durable Analysis Workflow](../20261005-130703-durable-analysis-workflow/spec.md), FR-034 and FR-035; [Production Queue Recovery and Backpressure](../../../docs/architecture/job-processing.md#production-queue-recovery-and-backpressure)). The Web UI uses the platform's default page size.
 - Message types added later by other features (for example agent orchestration notifications) appear in the list with their raw type; adding them as filter choices belongs to those features.
 - Operational inspection of the dedicated email outbox, Agent Orchestration state, Analyst Manager fleet, and Registry is not part of this area; the fleet and Registry have their own areas.
 - The summary is a point-in-time read; automatic refresh, charts, trends, alerts, dashboards, metrics, and production operations tooling are out of scope.
-- Dependencies: [Durable Analysis Workflow](../archive/20261005-130703-durable-analysis-workflow/spec.md) and [Web UI Foundation](../archive/20261012-150657-web-ui-foundation/spec.md) (merged), [Installable Web UI with Service Worker Updates](../archive/20261015-194113-web-ui-pwa-updates/spec.md) (merged); navigation aligns with [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/spec.md) without depending on it.
+- Dependencies: [Durable Analysis Workflow](../20261005-130703-durable-analysis-workflow/spec.md) and [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md) (merged), [Installable Web UI with Service Worker Updates](../20261015-194113-web-ui-pwa-updates/spec.md) (merged); navigation aligns with [Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/spec.md) without depending on it.
