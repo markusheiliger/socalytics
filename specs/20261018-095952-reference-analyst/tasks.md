@@ -120,7 +120,7 @@ the fact feature's member fact read. The image is foundational because User Stor
   `contracts/analysis/analyst-manifest/v1/analyst-manifest.schema.json` (with the common schema registered) located by
   walking up to the repository root, and asserts the capability id and version equal the package constants (research
   R8; FR-003, FR-009)
-- [ ] T007 Add the image (research R5 to R9; contracts/reference-media-probe.md § Build and § Run; FR-009 to FR-012):
+- [x] T007 Add the image (research R5 to R9; contracts/reference-media-probe.md § Build and § Run; FR-009 to FR-012):
   `src/analysts/capabilities/reference-media-probe/docker/fetch_verified.py` (standard library only: download a URL,
   verify its SHA-256 before extraction, extract only named members of a `tar.gz` or `tar.xz` archive without path
   traversal, and exit non-zero with a message naming the archive on any mismatch);

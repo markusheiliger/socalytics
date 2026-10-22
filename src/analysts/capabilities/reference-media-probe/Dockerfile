@@ -1,0 +1,61 @@
+# Build from the repository root (the ARG defaults are the pins and must not be overridden for registered images):
+#   docker build -f src/analysts/capabilities/reference-media-probe/Dockerfile -t reference-media-probe:local .
+#
+# The uv and FFmpeg pins equal .github/actions/environment-setup/analyst-media-toolchain.json.
+# The base image digest of python:3.12-slim-bookworm was current on 2026-10-22.
+
+FROM python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70 AS build
+
+ARG UV_URL=https://github.com/astral-sh/uv/releases/download/0.13.1/uv-x86_64-unknown-linux-gnu.tar.gz
+ARG UV_SHA256=eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220
+ARG UV_ROOT=uv-x86_64-unknown-linux-gnu
+ARG FFMPEG_URL=https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1.tar.xz
+ARG FFMPEG_SHA256=dfa863a00ca81f1bdf58a372b18cff4820f0017e55de32778de8ecd8ed92a02e
+ARG FFMPEG_ROOT=ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1
+ARG MANIFEST_SHA256=31c94a2a7ff4f97611f63bde4c91481677abbbb0433954470c0020b951b56c5f
+
+ENV UV_PYTHON_DOWNLOADS=never \
+    UV_PYTHON=/usr/local/bin/python3.12 \
+    UV_PROJECT_ENVIRONMENT=/opt/reference-media-probe/venv
+
+WORKDIR /build
+COPY src/analysts/capabilities/reference-media-probe/analyst-manifest.json /tmp/analyst-manifest.json
+COPY src/analysts/capabilities/reference-media-probe/docker/fetch_verified.py /tmp/fetch_verified.py
+
+RUN echo "${MANIFEST_SHA256}  /tmp/analyst-manifest.json" | sha256sum -c - \
+    || { echo "analyst-manifest.json does not match the literal io.socalytics.analyst-manifest.sha256 value; update the Dockerfile label and MANIFEST_SHA256." >&2; exit 1; }
+
+RUN python3.12 /tmp/fetch_verified.py --url "${UV_URL}" --sha256 "${UV_SHA256}" --dest /opt/tools \
+      --member "${UV_ROOT}/uv" \
+    && python3.12 /tmp/fetch_verified.py --url "${FFMPEG_URL}" --sha256 "${FFMPEG_SHA256}" \
+      --dest /opt/reference-media-probe/bin \
+      --member "${FFMPEG_ROOT}/bin/ffmpeg" --member "${FFMPEG_ROOT}/bin/ffprobe" --member "${FFMPEG_ROOT}/LICENSE.txt" \
+    && chmod 0755 /opt/tools/uv /opt/reference-media-probe/bin/ffmpeg /opt/reference-media-probe/bin/ffprobe \
+    && chmod 0644 /opt/reference-media-probe/bin/LICENSE.txt
+
+COPY src/analysts/sdk/ src/analysts/sdk/
+COPY src/analysts/capabilities/reference-media-probe/ src/analysts/capabilities/reference-media-probe/
+
+WORKDIR /build/src/analysts/capabilities/reference-media-probe
+RUN /opt/tools/uv sync --locked --all-groups --no-install-local --no-build \
+    && /opt/tools/uv sync --locked --no-dev --no-editable --no-build-isolation --compile-bytecode \
+    && chmod -R a+rX,go-w /opt/reference-media-probe
+
+FROM python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70 AS final
+
+LABEL io.socalytics.analyst-manifest.version="1.0.0" \
+      io.socalytics.analyst-manifest.sha256="31c94a2a7ff4f97611f63bde4c91481677abbbb0433954470c0020b951b56c5f" \
+      io.socalytics.capability.id="reference-media-probe" \
+      io.socalytics.capability.version="1.0.0" \
+      io.socalytics.model.digest="sha-256:0000000000000000000000000000000000000000000000000000000000000000"
+
+COPY --from=build --chown=0:0 /opt/reference-media-probe /opt/reference-media-probe
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/reference-media-probe/bin:/usr/local/bin:/usr/bin:/bin
+
+USER 65532:65532
+ENTRYPOINT ["/opt/reference-media-probe/venv/bin/python", "-m", "reference_media_probe"]
+
+COPY src/analysts/capabilities/reference-media-probe/analyst-manifest.json /opt/socalytics/analyst-manifest.json
