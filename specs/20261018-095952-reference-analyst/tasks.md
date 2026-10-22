@@ -218,7 +218,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
 
 **Independent Test**: Run the capability project's tests with the environment's locked verification sequence
 
-- [ ] T012 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_time_mapping.py` (FR-005, FR-006; edge
+- [x] T012 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_time_mapping.py` (FR-005, FR-006; edge
   cases; SC-002) and correct `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/facts.py` where
   a case fails: media with one second of keyframe context before `requestedSourceInterval` yields no fact for it; a
   nominal window only partly covered by the mapping yields facts only for the covered part, the last one clipped; a
