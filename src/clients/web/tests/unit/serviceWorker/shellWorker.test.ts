@@ -106,6 +106,28 @@ describe('fetch routing', () => {
     }
   });
 
+  it('passes workflow operations API requests to the network and never caches them', () => {
+    const id = '5d1f0c0e-7b1a-4c35-9c55-2a6f7d4e8b21';
+    const paths = [
+      '/api/v1/operations/analysis/summary',
+      '/api/v1/operations/analysis/summary?windowHours=24',
+      '/api/v1/operations/outbox-messages',
+      '/api/v1/operations/outbox-messages?status=failed&pageSize=20',
+      `/api/v1/operations/outbox-messages/${id}`,
+      `/api/v1/operations/outbox-messages/${id}/requeue`,
+      '/api/v1/operations/analysis/notification-receipts',
+      `/api/v1/operations/analysis/notification-receipts/${id}`,
+      '/api/v1/operations/analysis/notification-receipts?pageSize=20',
+      '/api/v1/operations/analysis/reconciliations',
+    ];
+    for (const path of paths) {
+      for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+        expect(classify(path, 'cors', method), `${method} ${path}`).toBeUndefined();
+      }
+      expect(classify(path, 'navigate')).toBeUndefined();
+    }
+  });
+
   it('does not handle triage conversation API paths for any method', () => {
     const paths = [
       '/api/v1/agent-catalog/agents',

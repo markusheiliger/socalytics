@@ -35,7 +35,7 @@ test('starts a diagnosis with a linked check and dispatch, and leaves a failed d
   assert.deepEqual([check.external_id, check.status, check.output.title], [CHECK_DIAGNOSING, 'in_progress', 'Diagnosis in progress']);
   assert.equal(check.details_url, 'https://github.com/octo/repo/actions/workflows/speckit-diagnose.lock.yml');
   assert.match(check.output.summary, /Started by @dev\.\n\nGuidance: look at R6/);
-  assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', guidance: 'look at R6', previous: '', check_run: String(check.id), mode: 'diagnose', amendment: '', round: '0', stop: '' });
+  assert.deepEqual(github.repo.runs.at(-1).inputs, { issue: '5', pull: '9', folder: 'f', guidance: 'look at R6', previous: '', check_run: String(check.id), mode: 'diagnose', amendment: '', round: '0', stop: '' });
   assert.equal(github.repo.runs.at(-1).workflow, 'speckit-diagnose.lock.yml');
   const attention = () => (github.repo.pulls.find((pull) => pull.number === 9).labels ?? []).some((label) => label.name === ATTENTION_LABEL);
   assert.equal(attention(), false, 'a running diagnosis does not need attention');
@@ -72,7 +72,7 @@ test('collects evidence: checks, comments, failed run logs, branch state, and no
     github.repo.branches.main = 'sha-main2';
     await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-impl', status: 'completed', conclusion: 'failure', external_id: 'speckit:limit', output: { title: 'T002 reached the attempt limit', summary: 'stopped' } });
     await github.createComment(9, '**T002 attempt 3 failed:** timing test');
-    await github.dispatchWorkflow('speckit-implement-spec.yml', 'main', { twin: '5', pull: '9', title: 'F' });
+    await github.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, 'main', { issue: '5', pull: '9', title: 'F' });
     github.completeRun(github.repo.runs.at(-1).id, 'failure');
     github.repo.jobs = { [github.repo.runs.at(-1).id]: [{ id: 77, name: 'Implement and verify', conclusion: 'failure' }, { id: 78, name: 'begin', conclusion: 'success' }] };
     github.repo.logs = { 77: '2026-10-08T19:11:13.1234567Z line one\n2026-10-08T19:11:14.1234567Z Failed! D=0.9' };
@@ -209,7 +209,7 @@ test('records the diagnosis with the amendment, questions, options, and next ste
     assert.match(github.comments.find((item) => item.number === 11).body, /^<!-- speckit-amend:rework -->\n<!-- speckit-amend:cutoff \S+ -->\nThis amendment comes from the diagnosis on #9[\s\S]*handed to @dev for review/);
     const analysis = github.repo.checkRuns.at(-1);
     assert.deepEqual([analysis.name, analysis.head_sha, analysis.status, analysis.external_id], ['Spec Kit amendment', 'sha-amend', 'in_progress', 'speckit:amend-checking']);
-    assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-analyze.lock.yml', { twin: '5', pull: '9', folder: 'f', amendment: '11', round: '0', stalls: '0', previous: '', mode: 'loop', check_run: String(analysis.id), kind: 'amend' }]);
+    assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-analyze.lock.yml', { issue: '5', pull: '9', folder: 'f', amendment: '11', round: '0', stalls: '0', previous: '', mode: 'loop', check_run: String(analysis.id), kind: 'amend' }]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

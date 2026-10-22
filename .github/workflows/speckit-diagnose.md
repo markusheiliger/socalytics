@@ -3,12 +3,12 @@ name: Spec Kit diagnose
 description: >-
   Diagnoses why a Spec Kit implementation stopped and proposes how to continue; for spec artifact defects it proposes
   an amendment pull request and reworks it after consistency findings (fix) or a person's feedback (revise). Started
-  by the implementation chain (Spec Kit implement spec) and the amendment lifecycle (Spec Kit commands, Spec Kit analyze).
+  by the implementation chain (Spec Kit implement) and the amendment lifecycle (Spec Kit commands, Spec Kit analyze).
 on:
   workflow_dispatch:
     inputs:
-      twin:
-        description: Spec twin issue number
+      issue:
+        description: Spec twin issue number (labelled speckit:spec)
         required: true
         type: string
       pull:
@@ -61,12 +61,12 @@ on:
   # Only the Spec Kit workflows dispatch this workflow, with the repository's token; dispatching already requires
   # write access.
   roles: all
-run-name: "Spec Kit diagnose spec #${{ inputs.twin }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the amendment, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the amendment with review feedback' || inputs.stop || 'Diagnose why the implementation stopped' }}"
+run-name: "Spec Kit diagnose spec #${{ inputs.issue }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the amendment, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the amendment with review feedback' || inputs.stop || 'Diagnose why the implementation stopped' }}"
 # One run per twin at a time; runs for different twins run side by side.
 concurrency:
-  group: speckit-diagnose-${{ inputs.twin }}
+  group: speckit-diagnose-${{ inputs.issue }}
   cancel-in-progress: false
-  job-discriminator: ${{ inputs.twin }}
+  job-discriminator: ${{ inputs.issue }}
 permissions:
   actions: read
   checks: read
@@ -109,11 +109,17 @@ steps:
     uses: actions/setup-node@v5
     with:
       node-version: 24
+  - name: Check the spec issue
+    id: issue
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      SPECKIT_ISSUE: ${{ inputs.issue }}
+    run: node .speckit-tooling/.github/scripts/speckit-issue.mjs check
   - name: Collect the evidence
     env:
       GITHUB_TOKEN: ${{ github.token }}
       SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      SPECKIT_TWIN: ${{ inputs.twin }}
+      SPECKIT_TWIN: ${{ inputs.issue }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_FOLDER: ${{ inputs.folder }}
       SPECKIT_GUIDANCE: ${{ inputs.guidance }}
@@ -199,7 +205,7 @@ safe-outputs:
           env:
             GITHUB_TOKEN: ${{ github.token }}
             SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-            SPECKIT_TWIN: ${{ inputs.twin }}
+            SPECKIT_TWIN: ${{ inputs.issue }}
             SPECKIT_PULL: ${{ inputs.pull }}
             SPECKIT_FOLDER: ${{ inputs.folder }}
             SPECKIT_CHECK_RUN: ${{ inputs.check_run }}
@@ -221,7 +227,7 @@ safe-outputs:
 
 # Diagnose a stopped Spec Kit implementation, or rework its amendment
 
-The Spec Kit implementation of spec twin #${{ inputs.twin }} stopped in pull request #${{ inputs.pull }}. This run's
+The Spec Kit implementation of spec twin #${{ inputs.issue }} stopped in pull request #${{ inputs.pull }}. This run's
 mode is **`${{ inputs.mode }}`**.
 
 Follow the skill `.speckit-tooling/.github/skills/speckit-gha-diagnose/SKILL.md` in **non-interactive mode**. It

@@ -215,7 +215,7 @@ export async function startAnalysis(client, env, context, { round, mode = 'loop'
   });
   try {
     await client.dispatchWorkflow(ANALYZE_WORKFLOW_FILE, defaultBranchOf(env), {
-      twin: String(twin),
+      issue: String(twin),
       pull: String(implementation.number),
       folder,
       amendment: String(amendment.number),
@@ -294,7 +294,7 @@ export async function startRework(client, env, context, { mode, round = 0, guida
   try {
     // Only inputs the dispatched workflow declares: GitHub rejects a dispatch with any other input.
     await client.dispatchWorkflow(kind === 'fix' ? FIX_WORKFLOW_FILE : DIAGNOSE_WORKFLOW_FILE, defaultBranchOf(env), {
-      twin: String(twin),
+      issue: String(twin),
       pull: String(implementation.number),
       folder,
       guidance: clip(guidance, 20_000),

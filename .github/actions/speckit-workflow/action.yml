@@ -6,13 +6,15 @@ description: >-
   AI-credit budget. The run never waits for a person and never outlives the job. The action then collects the run into
   the result folder: agent-exit.txt (0 completed, 124 time limit, 1 otherwise), agent.jsonl (the agent's output),
   workflow.json (the outcome with the helper's message), and workflow-run/ (the run folder), and removes the run folder
-  from the workspace. The caller provides Node.js and the token as COPILOT_GITHUB_TOKEN in the step env.
+  from the workspace. The caller provides Node.js, Python for the Spec Kit helper scripts (set up before the solution's
+  environment, so its toolchain keeps precedence), and the token as COPILOT_GITHUB_TOKEN in the step env. The spec
+  folder of the input folder=<folder> becomes SPECIFY_FEATURE_DIRECTORY for the Spec Kit commands.
 inputs:
   workflow:
     description: Id of the workflow under .specify/workflows/ of the tooling checkout
     required: true
   inputs:
-    description: The workflow inputs, one name=value per line (mode and tooling are set by the action)
+    description: The workflow inputs, one name=value per line (mode and tooling are set by the action); empty lines and lines without a value are skipped
     required: false
     default: ""
   level:
@@ -51,12 +53,6 @@ outputs:
 runs:
   using: composite
   steps:
-    # The Spec Kit commands the agent steps run call the Spec Kit helper scripts (.specify/scripts/python) as `python`.
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: "3.13"
-
     - name: Set up uv
       uses: astral-sh/setup-uv@v6
 
@@ -92,9 +88,13 @@ runs:
         definition="$tooling/.specify/workflows/$WORKFLOW/workflow.yml"
         if [ ! -f "$definition" ]; then echo "::error::The tooling has no Spec Kit workflow $WORKFLOW."; exit 2; fi
         mkdir -p "$RESULT_DIR"
+        # The Spec Kit commands select the spec folder through SPECIFY_FEATURE_DIRECTORY (archived right before a merge).
+        folder="$(sed -n 's/^folder=//p' <<< "$INPUTS" | head -n 1)"
+        if [ -n "$folder" ] && [ -d "specs/$folder" ]; then export SPECIFY_FEATURE_DIRECTORY="specs/$folder"
+        elif [ -n "$folder" ] && [ -d "specs/archive/$folder" ]; then export SPECIFY_FEATURE_DIRECTORY="specs/archive/$folder"; fi
         args=(-i mode=unattended -i "tooling=$tooling")
         while IFS= read -r line; do
-          if [ -n "$line" ]; then args+=(-i "$line"); fi
+          if [ -n "$line" ] && [ -n "${line#*=}" ]; then args+=(-i "$line"); fi
         done <<< "$INPUTS"
         # An empty standard input: a gate would pause the run instead of waiting for a person.
         timeout --kill-after=60s "$TIME_LIMIT" specify workflow run "$definition" --json "${args[@]}" < /dev/null > "$RESULT_DIR/run.json"

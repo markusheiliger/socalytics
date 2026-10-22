@@ -33,19 +33,16 @@ test('command acceptance and publication share a queued per-implementation lock 
   const command = readFileSync(new URL('../workflows/speckit-commands.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   assert.match(command, /group: speckit-publication-\$\{\{ needs\.target\.outputs\.pull \}\}\n\s+queue: max\n\s+cancel-in-progress: false/);
   assert.match(command, /SPECKIT_PUBLICATION_PULL: \$\{\{ needs\.target\.outputs\.pull \}\}/);
-  for (const [workflow, jobs] of [
-    ['task', ['land']], ['converge', ['land']], ['resolve', ['land']],
-    ['repair', ['land', 'report']], ['merge', ['archive', 'land']], ['spec', ['sync']],
-  ]) {
-    const text = readFileSync(new URL(`../workflows/speckit-implement-${workflow}.yml`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  for (const [workflow, jobs] of [['speckit-implement-work.yml', ['land']], ['speckit-implement.yml', ['sync', 'repair-report', 'merge-archive', 'merge-land']]]) {
+    const text = readFileSync(new URL(`../workflows/${workflow}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
     for (const job of jobs) {
       const block = text.match(new RegExp(`^  ${job}:\\n[\\s\\S]*?(?=^  [a-z_-]+:|$(?![\\s\\S]))`, 'm'))?.[0];
       assert.ok(block, `${workflow}/${job} exists`);
       assert.match(block, /group: speckit-publication-\$\{\{ inputs\.pull \}\}\n\s+queue: max\n\s+cancel-in-progress: false/);
     }
   }
-  const parent = readFileSync(new URL('../workflows/speckit-implement-spec.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-  assert.match(parent, /^concurrency:\n  group: speckit-implement-/m);
+  const parent = readFileSync(new URL('../workflows/speckit-implement.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(parent, /^concurrency:\n  group: speckit-implement-\$\{\{ inputs\.issue \}\}/m, 'the same group as the chain before groups, so their runs never overlap');
   assert.doesNotMatch(parent, /^  group: speckit-publication-/m, 'the chain must not hold the publication lock at workflow level while waiting for reusable jobs');
 });
 
@@ -98,7 +95,10 @@ import {
   parseAttemptCheckId,
   parseAttempts,
   parseMaxActiveSpecs,
-  planTasks,
+  planGroup,
+  listPhases,
+  verifyNeeded,
+  renderRunSubject,
   describeParallelGroups,
   renderGuidanceMarker,
   renderRepairMarker,
@@ -283,17 +283,20 @@ test('picks the newest check run', () => {
 });
 
 const attempt = (task, outcome = 'failure', at = '2026-10-06T11:00:00Z', kind = 'task') => ({ kind, task, attempt: 1, outcome, at });
-const order = (...list) => ({ action: 'tasks', kind: 'task', order: list, phaseEnd: true, lastIsParallel: false, phase: 'Phase 1', stale: [] });
+const group = (mode, completesPhase, ...list) => ({ action: 'tasks', kind: 'task', mode, order: list, phase: 'Phase 1', completesPhase, stale: [] });
+// TASKS: T002 [P] starts a parallel group of one, T003 a sequential group after it.
+const order = (...list) => group('parallel', false, ...list);
 
 test('decides the next tasks of an implementation from the attempt ledger', () => {
   const windowStart = '2026-10-06T10:00:00Z';
   const decide = (fields) => decideNext({ tasksMarkdown: TASKS, windowStart, ...fields });
 
   assert.deepEqual(decide({ done: true }), { action: 'done' });
-  assert.deepEqual(decide({}), order([{ task: 'T002', attempt: 1 }], [{ task: 'T003', attempt: 1 }]));
-  assert.deepEqual(decide({ attempts: [attempt('T001'), attempt('T002')] }), order([{ task: 'T002', attempt: 2 }], [{ task: 'T003', attempt: 1 }]));
-  assert.deepEqual(decide({ attempts: [attempt('T002', 'failure', '2026-10-06T09:00:00Z')] }), order([{ task: 'T002', attempt: 1 }], [{ task: 'T003', attempt: 1 }]), 'attempts before the window do not count');
-  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002', 'requeue')] }), order([{ task: 'T002', attempt: 4 }], [{ task: 'T003', attempt: 1 }]), 'a redo is no failure');
+  assert.deepEqual(decide({}), order([{ task: 'T002', attempt: 1 }]));
+  assert.deepEqual(decide({ attempts: [attempt('T001'), attempt('T002')] }), order([{ task: 'T002', attempt: 2 }]));
+  assert.deepEqual(decide({ attempts: [attempt('T002', 'failure', '2026-10-06T09:00:00Z')] }), order([{ task: 'T002', attempt: 1 }]), 'attempts before the window do not count');
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002', 'requeue')] }), order([{ task: 'T002', attempt: 4 }]), 'a redo is no failure');
+  assert.deepEqual(decide({ tasksMarkdown: TASKS.replace('- [ ] T002', '- [x] T002') }), group('sequential', true, [{ task: 'T003', attempt: 1 }]), 'a sequential group runs one task per entry');
   assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 2, stale: [] });
   const noOps = Array.from({ length: 4 }, () => attempt('T002', 'requeue'));
   assert.deepEqual(decide({ attempts: noOps }), { action: 'limit', kind: 'task', task: 'T002', attempts: 4, stale: [] }, 'endless redos stop too');
@@ -302,7 +305,6 @@ test('decides the next tasks of an implementation from the attempt ledger', () =
   assert.deepEqual(decide({ checks: [limited] }), { action: 'failed', diagnosis: { state: 'none', check: limited, count: 0 } });
   assert.equal(decide({ checks: [limited], resumedAt: '2026-10-06T11:45:00Z' }).action, 'tasks', 'a retry after the stop continues');
   assert.equal(decide({ checks: [limited], resumedAt: '2026-10-06T11:15:00Z' }).action, 'failed', 'an older retry does not');
-  assert.deepEqual(decide({ maxEntries: 1 }), { ...order([{ task: 'T002', attempt: 1 }]), phaseEnd: false }, 'a long phase continues in the next run');
 });
 
 test('waits while a diagnosis runs, then for a decision, and gives up on a stale diagnosis', () => {
@@ -449,22 +451,69 @@ test('groups consecutive unticked [P] tasks under one heading', () => {
   assert.deepEqual(ids('- [x] T001 done\n', 3), []);
 });
 
-test('plans the task order of a phase: single tasks, and [P] tasks that run in parallel', () => {
+test('plans the next group: consecutive tasks without [P] in sequence, consecutive [P] tasks under one heading in parallel', () => {
   const tasks = [
     '## Phase 1: Setup', '- [x] T001 a', '- [ ] T002 b',
     '## Phase 2: Story', '### Tests', '- [ ] T003 [P] c', '- [ ] T004 [P] d', '### Implementation', '- [ ] T005 [P] e', '- [ ] T006 f', '- [ ] T007 [P] g', '- [ ] T008 [P] h',
-    '## Phase 3: Polish', '- [ ] T009 i', '',
+    '## Phase 3: Polish', '- [ ] T009 i', '- [ ] T010 j', '',
   ].join('\r\n');
   const tick = (markdown, ...ids) => ids.reduce((text, id) => text.replace(`- [ ] ${id}`, `- [x] ${id}`), markdown);
-  assert.deepEqual(planTasks(tasks), { order: [['T002']], phaseEnd: true, lastIsParallel: false, phase: 'Phase 1: Setup' }, 'a phase is planned on its own');
-  assert.deepEqual(planTasks(tick(tasks, 'T002')), { order: [['T003', 'T004'], ['T005'], ['T006'], ['T007', 'T008']], phaseEnd: true, lastIsParallel: true, phase: 'Phase 2: Story' }, 'a ### heading ends a group, not the phase');
-  assert.deepEqual(planTasks(tick(tasks, 'T002', 'T004')), { order: [['T003'], ['T005'], ['T006'], ['T007', 'T008']], phaseEnd: true, lastIsParallel: true, phase: 'Phase 2: Story' }, 'a landed sibling is skipped');
-  assert.deepEqual(planTasks(tick(tasks, 'T002'), { maxEntries: 2 }), { order: [['T003', 'T004'], ['T005']], phaseEnd: false, lastIsParallel: false, phase: 'Phase 2: Story' });
-  assert.deepEqual(planTasks(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T006', 'T007', 'T008')), { order: [['T009']], phaseEnd: true, lastIsParallel: false, phase: 'Phase 3: Polish' });
-  assert.deepEqual(planTasks(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T007', 'T008')), { order: [['T006']], phaseEnd: true, lastIsParallel: false, phase: 'Phase 2: Story' }, 'an unchecked task between checked ones');
-  assert.deepEqual(planTasks('- [ ] T001 a\n- [ ] T002 [P] b\n- [ ] T003 [P] c\n'), { order: [['T001'], ['T002', 'T003']], phaseEnd: true, lastIsParallel: true, phase: null }, 'no headings: one phase');
-  assert.deepEqual(planTasks('- [x] T001 a\n'), { order: [], phaseEnd: false, lastIsParallel: false, phase: null });
+  const plan = (mode, ids, phase, completesPhase) => ({ mode, tasks: ids, phase, completesPhase });
+  assert.deepEqual(planGroup(tasks), plan('sequential', ['T002'], 'Phase 1: Setup', true), 'a group never crosses a phase');
+  assert.deepEqual(planGroup(tick(tasks, 'T002')), plan('parallel', ['T003', 'T004'], 'Phase 2: Story', false), 'a ### heading ends a parallel group');
+  assert.deepEqual(planGroup(tick(tasks, 'T002', 'T003', 'T004')), plan('parallel', ['T005'], 'Phase 2: Story', false), 'a single [P] task is a parallel group of one');
+  assert.deepEqual(planGroup(tick(tasks, 'T002', 'T003', 'T004', 'T005')), plan('sequential', ['T006'], 'Phase 2: Story', false), 'a [P] task ends a sequential group');
+  assert.deepEqual(planGroup(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T006')), plan('parallel', ['T007', 'T008'], 'Phase 2: Story', true));
+  assert.deepEqual(planGroup(tick(tasks, 'T002', 'T004')), plan('parallel', ['T003'], 'Phase 2: Story', false), 'a landed sibling is skipped');
+  assert.deepEqual(planGroup(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T006', 'T007', 'T008')), plan('sequential', ['T009', 'T010'], 'Phase 3: Polish', true), 'the group size is not capped');
+  assert.deepEqual(planGroup(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T006', 'T007', 'T008'), { maxTasks: 1 }), plan('sequential', ['T009'], 'Phase 3: Polish', false), 'beyond the matrix limit the group continues in the next run');
+  assert.deepEqual(planGroup('- [ ] T001 a\n- [ ] T002 b\n- [ ] T003 [P] c\n'), plan('sequential', ['T001', 'T002'], null, false), 'no headings: one phase');
+  assert.equal(planGroup('- [x] T001 a\n'), null);
+  assert.deepEqual(listPhases(tick(tasks, 'T002')), [
+    { name: 'Phase 1: Setup', tasks: ['T001', 'T002'], done: true },
+    { name: 'Phase 2: Story', tasks: ['T003', 'T004', 'T005', 'T006', 'T007', 'T008'], done: false },
+    { name: 'Phase 3: Polish', tasks: ['T009', 'T010'], done: false },
+  ]);
   assert.deepEqual([parseMaxActiveSpecs(undefined), parseMaxActiveSpecs('5'), parseMaxActiveSpecs('0'), parseMaxActiveSpecs('x')], [3, 5, 3, 3]);
+});
+
+test('a finished phase is verified in a run of its own once after the chain landed its tasks', () => {
+  const tasks = '## Phase 1: Setup\n- [x] T001 a\n- [x] T002 b\n## Phase 2: Story\n- [ ] T003 c\n';
+  const at = (hour) => `2026-10-06T${String(hour).padStart(2, '0')}:00:00Z`;
+  const landed = { kind: 'task', task: 'T002', attempt: 1, outcome: 'success', at: at(11) };
+  const verified = (hour, phase = 'Phase 1: Setup', outcome = 'success') => ({ kind: 'verify', task: null, attempt: 1, outcome, at: at(hour), phase });
+  assert.deepEqual(verifyNeeded(tasks, [landed]), { name: 'Phase 1: Setup', tasks: ['T001', 'T002'], done: true });
+  assert.equal(verifyNeeded(tasks, [landed, verified(12)]), null, 'verified after its last task');
+  assert.deepEqual(verifyNeeded(tasks, [landed, verified(12, 'Phase 2: Story')])?.name, 'Phase 1: Setup', 'another phase\'s verification does not count');
+  assert.deepEqual(verifyNeeded(tasks, [landed, verified(12, 'Phase 1: Setup', 'failure')])?.name, 'Phase 1: Setup', 'a failed verification does not count');
+  assert.equal(verifyNeeded(tasks, []), null, 'a phase ticked before the chain ran is not verified here');
+  const windowStart = at(10);
+  const now = Date.parse(at(20));
+  assert.deepEqual(decideNext({ tasksMarkdown: tasks, windowStart, now, attempts: [landed] }), { action: 'verify', kind: 'verify', phase: 'Phase 1: Setup', tasks: ['T001', 'T002'], attempt: 1, stale: [] });
+  assert.equal(decideNext({ tasksMarkdown: tasks, windowStart, now, attempts: [landed, verified(12)] }).kind, 'task', 'then the next phase');
+  const failures = [verified(12, 'Phase 1: Setup', 'failure'), verified(13, 'Phase 1: Setup', 'failure')];
+  assert.deepEqual(decideNext({ tasksMarkdown: tasks, windowStart, now, attempts: [landed, ...failures] }), { action: 'limit', kind: 'verify', phase: 'Phase 1: Setup', attempts: 2, stale: [] });
+});
+
+test('names a run after its spec and what it works on', () => {
+  const summaries = new Map([['T010', 'Create the model'], ['T011', 'Add the endpoint']]);
+  const tasks = (mode, ids, phase = 'Phase 3: User Story 1') => ({ action: 'tasks', kind: 'task', mode, phase, order: mode === 'parallel' ? [ids.map((task) => ({ task }))] : ids.map((task) => [{ task }]) });
+  assert.equal(renderRunSubject(tasks('sequential', ['T010']), { summaries }), 'Phase 3: User Story 1 · T010 Create the model');
+  assert.equal(renderRunSubject(tasks('sequential', ['T010', 'T011', 'T012', 'T013'])), 'Phase 3: User Story 1 · T010 to T013 one after another');
+  assert.equal(renderRunSubject(tasks('parallel', ['T010', 'T011'])), 'Phase 3: User Story 1 · T010, T011 in parallel');
+  assert.equal(renderRunSubject(tasks('sequential', ['T001'], null)), 'Tasks · T001');
+  assert.equal(renderRunSubject({ action: 'verify', phase: 'Phase 3: User Story 1' }), 'Verify Phase 3: User Story 1');
+  assert.equal(renderRunSubject({ action: 'tasks', kind: 'converge', order: [[{ task: null }]] }), 'Convergence');
+  assert.equal(renderRunSubject({ action: 'tasks', kind: 'resolve', order: [[{ task: null }]] }), 'Conflict resolution');
+  assert.equal(renderRunSubject({ action: 'tasks', kind: 'resolve', requiredSync: {}, order: [[{ task: null }]] }), 'Required base synchronization');
+  assert.equal(renderRunSubject({ action: 'repair', repair: { scope: 'phase' } }), 'Repair of the phase verification');
+  assert.equal(renderRunSubject({ action: 'merge' }), 'Merge');
+  assert.equal(renderRunSubject({ action: 'failed' }), 'Diagnose the stop');
+  assert.equal(renderRunSubject({ action: 'limit', kind: 'task', task: 'T004' }), 'Stop at the attempt limit of T004');
+  assert.equal(renderRunSubject({ action: 'done' }), '', 'a run with nothing to do keeps the spec name only');
+  assert.equal(renderRunSubject(tasks('sequential', ['T010'], 'x'.repeat(200))).length, 120, 'long subjects are clipped');
+  assert.equal(renderImplementRunName(35, 'Recording Lineage', 'Phase 3 · T010 Create the model'), 'Spec Kit implement spec #35 · Recording Lineage · Phase 3 · T010 Create the model');
+  assert.equal(renderImplementRunName(35, 'Recording Lineage'), 'Spec Kit implement spec #35 · Recording Lineage');
 });
 
 test('describes the [P] groups of every phase as the phase workflow forms them', () => {
@@ -517,8 +566,8 @@ test('ticks a task in tasks.md and syncs the pull request body with it', () => {
 test('decides parallel [P] tasks and their limit', () => {
   const windowStart = '2026-10-06T10:00:00Z';
   const decide = (fields) => decideNext({ tasksMarkdown: PARALLEL_TASKS, windowStart, ...fields });
-  const group = [{ task: 'T002', attempt: 1 }, { task: 'T003', attempt: 1 }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }];
-  assert.deepEqual(decide({}), { ...order(group, [{ task: 'T006', attempt: 1 }], [{ task: 'T007', attempt: 1 }]) });
+  const members = [{ task: 'T002', attempt: 1 }, { task: 'T003', attempt: 1 }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }];
+  assert.deepEqual(decide({}), order(members), 'consecutive [P] tasks form one parallel group; T006 follows in the next run');
   const afterLand = PARALLEL_TASKS.replace('- [ ] T002', '- [x] T002');
   assert.deepEqual(decide({ tasksMarkdown: afterLand, attempts: [attempt('T002', 'success'), attempt('T003')] }).order[0], [{ task: 'T003', attempt: 2 }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }], 'landed siblings leave the group');
   assert.deepEqual(decide({ attempts: [attempt('T003'), attempt('T003'), attempt('T003')] }), { action: 'limit', kind: 'task', task: 'T003', attempts: 3, stale: [] }, 'a member at its limit stops the group');
@@ -532,14 +581,18 @@ test('decides convergence, conflict resolution, and merging after the last task'
   const check = (id, external_id, fields = {}) => ({ id, external_id, status: 'completed', conclusion: 'neutral', started_at: at(12), ...fields });
   const done = '- [x] T001 a\n';
   const decide = (fields) => decideNext({ tasksMarkdown: done, windowStart, now, ...fields });
-  const taskDone = attempt('T001', 'success', at(11));
-  const single = (name, number) => ({ action: 'tasks', kind: name, order: [[{ task: null, attempt: number }]], phaseEnd: false, lastIsParallel: false, stale: [] });
+  const landed = attempt('T001', 'success', at(11));
+  // The finished phase was verified after its last task; without that the phase verification comes first.
+  const phaseVerified = { kind: 'verify', task: null, attempt: 1, outcome: 'success', at: at(11), phase: null };
+  const single = (name, number) => ({ action: 'tasks', kind: name, order: [[{ task: null, attempt: number }]], stale: [] });
 
-  assert.deepEqual(decide({ attempts: [taskDone] }), single('converge', 1));
-  assert.deepEqual(decide({ attempts: [kind('converge', 10), taskDone] }), single('converge', 1), 'a convergence older than the last task does not count');
-  assert.deepEqual(decide({ attempts: [taskDone, kind('converge', 12, 'failure'), kind('converge', 13, 'failure'), kind('converge', 14, 'failure')] }), { action: 'limit', kind: 'converge', attempts: 3, stale: [] });
+  assert.equal(decide({ attempts: [landed] }).action, 'verify', 'the phase is verified before the convergence');
 
-  const converged = [taskDone, kind('converge', 12)];
+  assert.deepEqual(decide({ attempts: [landed, phaseVerified] }), single('converge', 1));
+  assert.deepEqual(decide({ attempts: [kind('converge', 10), landed, phaseVerified] }), single('converge', 1), 'a convergence older than the last task does not count');
+  assert.deepEqual(decide({ attempts: [landed, phaseVerified, kind('converge', 12, 'failure'), kind('converge', 13, 'failure'), kind('converge', 14, 'failure')] }), { action: 'limit', kind: 'converge', attempts: 3, stale: [] });
+
+  const converged = [landed, phaseVerified, kind('converge', 12)];
   assert.deepEqual(decide({ attempts: converged }), { action: 'merge', kind: 'merge', attempt: 1, stale: [] });
   const merges = [check(1, CHECK_MERGE, { conclusion: 'failure' }), check(2, CHECK_MERGE, { conclusion: 'neutral' })];
   assert.deepEqual(decide({ attempts: converged, checks: merges }), { action: 'merge', kind: 'merge', attempt: 3, stale: [] });
@@ -570,7 +623,8 @@ test('resolves conflicts with the base branch before a phase, best effort', () =
   const open = '- [x] T001 a\n- [ ] T002 b\n';
   const syncConflict = { id: 1, external_id: CHECK_SYNC_CONFLICT, status: 'completed', conclusion: 'neutral', started_at: at(12) };
   const decide = (fields) => decideNext({ tasksMarkdown: open, windowStart, now, checks: [syncConflict], ...fields });
-  const resolveNext = (number) => ({ action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: number }]], phaseEnd: false, lastIsParallel: false, stale: [] });
+  const resolveNext = (number) => ({ action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: number }]], stale: [] });
+  const phaseVerified = { kind: 'verify', task: null, attempt: 1, outcome: 'success', at: at(11), phase: null };
 
   assert.deepEqual(decide({}), resolveNext(1), 'the conflict is resolved before the phase');
   assert.deepEqual(decide({ attempts: [resolve(11, 'failure'), resolve(13, 'failure')] }), resolveNext(2), 'only attempts at this conflict count');
@@ -580,9 +634,9 @@ test('resolves conflicts with the base branch before a phase, best effort', () =
   assert.deepEqual(decide({ attempts: [resolve(13, 'attention')] }), { ...phase, syncGivenUp: syncConflict }, 'conflicts that need a person are left to the merge');
   const converging = decideNext({ tasksMarkdown: '- [x] T001 a\n', windowStart, now, checks: [syncConflict], attempts: [attempt('T001', 'success', at(11))] });
   assert.deepEqual(converging, resolveNext(1), 'a conflict before the convergence is resolved first, too');
-  const convergeGivenUp = decideNext({ tasksMarkdown: '- [x] T001 a\n', windowStart, now, checks: [syncConflict], attempts: [attempt('T001', 'success', at(11)), resolve(13, 'attention')] });
+  const convergeGivenUp = decideNext({ tasksMarkdown: '- [x] T001 a\n', windowStart, now, checks: [syncConflict], attempts: [attempt('T001', 'success', at(11)), phaseVerified, resolve(13, 'attention')] });
   assert.deepEqual([convergeGivenUp.kind, convergeGivenUp.syncGivenUp], ['converge', syncConflict], 'and the convergence continues on its base when it cannot be resolved');
-  const converged = [attempt('T001', 'success', at(11)), attempt(null, 'success', at(12), 'converge')];
+  const converged = [attempt('T001', 'success', at(11)), phaseVerified, attempt(null, 'success', at(12), 'converge')];
   const mergeGivenUp = decideNext({ tasksMarkdown: '- [x] T001 a\n', windowStart, now, checks: [syncConflict], attempts: [...converged, resolve(13, 'failure'), resolve(14, 'failure')] });
   assert.deepEqual([mergeGivenUp.action, mergeGivenUp.syncGivenUp], ['merge', syncConflict]);
   assert.equal(integrationTarget({ action: 'repair', syncGivenUp: syncConflict }), null);
@@ -690,149 +744,115 @@ test('keeps durable repair state until the matching repair is resolved', () => {
   ]), null);
 });
 
-test('the implementation workflows give task, group, repair, convergence, conflict resolution, and merge dedicated entry points', () => {
+test('the implementation chain: one control workflow per run and one work workflow call per task, convergence, repair, or resolution', () => {
   const read = (name) => readFileSync(new URL(`../workflows/${name}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const job = (workflow, name) => workflow.match(new RegExp(`^ {2}${name}:\\n[\\s\\S]*?(?=^ {2}\\S|^ {2}#|(?![\\s\\S]))`, 'm'))?.[0] ?? '';
-  const spec = read('speckit-implement-spec.yml');
-  const phase = read('speckit-implement-phase.yml');
-  const group = read('speckit-implement-group.yml');
-  const task = read('speckit-implement-task.yml');
-  const repair = read('speckit-implement-repair.yml');
-  const converge = read('speckit-implement-converge.yml');
-  const resolve = read('speckit-implement-resolve.yml');
-  const merge = read('speckit-implement-merge.yml');
-  assert.match(spec, /^name: Spec Kit implement spec\n/);
-  assert.match(phase, /^name: Spec Kit implement phase\n/);
-  assert.match(group, /^name: Spec Kit implement group\n/);
-  assert.match(task, /^name: Spec Kit implement task\n/);
-  assert.match(repair, /^name: Spec Kit implement repair\n/);
-  assert.match(converge, /^name: Spec Kit implement convergence\n/);
-  assert.match(resolve, /^name: Spec Kit implement conflict resolution\n/);
-  assert.match(merge, /^name: Spec Kit implement merge\n/);
-  assert.match(spec, /^run-name: "Spec Kit implement spec #\$\{\{ inputs\.twin \}\}\$\{\{ inputs\.title && format\(' · \{0\}', inputs\.title\) \|\| '' \}\}"$/m);
+  const chain = read('speckit-implement.yml');
+  const unit = read('speckit-implement-work.yml');
+  assert.match(chain, /^name: Spec Kit implement\n/);
+  assert.match(unit, /^name: Spec Kit implement work\n/);
+  assert.deepEqual(readdirSync(new URL('../workflows/', import.meta.url)).filter((name) => /^speckit-implement/.test(name)).sort(), ['speckit-implement-work.yml', 'speckit-implement.yml']);
+  // The run name says which spec and what the run works on.
+  assert.match(chain, /^run-name: >-\n {2}Spec Kit implement spec #\$\{\{ inputs\.issue \}\}\$\{\{ inputs\.title && format\(' · \{0\}', inputs\.title\) \|\| '' \}\}\$\{\{ inputs\.subject && format\(' · \{0\}', inputs\.subject\) \|\| '' \}\}$/m);
+  assert.match(chain, /^ {6}subject:\n {8}description: [^\n]+\n {8}required: false/m);
   // Every Spec Kit workflow that an event starts names its runs "Spec Kit <workflow> …"; GitHub would otherwise name
   // pull request, comment, and push runs after a title or commit message that does not say they belong to Spec Kit.
   for (const file of readdirSync(new URL('../workflows/', import.meta.url)).filter((name) => /^speckit-.*\.(yml|md)$/.test(name) && !name.endsWith('.lock.yml'))) {
     const source = read(file);
     const triggers = source.match(/^on:\n[\s\S]*?(?=^\S)/m)?.[0] ?? '';
     if (/^ {2}workflow_call:/m.test(triggers)) continue;
-    const runName = source.match(/^run-name: "(.*)"$/m)?.[1] ?? '';
+    const runName = source.match(/^run-name: "(.*)"$/m)?.[1] ?? source.match(/^run-name: >-\n {2}(.*)$/m)?.[1] ?? '';
     const literals = [...runName.matchAll(/'([^']*)'/g)].map((match) => match[1]).filter((text) => /^Spec Kit /.test(text));
     assert.ok(runName.startsWith('Spec Kit ') || literals.length > 0, `${file} names its runs after Spec Kit`);
     for (const event of ['issue_comment', 'pull_request_review', 'pull_request_target', 'issues']) {
       if (new RegExp(`^ {2}${event}:`, 'm').test(triggers)) assert.match(runName, new RegExp(`github\\.event_name == '${event}' && format\\('Spec Kit [^']*#\\{0\\}`), `${file} references the ${event} item by number`);
     }
   }
-  assert.match(job(spec, 'phase'), /name: \$\{\{ needs\.decide\.outputs\.action == 'implement' && needs\.decide\.outputs\.job_name \|\| 'Implement a phase' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-phase\.yml/);
-  assert.match(job(spec, 'repair'), /needs\.decide\.outputs\.action == 'repair'[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-repair\.yml/);
-  assert.match(job(spec, 'converge'), /name: \$\{\{ needs\.decide\.outputs\.action == 'converge' && needs\.decide\.outputs\.job_name \|\| 'Convergence' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-converge\.yml/);
-  assert.match(job(spec, 'resolve'), /name: \$\{\{ needs\.decide\.outputs\.action == 'resolve' && needs\.decide\.outputs\.job_name \|\| 'Conflict resolution' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-resolve\.yml/);
-  assert.match(job(spec, 'merge'), /name: Merge implementation[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-merge\.yml[\s\S]*head: \$\{\{ needs\.decide\.outputs\.head \}\}[\s\S]*check_run: \$\{\{ needs\.decide\.outputs\.check_run \}\}/);
-  assert.doesNotMatch(task, /inputs\.kind|SPECKIT_KIND/, 'the task workflow has no operation discriminator');
-  assert.match(converge, /speckit-converge\.mjs" package[\s\S]*speckit-converge\.mjs land-tasks/);
-  assert.match(resolve, /speckit-resolve\.mjs" integrate[\s\S]*speckit-resolve\.mjs" package[\s\S]*speckit-resolve\.mjs" verdict[\s\S]*speckit-resolve\.mjs land-tasks/);
-  assert.match(job(resolve, 'work'), /workflow: resolve\n[\s\S]*guidance=\$\{\{ matrix\.guidance \}\}/, 'the guidance reaches the Spec Kit workflow resolve');
-  assert.equal([...job(repair, 'work').matchAll(/^ {6}SPECKIT_REPAIR_SCOPE:/gm)].length, 1, 'repair work declares its scope once');
-  // Pull model: every run first merges the base branch in its own job; decide follows, so a conflict is resolved in
-  // the same run, and the work after decide also runs when that merge failed.
-  assert.match(job(spec, 'sync'), /name: Merge the base branch\n\s+if: github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)[\s\S]*run: node \.github\/scripts\/speckit-spec\.mjs sync/);
-  assert.doesNotMatch(spec, /inputs\.resume|SPECKIT_RESUME/);
-  assert.match(job(spec, 'decide'), /needs: sync\n[\s\S]*if: \$\{\{ !cancelled\(\) && github\.ref == /);
-  for (const name of ['phase', 'repair', 'converge', 'resolve', 'merge']) assert.match(job(spec, name), /if: \$\{\{ !cancelled\(\) && needs\.decide\.result == 'success' && /, name);
-  // GitHub shows the name of a skipped job that is not a reusable workflow call unevaluated, so such jobs have fixed names.
-  for (const [label, workflow] of [['spec', spec], ['phase', phase], ['group', group], ['task', task], ['repair', repair]]) {
-    for (const [, name, body] of workflow.matchAll(/^ {2}([\w-]+):\n((?: {4}[^\n]*\n|\n)+)/gm)) {
-      if (/^ {4}name: \$\{\{/m.test(body) && /^ {4}if: (?!always\(\))/m.test(body) && !/^ {4}uses: /m.test(body)) assert.fail(`${label}: job ${name} can be skipped, so its name must not be an expression`);
-    }
-  }
-
-  for (const [label, workflow] of [['spec', spec], ['phase', phase], ['group', group], ['task', task], ['repair', repair]]) {
+  // The merge of the base branch, one decision, exactly one alternative, and the next run.
+  assert.deepEqual([...chain.matchAll(/^ {2}([\w-]+):\n {4}name: /gm)].map((match) => match[1]),
+    ['refuse', 'sync', 'decide', 'sequential', 'parallel', 'group-verify', 'group-report', 'verify', 'verify-report', 'repair', 'repair-verify', 'repair-report', 'merge-archive', 'merge-verify', 'merge-land', 'continue']);
+  assert.match(job(chain, 'sync'), /name: Merge the base branch\n\s+if: github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)[\s\S]*run: node \.github\/scripts\/speckit-spec\.mjs sync/);
+  assert.match(job(chain, 'decide'), /needs: sync\n[\s\S]*if: \$\{\{ !cancelled\(\) && github\.ref == /);
+  for (const name of ['sequential', 'parallel', 'verify', 'repair', 'merge-archive']) assert.match(job(chain, name), /if: \$\{\{ !cancelled\(\) && needs\.decide\.result == 'success' && /, name);
+  // A sequential group runs one task at a time and stops at the first task that does not land; a parallel group runs at
+  // most five at a time and lands every task on its own.
+  const sequential = job(chain, 'sequential');
+  assert.match(sequential, /name: \$\{\{ matrix\.name \}\}[\s\S]*needs\.decide\.outputs\.mode == 'sequential'[\s\S]*max-parallel: 1\n\s+fail-fast: true\n\s+matrix:\n\s+include: \$\{\{ fromJSON\(needs\.decide\.outputs\.entries\) \}\}\n\s+uses: \.\/\.github\/workflows\/speckit-implement-work\.yml/);
+  assert.match(sequential, /kind: \$\{\{ needs\.decide\.outputs\.kind \}\}\n\s+order: \$\{\{ needs\.decide\.outputs\.order \}\}\n\s+entry: \$\{\{ toJSON\(matrix\) \}\}\n/);
+  const parallel = job(chain, 'parallel');
+  assert.match(parallel, /needs\.decide\.outputs\.mode == 'parallel'[\s\S]*max-parallel: 5\n\s+fail-fast: false\n\s+matrix:\n\s+include: \$\{\{ fromJSON\(needs\.decide\.outputs\.entries\) \}\}\n\s+uses: \.\/\.github\/workflows\/speckit-implement-work\.yml/);
+  assert.match(parallel, /kind: implement\n\s+order: \$\{\{ needs\.decide\.outputs\.order \}\}\n\s+entry: \$\{\{ toJSON\(matrix\) \}\}\n/);
+  assert.match(job(chain, 'repair'), /needs\.decide\.outputs\.verify_only != 'true'[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-work\.yml[\s\S]*kind: repair\n\s+order: \$\{\{ needs\.decide\.outputs\.order \}\}\n\s+entry: \$\{\{ needs\.decide\.outputs\.entry \}\}\n/);
+  // The work takes only inputs that mean the same for every kind; what is specific to a kind is in its work item.
+  const inputs = unit.slice(unit.indexOf('    inputs:\n'), unit.indexOf('    outputs:\n'));
+  assert.deepEqual([...inputs.matchAll(/^ {6}([a-z_]+):\n/gm)].map((match) => match[1]), ['issue', 'pull', 'folder', 'base', 'kind', 'order', 'entry']);
+  assert.deepEqual([...new Set([...unit.matchAll(/fromJSON\(inputs\.entry\)\.([a-z_]+)/g)].map((match) => match[1]))].sort(),
+    ['attempt', 'defer_progress', 'guidance', 'index', 'repair', 'required_sync', 'sync_repair', 'task']);
+  assert.match(unit, /mode: \$\{\{ inputs\.kind == 'resolve' && 'finalize' \|\| 'task' \}\}/, 'the verification mode follows the kind');
+  // Parallel tasks are verified together only when a landing combined a sibling's edits, with the affected tests.
+  const groupVerify = job(chain, 'group-verify');
+  assert.match(groupVerify, /needs: \[decide, parallel\][\s\S]*GROUP_START: \$\{\{ needs\.decide\.outputs\.head \}\}[\s\S]*- name: Find combined edits\n\s+id: combined\n[\s\S]*run: node tooling\/\.github\/scripts\/speckit-group\.mjs combined-edits/);
+  for (const step of ['Set up the solution environment', 'Verify the combined group']) assert.match(groupVerify, new RegExp(`- name: ${step}\\n\\s+if: steps\\.combined\\.outputs\\.combined == 'true' && `), step);
+  assert.match(groupVerify, /- name: Verify the combined group[\s\S]*mode: task\n/);
+  assert.match(job(chain, 'group-report'), /SPECKIT_COMBINED: \$\{\{ needs\.group-verify\.outputs\.combined \|\| 'true' \}\}/);
+  // A finished phase is verified in a run of its own; a failure fails the job and is recorded as a stop.
+  const verify = job(chain, 'verify');
+  assert.match(verify, /name: Verify the phase\n/);
+  assert.match(verify, /ref: \$\{\{ needs\.decide\.outputs\.head \}\}/);
+  assert.match(verify, /BASE_BRANCH: \$\{\{ needs\.decide\.outputs\.base_branch \}\}[\s\S]*git merge-base HEAD "origin\/\$BASE_BRANCH"/, 'the phase verification covers all changes of the branch');
+  assert.match(verify, /- name: Verify the phase\n\s+if: [^\n]+\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify[\s\S]*mode: phase/, 'a failed phase verification fails the job');
+  assert.match(job(chain, 'verify-report'), /needs: \[decide, verify\][\s\S]*SPECKIT_VERIFY_RESULT: \$\{\{ needs\.verify\.result \}\}[\s\S]*speckit-spec\.mjs verify-report/);
+  // The spec is archived on the implementation branch before the verification, which verifies and merges that head.
+  assert.match(job(chain, 'merge-archive'), /SPECKIT_BASE_BRANCH: \$\{\{ needs\.decide\.outputs\.base_branch \}\}[\s\S]*run: node tooling\/\.github\/scripts\/speckit-merge\.mjs archive/);
+  assert.doesNotMatch(job(chain, 'merge-archive'), /environment-setup|environment-verify|copilot/);
+  assert.match(job(chain, 'merge-verify'), /needs: \[decide, merge-archive\][\s\S]*ref: \$\{\{ needs\.merge-archive\.outputs\.head \}\}/);
+  assert.match(job(chain, 'merge-land'), /SPECKIT_CHECK_RUN: \$\{\{ needs\.merge-archive\.outputs\.check_run \|\| needs\.decide\.outputs\.check_run \}\}/);
+  assert.match(job(chain, 'continue'), /needs: \[sync, decide, sequential, parallel, group-report, verify-report, repair-report, merge-land\][\s\S]*speckit-spec\.mjs continue/);
+  // The pull request's base branch flows from decide to every job that merges or compares with git.
+  assert.match(job(chain, 'decide'), /base_branch: \$\{\{ steps\.decide\.outputs\.base_branch \}\}/);
+  for (const name of ['sequential', 'parallel', 'repair']) assert.match(job(chain, name), /base: \$\{\{ needs\.decide\.outputs\.base_branch \}\}/, name);
+  assert.match(unit, /^ {6}base:\n {8}description: [^\n]+\n {8}required: true/m);
+  for (const name of ['work', 'land']) assert.match(job(unit, name), /SPECKIT_BASE_BRANCH: \$\{\{ inputs\.base \}\}/, name);
+  for (const [label, workflow] of [['chain', chain], ['unit', unit]]) {
+    assert.doesNotMatch(workflow, /SPECKIT_BRANCH:|\bmain\b/, `${label}: no SPECKIT_BRANCH and no assumed main`);
+    assert.doesNotMatch(workflow, /Verify [^\n]* again|SPECKIT_VERIFY_RETRIED|inputs\.resume|SPECKIT_RESUME/, label);
     assert.doesNotMatch(workflow, /name: [^\n]*['"]?[123] · /, `${label}: job names say what the job does, without step numbers`);
   }
-  // The merge of the base branch, one decision, exactly one of the alternatives, and the next run.
-  assert.deepEqual([...spec.matchAll(/^ {2}([\w-]+):\n {4}name: /gm)].map((match) => match[1]),
-    ['refuse', 'sync', 'decide', 'phase', 'repair', 'converge', 'resolve', 'merge', 'continue']);
-  assert.match(spec, /continue:[\s\S]*?needs: \[sync, decide, phase, repair, converge, resolve, merge\][\s\S]*SPECKIT_PHASE_CHECK: \$\{\{ needs\.phase\.outputs\.verified \}\}/);
-  const groups = job(phase, 'groups');
-  assert.match(groups, /name: \$\{\{ matrix\.name \}\}/);
-  assert.match(groups, /max-parallel: 1\n\s+fail-fast: true\n\s+matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.task_matrix\) \}\}/);
-  assert.match(groups, /uses: \.\/\.github\/workflows\/speckit-implement-group\.yml/);
-  const groupTasks = job(group, 'tasks');
-  assert.match(groupTasks, /matrix: \$\{\{ fromJSON\(inputs\.order\)\[inputs\.index\] \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-task\.yml/);
-  assert.doesNotMatch(groupTasks, /max-parallel/, 'all [P] tasks of a group run at once');
-  assert.doesNotMatch(job(task, 'work'), /strategy:|matrix\./, 'a task workflow implements exactly one task');
-  assert.match(job(task, 'work'), /SPECKIT_TASK: \$\{\{ inputs\.task \}\}/);
-  assert.match(phase, /verified:[\s\S]*?value: \$\{\{ jobs\.verify\.result \}\}/);
-  // The pull request's base branch flows from decide to every job that merges or compares with git; the default
-  // branch only selects the trusted tooling.
-  assert.match(job(spec, 'decide'), /base_branch: \$\{\{ steps\.decide\.outputs\.base_branch \}\}/);
-  for (const name of ['phase', 'repair', 'converge', 'resolve', 'merge']) assert.match(job(spec, name), /base: \$\{\{ needs\.decide\.outputs\.base_branch \}\}/, name);
-  // The spec is archived on the implementation branch before the verification, which verifies and merges that head.
-  const archive = job(merge, 'archive');
-  assert.match(archive, /SPECKIT_BASE_BRANCH: \$\{\{ inputs\.base \}\}[\s\S]*run: node tooling\/\.github\/scripts\/speckit-merge\.mjs archive/);
-  assert.doesNotMatch(archive, /environment-setup|environment-verify/, 'the archive job never runs agent-written code');
-  assert.match(job(merge, 'verify'), /needs: archive[\s\S]*ref: \$\{\{ needs\.archive\.outputs\.head \}\}/);
-  assert.match(job(merge, 'land'), /SPECKIT_CHECK_RUN: \$\{\{ needs\.archive\.outputs\.check_run \|\| inputs\.check_run \}\}/);
-  assert.match(groups, /base: \$\{\{ inputs\.base \}\}/);
-  for (const workflow of [phase, group, task, repair, converge, resolve, merge]) assert.match(workflow, /^ {6}base:\n {8}description: [^\n]+\n {8}required: true/m);
-  for (const name of ['work', 'land']) assert.match(job(task, name), /SPECKIT_BASE_BRANCH: \$\{\{ inputs\.base \}\}/, name);
-  for (const [label, workflow] of [['spec', spec], ['phase', phase], ['group', group], ['task', task], ['repair', repair], ['merge', merge]]) {
-    assert.doesNotMatch(workflow, /SPECKIT_BRANCH:|\bmain\b/, `${label}: no SPECKIT_BRANCH and no assumed main`);
+  // The work workflow runs its gha Spec Kit workflow, packages, verifies, and lands it through its kind's entry point.
+  const work = job(unit, 'work');
+  assert.match(work, /- name: Package the result\n\s+id: package\n\s+run: node "\$SPECKIT_TOOLING\/\.github\/scripts\/speckit-\$\{\{ inputs\.kind \}\}\.mjs" package/);
+  assert.match(work, /- name: Verify the change\n[\s\S]*\(inputs\.kind == 'implement' \|\| inputs\.kind == 'resolve'\)[\s\S]*SPECKIT_VERIFY_OUTCOME: \$\{\{ steps\.verify\.outcome \}\}/);
+  assert.match(work, /- name: Record the verdict\n\s+if: inputs\.kind == 'implement' \|\| inputs\.kind == 'resolve'\n/, 'the convergence and a repair are not verified before they land');
+  assert.match(work, /- name: Merge the base branch\n\s+id: integrate\n\s+if: inputs\.kind == 'resolve'\n\s+run: node "\$SPECKIT_TOOLING\/\.github\/scripts\/speckit-resolve\.mjs" integrate/);
+  assert.match(work, /- name: Run the Spec Kit workflow resolve\n\s+if: inputs\.kind == 'resolve' && steps\.integrate\.outputs\.agent == 'true'[\s\S]*shell\(git merge:\*\)[\s\S]*guidance=\$\{\{ fromJSON\(inputs\.entry\)\.guidance \}\}/, 'the guidance reaches the Spec Kit workflow resolve');
+  assert.equal([...work.matchAll(/^ {6}SPECKIT_REPAIR_SCOPE:/gm)].length, 1, 'the work declares the repair scope once');
+  assert.doesNotMatch(work, /strategy:|matrix\./, 'a unit works on exactly one task, convergence, repair, or resolution');
+  assert.match(job(unit, 'land'), /run: node "tooling\/\.github\/scripts\/speckit-\$\{\{ inputs\.kind \}\}\.mjs" land-tasks/);
+  // GitHub shows the name of a skipped job that is not a reusable workflow call unevaluated, so such jobs have fixed
+  // names; matrix and reusable calls (sequential, parallel, repair) evaluate theirs.
+  for (const [label, workflow] of [['chain', chain], ['unit', unit]]) {
+    for (const [, name, body] of workflow.matchAll(/^ {2}([\w-]+):\n([\s\S]*?)(?=^ {2}\S|^ {2}#|(?![\s\S]))/gm)) {
+      const condition = body.match(/^ {4}if: (?:>-\n\s+)?(.*)$/m)?.[1] ?? null;
+      const dynamic = /^ {4}name: .*\$\{\{/m.test(body) || /^ {4}name: >-\n/m.test(body);
+      if (condition && condition.trim() !== 'always()' && !/^ {4}uses: /m.test(body)) assert.equal(dynamic, false, `${label} ${name}: a job that can be skipped needs a static name`);
+    }
   }
-  // Every verification runs once; its failure decides (a re-run of unchanged code only delayed real failures).
-  const phaseVerify = job(phase, 'verify');
-  assert.match(phaseVerify, /if: >-\n\s+!cancelled\(\) && needs\.plan\.outputs\.phase_check == 'true' && needs\.groups\.result == 'success'/);
-  assert.match(phaseVerify, /- name: Verify the phase\n\s+if: [^\n]+\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify/, 'a failed phase verification fails the job');
-  assert.match(phaseVerify, /BASE_BRANCH: \$\{\{ inputs\.base \}\}[\s\S]*git merge-base HEAD "origin\/\$BASE_BRANCH"/, 'the phase verification covers all changes of the branch');
-  assert.match(job(group, 'verify'), /needs\.prepare\.outputs\.parallel == 'true'[\s\S]*- name: Verify the combined group[\s\S]*uses: \.\/tooling\/\.github\/actions\/environment-verify/);
-  // Parallel tasks are verified together only when a landing combined a sibling's edits, with the affected tests.
-  const groupVerify = job(group, 'verify');
-  assert.match(groupVerify, /- name: Find combined edits\n\s+id: combined\n[\s\S]*run: node tooling\/\.github\/scripts\/speckit-group\.mjs combined-edits/);
-  assert.match(groupVerify, /combined: \$\{\{ steps\.combined\.outputs\.combined \}\}/);
-  for (const step of ['Set up the solution environment', 'Verify the combined group']) {
-    assert.match(groupVerify, new RegExp(`- name: ${step}\\n\\s+if: steps\\.combined\\.outputs\\.combined == 'true' && `), step);
-  }
-  assert.match(groupVerify, /- name: Verify the combined group[\s\S]*mode: task\n/);
-  assert.doesNotMatch(groupVerify, /mode: phase/, 'the phase verification is the full safety net, not the group');
-  assert.match(job(group, 'report'), /SPECKIT_COMBINED: \$\{\{ needs\.verify\.outputs\.combined \|\| 'true' \}\}/);
-  for (const [workflow, name] of [[task, 'work'], [merge, 'verify']]) {
-    const text = job(workflow, name);
-    assert.doesNotMatch(text, /verify-again|again\n/, name);
-    assert.match(text, /SPECKIT_VERIFY_OUTCOME: \$\{\{ steps\.verify\.outcome \}\}/, name);
-  }
-  for (const workflow of [phase, group, task, repair, converge, resolve, merge, spec]) assert.doesNotMatch(workflow, /Verify [^\n]* again|SPECKIT_VERIFY_RETRIED/);
   // A called workflow cannot hold more permissions than the job that calls it.
   const permissions = (text) => Object.fromEntries([...(text.match(/permissions:\n((?: {6}[\w-]+: \w+\n)+)/)?.[1] ?? '').matchAll(/([\w-]+): (\w+)/g)].map((match) => [match[1], match[2]]));
   const rank = { none: 0, read: 1, write: 2 };
-  const covers = (caller, called, label) => {
-    for (const [scope, level] of Object.entries(called)) assert.ok(rank[caller[scope] ?? 'none'] >= rank[level], `${label}: ${scope}: ${level}`);
-  };
-  for (const name of ['prepare', 'tasks', 'verify', 'report']) covers(permissions(job(phase, 'groups')), permissions(job(group, name)), `phase groups covers group ${name}`);
-  for (const name of ['work', 'land']) covers(permissions(job(group, 'tasks')), permissions(job(task, name)), `group tasks covers task ${name}`);
-  for (const name of ['work', 'land', 'verify', 'report']) covers(permissions(job(spec, 'repair')), permissions(job(repair, name)), `spec repair covers repair ${name}`);
-  for (const name of ['work', 'land']) covers(permissions(job(spec, 'converge')), permissions(job(converge, name)), `spec converge covers convergence ${name}`);
-  for (const name of ['work', 'land']) covers(permissions(job(spec, 'resolve')), permissions(job(resolve, name)), `spec resolve covers resolution ${name}`);
-  for (const name of ['archive', 'verify', 'land']) covers(permissions(job(spec, 'merge')), permissions(job(merge, name)), `spec merge covers merge ${name}`);
-  for (const name of ['plan', 'groups', 'verify']) covers(permissions(job(spec, 'phase')), permissions(job(phase, name)), `spec phase covers phase ${name}`);
-  assert.equal(MAX_MATRIX_JOBS_PER_RUN, 256, 'GitHub runs at most 256 matrix jobs per run');
-  // GitHub does not evaluate the name of a skipped job in a called workflow and shows the raw expression, so a job that
-  // can be skipped there has a static name. Only `groups` keeps its matrix title: it is skipped only when the plan
-  // found nothing to do, and a matrix job cannot be named otherwise.
-  for (const [label, workflow] of [['phase', phase], ['group', group], ['task', task], ['repair', repair], ['converge', converge], ['resolve', resolve], ['merge', merge]]) {
-    for (const [, name, body] of workflow.matchAll(/^ {2}([\w-]+):\n([\s\S]*?)(?=^ {2}\S|^ {2}#|(?![\s\S]))/gm)) {
-      const condition = body.match(/^ {4}if: (?:>-\n\s+)?(.*)$/m)?.[1] ?? null;
-      const dynamic = /^ {4}name: .*\$\{\{/m.test(body);
-      if (condition && condition.trim() !== 'always()' && name !== 'groups') assert.equal(dynamic, false, `${label} ${name}: a job that can be skipped needs a static name`);
+  for (const caller of ['sequential', 'parallel', 'repair']) {
+    for (const name of ['work', 'land']) {
+      for (const [scope, level] of Object.entries(permissions(job(unit, name)))) assert.ok(rank[permissions(job(chain, caller))[scope] ?? 'none'] >= rank[level], `${caller} covers unit ${name}: ${scope}: ${level}`);
     }
   }
+  assert.equal(MAX_MATRIX_JOBS_PER_RUN, 256, 'GitHub runs at most 256 matrix jobs per run');
 });
 
 test('titles every implementation run and job with its workflow, the twin, and its subject', () => {
   assert.equal(specTitleOfPull({ title: 'Implement: Recording Lineage and Upload' }), 'Recording Lineage and Upload');
   assert.equal(renderImplementRunName(35, 'Recording Lineage and Upload'), 'Spec Kit implement spec #35 · Recording Lineage and Upload');
   const heading = 'Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP';
-  assert.equal(planTasks(`## ${heading}\n- [ ] T013 a\n`).phase, heading, 'the phase heading as written, without "## "');
-  assert.equal(renderImplementTitle('phase', 35, phaseSubject(heading)), `Spec Kit implement phase #35 · ${heading}`);
+  assert.equal(planGroup(`## ${heading}\n- [ ] T013 a\n`).phase, heading, 'the phase heading as written, without "## "');
   assert.equal(phaseSubject(null), 'Tasks', 'a tasks.md without phase headings');
   assert.equal(renderImplementTitle('task', 35, taskSubject('task', [{ task: 'T013', summary: '[P] [US1] Create the upload session state …' }])), 'Spec Kit implement task #35 · T013 [P] [US1] Create the upload session state …');
   assert.equal(taskSubject('task', [{ task: 'T013', summary: 'a' }, { task: 'T014', summary: 'b' }]), 'T013, T014 in parallel');

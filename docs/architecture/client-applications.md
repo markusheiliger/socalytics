@@ -66,9 +66,9 @@ The React Web UI supports connected platform and club workflows, including:
   accept on a public invitation page (decided, not yet implemented; see
   [Email Notifications](email-notifications.md#member-invitations))
 - platform configuration and administration: the Analyst Registry
-  administration for Club Admins is implemented (connected workflow; see
-  below); the workflow operations area and the agent catalog administration
-  for Club Admins are decided, not yet implemented
+  administration and the workflow operations area for Club Admins are
+  implemented (connected workflows; see below); the agent catalog
+  administration for Club Admins is decided, not yet implemented
 - Analyst Manager pairing for Registrars and the fleet view for Club Admins
   (implemented): registration approval, rejection, and revocation, and each
   Manager's connectivity, operating state, and activity (see
@@ -163,11 +163,11 @@ applies only to analysis runs created afterwards. The platform decides every
 rule and the Web UI explains its refusals; the area is online only and offers
 no deletion, image building, signing, or graphical workflow editing.
 
-The workflow operations area is decided as follows and not yet implemented.
+The workflow operations area is implemented as a connected workflow as follows.
 Club Admins, who use the operational workflow operations until a stamp-operator
 role exists (see
-[API And Identity](platform-implementation.md#api-and-identity)), open an
-Operations area with the analysis operational summary as the platform reports
+[API And Identity](platform-implementation.md#api-and-identity)), open the
+Operations area under `/operations` with the analysis operational summary as the platform reports
 it, with its observation time and a manual refresh; the outgoing messages of
 the transactional outbox filtered by state and message type, paged, with a
 detail view of everything the platform returns about a message but never its

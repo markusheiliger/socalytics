@@ -19,8 +19,8 @@ $ARGUMENTS
 This command runs as a mandatory `after_tasks` hook of `/speckit-tasks`, right after `tasks.md` was generated. It can
 also be run on its own; the input may then name the spec folder.
 
-The implementation workflow (Spec Kit implement phase) runs the tasks of each phase one after another in task order,
-except that consecutive unchecked `[P]` tasks under one heading run in parallel, each from the same commit. Parallel
+The implementation workflow (Spec Kit implement) runs the tasks of each phase one after another in task order,
+except that consecutive unchecked `[P]` tasks under one heading run in parallel (at most 5 at once), each from the same commit. Parallel
 tasks that change the same file are merged afterwards and verified
 together, and redone when their edits conflict, which costs whole runs. This command makes the groups safe and, for a
 fresh `tasks.md`, uses the parallelism the plan allows.
