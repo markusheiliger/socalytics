@@ -19,7 +19,8 @@ import {
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_COMMENT_MARKER,
   MAX_CORRECTION_ROUNDS,
-  IMPLEMENT_WORKFLOW_FILE,
+  IMPLEMENT_CHAIN_WORKFLOW_FILES,
+  LEGACY_IMPLEMENT_WORKFLOW_FILES,
   MAX_STALLED_ROUNDS,
   MAX_WRITER_GUIDANCE,
   PR_COMMANDS,
@@ -124,7 +125,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, gu
   });
   try {
     await client.dispatchWorkflow(DIAGNOSE_WORKFLOW_FILE, defaultBranchOf(env), {
-      twin: String(twin),
+      issue: String(twin),
       pull: String(pull),
       folder,
       guidance: clip(guidance, 4000),
@@ -251,8 +252,18 @@ export async function runEvidence({ client, env, log }) {
   // A task that fails its verification is reported in the pull request comments above; failed jobs are crashes,
   // timeouts, and infrastructure problems.
   sections.push('## Failed jobs of recent implementation runs', '');
-  const runs = (await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, pull.created_at, 2))
+  // Runs of the chain before groups count too while implementations started on it are still open.
+  const listed = [];
+  for (const file of [...IMPLEMENT_CHAIN_WORKFLOW_FILES, ...LEGACY_IMPLEMENT_WORKFLOW_FILES]) {
+    try {
+      listed.push(...await client.listWorkflowRuns(file, pull.created_at, 2));
+    } catch {
+      // A removed workflow file may not be listed any more.
+    }
+  }
+  const runs = listed
     .filter((run) => isImplementRunOf(run.display_title, twin) && run.status === 'completed')
+    .sort((a, b) => Date.parse(b.created_at ?? 0) - Date.parse(a.created_at ?? 0))
     .slice(0, 5);
   for (const run of runs) {
     const failedJobs = (await client.listRunJobs(run.id)).filter((item) => item.conclusion === 'failure');

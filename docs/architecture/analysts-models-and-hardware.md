@@ -309,8 +309,8 @@ bounded by a configured size and deleted when the attempt ends. This
 Manager-mediated read, the staging, and the coverage are implemented as
 development evidence against the simulated Analyst, whose match-level lineage
 is built from the staged inputs; real Analyst execution is implemented on the
-Docker Desktop profile, while production evidence remains future work, as does
-source-video access for ACs. The member fact read described below is implemented
+Docker Desktop profile, and segment media access for ACs through Manager
+staging is implemented, while production evidence remains future work. The member fact read described below is implemented
 as development evidence against the simulated Analyst. For a dependency that permits partial coverage,
 the read reports the coverage recorded in the job's input snapshot together
 with the declared coverage mode, and members see each node's input coverage
@@ -323,7 +323,7 @@ directly. If the run-pinned Analyst profile's video policy permits video, the
 AC receives its segment's materialized media staged by the AM through
 short-lived per-object read grants, as described in
 [Analyst Runtime and Recovery](analyst-runtime-and-recovery.md#runtime-preflight-and-status)
-(decided, not yet implemented); the AC itself never receives presigned access,
+; the AC itself never receives presigned access,
 and video bytes do not pass through the API.
 
 The same capability-scoped pattern is implemented for people (development

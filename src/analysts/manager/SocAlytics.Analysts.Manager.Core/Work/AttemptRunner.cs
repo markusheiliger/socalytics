@@ -41,6 +41,7 @@ public sealed class AttemptRunner(
     ExecutedRuntime? executedRuntime = null,
     ResultPublisher? publisher = null,
     UpstreamStager? stager = null,
+    SegmentMediaStager? mediaStager = null,
     Registration.MinimumVersionState? minimumVersion = null)
 {
     public static readonly TimeSpan ClaimRetryWindow = TimeSpan.FromSeconds(20);
@@ -213,6 +214,7 @@ public sealed class AttemptRunner(
             try
             {
                 string? inputsDirectory = null;
+                string? mediaDirectory = null;
                 var attemptDirectory = UpstreamStager.DirectoryFor(attempt.AttemptId);
                 LiveDirectories[attemptDirectory] = 0;
                 PrepareAttemptDirectory(attempt, attemptDirectory);
@@ -233,7 +235,24 @@ public sealed class AttemptRunner(
                     inputsDirectory = Path.Combine(attemptDirectory, UpstreamStager.InputsFolder);
                 }
 
-                execution = await runtime.StartAttemptAsync(Launch(attempt, inputsDirectory), cancellationToken);
+                if (mediaStager is not null && SegmentMediaStager.HasMedia(attempt.Job))
+                {
+                    var staged = await mediaStager.StageAsync(attempt, attemptDirectory, sessions, cancellationToken);
+                    if (staged.End == StagingEnd.Obsolete)
+                    {
+                        heartbeatCts.Cancel();
+                        return AttemptRunEnd.Abandoned;
+                    }
+
+                    if (staged.End == StagingEnd.Failed)
+                    {
+                        throw new StagingFailedException(staged.FailureCategory!);
+                    }
+
+                    mediaDirectory = Path.Combine(attemptDirectory, SegmentMediaStager.MediaFolder);
+                }
+
+                execution = await runtime.StartAttemptAsync(Launch(attempt, inputsDirectory, mediaDirectory), cancellationToken);
                 attempt.ExecutionState = AttemptExecutionStates.Running;
 
                 using var timeoutCts = new CancellationTokenSource();
@@ -535,7 +554,7 @@ public sealed class AttemptRunner(
         public string Category { get; } = category;
     }
 
-    private AttemptLaunch Launch(ActiveAttempt attempt, string? inputsDirectory)
+    private AttemptLaunch Launch(ActiveAttempt attempt, string? inputsDirectory, string? mediaDirectory)
     {
         var job = attempt.Job;
         var attemptDirectory = UpstreamStager.DirectoryFor(attempt.AttemptId);
@@ -545,7 +564,7 @@ public sealed class AttemptRunner(
             new AttemptResources(job.Resources.CpuMillicores / 1000.0, job.Resources.MemoryMebibytes * 1024 * 1024, []),
             job, attempt.AttemptNumber, publisher is null ? null : ResultPublisher.DirectoryFor(attempt.AttemptId), inputsDirectory,
             Path.Combine(attemptDirectory, JobFileName), Path.Combine(attemptDirectory, ScratchFolder),
-            Path.Combine(attemptDirectory, AttemptFileName));
+            Path.Combine(attemptDirectory, AttemptFileName), mediaDirectory);
     }
 
     private static ExecutedRuntime Describe(string profile) => new(

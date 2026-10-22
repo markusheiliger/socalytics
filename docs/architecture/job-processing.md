@@ -180,8 +180,7 @@ and evolve additively within their major version.
 
 For each analysis run, the Scheduler:
 
-1. Materializes required logical segments on demand. Decided, not yet
-    implemented: at run creation the Scheduler requests the materialized
+1. Materializes required logical segments on demand. At run creation the Scheduler requests the materialized
     identity of every segment-scoped job whose run-pinned Analyst profile's
     video policy is `required` or `optional`, never for `forbidden`. Such a job
     stays waiting until its segment is `available`, and its input snapshot and

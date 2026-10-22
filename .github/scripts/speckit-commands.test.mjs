@@ -167,7 +167,7 @@ test('retry restarts what stopped with guidance, on the branch as it is', async 
   const github = diagnosisRepo();
   const result = await run(github, '/speckit retry Rerun the verification unchanged');
   assert.equal(result.outcome, 'retried');
-  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }]);
+  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-decide.yml', { issue: '5', pull: '9', title: 'F' }]);
   const retried = github.comments.at(-1);
   assert.match(retried.body, /^<!-- speckit-implement:retry -->[\s\S]*Implementation retried by @dev; what stopped restarts with a fresh attempt count while preserving the current phase base\.[\s\S]*> Rerun the verification unchanged/);
   assert.match(retried.body, /The guidance is added to the prompt of the first work that runs[^\n]* and ends after its first success or a person's push; it changes no check, limit, or verification\./);
@@ -253,7 +253,7 @@ test('specify starts the authoring of a new spec once, and refuses while one is 
   assert.deepEqual([check.name, check.external_id, check.status], ['Spec Kit author', 'speckit:fix-authoring', 'in_progress'], 'its own check run, apart from the implementation');
   const dispatched = github.repo.runs.at(-1);
   assert.equal(dispatched.workflow, 'speckit-author.yml');
-  assert.deepEqual({ ...dispatched.inputs, stamp: 'x' }, { twin: '5', pull: '9', folder: 'f', guidance: 'Make UploadSessionExpiryTests independent of runner load', check_run: String(check.id), mode: 'author', amendment: '', round: '0', stalls: '0', findings: '', stamp: 'x' });
+  assert.deepEqual({ ...dispatched.inputs, stamp: 'x' }, { issue: '5', pull: '9', folder: 'f', guidance: 'Make UploadSessionExpiryTests independent of runner load', check_run: String(check.id), mode: 'author', amendment: '', round: '0', stalls: '0', findings: '', stamp: 'x' });
   assert.match(dispatched.inputs.stamp, /^\d{8}-\d{6}$/);
   assert.match(github.comments.at(-1).body, /^<!-- speckit-fix:requested \{"by":"dev"[\s\S]*\*\*A new spec is being authored\*\*, requested by @dev[\s\S]*merged automatically[\s\S]*> Make UploadSessionExpiryTests/);
   assert.equal(parseGuidance(github.comments.at(-1).body), 'Make UploadSessionExpiryTests independent of runner load');

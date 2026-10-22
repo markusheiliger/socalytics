@@ -70,13 +70,14 @@ def test_unsupported_attempt_versions_are_refused(version: str) -> None:
 def test_newer_job_minor_is_refused_and_supported_minors_select_their_release() -> None:
     assert schemas.select_version("analyst-job", {"contractVersion": "1.0.0"}) == "1.0.0"
     assert schemas.select_version("analyst-job", {"contractVersion": "1.1.0"}) == "1.1.0"
+    assert schemas.select_version("analyst-job", {"contractVersion": "1.2.0"}) == "1.2.0"
     with pytest.raises(errors.InputError) as raised:
-        schemas.select_version("analyst-job", {"contractVersion": "1.2.0"})
+        schemas.select_version("analyst-job", {"contractVersion": "1.3.0"})
     assert raised.value.category == errors.UNSUPPORTED_CONTRACT_VERSION
 
 
 def test_supported_versions_follow_research_r5() -> None:
-    assert schemas.supported_versions("analyst-job") == ("1.0.0", "1.1.0")
+    assert schemas.supported_versions("analyst-job") == ("1.0.0", "1.1.0", "1.2.0")
     assert schemas.supported_versions("analyst-attempt") == ("1.0.0",)
     assert schemas.supported_versions("upstream-results") == ("1.0.0", "1.1.0")
     assert schemas.supported_versions("result-manifest") == ("1.0.0", "1.1.0")

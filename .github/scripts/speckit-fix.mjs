@@ -227,7 +227,7 @@ export async function startFixAuthoring(client, env, { twin, implementation, gui
   ].join('\n'));
   try {
     await client.dispatchWorkflow(FIX_WORKFLOW_FILE, defaultBranch, {
-      twin: String(twin),
+      issue: String(twin),
       pull: String(implementation.number),
       folder,
       guidance: clip(value, 4000),

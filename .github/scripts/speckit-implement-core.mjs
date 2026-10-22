@@ -52,20 +52,46 @@ export const MAX_TASK_ATTEMPTS = 2;
 export const MAX_CONVERGE_ROUNDS = 3;
 // A merge check run still in progress after this long belongs to a cancelled or crashed run.
 export const MERGE_STALE_MS = 2 * 60 * 60 * 1000;
-// The per-spec implementation chain: every run of this workflow decides what comes next for one spec (a phase, the
-// convergence, a conflict resolution, or the merge), runs it, and starts the next run. A phase runs in the reusable
-// phase workflow, which runs the phase's tasks in order (consecutive `[P]` tasks in parallel) in the reusable task
-// workflow.
-export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement-spec.yml';
+// The per-spec implementation chain: every run decides one unit of work for one spec (a sequential or parallel group of
+// tasks, the verification of a finished phase, a repair, the convergence, a conflict resolution, or the merge), runs
+// it, and starts the next run. Each kind of work has its own workflow (IMPLEMENT_KIND_WORKFLOW_FILES); Spec Kit
+// implement (IMPLEMENT_WORKFLOW_FILE) starts a chain and reports stops. All of them prepare the run with the reusable
+// Spec Kit implement prepare, and every task, the convergence, a repair, and a conflict resolution run in the reusable
+// Spec Kit implement task (work, then land).
+export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement-decide.yml';
+// The workflow of each kind of work, by the action decideNext chose (the convergence and a conflict resolution are
+// groups of one).
+export const IMPLEMENT_KIND_WORKFLOW_FILES = Object.freeze({
+  tasks: 'speckit-implement-group.yml',
+  verify: 'speckit-implement-verify.yml',
+  repair: 'speckit-implement-repair.yml',
+  merge: 'speckit-implement-merge.yml',
+});
+// Every workflow whose runs make up a chain, for the scheduler and the diagnosis.
+export const IMPLEMENT_CHAIN_WORKFLOW_FILES = Object.freeze([IMPLEMENT_WORKFLOW_FILE, ...Object.values(IMPLEMENT_KIND_WORKFLOW_FILES)]);
+// The workflow that does a decision's work; Spec Kit implement decide for a decision without work (a stop, a wait, done).
+export function implementWorkflowFor(action) {
+  return IMPLEMENT_KIND_WORKFLOW_FILES[action] ?? IMPLEMENT_WORKFLOW_FILE;
+}
+// The chains before the workflows of each kind: Spec Kit implement spec (with its reusable phase, group, and task
+// workflows) and the single Spec Kit implement (speckit-implement.yml). Runs started on them finish on their own
+// commit; the scheduler counts them as active, and they share the concurrency group of the workflows of each kind, so
+// two runs never work on one spec at the same time.
+export const LEGACY_IMPLEMENT_WORKFLOW_FILES = Object.freeze(['speckit-implement-spec.yml', 'speckit-implement.yml']);
+// The verb that names the work of a Spec Kit implement task call (its input `kind` and its script
+// speckit-<verb>.mjs) for the kind of an attempt. Attempt markers keep the kind, so comments already on GitHub stay
+// readable.
+export const WORK_VERBS = Object.freeze({ task: 'implement', converge: 'converge', repair: 'repair', resolve: 'resolve' });
+
 export const IMPLEMENT_WORKFLOW_NAMES = Object.freeze({
   spec: 'Spec Kit implement spec',
-  phase: 'Spec Kit implement phase',
   task: 'Spec Kit implement task',
 });
-// Entries of the task order per phase run: the phase workflow's tasks job is a matrix with one job per entry (a task, or
-// consecutive `[P]` tasks in parallel), and GitHub runs at most 256 matrix jobs per run. A longer phase continues in
+// A group runs as one matrix job per task, and GitHub runs at most 256 matrix jobs per run; a longer group continues in
 // the next run.
 export const MAX_MATRIX_JOBS_PER_RUN = 256;
+// How many tasks of a parallel group run at the same time; a sequential group runs one at a time.
+export const MAX_PARALLEL_TASKS = 5;
 // Default number of specs the scheduler keeps implementing at the same time (repository variable SPECKIT_MAX_ACTIVE_SPECS).
 export const DEFAULT_MAX_ACTIVE_SPECS = 3;
 // Every reported outcome of an attempt carries this marker in its pull request comment; the comments are the attempt
@@ -621,24 +647,42 @@ export function nextTaskGroup(tasksMarkdown, max = 1) {
   return group;
 }
 
-// The task order of the phase of the first unticked task: consecutive unticked `[P]` tasks under one heading form one
-// entry (they run in parallel), every other unticked task is an entry of its own. At most `maxEntries` entries are
-// planned; `phaseEnd` tells whether they finish the phase, `lastIsParallel` whether the phase ends with `[P]` tasks,
-// whose combined result then gets the phase's full verification after it landed.
-export function planTasks(tasksMarkdown, { maxEntries = MAX_MATRIX_JOBS_PER_RUN } = {}) {
+// The next group of tasks: the first unticked task and the unticked tasks after it in the same phase that run with it.
+// A `[P]` task starts a parallel group of the consecutive unticked `[P]` tasks under its heading (also a single one);
+// any other task starts a sequential group of the consecutive unticked tasks without `[P]`, up to the next `[P]` task
+// or the end of the phase. Ticked tasks in between are skipped. At most `maxTasks` (GitHub's matrix limit); the rest
+// follows in the next group. `completesPhase` tells whether the group finishes its phase, which is then verified in
+// a run of its own.
+export function planGroup(tasksMarkdown, { maxTasks = MAX_MATRIX_JOBS_PER_RUN } = {}) {
   const tasks = tasksWithSections(tasksMarkdown);
   const start = tasks.findIndex((task) => !task.done);
-  if (start < 0) return { order: [], phaseEnd: false, lastIsParallel: false, phase: null };
-  const phase = tasks[start].phase;
-  const open = [];
-  for (const task of tasks.slice(start)) {
-    if (task.phase !== phase) break;
-    if (!task.done) open.push(task);
+  if (start < 0) return null;
+  const first = tasks[start];
+  const open = tasks.slice(start).filter((task) => task.phase === first.phase && !task.done);
+  const belongs = (task) => (first.parallel ? task.parallel && task.section === first.section : !task.parallel);
+  const group = [];
+  for (const task of open) {
+    if (group.length >= maxTasks || !belongs(task)) break;
+    group.push(task);
   }
-  const ordered = orderTasks(open, maxEntries);
-  const order = ordered.order.map((entry) => entry.map((task) => task.id));
-  const phaseEnd = ordered.covered >= open.length;
-  return { order, phaseEnd, lastIsParallel: phaseEnd && order.at(-1).length > 1, phase: headingText(phase) };
+  return {
+    mode: first.parallel ? 'parallel' : 'sequential',
+    tasks: group.map((task) => task.id),
+    phase: headingText(first.phase),
+    completesPhase: group.length === open.length,
+  };
+}
+
+// The phases of tasks.md in order, each with its name (the heading without "## ", null without phase headings), its
+// task IDs, and whether every task is ticked.
+export function listPhases(tasksMarkdown) {
+  const phases = [];
+  for (const task of tasksWithSections(tasksMarkdown)) {
+    if (phases.at(-1)?.key !== task.phase) phases.push({ key: task.phase, name: headingText(task.phase), tasks: [], done: true });
+    phases.at(-1).tasks.push(task.id);
+    if (!task.done) phases.at(-1).done = false;
+  }
+  return phases.map(({ name, tasks, done }) => ({ name, tasks, done }));
 }
 
 // Whether the next phase has not started yet: none of its tasks is ticked. Only then is the base branch merged before
@@ -648,7 +692,7 @@ export function phaseNotStarted(tasksMarkdown) {
   return Boolean(current) && current.done === 0;
 }
 
-// Every phase of tasks.md with the order its unticked tasks will run in, exactly as planTasks orders them, for
+// Every phase of tasks.md with the order its unticked tasks will run in (consecutive `[P]` tasks under one heading together, as planGroup groups them), for
 // reviewing `[P]` groups (speckit.gha.refine). Warnings name headings that do not separate groups: a heading deeper
 // than `####`, and a heading whose text repeats, so the `[P]` tasks under both copies form one group.
 export function describeParallelGroups(tasksMarkdown) {
@@ -703,15 +747,17 @@ export function taskProgress(tasksMarkdown) {
 }
 
 // Title of a run or job summary of the implementation workflows: the workflow's name, the twin, and what it works on,
-// for example "Spec Kit implement spec #35 · Recording Lineage and Upload", "Spec Kit implement phase #35 · Phase 3: …",
-// or "Spec Kit implement task #35 · T013 [P] [US1] Create …". Job names stay shorter (see taskJobName).
+// for example "Spec Kit implement spec #35 · Recording Lineage and Upload" or "Spec Kit implement task #35 · T013 [P] [US1]
+// Create …". Job names stay shorter (see taskJobName).
 export function renderImplementTitle(workflow, twin, subject = '') {
   return `${IMPLEMENT_WORKFLOW_NAMES[workflow]} #${twin}${subject ? ` · ${subject}` : ''}`;
 }
 
-// Run name of the implementation chain of a twin, with the spec title.
-export function renderImplementRunName(twin, specTitle = '') {
-  return renderImplementTitle('spec', twin, specTitle);
+// Run name of the implementation chain of a twin: the spec title and what the run works on (renderRunSubject), for
+// example "Spec Kit implement spec #35 · Recording Lineage and Upload · Phase 3: User Story 1 · T013 to T016 one after
+// another". The workflow's run-name renders the same from its inputs.
+export function renderImplementRunName(twin, specTitle = '', subject = '') {
+  return renderImplementTitle('spec', twin, [specTitle, subject].filter(Boolean).join(' · '));
 }
 
 export function isImplementRunOf(title, twin) {
@@ -924,10 +970,20 @@ export function specTitleOfPull(pull) {
   return String(pull?.title ?? '').replace(/^Implement:\s*/, '').trim();
 }
 
-// What the phase workflow works on: the phase heading of tasks.md exactly as written (planTasks already removed the
+// The name of a phase in run names and reports: the phase heading of tasks.md exactly as written (planGroup already removed the
 // "## "); a tasks.md without phase headings has a single unnamed phase.
 export function phaseSubject(phase) {
   return String(phase ?? '').trim() || 'Tasks';
+}
+
+// The short name of a phase in run names, so the run's tasks stay visible: the heading up to an explanation after " - "
+// or " (" ("Phase 3: User Story 1" for "Phase 3: User Story 1 - A real … (Priority: P1)"), and only "Phase 3" when that
+// is still longer than 40 characters.
+export function shortPhaseSubject(phase) {
+  const full = phaseSubject(phase);
+  const short = full.split(/\s+[-–—]\s+|\s+\(/)[0].trim();
+  if (short.length <= 40) return short;
+  return full.match(/^Phase\s+\d+/i)?.[0] ?? `${short.slice(0, 39).trimEnd()}…`;
 }
 
 // What one call of the task workflow works on: a single task by its ID and generated title (summarizeTask), `[P]`
@@ -950,8 +1006,10 @@ export function taskJobName(entries) {
 
 // Starts (or queues) the next run of the implementation chain of a twin. GitHub keeps one pending run per spec, and a
 // replaced pending run is harmless, because every run decides from the state on GitHub. The run is named after the
-// spec title, which comes from the implementation pull request unless `title` is given.
-export async function dispatchImplementation(client, env, { twin, pull, title }) {
+// spec title, which comes from the implementation pull request unless `title` is given, and what it will work on,
+// decided now without changing anything (predictNextRun), which also selects the workflow of its kind; the run decides
+// again when it starts and hands over to the right workflow when the state changed in the meantime.
+export async function dispatchImplementation(client, env, { twin, pull, title, subject = undefined }) {
   let specTitle = title;
   if (!specTitle) {
     try {
@@ -960,13 +1018,23 @@ export async function dispatchImplementation(client, env, { twin, pull, title })
       specTitle = '';
     }
   }
-  await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, defaultBranchOf(env), { twin: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}) });
+  let next = subject;
+  let workflow = IMPLEMENT_WORKFLOW_FILE;
+  if (next === undefined) {
+    try {
+      ({ subject: next, workflow } = await (await import('./speckit-spec.mjs')).predictNextRun(client, env, { twin, pull }));
+    } catch {
+      next = '';
+    }
+  }
+  await client.dispatchWorkflow(workflow, defaultBranchOf(env), { issue: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}), ...(next ? { subject: next } : {}) });
 }
 
-// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, repair, converge, or resolve. `outcome`
-// is success, failure, requeue (redone from a newer head; not a failure), or attention (a person is needed).
-export function renderAttemptMarker({ kind, task = null, attempt, outcome }) {
-  return `<!-- speckit-implement:attempt ${JSON.stringify({ kind, task: task || null, attempt: Number(attempt), outcome })} -->`;
+// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, repair, converge, resolve, or verify
+// (the verification of a finished phase, named by `phase`). `outcome` is success, failure, requeue (redone from a
+// newer head; not a failure), or attention (a person is needed).
+export function renderAttemptMarker({ kind, task = null, attempt, outcome, phase = undefined }) {
+  return `<!-- speckit-implement:attempt ${JSON.stringify({ kind, task: task || null, attempt: Number(attempt), outcome, ...(phase !== undefined ? { phase } : {}) })} -->`;
 }
 
 // The attempt ledger of a pull request: the outcomes the workflow reported, oldest first. Only comments by the
@@ -980,8 +1048,8 @@ export function parseAttempts(comments) {
     try {
       const value = JSON.parse(match[1]);
       const kind = value.kind ?? value.step;
-      if (!['task', 'repair', 'converge', 'resolve'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
-      attempts.push({ kind, task: value.task ?? null, attempt: Number(value.attempt) || 0, outcome: value.outcome, at: comment.created_at });
+      if (!['task', 'repair', 'converge', 'resolve', 'verify'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
+      attempts.push({ kind, task: value.task ?? null, attempt: Number(value.attempt) || 0, outcome: value.outcome, at: comment.created_at, ...(kind === 'verify' ? { phase: value.phase ?? null } : {}) });
     } catch {
       // A malformed marker is ignored.
     }
@@ -995,7 +1063,7 @@ export function attemptCheckId({ kind, task = null, attempt }) {
 }
 
 export function parseAttemptCheckId(externalId) {
-  const match = String(externalId ?? '').match(/^speckit:attempt:(task|repair|converge|resolve):(T\d{3,})?:(\d+)$/);
+  const match = String(externalId ?? '').match(/^speckit:attempt:(task|repair|converge|resolve|verify):(T\d{3,})?:(\d+)$/);
   return match ? { kind: match[1], task: match[2] ?? null, attempt: Number(match[3]) } : null;
 }
 
@@ -1032,8 +1100,8 @@ const checkTime = (check) => Date.parse(check.started_at ?? check.created_at ?? 
 // `windowStart` starts the current attempt window (pull request, retry, or a person's push); `done` tells whether
 // the implementation was finalized for review; `resumedAt` is the latest restart time.
 // Order: a conflict resolution when merging the base branch before the next phase or the convergence conflicted on
-// this head (best effort, see MAX_SYNC_RESOLVE_ATTEMPTS) → the tasks of the phase of the next unticked task (planTasks)
-// → converge (until a successful convergence is newer than the last successful task) → merge, or resolve after a merge
+// this head (best effort, see MAX_SYNC_RESOLVE_ATTEMPTS) → the verification of a finished phase whose tasks this chain
+// landed after its last successful verification (verifyNeeded) → the next group of tasks (planGroup) → converge (until a successful convergence is newer than the last successful task) → merge, or resolve after a merge
 // (or merging the base branch before it) found conflicts on this head. Only failures
 // count against the attempt limit; all outcomes (including redos from a newer head) are capped separately so no-op
 // attempts cannot loop forever. A stop that needs a person (attempt limit, attention, or a diagnosis that runs or waits
@@ -1068,7 +1136,6 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   };
   const exceeded = ({ failures, total }) => failures >= MAX_TASK_ATTEMPTS || total >= MAX_TASK_ATTEMPTS * 2;
 
-  const plan = planTasks(tasksMarkdown, { maxEntries });
   // An already-current required sync can succeed without moving the head, leaving old conflict checks on it.
   const unresolved = (check) => !attempts.some((attempt) => attempt.kind === 'resolve' && attempt.outcome === 'success' && Date.parse(attempt.at) > checkTime(check));
   // Merging the base branch before a phase or the convergence conflicted on this head: resolve first, best effort.
@@ -1080,25 +1147,34 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
     const failures = list.filter((attempt) => attempt.outcome === 'failure').length;
     const handedOver = list.some((attempt) => attempt.outcome === 'attention');
     if (!handedOver && failures < MAX_SYNC_RESOLVE_ATTEMPTS && list.length < MAX_SYNC_RESOLVE_ATTEMPTS * 2) {
-      return { action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: list.length + 1 }]], phaseEnd: false, lastIsParallel: false, stale };
+      return { action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: list.length + 1 }]], stale };
     }
     syncGivenUp = syncConflict;
   }
   const givenUp = syncGivenUp ? { syncGivenUp } : {};
-  if (plan.order.length > 0) {
+  const verify = verifyNeeded(tasksMarkdown, attempts);
+  if (verify) {
+    const count = tally((attempt) => attempt.kind === 'verify' && attempt.phase === verify.name);
+    if (exceeded(count)) return { action: 'limit', kind: 'verify', phase: verify.name, attempts: count.total, stale };
+    return { action: 'verify', kind: 'verify', phase: verify.name, tasks: verify.tasks, attempt: count.total + 1, stale, ...givenUp };
+  }
+  const group = planGroup(tasksMarkdown, { maxTasks: maxEntries });
+  if (group) {
     const ofTask = (id) => tally((attempt) => attempt.kind === 'task' && attempt.task === id);
-    // Earlier attempts can only belong to the first entry: a run stops at the first entry that did not land.
-    for (const id of plan.order[0]) {
+    for (const id of group.tasks) {
       const count = ofTask(id);
       if (exceeded(count)) return { action: 'limit', kind: 'task', task: id, attempts: count.total, stale };
     }
+    const entries = group.tasks.map((id) => ({ task: id, attempt: ofTask(id).total + 1 }));
+    // The order of the run: a sequential group has one entry per task (run one after another), a parallel group one
+    // entry with all its tasks (run at the same time).
     return {
       action: 'tasks',
       kind: 'task',
-      order: plan.order.map((entry) => entry.map((id) => ({ task: id, attempt: ofTask(id).total + 1 }))),
-      phaseEnd: plan.phaseEnd,
-      lastIsParallel: plan.lastIsParallel,
-      phase: plan.phase,
+      mode: group.mode,
+      order: group.mode === 'parallel' ? [entries] : entries.map((entry) => [entry]),
+      phase: group.phase,
+      completesPhase: group.completesPhase,
       stale,
       ...givenUp,
     };
@@ -1125,12 +1201,48 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
     return { action: 'merge', kind: 'merge', attempt: merge.total + 1, stale, ...givenUp };
   }
   if (exceeded(count)) return { action: 'limit', kind, attempts: count.total, stale };
-  return { action: 'tasks', kind, order: [[{ task: null, attempt: count.total + 1 }]], phaseEnd: false, lastIsParallel: false, stale, ...(kind === 'converge' ? givenUp : {}) };
+  return { action: 'tasks', kind, order: [[{ task: null, attempt: count.total + 1 }]], stale, ...(kind === 'converge' ? givenUp : {}) };
+}
+
+// The first finished phase whose tasks this chain landed after the phase's last successful verification (attempt kind
+// verify), or null. Phases ticked before the chain ran (no successful task attempt) need no verification here; the
+// merge verifies everything.
+export function verifyNeeded(tasksMarkdown, attempts) {
+  const at = (attempt) => Date.parse(attempt.at);
+  for (const phase of listPhases(tasksMarkdown)) {
+    if (!phase.done) return null;
+    const ids = new Set(phase.tasks);
+    const landed = Math.max(0, ...attempts.filter((attempt) => attempt.kind === 'task' && attempt.outcome === 'success' && ids.has(attempt.task)).map(at));
+    const verified = Math.max(0, ...attempts.filter((attempt) => attempt.kind === 'verify' && attempt.outcome === 'success' && attempt.phase === phase.name).map(at));
+    if (landed > verified) return phase;
+  }
+  return null;
+}
+
+// What one run of the chain works on, for its name: the short phase name and the group's tasks ("Phase 3: User Story 1 ·
+// T010 to T014 one after another", "… · T015, T016 in parallel", "… · T010 Create the model" for a single task), the verification of a phase,
+// a repair, the convergence, a conflict resolution, the merge, or the stop the run reports; empty when the run has
+// nothing to do. `summaries` maps task IDs to their summarized text.
+export function renderRunSubject(decision, { summaries = new Map() } = {}) {
+  const clip = (text) => (text.length > 120 ? `${text.slice(0, 119).trimEnd()}…` : text);
+  if (decision.action === 'verify') return clip(`Verify ${shortPhaseSubject(decision.phase)}`);
+  if (decision.action === 'repair') return `Repair after the failed ${decision.repair?.scope ? `${decision.repair.scope} ` : ''}verification`;
+  if (decision.action === 'merge') return 'Merge';
+  if (decision.action === 'limit') return `Stop at the attempt limit of ${kindLabel(decision)}`;
+  if (decision.action === 'failed') return 'Diagnose the stop';
+  if (decision.action !== 'tasks') return '';
+  if (decision.requiredSync) return 'Required base synchronization';
+  if (decision.kind !== 'task') return kindLabel(decision).replace(/^./, (char) => char.toUpperCase());
+  const ids = decision.order.flat().map((entry) => entry.task);
+  const tasks = ids.length === 1
+    ? `${ids[0]} ${summaries.get(ids[0]) ?? ''}`.trim()
+    : `${ids.length <= 3 ? ids.join(', ') : `${ids[0]} to ${ids.at(-1)}`} ${decision.mode === 'parallel' ? 'in parallel' : 'one after another'}`;
+  return clip(`${shortPhaseSubject(decision.phase)} · ${tasks}`);
 }
 // Human-readable name of what an attempt works on, for comments and summaries.
 export function kindLabel({ kind, task }) {
   if (kind === 'task') return task;
-  return { converge: 'convergence', resolve: 'conflict resolution', merge: 'merge' }[kind] ?? kind;
+  return { converge: 'convergence', resolve: 'conflict resolution', merge: 'merge', verify: 'phase verification' }[kind] ?? kind;
 }
 
 // Reasons why a /speckit-converge change cannot be accepted. It may only append a convergence phase with new,
@@ -1741,7 +1853,7 @@ export function renderStartComment({ twinNumber, folder, taskCount, base }) {
     START_COMMENT_MARKER,
     `Implementation workspace prepared for #${twinNumber} (\`specs/${folder}\`): ${taskCount} task(s) queued.`,
     '',
-    'The `Spec Kit implement spec` workflow implements them phase by phase, in order; `[P]` tasks of a phase run in parallel. Each task is verified, committed, and reported here.',
+    'The Spec Kit implement workflows implement them group by group, in order; consecutive `[P]` tasks run in parallel, and every finished phase is verified. Each task is verified, committed, and reported here.',
     `Then a convergence checks the result against the spec, and the implementation is merged into its base branch \`${base}\` once it converged and passed the full verification.`,
   ].join('\n');
 }

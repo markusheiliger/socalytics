@@ -6,7 +6,14 @@ import pytest
 from pydantic import ValidationError
 
 from socalytics_analyst import errors, schemas
-from socalytics_analyst.models import AttemptContext, FactArtifact, LogicalJob, ResultManifest, StagedCoverage
+from socalytics_analyst.models import (
+    AttemptContext,
+    FactArtifact,
+    LogicalJob,
+    ResultManifest,
+    SegmentManifest,
+    StagedCoverage,
+)
 
 CONTRACTS = Path(__file__).resolve().parents[4] / "contracts" / "analysis"
 
@@ -98,3 +105,36 @@ def test_invalid_upstream_page_is_rejected_with_its_keyword(path: Path) -> None:
 
 def test_every_invalid_upstream_example_has_an_expectation() -> None:
     assert {path.name for path in UPSTREAM_INVALID} == set(_expectations("upstream-results"))
+
+
+SEGMENT_MANIFEST_EXAMPLES = CONTRACTS.parent / "segments" / "segment-manifest" / "v1" / "examples"
+
+
+def _segment_examples(group: str) -> list[Path]:
+    folder = SEGMENT_MANIFEST_EXAMPLES / group
+    return sorted(path for path in folder.glob("*.json") if path.name != "expectations.json")
+
+
+@pytest.mark.parametrize("path", _segment_examples("valid"), ids=lambda p: p.name)
+def test_valid_segment_manifest_is_accepted_by_schema_and_model(path: Path) -> None:
+    document = _load(path)
+    schemas.validate("segment-manifest", document)
+    SegmentManifest.model_validate(document)
+
+
+@pytest.mark.parametrize("path", _segment_examples("invalid"), ids=lambda p: p.name)
+def test_invalid_segment_manifest_is_rejected_by_schema_and_model(path: Path) -> None:
+    expected = json.loads((SEGMENT_MANIFEST_EXAMPLES / "invalid" / "expectations.json").read_text(encoding="utf-8"))[
+        path.name
+    ]
+    document = _load(path)
+    with pytest.raises(errors.InputError) as raised:
+        schemas.validate("segment-manifest", document)
+    assert expected in _keywords(raised.value), str(raised.value)
+    with pytest.raises(ValidationError):
+        SegmentManifest.model_validate(document)
+
+
+def test_every_invalid_segment_manifest_has_an_expectation() -> None:
+    expectations = json.loads((SEGMENT_MANIFEST_EXAMPLES / "invalid" / "expectations.json").read_text(encoding="utf-8"))
+    assert {path.name for path in _segment_examples("invalid")} == set(expectations)

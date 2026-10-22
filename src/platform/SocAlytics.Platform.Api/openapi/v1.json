@@ -3944,6 +3944,87 @@
         ],
         "type": "object"
       },
+      "MaterializedSegmentDto": {
+        "properties": {
+          "availableAt": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "failureReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "inUse": {
+            "type": "boolean"
+          },
+          "mediaSizeBytes": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          },
+          "recordingVersionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "segmentNumber": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "segmentationPolicyDigest": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "timelineMappingDigest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "recordingVersionId",
+          "timelineMappingDigest",
+          "segmentationPolicyDigest",
+          "segmentNumber",
+          "state",
+          "mediaSizeBytes",
+          "failureReason",
+          "inUse",
+          "availableAt"
+        ],
+        "type": "object"
+      },
+      "MaterializedSegmentListDto": {
+        "properties": {
+          "matchId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/MaterializedSegmentDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "matchId",
+          "segments"
+        ],
+        "type": "object"
+      },
       "MemberCreatedDto": {
         "properties": {
           "member": {
@@ -5068,6 +5149,89 @@
         "required": [
           "items",
           "continuationToken"
+        ],
+        "type": "object"
+      },
+      "SegmentMediaDto": {
+        "properties": {
+          "attemptId": {
+            "type": "string"
+          },
+          "contractVersion": {
+            "type": "string"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentMediaGrantDto"
+            },
+            "type": "array"
+          },
+          "logicalJobId": {
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "manifestChecksum": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "attemptId",
+          "logicalJobId",
+          "manifestChecksum",
+          "manifest",
+          "grants"
+        ],
+        "type": "object"
+      },
+      "SegmentMediaGrantDto": {
+        "properties": {
+          "expiresAt": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "SegmentPurgeResultDto": {
+        "properties": {
+          "inUse": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "matchId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "purged": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "matchId",
+          "purged",
+          "inUse"
         ],
         "type": "object"
       },
@@ -8018,6 +8182,97 @@
         ]
       }
     },
+    "/api/v1/analysis/attempts/{attemptId}/segment-media": {
+      "get": {
+        "operationId": "getAnalysisSegmentMedia",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attemptId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SegmentMediaDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "tags": [
+          "Analyst Manager attempts"
+        ]
+      }
+    },
     "/api/v1/analysis/attempts/{attemptId}/upstream-results": {
       "get": {
         "operationId": "listAnalysisUpstreamResults",
@@ -9879,6 +10134,144 @@
         },
         "tags": [
           "Analysis runs"
+        ]
+      }
+    },
+    "/api/v1/matches/{matchId}/materialized-segments": {
+      "get": {
+        "operationId": "listMaterializedSegments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "matchId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterializedSegmentListDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "tags": [
+          "Materialized segments"
+        ]
+      }
+    },
+    "/api/v1/matches/{matchId}/materialized-segments/purge": {
+      "post": {
+        "operationId": "purgeMaterializedSegments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "matchId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SegmentPurgeResultDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Materialized segments"
         ]
       }
     },
@@ -15279,6 +15672,9 @@
     },
     {
       "name": "Analysis facts"
+    },
+    {
+      "name": "Materialized segments"
     },
     {
       "name": "Workflow operations"

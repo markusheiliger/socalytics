@@ -26,12 +26,13 @@ export interface PlatformClientOptions {
 }
 
 // A 429 is shown with its wait time instead of being retried silently; an unavailable
-// provider on external sign-in start is shown at once.
+// provider on external sign-in start is shown at once. A reconciliation request is never repeated (FR-017).
+const noRetryPaths = ['/api/v1/session/external', '/api/v1/operations/analysis/reconciliations'];
 const noRateLimitRetry = () =>
   new RetryHandler(
     new RetryHandlerOptions({
       shouldRetry: (_delay, _attempt, url, _init, response) =>
-        response.status !== 429 && !new URL(url, 'http://localhost').pathname.endsWith('/api/v1/session/external'),
+        response.status !== 429 && !noRetryPaths.some((path) => new URL(url, 'http://localhost').pathname.endsWith(path)),
     }),
   );
 

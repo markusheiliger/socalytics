@@ -28,6 +28,7 @@ public sealed class WorkAcquisitionService(
     ILoggerFactory loggers,
     ResultPublisher? publisher = null,
     UpstreamStager? stager = null,
+    SegmentMediaStager? mediaStager = null,
     Runtime.Docker.DockerReconciliationService? reconciliation = null,
     Registration.MinimumVersionState? minimumVersion = null) : BackgroundService
 {
@@ -94,7 +95,7 @@ public sealed class WorkAcquisitionService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (stager is not null)
+        if (stager is not null || mediaStager is not null)
         {
             AttemptRunner.DeleteLeftoverAttemptDirectories(_logger);
         }
@@ -156,7 +157,7 @@ public sealed class WorkAcquisitionService(
         if (_runner is null || !ReferenceEquals(adapter, _runnerAdapter))
         {
             _runnerAdapter = adapter;
-            _runner = new AttemptRunner(platform, adapter, time, loggers.CreateLogger<AttemptRunner>(), publisher: publisher, stager: stager, minimumVersion: minimumVersion);
+            _runner = new AttemptRunner(platform, adapter, time, loggers.CreateLogger<AttemptRunner>(), publisher: publisher, stager: stager, mediaStager: mediaStager, minimumVersion: minimumVersion);
         }
 
         var runner = _runner;

@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/segments/segment-manifest/v1/segment-manifest.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Segment manifest v1",
+  "description": "Manifest of one materialized video segment, stored next to segment.mp4. It identifies the segment by recording version, timeline mapping digest, segmentation policy digest, and segment number, and describes the nominal window, the covered intervals, the timeline spans, and the media object by digest and size. It contains no credentials, URLs, or inline media. Rules a schema cannot express (endMs greater than startMs, the encoded interval covering the requested interval, the nominal window equal to [(n-1)*D, n*D), and ordered, non-overlapping spans within the nominal window in match time) are checked by the producer and the platform contract tests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "identity",
+    "segmentationPolicy",
+    "nominalWindow",
+    "requestedSourceInterval",
+    "encodedInterval",
+    "timelineSpans",
+    "media",
+    "producer",
+    "createdAt"
+  ],
+  "properties": {
+    "contractVersion": {
+      "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recordingVersionId",
+        "timelineMappingDigest",
+        "segmentationPolicyDigest",
+        "segmentNumber"
+      ],
+      "properties": {
+        "recordingVersionId": {
+          "$ref": "../../../common/v1/common.schema.json#/$defs/identifier"
+        },
+        "timelineMappingDigest": {
+          "$ref": "../../../common/v1/common.schema.json#/$defs/digest"
+        },
+        "segmentationPolicyDigest": {
+          "$ref": "../../../common/v1/common.schema.json#/$defs/digest"
+        },
+        "segmentNumber": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "segmentationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "durationSeconds"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "nominalWindow": {
+      "$ref": "#/$defs/halfOpenMs"
+    },
+    "requestedSourceInterval": {
+      "$ref": "#/$defs/halfOpenMs"
+    },
+    "encodedInterval": {
+      "$ref": "#/$defs/halfOpenMs"
+    },
+    "timelineSpans": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mediaStartMs",
+          "mediaEndMs",
+          "matchStartMs"
+        ],
+        "properties": {
+          "mediaStartMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mediaEndMs": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "matchStartMs": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactReference",
+        "mediaType",
+        "digest",
+        "sizeBytes"
+      ],
+      "properties": {
+        "artifactReference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "mediaType": {
+          "const": "video/mp4"
+        },
+        "digest": {
+          "$ref": "../../../common/v1/common.schema.json#/$defs/digest"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "toolchain"
+      ],
+      "properties": {
+        "toolchain": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "createdAt": {
+      "$ref": "../../../common/v1/common.schema.json#/$defs/timestamp"
+    }
+  },
+  "$defs": {
+    "halfOpenMs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startMs",
+        "endMs"
+      ],
+      "properties": {
+        "startMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endMs": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

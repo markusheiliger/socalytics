@@ -178,7 +178,8 @@ internal sealed class RegistryWorkflowDefinitionResolver(IServiceScopeFactory sc
             content.MaxAttempts,
             content.LeaseSeconds,
             content.StaleTimeoutSeconds,
-            content.ExecutionTimeoutSeconds);
+            content.ExecutionTimeoutSeconds,
+            content.VideoPolicy);
         return (resolvedNode, declaration.Declaration.Upstream);
     }
 

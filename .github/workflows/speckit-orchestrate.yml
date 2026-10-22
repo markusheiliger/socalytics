@@ -3,7 +3,7 @@ name: Spec Kit orchestrate
 # Schedules spec implementations. For spec twins requested with `/speckit implement` (speckit:stage:implement) and no open blockers it
 # prepares the implementation workspace (linked speckit/<folder> branch, draft pull request, check run), moves the twin
 # to speckit:stage:implementing, and starts the
-# spec's implementation chain (Spec Kit implement spec), while fewer than SPECKIT_MAX_ACTIVE_SPECS (repository variable,
+# spec's implementation chain (the Spec Kit implement workflows), while fewer than SPECKIT_MAX_ACTIVE_SPECS (repository variable,
 # default 3) implementations are active. Each chain implements its spec phase by phase, converges, and merges on its
 # own; the scheduler never drives tasks. It also:
 #   - restarts the chain of an implementation in progress when no run of it is active but there is something to do
