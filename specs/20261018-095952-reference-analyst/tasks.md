@@ -57,7 +57,7 @@ the fact feature's member fact read. The image is foundational because User Stor
 
 ### Test support and payload schema
 
-- [ ] T002 [P] Add the capability test support (research R11): `tests/support/__init__.py`;
+- [x] T002 [P] Add the capability test support (research R11): `tests/support/__init__.py`;
   `tests/support/media.py` that creates synthetic MP4 media at test time with the `ffmpeg` on `PATH` (`testsrc2`,
   `64x64`, native `mpeg4`, a given frame rate (default 25), keyframe interval equal to the frame rate, a given duration
   and timestamp offset) inside a pytest temporary directory and fails the test with a message naming the missing tool
