@@ -766,7 +766,7 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.match(unit, /^name: Spec Kit implement task\n/);
   assert.match(prepare, /^name: Spec Kit implement decide\n/);
   assert.deepEqual(Object.fromEntries(Object.entries(kinds).map(([action, text]) => [action, text.match(/^name: (.*)$/m)[1]])),
-    { tasks: 'Spec Kit implement group', verify: 'Spec Kit implement phase verification', repair: 'Spec Kit implement repair', merge: 'Spec Kit implement merge' });
+    { tasks: 'Spec Kit implement group', verify: 'Spec Kit implement verify', repair: 'Spec Kit implement repair', merge: 'Spec Kit implement merge' });
   assert.deepEqual(readdirSync(new URL('../workflows/', import.meta.url)).filter((name) => /^speckit-implement/.test(name)).sort(),
     ['speckit-implement-decide.yml', 'speckit-implement-group.yml', 'speckit-implement-merge.yml', 'speckit-implement-repair.yml', 'speckit-implement-task.yml', 'speckit-implement-verify.yml', 'speckit-implement.yml']);
   assert.deepEqual(IMPLEMENT_CHAIN_WORKFLOW_FILES, ['speckit-implement.yml', ...Object.values(IMPLEMENT_KIND_WORKFLOW_FILES)]);

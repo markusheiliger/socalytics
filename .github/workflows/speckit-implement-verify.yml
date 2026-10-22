@@ -1,4 +1,4 @@
-name: Spec Kit implement phase verification
+name: Spec Kit implement verify
 
 # The verification of a finished phase of an implementation chain (see Spec Kit implement), in a run of its own after
 # the phase's last group: prepare the run, verify the phase (all changes of the implementation branch, mode `phase`),
