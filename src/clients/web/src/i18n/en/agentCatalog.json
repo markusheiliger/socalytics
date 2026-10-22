@@ -4,6 +4,7 @@
     "intro": "The Coach Agents and Specialist Agents of the catalog, their versions, and what triage conversations offer.",
     "loading": "Loading the agent catalog…",
     "reload": "Reload",
+    "empty": "The catalog baseline lists no agents.",
     "listLabel": "Catalog agents",
     "columns": {
       "agent": "Agent",
