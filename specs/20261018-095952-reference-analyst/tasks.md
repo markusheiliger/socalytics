@@ -79,7 +79,7 @@ the fact feature's member fact read. The image is foundational because User Stor
 
 ### Analyst
 
-- [ ] T004 Implement the decoder in `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/probe.py`
+- [x] T004 Implement the decoder in `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/probe.py`
   (research R3; FR-008): read the video stream's `time_base` with `ffprobe -v error -select_streams v:0
   -show_entries stream=time_base -of csv=p=0 <path>`; then stream `ffprobe -v error -f lavfi -i
   movie=<escaped path>,signalstats -show_entries frame=best_effort_timestamp:frame_tags=lavfi.signalstats.YAVG
