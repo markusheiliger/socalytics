@@ -267,3 +267,173 @@ test.describe('Not found', () => {
     expect(requests).toEqual([]);
   });
 });
+
+test.describe('Enablement', () => {
+  const secondVersion = (version = '0.2.0') =>
+    ({ schemaVersion: '1.0.0', kind: 'agent-version', agentId: AGENT, version, group: 'specialist', displayName: 'Tactics Specialist', artifacts: {} });
+  const dialog = (page: Page) => page.getByRole('dialog');
+  const alertOf = (page: Page, text: string) => dialog(page).getByRole('alert').filter({ hasText: text });
+  const enablementOf = (api: SimulatedApi) => api.catalogEnablements.find((e) => e.agentId === AGENT)!.enabledVersion;
+
+  async function startChange(page: Page, version: string) {
+    await page.getByLabel('New enabled version').selectOption(version);
+    await page.getByRole('button', { name: 'Change enabled version' }).click();
+    await expect(dialog(page)).toBeVisible();
+  }
+
+  test('enables a second approved version after the confirmation (acceptance 1, SC-006)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(secondVersion(), { state: 'approved' });
+    await open(page, `/agent-catalog/agents/${AGENT}`);
+    await startChange(page, '0.2.0');
+    await expect(dialog(page)).toContainText('Currently enabled: 0.1.0');
+    await expect(dialog(page)).toContainText('New enabled version: 0.2.0');
+    await expect(dialog(page)).toContainText('Only questions submitted afterwards use the change.');
+    await expect(dialog(page)).toContainText('keep their pinned versions');
+    await expectNoAxeViolations(page);
+
+    await dialog(page).getByRole('button', { name: 'Enable version' }).click();
+    await expect(dialog(page).getByRole('status')).toContainText('The enablement was changed.');
+    await dialog(page).getByRole('button', { name: 'Close' }).click();
+    await expect(dialog(page)).toHaveCount(0);
+
+    expect(enablementOf(api)).toBe('0.2.0');
+    await expect(page.getByText('Enabled version: 0.2.0')).toBeVisible();
+    await expect(page.getByText(/^Changed .* by /)).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Agent versions' }).getByText('enabled', { exact: true })).toHaveCount(1);
+
+    await open(page, '/agent-catalog');
+    const row = page.getByRole('row').filter({ has: page.getByRole('link', { name: `Show the agent ${AGENT}` }) });
+    await expect(row.getByRole('cell').nth(5)).toHaveText('Offered in triage conversations: 0.2.0');
+  });
+
+  test('enables an approved version from its own page', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(secondVersion(), { state: 'approved' });
+    await open(page, `/agent-catalog/agents/${AGENT}/versions/0.2.0`);
+    await expect(page.getByText('This version is not enabled.')).toBeVisible();
+    await page.getByRole('button', { name: 'Enable', exact: true }).click();
+    await dialog(page).getByRole('button', { name: 'Enable version' }).click();
+    await expect(dialog(page).getByRole('status')).toBeVisible();
+    expect(enablementOf(api)).toBe('0.2.0');
+  });
+
+  test('disables the agent and enables it again (acceptance 2, SC-006)', async ({ page, api }) => {
+    await open(page, `/agent-catalog/agents/${AGENT}`);
+    await page.getByRole('button', { name: 'Disable', exact: true }).click();
+    await expect(dialog(page)).toContainText('New enabled version: none (the agent is disabled)');
+    await expect(dialog(page)).toContainText('Members can no longer add or ask the agent until a version is enabled again.');
+    await expectNoAxeViolations(page);
+    await dialog(page).getByRole('button', { name: 'Disable agent' }).click();
+    await expect(dialog(page).getByRole('status')).toBeVisible();
+    await dialog(page).getByRole('button', { name: 'Close' }).click();
+
+    expect(enablementOf(api)).toBeNull();
+    await expect(page.getByText('No version is enabled.')).toBeVisible();
+    await open(page, '/agent-catalog');
+    const row = page.getByRole('row').filter({ has: page.getByRole('link', { name: `Show the agent ${AGENT}` }) });
+    await expect(row.getByRole('cell').nth(5)).toHaveText('Not offered: no enabled version');
+
+    await open(page, `/agent-catalog/agents/${AGENT}/versions/0.1.0`);
+    await page.getByRole('button', { name: 'Enable', exact: true }).click();
+    await expect(dialog(page)).toContainText('Currently enabled: none');
+    await dialog(page).getByRole('button', { name: 'Enable version' }).click();
+    await expect(dialog(page).getByRole('status')).toBeVisible();
+    expect(enablementOf(api)).toBe('0.1.0');
+  });
+
+  test('cancelling the confirmation sends nothing and changes nothing (acceptance 3)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(secondVersion(), { state: 'approved' });
+    await open(page, `/agent-catalog/agents/${AGENT}`);
+    const puts: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'PUT' && request.url().includes('/agent-catalog/enablements/')) puts.push(request.url());
+    });
+    await startChange(page, '0.2.0');
+    await dialog(page).getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog(page)).toHaveCount(0);
+    await page.getByRole('button', { name: 'Disable', exact: true }).click();
+    await dialog(page).getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog(page)).toHaveCount(0);
+
+    expect(puts).toEqual([]);
+    expect(enablementOf(api)).toBe('0.1.0');
+    await expect(page.getByText('Enabled version: 0.1.0')).toBeVisible();
+  });
+
+  test('explains the refusal of a version that became a draft (acceptance 4)', async ({ page, api }) => {
+    const version = api.seedCatalogAgentVersion(secondVersion(), { state: 'approved' });
+    await open(page, `/agent-catalog/agents/${AGENT}`);
+    await startChange(page, '0.2.0');
+    version.state = 'draft';
+    await dialog(page).getByRole('button', { name: 'Enable version' }).click();
+    await expect(alertOf(page, 'This version cannot be enabled.')).toBeVisible();
+    await expect(alertOf(page, 'The version is not approved.')).toBeVisible();
+    await expect(dialog(page).getByRole('button', { name: 'Enable version' })).toHaveCount(0);
+    await expectNoAxeViolations(page);
+    expect(enablementOf(api)).toBe('0.1.0');
+  });
+
+  test('explains the refusal of a retired version (acceptance 4)', async ({ page, api }) => {
+    const version = api.seedCatalogAgentVersion(secondVersion(), { state: 'approved' });
+    await open(page, `/agent-catalog/agents/${AGENT}`);
+    await startChange(page, '0.2.0');
+    version.state = 'retired';
+    await dialog(page).getByRole('button', { name: 'Enable version' }).click();
+    await expect(alertOf(page, 'This version cannot be enabled.')).toBeVisible();
+    await expect(alertOf(page, 'The version is retired.')).toBeVisible();
+    expect(enablementOf(api)).toBe('0.1.0');
+  });
+
+  test('explains the refusal of the simulated provider (acceptance 4)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(secondVersion(), { state: 'approved' });
+    await open(page, `/agent-catalog/agents/${AGENT}`);
+    api.refuseCatalogNext('setAgentEnablement', { status: 409, code: 'agent-version-not-enableable', extra: { reason: 'simulated-provider' } });
+    await startChange(page, '0.2.0');
+    await dialog(page).getByRole('button', { name: 'Enable version' }).click();
+    await expect(alertOf(page, 'This version cannot be enabled.')).toBeVisible();
+    await expect(alertOf(page, 'which is permitted only in Development and Test')).toBeVisible();
+    expect(enablementOf(api)).toBe('0.1.0');
+  });
+
+  test('states the Coach Agent note and explains the refusal (acceptance 5)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(
+      {
+        schemaVersion: '1.0.0',
+        kind: 'agent-version',
+        agentId: 'coach-jurgen-klopp',
+        version: '1.0.0',
+        group: 'coach',
+        displayName: 'Coach Agent',
+        disclosure: 'A simulation of a coaching philosophy.',
+        artifacts: {},
+      },
+      { state: 'approved' },
+    );
+    await open(page, '/agent-catalog/agents/coach-jurgen-klopp/versions/1.0.0');
+    await page.getByRole('button', { name: 'Enable', exact: true }).click();
+    await expect(dialog(page)).toContainText('The platform may refuse while Coach Agents are not available in conversations.');
+    await dialog(page).getByRole('button', { name: 'Enable version' }).click();
+    await expect(alertOf(page, 'The platform does not support enabling Coach Agents yet.')).toBeVisible();
+    expect(api.catalogEnablements.find((e) => e.agentId === 'coach-jurgen-klopp')!.enabledVersion).toBeNull();
+  });
+
+  test('says that the enablement changed and never repeats the change (acceptance 6)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(secondVersion(), { state: 'approved' });
+    await open(page, `/agent-catalog/agents/${AGENT}`);
+    await startChange(page, '0.2.0');
+
+    // Another session changes the enablement after this page loaded it.
+    api.changeCatalogBehindTheScenes({ agentId: AGENT });
+    const puts: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'PUT' && request.url().includes('/agent-catalog/enablements/')) puts.push(request.url());
+    });
+    await dialog(page).getByRole('button', { name: 'Enable version' }).click();
+    await expect(alertOf(page, 'has changed since you loaded it')).toBeVisible();
+    await expect(dialog(page)).toContainText('Currently enabled: 0.1.0');
+    await expect(dialog(page).getByRole('button', { name: 'Enable version' })).toHaveCount(0);
+    await expectNoAxeViolations(page);
+
+    expect(puts).toHaveLength(1);
+    expect(enablementOf(api)).toBe('0.1.0');
+  });
+});
