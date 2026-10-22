@@ -10,7 +10,7 @@
   each of the five operations references its typed response schema and declares its query parameters, so a later
   endpoint change cannot silently drop the generated models (FR-018). No snapshot refresh and no endpoint change.
 - **Rationale**: The endpoints already declare `Produces<…>` and the snapshot contains the component schemas, unlike
-  the Registry operations before [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/plan.md).
+  the Registry operations before [Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/plan.md).
   The existing `PlatformHostTests` only assert that the operation ids exist.
 - **Alternatives considered**: Refreshing the snapshot (nothing changed); untyped `fetch` calls (violate the adapter
   rule and Principle III).
@@ -30,7 +30,7 @@
 ## R3. Navigation entry and routes
 
 - **Decision**: `navItems` gains `{ to: '/operations', labelKey: 'operations', allow: isClubAdmin }`, placed after the
-  Registry entry of [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/contracts/routes-and-roles.md)
+  Registry entry of [Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/contracts/routes-and-roles.md)
   when that entry exists at implementation time and otherwise directly after `analystManagers`. Routes: `/operations`,
   `/operations/outbox-messages`, `/operations/outbox-messages/:messageId`, `/operations/notification-receipts`, each
   wrapped in the existing `clubAdminOnly` guard ([contracts/routes-and-roles.md](contracts/routes-and-roles.md)).
