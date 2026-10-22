@@ -177,6 +177,7 @@
     "approve": "Approve",
     "retire": "Retire",
     "enable": "Enable",
+    "newVersion": "New version from this",
     "reload": "Reload"
   },
   "distances": {
@@ -202,6 +203,24 @@
     "replayed": "Already registered, nothing changed.",
     "openRecord": "Show the stored record",
     "unsupported": "Registering records of this kind is not available in the Web UI yet."
+  },
+  "versionCreate": {
+    "title": "Register a version of {{agentId}}",
+    "choose": "Choose a registered artifact",
+    "displayNameHint": "Prefilled from the catalog baseline; you can change it. 1 to 100 characters",
+    "matchingOption": "{{reference}} (matches the prompt template)",
+    "group": {
+      "coach": "Group: Coach Agent",
+      "specialist": "Group: Specialist Agent"
+    },
+    "pick": {
+      "promptTemplate": "Registered prompt templates of the group of this agent",
+      "modelSelection": "Registered model selections",
+      "toolPolicy": "Registered tool policies",
+      "safetyPolicy": "Registered safety policies of the group of this agent",
+      "philosophyProfile": "Registered philosophy profiles",
+      "modifierPolicy": "Registered modifier policies"
+    }
   },
   "fields": {
     "id": "Identifier",

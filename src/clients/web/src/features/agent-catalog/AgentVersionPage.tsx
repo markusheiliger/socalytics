@@ -131,6 +131,11 @@ export function AgentVersionPage() {
           {v.state === 'approved' && !v.enabled && enablement && (
             <Button variant="contained" sx={{ mt: 1 }} onClick={() => setEnabling(true)}>{t('version.enable')}</Button>
           )}
+          <Box sx={{ mt: 1 }}>
+            <Link to={`/agent-catalog/agents/${encodeURIComponent(agentId)}/versions/new?from=${encodeURIComponent(v.version)}`}>
+              {t('version.newVersion')}
+            </Link>
+          </Box>
           {enabling && enablement && (
             <ChangeEnablementDialog
               agentId={agentId}

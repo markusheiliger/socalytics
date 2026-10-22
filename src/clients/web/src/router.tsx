@@ -20,6 +20,7 @@ import { PairingPage } from './features/managers/PairingPage';
 import { RegistrationPage } from './features/managers/RegistrationPage';
 import { AgentCatalogOverviewPage } from './features/agent-catalog/AgentCatalogOverviewPage';
 import { AgentPage } from './features/agent-catalog/AgentPage';
+import { AgentVersionCreatePage } from './features/agent-catalog/AgentVersionCreatePage';
 import { AgentVersionPage } from './features/agent-catalog/AgentVersionPage';
 import { ArtifactCreatePage } from './features/agent-catalog/ArtifactCreatePage';
 import { ArtifactPage } from './features/agent-catalog/ArtifactPage';
@@ -131,6 +132,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/agent-catalog', element: clubAdminOnly(<AgentCatalogOverviewPage />) },
           { path: '/agent-catalog/baseline', element: clubAdminOnly(<CatalogBaselinePage />) },
           { path: '/agent-catalog/agents/:agentId', element: clubAdminOnly(<AgentPage />) },
+          { path: '/agent-catalog/agents/:agentId/versions/new', element: clubAdminOnly(<AgentVersionCreatePage />) },
           { path: '/agent-catalog/agents/:agentId/versions/:version', element: clubAdminOnly(<AgentVersionPage />) },
           { path: '/agent-catalog/artifacts/:kind', element: clubAdminOnly(<ArtifactsPage />) },
           { path: '/agent-catalog/artifacts/:kind/new', element: clubAdminOnly(<ArtifactCreatePage />) },
