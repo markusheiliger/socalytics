@@ -262,6 +262,13 @@
     "artifactReferences": "No registered artifact of this kind fits. Register one first.",
     "distances": "No distances are reported. They appear once the platform compares the profile."
   },
+  "safetyForm": {
+    "hardBoundary": "Hard boundary {{index}}",
+    "add": "Add hard boundary",
+    "remove": "Remove hard boundary {{index}}",
+    "coachRules": "A Coach Agent safety policy is expected to include: {{rules}}",
+    "coachRulesMissing": "Not chosen yet: {{rules}}"
+  },
   "hints": {
     "required": "Required",
     "optional": "Optional",
