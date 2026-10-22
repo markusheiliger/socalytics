@@ -29,7 +29,7 @@ description: "Task list for Evidence Clip Access"
 
 ### Evidence options
 
-- [ ] T001 Create `src/platform/SocAlytics.Platform.Application/Analysis/Evidence/EvidenceOptions.cs` for section
+- [x] T001 Create `src/platform/SocAlytics.Platform.Application/Analysis/Evidence/EvidenceOptions.cs` for section
   `Analysis:Evidence` with `GrantLifetime` (`00:00:30`..`01:00:00`), `RetryAfter` (`00:00:01`..`00:05:00`),
   `ResolutionsPerMinute` (`1`..`10000`), `MaxDuration` (`00:00:01`..`01:00:00`), and `MaxContext`
   (`00:00:00`..`00:01:00`), all required and validated at start; bind it in

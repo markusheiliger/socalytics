@@ -161,6 +161,13 @@ public static class ApplicationServiceCollectionExtensions
             IValidateOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptions>,
             SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptionsValidator>());
 
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.Evidence.EvidenceOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.Evidence.EvidenceOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Analysis.Evidence.EvidenceOptions>,
+            SocAlytics.Platform.Application.Analysis.Evidence.EvidenceOptionsValidator>());
+
         services.AddOptions<SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions.SectionName)
             .Validate(

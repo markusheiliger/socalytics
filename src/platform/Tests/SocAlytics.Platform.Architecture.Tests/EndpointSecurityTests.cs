@@ -169,6 +169,11 @@ public sealed class EndpointSecurityTests
                 ["Analysis:Facts:MaxPageSize"] = "500",
                 ["Analysis:Reads:GrantLifetime"] = "00:10:00",
                 ["Analysis:Reads:MaxPageSize"] = "100",
+                ["Analysis:Evidence:GrantLifetime"] = "00:05:00",
+                ["Analysis:Evidence:RetryAfter"] = "00:00:05",
+                ["Analysis:Evidence:ResolutionsPerMinute"] = "60",
+                ["Analysis:Evidence:MaxDuration"] = "00:10:00",
+                ["Analysis:Evidence:MaxContext"] = "00:00:10",
             }));
             builder.ConfigureServices(services =>
             {
