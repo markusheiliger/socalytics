@@ -12,8 +12,8 @@ name: Spec Kit author
 on:
   workflow_dispatch:
     inputs:
-      twin:
-        description: Spec twin issue number of the stopped implementation
+      issue:
+        description: Spec twin issue number (labelled speckit:spec) of the stopped implementation
         required: true
         type: string
       pull:
@@ -64,11 +64,11 @@ on:
         required: false
         type: string
 
-run-name: "Spec Kit author spec #${{ inputs.twin }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the new spec, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the new spec with review feedback' || 'Write a new spec that unblocks the implementation' }}"
+run-name: "Spec Kit author spec #${{ inputs.issue }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the new spec, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the new spec with review feedback' || 'Write a new spec that unblocks the implementation' }}"
 
 # One run per twin at a time; runs for different twins run side by side.
 concurrency:
-  group: speckit-author-${{ inputs.twin }}
+  group: speckit-author-${{ inputs.issue }}
   cancel-in-progress: false
 
 permissions: {}
@@ -97,9 +97,11 @@ jobs:
       issues: read
       pull-requests: read
       copilot-requests: write
+    outputs:
+      spec: ${{ steps.issue.outputs.spec }}
     env:
       SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      SPECKIT_TWIN: ${{ inputs.twin }}
+      SPECKIT_TWIN: ${{ inputs.issue }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_FOLDER: ${{ inputs.folder }}
       SPECKIT_MODE: ${{ inputs.mode }}
@@ -147,6 +149,13 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
+
+      - name: Check the spec issue
+        id: issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_ISSUE: ${{ inputs.issue }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-issue.mjs" check
 
       # The Spec Kit helper scripts (.specify/scripts/python) run as `python`.
       - name: Set up Python
@@ -262,7 +271,8 @@ jobs:
   land:
     name: Publish and record the result
     needs: author
-    if: always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    # Publishes or records every outcome of the authoring, but only for a spec twin.
+    if: always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.author.outputs.spec == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -273,7 +283,7 @@ jobs:
       pull-requests: write
     env:
       SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      SPECKIT_TWIN: ${{ inputs.twin }}
+      SPECKIT_TWIN: ${{ inputs.issue }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_FOLDER: ${{ inputs.folder }}
       SPECKIT_CHECK_RUN: ${{ inputs.check_run }}

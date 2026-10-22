@@ -17,8 +17,23 @@ describe('role-based navigation', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('offers a Club Admin club, seasons, teams, members, Analyst Managers, Analyst Registry, pairing, and account', async () => {
-    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Analyst Registry', 'Pair a Manager', 'Account']);
+  it('offers a Club Admin club, seasons, teams, members, Analyst Managers, Analyst Registry, Operations, pairing, and account', async () => {
+    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Analyst Registry', 'Operations', 'Pair a Manager', 'Account']);
+  });
+
+  it('places Operations directly after Analyst Registry for a Club Admin', async () => {
+    const links = await navLinks(['ClubAdmin'], []);
+    expect(links.indexOf('Operations')).toBe(links.indexOf('Analyst Registry') + 1);
+  });
+
+  it.each([
+    ['a Registrar', ['Registrar'] as ClubRole[], [] as TeamRole[]],
+    ['a Coach', [] as ClubRole[], [team]],
+    ['a Viewer', [] as ClubRole[], [{ ...team, role: 'Viewer' } as TeamRole]],
+  ])('offers %s no Operations entry and the not-permitted view for /operations', async (_name, clubRoles, teamRoles) => {
+    renderApp(fakeAdapter({ restore: vi.fn().mockResolvedValue(makeSession({ clubRoles, teamRoles })) }), '/operations');
+    expect(await screen.findByRole('alert')).toHaveTextContent('not permitted');
+    expect(screen.queryByRole('link', { name: 'Operations' })).not.toBeInTheDocument();
   });
 
   it('offers a team member only teams and account', async () => {

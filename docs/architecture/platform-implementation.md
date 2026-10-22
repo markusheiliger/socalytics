@@ -533,8 +533,8 @@ Orchestration functional area (development evidence; see
 
 Until a dedicated stamp-operator role is defined, operational workflow
 inspection and reconciliation operations under `/api/v1/operations` are
-restricted to Club Admins and audited when they change state. Club Admins will
-use them from the Web UI's Operations area (decided, not yet implemented; see
+restricted to Club Admins and audited when they change state. Club Admins use
+them from the Web UI's Operations area (implemented as a connected workflow; see
 [Client Applications → Web UI](client-applications.md#web-ui)).
 
 ### Agent Runtime
@@ -873,8 +873,16 @@ current and non-current migration states; and
   registering images; creating, approving, and retiring profile versions;
   defining workflow versions; and changing the default workflow, with
   confirmations and refusals) in the `simulated` and `platform` projects; and
+  the workflow operations area for Club Admins (the summary with its
+  observation time, filtered and paged outgoing messages and receipts, message
+  detail without payload, and confirmed reconciliation with its outcome) in
+  the `simulated` and `platform` projects; and
 - a Host test verifies that every Registry operation carries OpenAPI schemas
-  from which the Web UI client is generated (`AnalystRegistryOpenApiTests`); and
+  from which the Web UI client is generated (`AnalystRegistryOpenApiTests`);
+  and
+- a Host test verifies that the workflow operations under `/api/v1/operations`
+  carry typed OpenAPI schemas from which the Web UI client is generated
+  (`WorkflowOperationsOpenApiTests`); and
 - a Host test verifies the development CORS allow-list and the storage origin
   the AppHost passes to the Web UI; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
@@ -924,7 +932,8 @@ choice or reveals a material operational tradeoff:
   fact reads are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views,
-  the Analyst Registry administration views, the match workflow with recording
+  the Analyst Registry administration views, the workflow operations area for
+  Club Admins, the match workflow with recording
   upload and finalization, the connected analysis review of a run's status and
   indexed facts, and the match
   triage conversations with Specialist Agents. External

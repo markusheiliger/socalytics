@@ -26,7 +26,7 @@ import {
   runPackage,
   runRepairReport,
   runVerdict,
-} from './speckit-task.mjs';
+} from './speckit-implement.mjs';
 import { main as convergeMain } from './speckit-converge.mjs';
 import { main as groupMain } from './speckit-group.mjs';
 import { main as mergeMain } from './speckit-merge.mjs';
@@ -305,7 +305,9 @@ test('repair: reverification preserves original product paths and unions repair 
 });
 
 test('repair workflow: unchanged HEAD reverifies the original product scope, or all checks without evidence', () => withRepos({ tasks: DONE_TASKS }, (repos) => {
-  const workflow = readText(new URL('../workflows/speckit-implement-repair.yml', import.meta.url));
+  // The repair's reverification runs in Spec Kit implement; its work in Spec Kit implement work.
+  const workflow = readText(new URL('../workflows/speckit-implement.yml', import.meta.url));
+  const unit = readText(new URL('../workflows/speckit-implement-work.yml', import.meta.url));
   const script = workflow.match(/- name: Prepare the verification tree[\s\S]*?        run: \|\n([\s\S]*?)\n      - name:/)[1].replace(/^ {10}/gm, '');
   symlinkSync(process.cwd(), path.join(repos.base, 'tooling'), 'dir');
   const evidence = path.join(repos.base, 'failed-verification');
@@ -323,11 +325,11 @@ test('repair workflow: unchanged HEAD reverifies the original product scope, or 
     assert.equal(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8'), available ? 'src/platform/Host.cs\n' : '');
   }
   assert.match(workflow, /mode: \$\{\{ steps\.tree\.outputs\.mode \}\}/);
-  assert.match(workflow, /path: \$\{\{ github\.workspace \}\}\/workspace\/\.speckit-repair-evidence/);
-  assert.match(workflow, /echo '\/\.speckit-repair-evidence\/' >> \.git\/info\/exclude/);
-  assert.match(workflow, /ref: \$\{\{ inputs\.verify_only && inputs\.head \|\| needs\.land\.outputs\.head \}\}/);
+  assert.match(unit, /path: \$\{\{ github\.workspace \}\}\/workspace\/\.speckit-repair-evidence/);
+  assert.match(unit, /echo '\/\.speckit-repair-evidence\/' >> \.git\/info\/exclude/);
+  assert.match(workflow, /ref: \$\{\{ needs\.decide\.outputs\.verify_only == 'true' && needs\.decide\.outputs\.head \|\| needs\.repair\.outputs\.head \}\}/);
   assert.match(workflow, /Require the verification action\n        run: test -f tooling\/\.github\/actions\/environment-verify\/action\.yml/);
-  assert.match(workflow, /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}/);
+  assert.match(workflow, /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.repair-verify\.outputs\.verification \}\}/);
   const guard = workflow.match(/Require the verification action\n        run: ([^\n]+)/)[1];
   assert.equal(runBash(guard, { cwd: repos.land }).status, 1, 'missing verifier fails the job instead of skipping verification');
 }));
@@ -1702,7 +1704,7 @@ test('extracts the last agent message and validates commands', async () => {
   await assert.rejects(() => main(['nope'], { env }), /package \| verdict \| land-tasks/);
   await assert.rejects(() => groupMain(['package'], { env }), /speckit-group\.mjs/);
   await assert.rejects(() => repairMain(['verdict'], { env }), /speckit-repair\.mjs/);
-  await assert.rejects(() => main(['integrate'], { env }), /speckit-task\.mjs/);
+  await assert.rejects(() => main(['integrate'], { env }), /speckit-implement\.mjs/);
   await assert.rejects(() => convergeMain(['verdict'], { env }), /speckit-converge\.mjs/);
   await assert.rejects(() => resolveMain(['combined-verified'], { env }), /speckit-resolve\.mjs/);
   await assert.rejects(() => mergeMain(['package'], { env }), /speckit-merge\.mjs/);

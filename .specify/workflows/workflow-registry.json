@@ -7,7 +7,7 @@
       "description": "Authors one spec through specify, clarify, plan, tasks, and analyze until it is ready to implement, then commits and pushes the spec folder so the GitHub automation takes over. Every decision comes from .github/scripts/speckit-author-flow.mjs; agent steps only run Spec Kit commands and write the files it checks.",
       "source": ".specify/extensions/gha/workflows/author",
       "installed_at": "2026-10-21T12:22:13.055281+00:00",
-      "updated_at": "2026-10-21T17:39:29.414621+00:00"
+      "updated_at": "2026-10-21T19:54:01.771472+00:00"
     },
     "implement-task": {
       "name": "Implement one task of a spec",
@@ -15,7 +15,7 @@
       "description": "Implements one task of a spec with /speckit-implement, checks the change with the rules the GitHub land job applies, and writes result.json. It never commits, pushes, or checks the task's box: on GitHub the land job does after the verification, locally the person does. Every decision comes from .github/scripts/speckit-implement-flow.mjs.",
       "source": ".specify/extensions/gha/workflows/implement-task",
       "installed_at": "2026-10-21T16:58:00.520919+00:00",
-      "updated_at": "2026-10-21T17:39:30.443369+00:00"
+      "updated_at": "2026-10-21T19:54:02.706858+00:00"
     },
     "converge": {
       "name": "Converge a spec's implementation",
@@ -23,7 +23,7 @@
       "description": "Runs /speckit-converge (with its mandatory drift check of docs/architecture/) once every task of a spec is checked, checks that it only appended one convergence section of new tasks to tasks.md, and writes result.json with the appended tasks. It never commits or pushes. Every decision comes from .github/scripts/speckit-implement-flow.mjs.",
       "source": ".specify/extensions/gha/workflows/converge",
       "installed_at": "2026-10-21T16:58:01.432001+00:00",
-      "updated_at": "2026-10-21T17:39:31.501672+00:00"
+      "updated_at": "2026-10-21T19:54:03.639896+00:00"
     },
     "repair": {
       "name": "Repair an implementation whose verification failed",
@@ -31,7 +31,7 @@
       "description": "Repairs already-implemented tasks of a spec whose verification failed after their boxes were checked, checks that the repair leaves tasks.md and the protected paths alone, and writes result.json. It never commits or pushes; the failed scope is verified again afterwards. Every decision comes from .github/scripts/speckit-implement-flow.mjs.",
       "source": ".specify/extensions/gha/workflows/repair",
       "installed_at": "2026-10-21T16:58:02.357449+00:00",
-      "updated_at": "2026-10-21T17:39:32.411763+00:00"
+      "updated_at": "2026-10-21T19:54:04.533314+00:00"
     },
     "resolve": {
       "name": "Resolve the conflicts of a base branch merge",
@@ -39,7 +39,7 @@
       "description": "Resolves the conflicts of a merge of the base branch into a spec's implementation branch (the merge is already in progress), checks that no conflict marker remains, that it only changes what a resolution may change, and that tasks.md keeps every task and checked box, and writes result.json, including the base branch files it had to change. It never commits or pushes. Every decision comes from .github/scripts/speckit-implement-flow.mjs.",
       "source": ".specify/extensions/gha/workflows/resolve",
       "installed_at": "2026-10-21T16:58:03.301790+00:00",
-      "updated_at": "2026-10-21T17:39:33.322120+00:00"
+      "updated_at": "2026-10-21T19:54:05.426459+00:00"
     }
   }
 }

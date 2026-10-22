@@ -504,6 +504,148 @@ const AGENT_ROUTES: [AgentOperation, string, RegExp][] = [
   ['getLineage', 'GET', /^\/agent-invocations\/([^/]+)\/lineage$/],
 ];
 
+export const OUTBOX_STATES = ['pending', 'published', 'failed', 'discarded'] as const;
+export const OUTBOX_MESSAGE_TYPES = [
+  'matches.recordings-finalized',
+  'analysis.ready-work',
+  'analysis.run-state-changed',
+] as const;
+export const RECEIPT_OUTCOMES = ['run-created', 'run-exists', 'rejected'] as const;
+
+/** JSON shape of `OutboxMessageDto`; dates serialize through JSON. */
+export interface SimulatedOutboxMessage {
+  messageId: string;
+  messageType: string;
+  contractVersion: string;
+  subject: string;
+  state: string;
+  attemptCount: number;
+  publicationRound: number;
+  lastAttemptAt: Date | null;
+  nextAttemptAt: Date | null;
+  failureCategory: string | null;
+  createdAt: Date;
+  publishedAt: Date | null;
+  ageSeconds: number;
+  publicationLagSeconds: number | null;
+  runId: string | null;
+  logicalJobId: string | null;
+  capabilityId: string | null;
+}
+
+/** JSON shape of `NotificationReceiptDto`. */
+export interface SimulatedNotificationReceipt {
+  messageId: string;
+  messageType: string;
+  recordingSetVersionId: string | null;
+  outcome: string;
+  rejectionCategory: string | null;
+  runId: string | null;
+  receivedAt: Date;
+}
+
+/** JSON shape of `AnalysisOperationalSummaryDto`. */
+export interface SimulatedOperationalSummary {
+  workflowDefinition: { state: string; category: string | null; since: Date | null };
+  runsByState: Record<string, number>;
+  runsWithBlockedNodes: number;
+  staleAttempts: number;
+  rejectedNotifications: number;
+  outboxPending: number;
+  outboxFailed: number;
+  oldestPendingAgeSeconds: number | null;
+  observedAt: Date;
+}
+
+export interface SimulatedReconciliationResult {
+  readyJobsRepublished: number;
+  notificationsRepublished: number;
+  startedAt: Date;
+  completedAt: Date;
+}
+
+export type OperationsOperation =
+  | 'getAnalysisOperationalSummary'
+  | 'listOutboxMessages'
+  | 'getOutboxMessage'
+  | 'listNotificationReceipts'
+  | 'reconcileAnalysisPublication';
+
+/** `forbidden` answers 403, `unavailable` 503, and `invalid-token` 400 for `continuationToken` (lists only, when a token is sent). */
+export type OperationsSwitch = 'forbidden' | 'unavailable' | 'invalid-token';
+
+const opsId = (kind: number, n: number) => `00000000-0000-4000-8000-${String(kind * 1000 + n).padStart(12, '0')}`;
+
+/** Outgoing messages in every state and type, newest first; one has a markup subject, one an unknown failure category. */
+export function outboxMessageFixtures(): SimulatedOutboxMessage[] {
+  const result: SimulatedOutboxMessage[] = [];
+  let n = 0;
+  for (const state of OUTBOX_STATES) {
+    for (const messageType of OUTBOX_MESSAGE_TYPES) {
+      n += 1;
+      const createdAt = new Date(now.getTime() - n * 600_000);
+      const published = state === 'published';
+      const failed = state === 'failed';
+      result.push({
+        messageId: opsId(7, n),
+        messageType,
+        contractVersion: '1',
+        subject: `analysis.simulated.${n}`,
+        state,
+        attemptCount: state === 'pending' ? 0 : failed ? 4 : 1,
+        publicationRound: 1,
+        lastAttemptAt: state === 'pending' ? null : new Date(createdAt.getTime() + 30_000),
+        nextAttemptAt: state === 'pending' || failed ? new Date(now.getTime() + 60_000) : null,
+        failureCategory: failed ? 'transport-unavailable' : null,
+        createdAt,
+        publishedAt: published ? new Date(createdAt.getTime() + 45_000) : null,
+        ageSeconds: Math.round((now.getTime() - createdAt.getTime()) / 1000),
+        publicationLagSeconds: published ? 45 : null,
+        runId: messageType === 'matches.recordings-finalized' ? null : opsId(3, 1),
+        logicalJobId: messageType === 'analysis.ready-work' ? opsId(5, n) : null,
+        capabilityId: messageType === 'analysis.ready-work' ? 'player-detection' : null,
+      });
+    }
+  }
+  const failedOnes = result.filter((m) => m.state === 'failed');
+  failedOnes[0].subject = '<img src=x onerror="alert(1)">analysis.markup';
+  failedOnes[1].failureCategory = 'quantum-flux';
+  return result;
+}
+
+/** Receipts with each outcome, newest first. */
+export function notificationReceiptFixtures(): SimulatedNotificationReceipt[] {
+  const result: SimulatedNotificationReceipt[] = [];
+  for (let n = 1; n <= 12; n += 1) {
+    const outcome = RECEIPT_OUTCOMES[(n - 1) % RECEIPT_OUTCOMES.length];
+    result.push({
+      messageId: opsId(8, n),
+      messageType: 'matches.recordings-finalized',
+      recordingSetVersionId: opsId(9, n),
+      outcome,
+      rejectionCategory: outcome === 'rejected' ? (n === 3 ? 'unrecognized-reason' : 'recording-set-not-found') : null,
+      runId: outcome === 'rejected' ? null : opsId(3, 1),
+      receivedAt: new Date(now.getTime() - n * 900_000),
+    });
+  }
+  return result;
+}
+
+/** A summary with an unknown run state and an unresolvable workflow definition. */
+export function operationalSummaryFixture(): SimulatedOperationalSummary {
+  return {
+    workflowDefinition: { state: 'unresolvable', category: 'profile-not-approved', since: later(-2) },
+    runsByState: { Running: 2, Queued: 1, Completed: 7, Quarantined: 1 },
+    runsWithBlockedNodes: 1,
+    staleAttempts: 2,
+    rejectedNotifications: 4,
+    outboxPending: 3,
+    outboxFailed: 3,
+    oldestPendingAgeSeconds: 7_500,
+    observedAt: now,
+  };
+}
+
 /** Answers `/api/v1/**` with typed fixtures. Tests may override any route with `on`. */
 export class SimulatedApi {
   private current: { role: SimulatedRole; passwordChangeRequired: boolean } | null = null;
@@ -522,6 +664,23 @@ export class SimulatedApi {
   /** Fact page size of the simulated platform (its default page size); tests may lower it to page. */
   factPageSize = 50;
   private readonly statusReads = new Map<string, number>();
+
+  /** Operational fixtures behind `/operations/**`; tests may replace or mutate them. */
+  operationalSummary: SimulatedOperationalSummary = operationalSummaryFixture();
+  outboxMessages: SimulatedOutboxMessage[] = outboxMessageFixtures();
+  notificationReceipts: SimulatedNotificationReceipt[] = notificationReceiptFixtures();
+  reconciliationResult: SimulatedReconciliationResult = {
+    readyJobsRepublished: 2,
+    notificationsRepublished: 1,
+    startedAt: now,
+    completedAt: new Date(now.getTime() + 1500),
+  };
+  /** Page size of the operational lists; tests may change it. */
+  operationsPageSize = 5;
+  /** Per-operation answers that replace the data: 403, 503, or 400 for `continuationToken`. */
+  readonly operationsSwitches = new Map<OperationsOperation, OperationsSwitch>();
+  /** Reconciliation requests received, including refused ones. */
+  reconciliationRequests = 0;
 
   constructor(private readonly page: Page) {}
 
@@ -1709,6 +1868,9 @@ export class SimulatedApi {
     if (path.startsWith('/analyst-manager-registrations')) {
       return this.handleRegistrations(route, method, path, role, json);
     }
+    if (path.startsWith('/operations/')) {
+      return this.handleOperations(method, path, new URL(request.url()).searchParams, role, json);
+    }
     if (method === 'GET' && path.startsWith('/analysis/runs/')) {
       return this.handleAnalysisRead(route, path, role, json);
     }
@@ -1748,6 +1910,74 @@ export class SimulatedApi {
       if (result) return result;
     }
     return json(404, problem(404, 'Not found'));
+  }
+
+  /** The five workflow operations: Club Admin only, filters and opaque continuation tokens like the platform. */
+  private handleOperations(
+    method: string,
+    path: string,
+    query: URLSearchParams,
+    role: SimulatedRole,
+    json: (status: number, body: unknown) => Promise<void>,
+  ) {
+    const operation = this.operationFor(method, path);
+    if (!operation) return json(404, problem(404, 'Not found'));
+    if (operation === 'reconcileAnalysisPublication') this.reconciliationRequests += 1;
+    const mode = this.operationsSwitches.get(operation);
+    if (role !== 'ClubAdmin' || mode === 'forbidden') return json(403, problem(403, 'Forbidden'));
+    if (mode === 'unavailable') return json(503, problem(503, 'Service unavailable'));
+    const invalidToken = () =>
+      json(400, problem(400, 'Validation failed', { errors: [{ field: 'continuationToken', code: 'invalid' }] }));
+    const filterError = (field: string) =>
+      json(400, problem(400, 'Validation failed', { errors: [{ field, code: 'invalid' }] }));
+
+    if (operation === 'getAnalysisOperationalSummary') return json(200, this.operationalSummary);
+    if (operation === 'reconcileAnalysisPublication') return json(200, this.reconciliationResult);
+    if (operation === 'getOutboxMessage') {
+      const found = this.outboxMessages.find((m) => m.messageId === path.split('/').pop());
+      return found ? json(200, found) : json(404, problem(404, 'Not found'));
+    }
+
+    const token = query.get('continuationToken');
+    if (mode === 'invalid-token' && token !== null) return invalidToken();
+    let items: (SimulatedOutboxMessage | SimulatedNotificationReceipt)[];
+    let filterKey: string;
+    if (operation === 'listOutboxMessages') {
+      const state = query.get('state');
+      const messageType = query.get('messageType');
+      if (state !== null && !(OUTBOX_STATES as readonly string[]).includes(state)) return filterError('state');
+      if (messageType !== null && !(OUTBOX_MESSAGE_TYPES as readonly string[]).includes(messageType)) {
+        return filterError('messageType');
+      }
+      items = this.outboxMessages.filter((m) => (!state || m.state === state) && (!messageType || m.messageType === messageType));
+      filterKey = `${state ?? ''}|${messageType ?? ''}`;
+    } else {
+      const outcome = query.get('outcome');
+      if (outcome !== null && !(RECEIPT_OUTCOMES as readonly string[]).includes(outcome)) return filterError('outcome');
+      items = this.notificationReceipts.filter((r) => !outcome || r.outcome === outcome);
+      filterKey = outcome ?? '';
+    }
+
+    let offset = 0;
+    if (token !== null) {
+      const match = /^simulated-page:(\d+):(.*)$/.exec(token);
+      if (!match || match[2] !== `${operation}:${filterKey}` || Number(match[1]) > items.length) return invalidToken();
+      offset = Number(match[1]);
+    }
+    const end = offset + this.operationsPageSize;
+    return json(200, {
+      items: items.slice(offset, end),
+      continuationToken: end < items.length ? `simulated-page:${end}:${operation}:${filterKey}` : null,
+    });
+  }
+
+  private operationFor(method: string, path: string): OperationsOperation | null {
+    if (method === 'GET' && path === '/operations/analysis/summary') return 'getAnalysisOperationalSummary';
+    if (method === 'GET' && path === '/operations/outbox-messages') return 'listOutboxMessages';
+    if (method === 'GET' && /^\/operations\/outbox-messages\/[^/]+$/.test(path)) return 'getOutboxMessage';
+    if (method === 'GET' && path === '/operations/analysis/notification-receipts') return 'listNotificationReceipts';
+    if (method === 'POST' && path === '/operations/analysis/reconciliations') return 'reconcileAnalysisPublication';
+    return null;
   }
 
   /** Cancels an unfinished run like the platform: `If-Match` must carry the current version, terminal runs answer 409. */

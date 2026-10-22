@@ -159,6 +159,14 @@ export default defineConfig({
       dependencies: ['platform'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
+    {
+      name: 'platform-operations',
+      testDir: './tests/e2e/platform',
+      testMatch: /operations\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-registry'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
   ],
   webServer: [
     {
