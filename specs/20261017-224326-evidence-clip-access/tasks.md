@@ -124,7 +124,7 @@ short-lived, never stored or logged, audited, authorized per request, and rate-l
 
 ### Endpoint and test support
 
-- [ ] T010 [P] [US1] Map `POST /api/v1/analysis/runs/{runId}/evidence-media` (`resolveAnalysisEvidenceMedia`, tag
+- [x] T010 [P] [US1] Map `POST /api/v1/analysis/runs/{runId}/evidence-media` (`resolveAnalysisEvidenceMedia`, tag
   `Analysis evidence`) with `MapMemberApi()` in the new
   `src/platform/SocAlytics.Platform.Api/Analysis/AnalysisEvidenceEndpoints.cs` (`Cache-Control: no-store`, no `ETag`,
   problems `400`, `401`, `404`, `429`, `503` as in contracts/evidence-media-api.md); add the rate-limiter policy
