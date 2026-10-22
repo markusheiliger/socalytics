@@ -310,6 +310,15 @@ duplicate or reordered notifications and concurrent member cancellation, and
 re-applied by the analysis reconciliation. Run reads state whether a run is
 the match's current run and which run superseded it.
 
+The Web UI's read-only comparison of two terminal runs of the same match is
+decided but not yet implemented (see
+[Web UI](client-applications.md#web-ui)). It consumes `Completed`,
+`PartiallyCompleted`, `Failed`, and `Cancelled` history, including accepted
+results from before failure or cancellation, without changing execution state
+or supersession. Current and superseded are independently reported lineage
+attributes, not terminal states or quality rankings; runs of the same
+recording-set version remain eligible without inventing a supersession link.
+
 The immutable logical-job snapshot owns `max_attempts` and the effective lease,
 stale-timeout, and execution-timeout values copied from its capability's
 resolved Analyst profile. Each successful claim creates one numbered execution
