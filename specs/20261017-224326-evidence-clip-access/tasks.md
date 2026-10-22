@@ -108,7 +108,7 @@ short-lived, never stored or logged, audited, authorized per request, and rate-l
 
 ### Resolution
 
-- [ ] T009 [US1] Create `src/platform/SocAlytics.Platform.Application/Analysis/Evidence/ResolveEvidenceMedia.cs` and
+- [x] T009 [US1] Create `src/platform/SocAlytics.Platform.Application/Analysis/Evidence/ResolveEvidenceMedia.cs` and
   `EvidenceAuditEvents.cs`: validate the request (exactly one of `fact` and `range`; `fromMs ≥ 0`, `toMs > fromMs`,
   range at most `MaxDuration`; context `0..MaxContext`; `ordinal ≥ 0`), authorize with
   `IAccessAuthorizer.AuthorizeTeamResourceAsync(new("analysis-run", runId), TeamPermission.Read)` on every call
