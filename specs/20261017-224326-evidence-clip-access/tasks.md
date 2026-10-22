@@ -35,17 +35,20 @@ description: "Task list for Evidence Clip Access"
   (`00:00:00`..`00:01:00`), all required and validated at start; bind it in
   `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`; add
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidenceOptionsValidationTests.cs` for
-  missing and out-of-range values (FR-016; data-model.md Options)
-- [ ] T002 Set the development values `GrantLifetime` `00:05:00`, `RetryAfter` `00:00:05`, `ResolutionsPerMinute`
-  `60`, `MaxDuration` `00:10:00`, and `MaxContext` `00:00:10` as `Analysis__Evidence__*` in
-  `src/platform/SocAlytics.Platform.AppHost/Program.cs` and as `Analysis:Evidence:*` in every test settings
-  dictionary that configures the API host:
+  missing and out-of-range values; because the options are required and validated at start, the same task also sets
+  the values `GrantLifetime` `00:05:00`, `RetryAfter` `00:00:05`, `ResolutionsPerMinute` `60`, `MaxDuration`
+  `00:10:00`, and `MaxContext` `00:00:10` as `Analysis:Evidence:*` in every test settings dictionary that configures
+  the API host, so the Architecture and Host tests that verify this task still start:
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/Support/TestIdentityAccessSettings.cs`,
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Recordings/RecordingOptionsValidationTests.cs`,
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/AnalysisReadOptionsTests.cs`,
   `src/platform/Tests/SocAlytics.Platform.Architecture.Tests/EndpointSecurityTests.cs`, and
   `src/platform/Tests/SocAlytics.Platform.Host.Tests/MinimumWebVersionTests.cs` (and any other host settings found by
   searching for `Analysis:Reads:GrantLifetime`); run the Host and Architecture tests (FR-016; research R9)
+- [ ] T002 Set the same development values as `Analysis__Evidence__*` in
+  `src/platform/SocAlytics.Platform.AppHost/Program.cs` and as `Analysis:Evidence:*` in any API host settings
+  dictionary or launch configuration T001 did not cover (searching for `Analysis:Reads:GrantLifetime`), and confirm
+  that the Host and Architecture tests pass (FR-016; research R9)
 
 ---
 
