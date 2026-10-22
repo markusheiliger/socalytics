@@ -53,8 +53,10 @@ workflow started you): never ask, and turn every open question into a report que
      the person's notes, a previous diagnosis, and the section **Commands you can recommend**).
    - Interactive: with `gh`, read the pull request, its comments (the stop comment, the failure comments of the stuck
      task, convergence, or conflict resolution, an earlier diagnosis starting with
-     `<!-- speckit-implement:diagnosis -->`), the failed runs
-     (`gh run list --workflow speckit-implement.yml`, `gh run view <id> --log-failed`), and an open amendment pull
+     `<!-- speckit-implement:diagnosis -->`), the failed runs of the chain's workflows
+     (`gh run list --workflow speckit-implement-group.yml`, likewise `speckit-implement.yml`,
+     `speckit-implement-verify.yml`, `speckit-implement-repair.yml`, and `speckit-implement-merge.yml`;
+     `gh run view <id> --log-failed`), and an open amendment pull
      request from `speckit-amend/<folder>` with its comments and reviews. Print the command reference with
      `node .github/scripts/speckit-diagnose.mjs commands`. Work in a worktree of the implementation
      branch (`git worktree add <temp-dir> origin/speckit/<folder>`), or of the amendment branch to rework it.
