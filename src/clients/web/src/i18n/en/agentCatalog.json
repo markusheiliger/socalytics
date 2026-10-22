@@ -111,6 +111,7 @@
     "developmentSeed": "Development seed",
     "back": "Back",
     "cancel": "Cancel",
+    "close": "Close",
     "confirm": "Confirm",
     "working": "Working…",
     "notFound": "This catalog record was not found.",
@@ -369,6 +370,7 @@
       "effect": "Only questions submitted afterwards use the change. Existing invocations, their retries, and their history keep their pinned versions.",
       "disableEffect": "Members can no longer add or ask the agent until a version is enabled again.",
       "coachNote": "This is a Coach Agent version. The platform may refuse while Coach Agents are not available in conversations.",
+      "done": "The enablement was changed. Only questions submitted afterwards use it.",
       "submitEnable": "Enable version",
       "submitDisable": "Disable agent"
     }
