@@ -226,7 +226,7 @@ let a Docker-runtime Manager execute the run, and read the reference capability'
   exactly on a second boundary counts in the later second and a frame at the window's end counts in none; a 0.5 fps
   clip with a mapped second without a decoded frame yields that second with `decodedFrames` 0 and no `meanLuma`; no fact
   lies outside the nominal window in any case
-- [ ] T013 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_determinism.py` (FR-007; SC-003) and
+- [x] T013 [US3] Add `src/analysts/capabilities/reference-media-probe/tests/test_determinism.py` (FR-007; SC-003) and
   correct `src/analysts/capabilities/reference-media-probe/src/reference_media_probe/facts.py` where needed: two runs
   of the entry point over the same job and media in two mount roots produce byte-identical `facts.json`; luma values
   that differ only beyond the third decimal round half-even to the same payload
