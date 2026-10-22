@@ -1,0 +1,23 @@
+{
+  "manifestVersion": "1.0.0",
+  "capability": {
+    "id": "reference-media-probe",
+    "version": "1.0.0",
+    "tier": "low-level",
+    "executionScope": "segment"
+  },
+  "upstream": [],
+  "videoAccess": "required",
+  "output": { "schemaVersion": "1.0.0" },
+  "compatibleProfiles": ["reference-media-probe-dev"],
+  "model": { "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000000" },
+  "runtime": { "constraints": ["linux-amd64"], "accelerators": [] },
+  "resources": { "memory": "512Mi", "cpu": "1" },
+  "requirements": {
+    "minMaxAttempts": 1,
+    "minLeaseSeconds": 30,
+    "minStaleTimeoutSeconds": 60,
+    "minExecutionTimeoutSeconds": 300
+  },
+  "determinism": { "deterministic": true, "idempotent": true }
+}

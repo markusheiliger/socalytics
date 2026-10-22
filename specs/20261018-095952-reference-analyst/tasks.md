@@ -110,7 +110,7 @@ the fact feature's member fact read. The image is foundational because User Stor
 
 ### Declaration and image
 
-- [ ] T006 Add `src/analysts/capabilities/reference-media-probe/analyst-manifest.json` with exactly the values of
+- [x] T006 Add `src/analysts/capabilities/reference-media-probe/analyst-manifest.json` with exactly the values of
   data-model.md § Capability Declaration (`reference-media-probe` `1.0.0`, `low-level`, `segment`, `upstream: []`,
   `videoAccess: required`, `output.schemaVersion: 1.0.0`, `compatibleProfiles: ["reference-media-probe-dev"]`,
   `model.digest` `sha-256:` followed by 64 zeros, `runtime.constraints: ["linux-amd64"]`, `accelerators: []`,
