@@ -295,7 +295,18 @@
     "coachRules": "A Coach Agent safety policy is expected to include: {{rules}}",
     "coachRulesMissing": "Not chosen yet: {{rules}}"
   },
+  "dimensionForm": {
+    "dimension": "Dimension {{index}}",
+    "id": "Identifier of dimension {{index}}",
+    "meaning": "Meaning of dimension {{index}}",
+    "evidence": "Accepted evidence tools of dimension {{index}}",
+    "evidenceRule": "At least one tool from the allowlist ({{count}} chosen)",
+    "duplicate": "The identifier {{id}} is used more than once.",
+    "add": "Add dimension",
+    "remove": "Remove dimension {{index}}"
+  },
   "hints": {
+    "uniqueKebabIds": "Unique identifiers in lower-case kebab-case.",
     "required": "Required",
     "optional": "Optional",
     "remaining": "{{count}} characters remaining",
