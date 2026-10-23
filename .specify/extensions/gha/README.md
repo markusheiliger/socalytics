@@ -9,7 +9,7 @@ extension with the ID `github`.
 
 | Command | Skill | Purpose |
 | --- | --- | --- |
-| `speckit.gha.author` | `/speckit-gha-author [feature idea or folder]` | Author one spec until it is ready to implement by operating the workflow `author`: start it, ask its gates in Chat, resume it, and report (see Authoring Specs) |
+| `speckit.gha.author` | `/speckit-gha-author [--repeat <n>] [feature idea or folder]` | Author one spec until it is ready to implement by operating the workflow `author`: start it, ask its gates in Chat, resume it, and report; `--repeat <n>` authors `n` proposed specs one after another (see Authoring Specs) |
 | `speckit.gha.route` | `/speckit-gha-route` | Mandatory `before_implement` hook: choose local implementation or a GitHub request |
 | `speckit.gha.request` | `/speckit-gha-request [folder]` | Request implementation on GitHub directly |
 | `speckit.gha.diagnose` | `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` | Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause |
@@ -66,8 +66,11 @@ workflows own everything on the level of a Spec Kit command:
   a top-level `if`, names its verdict input after its id (`review-verdict` →
   `review_verdict`), and lists its recommended option first, so a run without
   a terminal pauses there and `specify workflow resume <run> -i <input>=<choice>`
-  answers it. `revise` stops the run and prints the command that runs it again
-  with `-i feedback="…"`.
+  answers it. The review gate of the implementation workflows offers `revise`,
+  which stops the run and prints the command that runs it again with
+  `-i feedback="…"`. The workflow `author` only stops where a person improves
+  the spec or decides what is authored or published; its publish gate is the
+  review point, and a revision reruns it with `stage` and `feedback`.
 - **No Git state changes:** the implementation workflows never commit, push, or
   check a task's box; on GitHub the land jobs do that after the verification,
   locally the person does. They measure a change against the working tree at
@@ -129,7 +132,15 @@ and on GitHub by the workflow Spec Kit author for `/speckit author`. It runs
 one spec through the repository's Spec Kit skills in Spec Kit's order, and
 every decision between them comes from
 `node .github/scripts/speckit-author-flow.mjs`; see `specs/README.md` for the
-stages, gates, and inputs.
+stages, gates, and inputs. It moves from spec to plan to tasks to analysis
+without asking; at the publish gate `/speckit-gha-author` shows the spec, plan,
+and tasks and offers push, commit, none, or revise. `/speckit-gha-author
+--repeat <n>` runs the workflow `n` times in a row, each run proposing the next
+logical spec; in autopilot each run commits its spec and the last one pushes
+them all. It stops at the first run that fails. On GitHub the workflow Spec Kit
+backlog does the same once no spec is left to request with `/speckit
+implement`, and pushes the specs straight to the default branch (see
+`.github/workflows/README.md`, "Spec backlog").
 
 `node .github/scripts/speckit-author.mjs status [folder] [--json]` reports a
 spec's next Spec Kit step, its publish blockers, and its Git state, which is how

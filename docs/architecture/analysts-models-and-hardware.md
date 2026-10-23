@@ -85,9 +85,8 @@ register images from the Web UI's Registry administration, see
 - References must use a digest, not a tag, and lie within the configured
   registry host and repository prefix.
 
-A development reference Analyst is decided as follows and not yet implemented
-(see the
-[reference Analyst contract](../../specs/20261018-095952-reference-analyst/contracts/reference-media-probe.md)).
+A development reference Analyst is implemented as development evidence (see the
+[reference Analyst contract](../../specs/archive/20261018-095952-reference-analyst/contracts/reference-media-probe.md)).
 The capability `reference-media-probe` is the first Analyst built on the
 Analyst SDK: the independent locked Python project
 `src/analysts/capabilities/reference-media-probe/`, a low-level,
@@ -100,7 +99,8 @@ statistics). It contains no model and declares the platform's no-model digest
 literal labels that the build verifies against the manifest, is built from
 the repository root, and uses only pinned inputs: a base image pinned by
 digest, the project's `uv.lock`, and the environment's hash-verified uv and
-FFmpeg archives; byte-identical rebuilds are not claimed. It runs under any
+FFmpeg archives; byte-identical rebuilds are not claimed and remain unevidenced.
+It runs under any
 non-root user on a read-only root file system. It is development evidence
 only: it is registered by the Docker-backed end-to-end tests and a documented
 local procedure through the normal Registry operations, is never published to
@@ -284,6 +284,21 @@ named reason. The API stores each fact as an immutable record of the accepted
 result in the same transaction as the acceptance, so no partially indexed
 result is ever visible.
 
+Fact payload schemas are decided and not implemented yet. A capability
+declares, per fact kind it emits, a payload schema in the Analyst manifest
+(`output.factPayloadSchemas`, manifest contract `1.2.0`) written in a
+restricted, self-contained subset of JSON Schema 2020-12: no format
+assertions, no external references, internal `$defs` and `$ref` only, and
+fixed size and depth limits (development values). The Registry validates and
+caches the declaration with the image, profile and workflow bindings pin it
+through the image digest, and each run's node snapshot pins the schemas and
+their digest. Before the accepting transaction, result acceptance validates
+every fact payload against the pinned schema of its kind, and a capability
+that declares any schema must declare every kind it emits. A violation ends the
+attempt as failed with a named, bounded reason and leaves no visible fact;
+payloads are never rewritten. The Python Analyst SDK performs the same check
+automatically before it writes a result.
+
 ### Capability-Scoped Result Access
 
 A high-level job receives its team, match, analysis-run, and accepted-
@@ -340,6 +355,15 @@ missing, failed, blocked, or skipped, without segment, recording, or storage
 identifiers. The operation `listAnalysisRunFactStreams` names every capability
 node of the run with its fact count and coverage. Both reads carry a weak ETag
 and never cross runs.
+
+The Web UI's same-match terminal-run comparison is decided but not yet
+implemented (see [Web UI](client-applications.md#web-ui)). It will consume
+each selected run's independently authorized stream summaries and pinned
+provenance, alongside run-status input coverage and recording lineage, without
+downloading fact payloads or introducing a cross-run endpoint. Unique
+capability-and-scope alignment is only a presentation aid; contract, input
+coverage and provenance differences stay explicit, and neither matching
+counts nor metadata establish equal full inputs, equivalent outputs or quality.
 
 The evidence of those facts is decided, but not yet implemented, to be
 resolvable to video by the same members (see
@@ -433,7 +457,11 @@ APIs, local endpoint authorization, runtime and VM restart, orphan
 reconciliation, incompatible upgrades, disk exhaustion, and image pull and
 launch latency. Security tests must reject forbidden mounts, devices,
 privileges, host namespaces, and runtime endpoint exposure. The Docker Desktop
-adapter's tests evidence the Engine API path against a Linux engine, the local
+adapter's tests evidence the Engine API path against a Linux engine, an
+SDK-built Analyst (`reference-media-probe`) that decodes Manager-staged segment
+media in a restricted container from its digest-pinned image, with its facts
+accepted, indexed, and read by members (validation of presigned video access
+stays open), the local
 endpoint policy (remote and unauthenticated endpoints refused), orphan
 reconciliation of the Manager's own labelled containers, and the launch
 restrictions (non-root user, read-only root filesystem, no network, dropped

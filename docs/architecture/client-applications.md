@@ -83,9 +83,9 @@ The React Web UI supports connected platform and club workflows, including:
   superseded without a member (implemented)
 - team and match review, analytics, and agent conversations for coaches (the
   connected analysis review and the match triage conversations with Specialist
-  Agents are implemented, see below; analytics beyond the review, such as
-  visualizations and comparison, and the Coach Agent conversations and
-  consultations are not implemented yet)
+  Agents are implemented, see below; run comparison is decided but not yet
+  implemented as described below; visualizations, the Coach Agent
+  conversations and consultations are not implemented yet)
 
 What a user sees is decided by their roles and team authorization, online and
 offline alike.
@@ -101,9 +101,30 @@ order through the member fact reads of
 filter them by a match-time range, page forward and back, and see coverage
 windows and run-pinned provenance, with explicit messages for missing,
 incomplete, empty, and unavailable analysis instead of empty lists. The review
-is online only and keeps analysis data in memory only; it offers no run
-controls, visualizations, cross-run comparison, or export, and plays no video
-other than the evidence playback below.
+is online only and keeps analysis data in memory only; the current
+implementation offers no run controls, visualizations, cross-run comparison,
+or export, and plays no video other than the evidence playback below.
+
+Connected analysis run comparison is decided and not yet implemented. Club
+Admins and Coaches and Viewers authorized for the owning team will reach a
+read-only comparison from the match or a terminal run review, selecting
+exactly two distinct runs of that match in `Completed`, `PartiallyCompleted`,
+`Failed`, or `Cancelled` state. Current and superseded runs remain selectable
+history; their execution states and accepted results do not change. Each side
+will retain its review link, recording-set finalization context, workflow,
+stream contracts and counts, output and reported input coverage, and pinned
+Analyst provenance through existing member reads. Streams align only for a
+unique capability identity and execution scope on both sides; ambiguous and
+absent counterparts remain unmatched, with contract and provenance changes
+explicit and no semantic equivalence or quality claim. Missing results,
+skipped or incomplete coverage, and accepted complete zero-fact results stay
+distinct. Entry, refresh, return and reconnection require fresh authorized
+reads of both sides before displaying results; offline or detected access
+loss removes their details and reusable comparison data. The view will be
+online only and memory-only, with no new comparison endpoint, payload
+reconciliation, run controls, media changes, visualizations, export, sharing,
+agent or MCP operations. Equal reported metadata never proves equal full
+input snapshots.
 
 Evidence playback in the analysis review is decided as follows and not yet
 implemented (see
