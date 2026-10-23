@@ -190,7 +190,8 @@
       "notFound": "One of the runs could not be found in this match. Choose the runs again.",
       "incompatible": "The platform answered with data that does not fit this comparison, so nothing is shown.",
       "retry": "Try loading the comparison again",
-      "refresh": "Reload the comparison"
+      "refresh": "Reload the comparison",
+      "permanent": "This comparison never shows that two runs had equal full inputs or that their outputs mean the same. More or fewer facts, more or less coverage, different provenance, or a newer run say nothing about better or worse quality or performance."
     },
     "side": {
       "runId": "Run ID",
@@ -213,7 +214,10 @@
       "title": "Fact streams of the {{side}}",
       "listLabel": "Fact streams of the {{side}}",
       "itemLabel": "{{key}} of the {{side}}",
-      "empty": "This run has no fact streams."
+      "empty": "This run reported an empty list of fact streams. Nothing was invented for it.",
+      "node": "Node state",
+      "availability": "Availability",
+      "inputCoverage": "Input coverage of this node"
     },
     "invalid": {
       "malformedId": "A run identifier in the address is not valid.",
@@ -221,6 +225,77 @@
       "unsupportedParameter": "The address contains a parameter that the comparison does not support.",
       "rightWithoutLeft": "A right run needs a left run. Choose the left run first.",
       "identicalIds": "Both sides name the same run. Choose two different runs."
+    },
+    "pair": {
+      "title": "Pair context",
+      "recordingSetSame": "Both runs name the same recording set version: {{id}}.",
+      "recordingSetDiff": "The runs name different recording sets: left {{left}}, right {{right}}. The recording sets differ, so the runs may have analyzed different recordings.",
+      "workflowSame": "Both runs used the same workflow version: {{workflow}}.",
+      "workflowDiff": "The runs used different workflows: left {{left}}, right {{right}}. Stream differences below may stem from the workflow."
+    },
+    "availability": {
+      "noExpectedUnits": "No expected execution units were reported, so completeness is not established.",
+      "noAcceptedResults": "No accepted results. Missing units: {{missing}}, failed units: {{failed}}, blocked units: {{blocked}}, skipped units: {{skipped}}.",
+      "allSkipped": "Every expected unit was skipped; the analysis for this output was skipped, not completed.",
+      "incompleteCoverage": "Accepted results with incomplete coverage. Missing units: {{missing}}, failed units: {{failed}}, blocked units: {{blocked}}, skipped units: {{skipped}}.",
+      "incompleteZero": "The accepted results contain no facts, and coverage is incomplete, so absence of facts proves nothing.",
+      "completeZeroFacts": "Accepted results with complete reported coverage contain zero facts.",
+      "completeFacts": "Facts with complete reported coverage.",
+      "incompatible": "The reported counts are inconsistent, so no availability is stated.",
+      "zeroFacts": "Zero facts are reported."
+    },
+    "input": {
+      "title": "Input coverage per dependency",
+      "notReported": "Input coverage was not reported for this node. Missing/null input coverage means not reported, not zero coverage.",
+      "emptyList": "The platform reported an empty dependency list for this node.",
+      "item": "Dependency {{key}}: policy {{policy}}{{fraction}}; accepted {{accepted}}, missing {{missing}}, failed {{failed}}, blocked {{blocked}}, skipped {{skipped}}",
+      "fraction": ", minimum accepted fraction {{fraction}}",
+      "policyComplete": "complete",
+      "policyPartial": "partial",
+      "policyUnsupported": "{{policy}} (unsupported policy, shown as reported)"
+    },
+    "align": {
+      "title": "Alignment by capability and scope",
+      "note": "Streams are aligned only when exactly one stream of the same capability and execution scope exists on each side. Alignment is a navigation aid and does not mean the streams are equivalent; reported counts do not show equal full inputs.",
+      "empty": "There are no streams to align.",
+      "listLabel": "Stream alignment",
+      "aligned": "Left {{left}} aligned with right {{right}} (capability {{capability}}, scope {{scope}})",
+      "unmatchedLeft": "Left only: {{key}} (capability {{capability}}, scope {{scope}})",
+      "unmatchedRight": "Right only: {{key}} (capability {{capability}}, scope {{scope}})",
+      "noCounterpart": "The other side has no stream of this capability and scope. No counterpart values are shown.",
+      "ambiguous": "More than one stream shares this capability and scope on at least one side, so no pairing was guessed and every stream is shown on its own.",
+      "noDifferences": "No differences in node, versions, output type, profile, image, or model digest.",
+      "differencesTitle": "Differences",
+      "difference": "{{field}}: left {{left}}, right {{right}}",
+      "absent": "not reported",
+      "side": "{{side}} availability",
+      "counts": "{{side}}: {{facts}} facts; output coverage accepted {{accepted}}, missing {{missing}}, failed {{failed}}, blocked {{blocked}}, skipped {{skipped}}",
+      "dependenciesTitle": "Input dependencies by upstream node",
+      "dependenciesNone": "Neither side reported dependencies. Unchanged reports do not show equal full input snapshots.",
+      "dependencyNote": "Unchanged reports do not show equal full input snapshots.",
+      "dependencySame": "Dependency {{key}}: same reported policy and counts on both sides.",
+      "dependencyChanged": "Dependency {{key}}: differs in {{fields}}. Left: {{left}}. Right: {{right}}.",
+      "dependencyLeft": "Dependency {{key}}: reported only by the left run. {{left}}",
+      "dependencyRight": "Dependency {{key}}: reported only by the right run. {{right}}",
+      "dependencyNotReported": "Input coverage was not reported on at least one side; not reported is not zero coverage.",
+      "dependencyDetail": "policy {{policy}}{{fraction}}; accepted {{accepted}}, missing {{missing}}, failed {{failed}}, blocked {{blocked}}, skipped {{skipped}}"
+    },
+    "field": {
+      "nodeKey": "Node",
+      "capabilityVersion": "Capability version",
+      "schemaVersion": "Schema version",
+      "outputType": "Output type",
+      "profileId": "Analyst profile ID",
+      "profileDigest": "Analyst profile digest",
+      "imageDigest": "Image digest",
+      "modelDigest": "Model digest",
+      "coverageMode": "policy",
+      "minimumAcceptedFraction": "minimum accepted fraction",
+      "accepted": "accepted count",
+      "missing": "missing count",
+      "failed": "failed count",
+      "blocked": "blocked count",
+      "skipped": "skipped count"
     }
   }
 }

@@ -16,8 +16,8 @@ import { NotFoundPage } from '../../shell/NotFoundPage';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { useMatchContext } from '../matches/useMatchContext';
 import { FailureAlert } from '../shared/FailureAlert';
-import { ComparisonStreams } from './ComparisonStreams';
-import { parseComparisonSelection, type ComparisonSide } from './comparisonPresentation';
+import { ComparisonAlignment, ComparisonStreams } from './ComparisonStreams';
+import { compareStreams, parseComparisonSelection, type ComparisonSide } from './comparisonPresentation';
 import { useAnalysisComparison, type AnalysisComparison } from './useAnalysisComparison';
 
 interface CandidateState {
@@ -245,7 +245,34 @@ function ComparisonSideView({ side, matchId, label }: { side: ComparisonSide; ma
       <Typography variant="h4" component="h4" sx={{ mt: 2 }}>
         {t('comparison.streams.title', { side: label })}
       </Typography>
-      <ComparisonStreams streams={side.streams} sideLabel={label} />
+      <ComparisonStreams streams={side.streams} sideLabel={label} nodes={side.run.nodes} />
+    </section>
+  );
+}
+
+function PairContext({ left, right }: { left: ComparisonSide; right: ComparisonSide }) {
+  const { t } = useTranslation('analysis');
+  const options = { interpolation: { escapeValue: false } };
+  const workflow = (side: ComparisonSide) => t('run.workflowValue', { id: side.run.workflowId, version: side.run.workflowVersion });
+  const sameSet = left.recordingSet.id.toLowerCase() === right.recordingSet.id.toLowerCase();
+  const sameWorkflow = workflow(left) === workflow(right);
+  return (
+    <section aria-label={t('comparison.pair.title')}>
+      <Typography variant="h3" component="h3" sx={{ mt: 3 }}>
+        {t('comparison.pair.title')}
+      </Typography>
+      <ul>
+        <li>
+          {sameSet
+            ? t('comparison.pair.recordingSetSame', { id: left.recordingSet.id, ...options })
+            : t('comparison.pair.recordingSetDiff', { left: left.recordingSet.id, right: right.recordingSet.id, ...options })}
+        </li>
+        <li>
+          {sameWorkflow
+            ? t('comparison.pair.workflowSame', { workflow: workflow(left), ...options })
+            : t('comparison.pair.workflowDiff', { left: workflow(left), right: workflow(right), ...options })}
+        </li>
+      </ul>
     </section>
   );
 }
@@ -286,6 +313,9 @@ function ComparisonResult({ comparison, matchId }: { comparison: AnalysisCompari
           {t('comparison.result.title')}
         </Typography>
         <Typography>{t('comparison.result.caveat')}</Typography>
+        <Typography>{t('comparison.result.permanent')}</Typography>
+        <PairContext left={model.left} right={model.right} />
+        <ComparisonAlignment entries={compareStreams(model.left, model.right)} />
         <ComparisonSideView side={model.left} matchId={matchId} label={t('comparison.left')} />
         <ComparisonSideView side={model.right} matchId={matchId} label={t('comparison.right')} />
         <Button variant="outlined" sx={{ mt: 2 }} onClick={refresh}>

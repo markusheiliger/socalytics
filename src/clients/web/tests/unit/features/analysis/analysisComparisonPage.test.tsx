@@ -269,7 +269,7 @@ describe('analysis comparison initial presentation', () => {
     renderPage(`?left=${id(1)}&right=${id(2)}`);
     const left = await screen.findByRole('region', { name: 'Left run' });
     expect(within(left).getByText('Not the current run and not superseded')).toBeInTheDocument();
-    expect(within(left).getByText('This run has no fact streams.')).toBeInTheDocument();
+    expect(within(left).getByText(/reported an empty list of fact streams/)).toBeInTheDocument();
   });
 
   it('renders no result details until the whole pair is ready', async () => {
@@ -289,5 +289,78 @@ describe('analysis comparison initial presentation', () => {
     renderPage(`?left=${id(1)}&right=${id(2)}`);
     expect(await screen.findByText('The Right run is still in progress and cannot be compared yet.')).toBeInTheDocument();
     expect(mocks.listStreams).not.toHaveBeenCalled();
+  });
+  describe('honest differences and availability', () => {
+    const node = (nodeKey: string, over: Record<string, unknown> = {}) => ({
+      nodeKey, capabilityId: 'cap', capabilityVersion: '1.0.0', tier: 'a', executionScope: 'match', state: 'Completed',
+      jobs: { waiting: 0, ready: 0, claimed: 0, completed: 1, failed: 0, blocked: 0 }, ...over,
+    });
+    const dep = (key: string, over: Record<string, unknown> = {}) => ({ upstreamNodeKey: key, coverageMode: 'complete', accepted: 2, missing: 0, failed: 0, blocked: 0, skipped: 0, ...over });
+    const withCoverage = (factCount: number, coverage: Record<string, number>, over: Record<string, unknown> = {}) => ({ ...stream(factCount), coverage, ...over });
+    const setup = (left: { run?: Record<string, unknown>; streams: unknown[] }, right: { run?: Record<string, unknown>; streams: unknown[] }) => {
+      const runs: Record<string, unknown> = {
+        [id(1)]: status(1, SET_A, left.run),
+        [id(2)]: status(2, SET_B, right.run),
+      };
+      mocks.getRun.mockImplementation(async (runId: string) => ({ kind: 'found', run: runs[runId] }));
+      mocks.listStreams.mockImplementation(async (runId: string) => ({ kind: 'found', streams: runId === id(1) ? left.streams : right.streams }));
+      renderPage(`?left=${id(1)}&right=${id(2)}`);
+    };
+
+    it('aligns a unique pair, shows differences, pair context and permanent wording', async () => {
+      const r = withCoverage(5, { accepted: 3, missing: 0, failed: 0, blocked: 0, skipped: 0 }, { schemaVersion: '2' });
+      setup(
+        { run: { nodes: [node('n1', { inputCoverage: [dep('up1'), dep('up2')] })] }, streams: [withCoverage(0, { accepted: 0, missing: 0, failed: 0, blocked: 0, skipped: 4 })] },
+        { run: { nodes: [node('n1', { inputCoverage: [dep('up1', { coverageMode: 'weird', minimumAcceptedFraction: 0.5 }), dep('up3')] })] }, streams: [r] },
+      );
+      const align = await screen.findByRole('region', { name: 'Alignment by capability and scope' });
+      expect(within(align).getByText(/navigation aid/)).toBeInTheDocument();
+      expect(within(align).getByText('Schema version: left 1, right 2')).toBeInTheDocument();
+      expect(within(align).getByText(/Every expected unit was skipped/)).toBeInTheDocument();
+      expect(within(align).getByText(/Facts with complete reported coverage\./)).toBeInTheDocument();
+      expect(within(align).getByText(/Dependency up1: differs in policy, minimum accepted fraction/)).toBeInTheDocument();
+      expect(within(align).getByText(/weird \(unsupported policy, shown as reported\)/, { exact: false })).toBeInTheDocument();
+      expect(within(align).getByText(/Dependency up2: reported only by the left run/)).toBeInTheDocument();
+      expect(within(align).getByText(/Dependency up3: reported only by the right run/)).toBeInTheDocument();
+      expect(screen.getByText(/The recording sets differ/)).toBeInTheDocument();
+      expect(screen.getByText(/never shows that two runs had equal full inputs/)).toBeInTheDocument();
+      expect(screen.queryByText(/better|worse/i, { selector: 'li' })).not.toBeInTheDocument();
+    });
+
+    it('explains unmatched and ambiguous streams without fabricated counterparts', async () => {
+      const a = withCoverage(1, { accepted: 1, missing: 0, failed: 0, blocked: 0, skipped: 0 }, { nodeKey: 'a1' });
+      const b = withCoverage(1, { accepted: 1, missing: 0, failed: 0, blocked: 0, skipped: 0 }, { nodeKey: 'a2' });
+      const c = withCoverage(1, { accepted: 1, missing: 0, failed: 0, blocked: 0, skipped: 0 }, { nodeKey: 'c1', capabilityId: 'other' });
+      setup(
+        { run: { nodes: [node('a1'), node('a2')] }, streams: [a, b] },
+        { run: { nodes: [node('c1', { capabilityId: 'other' })] }, streams: [c] },
+      );
+      const align = await screen.findByRole('region', { name: 'Alignment by capability and scope' });
+      expect(within(align).getByText(/Left only: a1/)).toBeInTheDocument();
+      expect(within(align).getByText(/Left only: a2/)).toBeInTheDocument();
+      expect(within(align).getByText(/Right only: c1/)).toBeInTheDocument();
+      expect(within(align).getAllByText(/no pairing was guessed/)).toHaveLength(2);
+      expect(within(align).getByText(/No counterpart values are shown/)).toBeInTheDocument();
+    });
+
+    it('distinguishes not-reported and empty input coverage and explains availability per stream', async () => {
+      setup(
+        { run: { nodes: [node('n1')] }, streams: [withCoverage(0, { accepted: 0, missing: 0, failed: 0, blocked: 0, skipped: 0 })] },
+        { run: { nodes: [node('n1', { inputCoverage: [] })] }, streams: [withCoverage(0, { accepted: 2, missing: 1, failed: 0, blocked: 0, skipped: 0 })] },
+      );
+      const left = await screen.findByRole('region', { name: 'Left run' });
+      const right = screen.getByRole('region', { name: 'Right run' });
+      expect(within(left).getByText(/Missing\/null input coverage means not reported, not zero coverage/)).toBeInTheDocument();
+      expect(within(left).getByText(/No expected execution units were reported/)).toBeInTheDocument();
+      expect(within(right).getByText(/reported an empty dependency list/)).toBeInTheDocument();
+      expect(within(right).getByText(/absence of facts proves nothing/)).toBeInTheDocument();
+      expect(within(right).getByText('Facts').nextSibling).toHaveTextContent('0');
+    });
+
+    it('states an explicit empty stream list and keeps model digest absence explicit', async () => {
+      setup({ streams: [] }, { streams: [] });
+      expect((await screen.findAllByText(/reported an empty list of fact streams/)).length).toBe(2);
+      expect(screen.getByText('There are no streams to align.')).toBeInTheDocument();
+    });
   });
 });
