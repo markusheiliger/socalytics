@@ -40,3 +40,13 @@ Other candidates of research R3:
 | Order of journal state, pending list, and refusal message after the reload | Ruled out as a cause: the assertions use auto-waiting `expect`; the only failing assertions were the request counts |
 
 Isolation of serial tests (spec scenario 3): Playwright closes a test's context, with its pages and dedicated workers, before the next test's `beforeEach` runs `reset`; in all runs the logs of the next test never started with a request of the previous test (every list begins with part 3 of its own upload), so the existing close order is sufficient between tests. The race is inside one test, between the helper's `reset` and its own first page. T008 keeps this note.
+
+## T006
+
+Repeated runs after the fix (the `startInterrupted` helper waits for observable conditions: a part 3 request, the journal entry with parts 1 and 2, the first page and its worker gone, and `inFlight` 0 before the `reset`).
+
+| Command | Outcome |
+| --- | --- |
+| `npx playwright test --project=simulated tests/e2e/simulated/recovery.spec.ts --workers=1 --repeat-each=30` | 180 passed (10.2m): all 30 runs of each of the 6 tests, no failures, no retries |
+
+Spec scenario 3 (no fault or activity of one serial test affects the next): all 180 runs passed in serial order with the unchanged `beforeEach` reset, so no request or fault of a previous test changed the next test's start state. This confirms the T002 note: Playwright closes a test's context, with its page and dedicated worker, before the next `beforeEach` runs, so the existing close order is sufficient between tests, and the race fixed by T005 was inside one test.
