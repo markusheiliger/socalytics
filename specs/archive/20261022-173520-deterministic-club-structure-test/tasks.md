@@ -1,0 +1,53 @@
+# Tasks: Deterministic Club Structure Browser Test
+
+**Input**: Design documents from `specs/archive/20261022-173520-deterministic-club-structure-test/`
+
+**Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [quickstart.md](quickstart.md); [contracts/README.md](contracts/README.md) states that there is no contract.
+
+**Tests**: The feature is the hardening of an existing browser test, so no new test files are added; verification is the repeated runs and failure probes of SC-001 and SC-002. All commands run from `src/clients/web` and need Docker for the `platform` projects.
+
+**Organization**: One user story (US1, P1) and one task. A task agent may only land a change to code, tests, or support files outside `specs/`, `.github/`, and `.specify/`; it can write nothing under `specs/` except the tick of its own task in `tasks.md`. The reproduction, the fix, and the proofs therefore are one task that ends with the code change, and the evidence is recorded in the code comment next to the fix, in the task's final summary, and in the commit message of the person or automation that commits (FR-001, SC-003), never in `research.md`. Tasks T002 to T012 of an earlier version of this list (reproduction, support and screen changes, proofs, regression, scope review, Markdown check) are steps of T001 and have no ID of their own.
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: Consecutive `[P]` tasks under one heading run in parallel, each from the same commit, so their files must not overlap (none in this list)
+- **[Story]**: Which user story the task belongs to (US1)
+- Constraints for every step: no retries, no skipping, no new or longer timeouts, no `waitForTimeout` or `networkidle` wait, and no assertion removed or loosened (FR-002, FR-003); temporary probes and scratch changes are removed before the task ends.
+
+## Phase 1: User Story 1 - The club structure browser test fails only when behavior is wrong (Priority: P1) 🎯 MVP
+
+**Goal**: The `platform-club-structure` test passes whenever a Club Admin can create and activate a season, create two teams, and edit one, however loaded the runner is and in whatever order the platform projects run, and fails only when that behavior is broken.
+
+**Independent Test**: 20 consecutive runs alone, 5 under CPU load, and 5 after the other platform projects all pass; each of three probes makes the test fail on its unchanged assertions.
+
+### Implementation
+
+- [x] T001 [US1] Establish the cause, remove it, and prove the result, in this order, in `src/clients/web` (FR-001 to FR-005, SC-001 to SC-003). The task ends with a change of `src/clients/web/tests/e2e/platform/club-structure.spec.ts` (and, only where the evidence places the cause there, `src/clients/web/tests/e2e/support/platformState.ts`, `src/clients/web/tests/e2e/support/fixtures.ts`, `src/clients/web/src/features/teams/`, or `src/clients/web/src/features/seasons/`); write nothing under `specs/`, and do not edit `research.md` or `tasks.md`.
+  1. **Baseline**: run `npm ci`, install Playwright Chromium if missing, run `npm run build` (the platform projects serve the built `dist/`, so the first run times out waiting for the web server without it), and run `npm run test:e2e -- --project platform-club-structure --trace on` once to prove the platform projects start and the chain (`platform-session` → `platform-navigation` → `platform-club-structure`) runs.
+  2. **Reproduce** (FR-001): repeat the test alone with `npm run test:e2e -- --project platform-club-structure --no-deps --trace on --repeat-each 20`; then start one `yes > /dev/null` process per core, run `--no-deps --repeat-each 5` the same way, and stop the load processes; then run `npm run test:e2e -- --project platform --trace on` five times and note whether the club structure result differs. Do not repeat without `--no-deps` (`platform-session` would repeat and fail on its second repeat because its initial password was already changed). Known harness collision: `run` in `club-structure.spec.ts` is a module-level `Date.now()` value, so repeats in one worker reuse the same season and team names; until the names are derived per attempt (`run` computed inside the test, or a per-repeat suffix from `test.info().repeatEachIndex`, applied as a scratch change), failures from duplicate names are harness failures and do not count as evidence of the flaky cause. Keep the traces of failing runs and read the failing step and the network order.
+  3. **Confirm the cause with a temporary probe** in a scratch change of `club-structure.spec.ts`: add a `page.route` handler that delays the team list and season list responses (candidates 1 to 3 of [research.md](research.md)) and, separately, start the test with a season already active (candidate 4) and with the previous attempt's names present (candidate 5); the candidate that fails the unchanged test deterministically is the evidenced cause. When no candidate reproduces, apply the cheapest candidate fix that the traces still support (for example waiting on the refetched list, or archiving active seasons before the test) and name it in the comment and the summary as a supported candidate, not a reproduced cause; apply at least the unconditional parts of step 4. Remove the scratch change completely before step 4.
+  4. **Fix the evidenced cause** by controlling the racing input or waiting on the awaited condition, by kind of cause: for a stale cached team list or refetch order, observe the refreshed list (for example through the response of the team list request that follows the save, or the list state that only the refetch can show) before the absence assertion for `secondTeam`; for shared state, call `archiveActiveSeasons()` before the test as well as in `afterEach`; for external readiness, wait on the platform's readiness before the first sign-in in `platformState.ts` or `fixtures.ts`, in a way that leaves the other platform specs behaviorally unchanged (FR-005); change a screen only if a trace shows that the screen, not the test, produces the race and shows a state that contradicts its documented behavior, and then change the smallest part without changing the documented behavior of the season and team screens (FR-004). Whatever the evidenced cause, also derive the season and team names per attempt (compute `run` inside the test, or from a random part plus `test.info().repeatEachIndex`, which differs between `--repeat-each` repeats, unlike `test.info().retry`) so a rerun or second worker never sees the previous attempt's names, and when the cause is not the stale cached team list, still order the absence assertion for `secondTeam` provably after the refreshed list was shown; both follow the edge cases of `spec.md`. Keep every existing assertion, including `toHaveCount(0)` for `secondTeam`, and every existing `timeout` unchanged. Write a code comment next to the fix that names the evidenced cause and the evidence (counts of passing and failing runs, the failing step, the probe that reproduced it or the supported candidate); the comment is the persisted record (FR-001, SC-003).
+  5. **Prove SC-001**: run the chain once (`npm run test:e2e -- --project platform-club-structure`), then `--no-deps --trace on --repeat-each 20` (all 20 pass), the same with `--no-deps --repeat-each 5` under CPU load on every core (all pass; stop the load processes afterward), and `npm run test:e2e -- --project platform` five times (the club structure result passes each time), all without a retry. When a support file changed, also run `npm run test:e2e -- --project platform-operations` once (it runs the whole platform chain including `platform-registry`) and confirm that all platform specs pass.
+  6. **Prove SC-002** with three temporary probes, one at a time, each reverted before the next: in the Web UI a team list that is not refreshed after creation (`src/clients/web/src/features/teams/`), a season that is not activated (`src/clients/web/src/features/seasons/`), and a save that does not persist the new name (`src/clients/web/src/features/teams/`); confirm each makes `platform-club-structure` fail on its unchanged assertions and not hang, and after each failing probe confirm that the club has no active season (the next probe or run activates a season without error), then revert every probe.
+  7. **Regress and review** (SC-003): run `npm run build`, `npm test`, and `npm run test:e2e -- --project simulated` and fix only failures that the change caused; then review `git diff` so that only the files the evidenced cause lives in changed, no probe or scratch route remains, no assertion of `club-structure.spec.ts` is textually removed or loosened, and no `timeout` is lengthened.
+  8. **Report**: end the final summary with the evidence (the cause or supported candidate, the run counts of steps 2 and 5, the outcomes of the three probes of step 6, and the files changed) worded as a commit message, because agents do not commit and the person or automation that commits repeats it.
+
+**Checkpoint**: US1 is independently verified.
+
+Architecture updates: the plan states `None` (browser test code only, no design or implementation-status statement of `docs/architecture/` changes), so no documentation task references `docs/architecture/`. SC-004 is post-merge evidence observed when #225 retries and is not verified by a task of this spec.
+
+---
+
+## Dependencies & Execution Order
+
+- Phase 1 (T001) is the only phase and the only task; its steps run in the order given.
+- T001 is not marked `[P]`: it touches `club-structure.spec.ts` and runs against one platform instance.
+
+## Implementation Strategy
+
+- **MVP**: T001 (US1 is the only story).
+- Reproduce first, fix only the evidenced cause, then prove with repeated runs and failure probes; when the cause is not reproducible, say so in the comment and the summary rather than adding retries, longer timeouts, or weaker assertions.
+
+## Phase 2: Convergence
+
+- [x] T002 [US1] In `src/clients/web`, run `npm run test:e2e -- --project platform-club-structure --no-deps --repeat-each 5` while one `yes > /dev/null` process runs per core (stop them afterward), then run `npm run test:e2e -- --project platform` five times, all without a retry. Add the passing and failing counts of both sets of runs, and the failing step of any failed run, to the existing evidence comment in `src/clients/web/tests/e2e/platform/club-structure.spec.ts`. That comment currently records only the 20 runs alone and the delay probe. If any run fails, fix the cause as in T001 step 4 without retries, longer timeouts, or removed or loosened assertions per FR-001, SC-001, SC-003 (partial)

@@ -2,11 +2,11 @@
 
 **Branch**: `20261022-173520-deterministic-club-structure-test` | **Date**: 2026-10-22 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261022-173520-deterministic-club-structure-test/spec.md`
+**Input**: Feature specification from `specs/archive/20261022-173520-deterministic-club-structure-test/spec.md`
 
 ## Summary
 
-Find, by reproduction, why the `platform-club-structure` browser test passes only on its rerun, and remove that cause where it lives without retries, longer timeouts, or weakened assertions. The plan fixes the method and the search space; the concrete cause is a result of the implementation (FR-001), recorded in a code comment next to the fix and in the `## Evidence` section of research.md (the commit message, written by the person or automation that commits, repeats them). The ranked candidates, from the code path the test exercises, are in [research.md](research.md): the cached, stale team list that the Teams screen shows on remount before its invalidation refetch resolves, the season option and the `created` status that precede the awaited refetch, shared Club Admin and active-season state across the chained platform projects, and the time-derived names.
+Find, by reproduction, why the `platform-club-structure` browser test passes only on its rerun, and remove that cause where it lives without retries, longer timeouts, or weakened assertions. The plan fixes the method and the search space; the concrete cause is a result of the implementation (FR-001), recorded in a code comment next to the fix (the commit message, written by the person or automation that commits, repeats it; task agents cannot write under `specs/`). The ranked candidates, from the code path the test exercises, are in [research.md](research.md): the cached, stale team list that the Teams screen shows on remount before its invalidation refetch resolves, the season option and the `created` status that precede the awaited refetch, shared Club Admin and active-season state across the chained platform projects, and the time-derived names.
 
 ## Technical Context
 
@@ -36,7 +36,7 @@ Find, by reproduction, why the `platform-club-structure` browser test passes onl
 | II. Source-area ownership | Only `src/clients/web` (tests, and screens if the evidence requires). | Pass |
 | III. API-first control plane | The UI keeps using the `/api/v1` operations; no logic moves into the client. | Pass |
 | IV. Evidence over claims | Pass/fail is proved by repeated runs (alone, under load, after the other platform projects) and by three failure probes (SC-001, SC-002). | Pass |
-| V. Focused, minimal changes | Touches only the files the evidenced cause lives in plus this spec folder (SC-003). | Pass |
+| V. Focused, minimal changes | Touches only the files the evidenced cause lives in (SC-003). | Pass |
 | Environment | `environment-setup` and `environment-verify` already provide Node.js 24, Playwright Chromium, and Docker for the platform projects; no new tool. | Pass |
 
 Re-check after design: unchanged, the design adds no file, dependency, or behavior.
@@ -46,7 +46,7 @@ Re-check after design: unchanged, the design adds no file, dependency, or behavi
 ### Documentation (this feature)
 
 ```text
-specs/20261022-173520-deterministic-club-structure-test/
+specs/archive/20261022-173520-deterministic-club-structure-test/
 ├── spec.md
 ├── plan.md
 ├── research.md
@@ -77,7 +77,7 @@ src/clients/web/
    - *Shared state*: have the test establish its own start state (no active season through `archiveActiveSeasons` before it, and not only after), and derive names that cannot collide between a rerun or a worker.
    - *External readiness*: wait on the platform's readiness before the first sign-in in the shared support.
 3. **Keep every assertion** and every explicit `timeout` as it is (none lengthened).
-4. **Prove** with the SC-001 runs and the SC-002 probes, remove the probes, and write the cause into the comment and the `## Evidence` section of research.md (the commit message, written by the person or automation that commits, repeats them) (SC-003).
+4. **Prove** with the SC-001 runs and the SC-002 probes, remove the probes, and write the cause and its evidence into the code comment next to the fix and the final summary (the commit message, written by the person or automation that commits, repeats it) (SC-003). Nothing is written under `specs/` by the task.
 
 ## Architecture Updates
 

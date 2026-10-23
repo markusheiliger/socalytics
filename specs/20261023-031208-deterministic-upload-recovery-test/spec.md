@@ -78,6 +78,6 @@ A maintainer running the Web UI simulated browser tests, or the verification of 
 ## Assumptions
 
 - **Cause**: The test belongs to the Web UI connected recording upload and resume behavior (the merged specs under `specs/archive/`). The cause is presumed to be a still-running upload retry racing the fixed wait and the store reset in the shared helper; this is a hypothesis, and the concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Web UI Run Comparison](../20261022-190935-web-ui-run-comparison/spec.md) (implementation #239) depends on this spec. Related specs that must not be repeated: [Deterministic Club Structure Browser Test](../20261022-173520-deterministic-club-structure-test/spec.md) (a different test and project).
+- **Dependencies**: [Web UI Run Comparison](../20261022-190935-web-ui-run-comparison/spec.md) (implementation #239) depends on this spec. Related specs that must not be repeated: [Deterministic Club Structure Browser Test](../archive/20261022-173520-deterministic-club-structure-test/spec.md) (a different test and project).
 - **Out of scope**: Other flaky tests, the platform browser projects, and production values (retry delays and limits of the upload worker are development values that stay as they are).
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.
