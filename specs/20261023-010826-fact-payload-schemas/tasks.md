@@ -193,7 +193,7 @@ named error is raised and no result is produced.
 
 ### Implementation for User Story 3
 
-- [ ] T025 [P] [US3] Add manifest `1.2.0` and `output.factPayloadSchemas` support to
+- [x] T025 [P] [US3] Add manifest `1.2.0` and `output.factPayloadSchemas` support to
   `src/analysts/sdk/src/socalytics_analyst/models/manifest.py` (closed subset model, limits and `$ref` checks matching
   `FactPayloadSchemaLimits`, giving the same named refusal code for each code-checked refusal)
 - [x] T026 [P] [US3] Add the error categories `fact-payload-invalid` and `fact-kind-undeclared` (exit code 1; messages
