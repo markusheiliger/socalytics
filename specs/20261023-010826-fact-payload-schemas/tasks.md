@@ -208,7 +208,7 @@ named error is raised and no result is produced.
 
 ### Tests for User Story 3
 
-- [ ] T029 [P] [US3] Extend `src/analysts/sdk/tests/test_result_writer.py` and `test_models_manifest.py`: conforming
+- [x] T029 [P] [US3] Extend `src/analysts/sdk/tests/test_result_writer.py` and `test_models_manifest.py`: conforming
   facts are written, a nonconforming fact raises `fact-payload-invalid` and writes no result, an undeclared kind
   raises `fact-kind-undeclared`, a manifest without schemas behaves as before, and the manifest location and its
   error handling work (SC-005)

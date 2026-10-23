@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from socalytics_analyst.models.manifest import ResultManifest
+from socalytics_analyst.models.manifest import AnalystManifest, ResultManifest
 
 EXAMPLES = Path(__file__).resolve().parents[4] / "contracts" / "analysis" / "result-manifest" / "v1" / "examples"
 VALID = sorted((EXAMPLES / "valid").glob("*.json"))
@@ -62,3 +62,53 @@ def test_input_coverage_limits_and_unit_subject():
     with pytest.raises(ValidationError):
         ResultManifest.model_validate(both)
     assert ResultManifest.model_validate({**document, "inputCoverage": None}).input_coverage is None
+
+
+ANALYST_EXAMPLES = (
+    Path(__file__).resolve().parents[4] / "contracts" / "analysis" / "analyst-manifest" / "v1" / "examples"
+)
+PAYLOAD_VALID = ANALYST_EXAMPLES / "valid" / "segment-with-payload-schemas.json"
+CODE_CHECKED = {
+    name: expected["code"]
+    for name, expected in load(ANALYST_EXAMPLES / "invalid" / "expectations.json").items()
+    if isinstance(expected, dict) and "code" in expected
+}
+
+
+def test_manifest_without_payload_schemas_behaves_as_before():
+    document = load(ANALYST_EXAMPLES / "valid" / "segment-low-level.json")
+    manifest = AnalystManifest.model_validate(document)
+    assert manifest.output.fact_payload_schemas is None
+
+
+def test_manifest_with_payload_schemas_parses_and_round_trips():
+    document = load(PAYLOAD_VALID)
+    manifest = AnalystManifest.model_validate(document)
+    assert document["manifestVersion"] == "1.2.0"
+    assert set(manifest.output.fact_payload_schemas) == {"player-detection", "frame-quality"}
+    assert manifest.model_dump(by_alias=True, exclude_none=True) == document
+
+
+@pytest.mark.parametrize("name,code", sorted(CODE_CHECKED.items()))
+def test_code_checked_invalid_examples_give_the_named_refusal(name, code):
+    document = load(ANALYST_EXAMPLES / "invalid" / name)
+    with pytest.raises(ValidationError) as raised:
+        AnalystManifest.model_validate(document)
+    assert code in str(raised.value)
+
+
+def test_payload_schemas_need_manifest_version_1_2_0():
+    document = load(PAYLOAD_VALID)
+    with pytest.raises(ValidationError):
+        AnalystManifest.model_validate({**document, "manifestVersion": "1.1.0"})
+
+
+def test_unknown_keyword_and_external_ref_are_refused():
+    document = load(PAYLOAD_VALID)
+    schemas = document["output"]["factPayloadSchemas"]
+    unknown = {**schemas, "frame-quality": {**schemas["frame-quality"], "pattern": "^a$"}}
+    with pytest.raises(ValidationError):
+        AnalystManifest.model_validate({**document, "output": {**document["output"], "factPayloadSchemas": unknown}})
+    external = {**schemas, "frame-quality": {"$ref": "https://example.com/schema.json"}}
+    with pytest.raises(ValidationError):
+        AnalystManifest.model_validate({**document, "output": {**document["output"], "factPayloadSchemas": external}})
