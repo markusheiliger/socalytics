@@ -149,7 +149,7 @@ the first is accepted and readable, the second ends failed with the named reason
   `[kind=..;fact=..;count=..;at=..]` of at most 256 characters without payload values, a fact of an undeclared kind
   failing whenever the snapshot has any schema, no validation when the snapshot has none, and reason tags for metrics
   and audit records (FR-005 to FR-011, FR-018)
-- [ ] T020 [US1] Add a test to
+- [x] T020 [US1] Add a test to
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/CompletionTests.cs` that a failed completion with
   a 256-character bounded reason is stored and read back unchanged through the completion outcome and its
   `CompletionOutcomeDto` response. The storage columns `analysis_completion_outcomes.reason` (migration 0018) and
