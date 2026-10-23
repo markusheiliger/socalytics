@@ -59,7 +59,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 ### Functional Requirements
 
-- **FR-001**: The implementation MUST first establish the cause of the intermittent failure of the stall test with evidence (repeated runs with and without CPU load, and the logs of failing runs) and record it in the pull request.
+- **FR-001**: The implementation MUST first establish the cause of the intermittent failure of the stall test with evidence (repeated runs with and without CPU load, and the logs of failing runs) and record it in a code comment next to the fix and in the task's final summary, which the commit message and pull request quote.
 - **FR-002**: The cause MUST be removed where it lives (the test, `RunToEndAsync`, the fixture, the simulated workload runner, or the platform code it covers) by advancing the clock only after the stalled first attempt is observably claimed and leased, and in a way the runner and the lease monitor observe deterministically, or by waiting on another observable condition; not by retries, fixed sleeps, skipping, or lengthening a limit. A bounded wait on a condition is allowed.
 - **FR-003**: Every assertion of the test (`succeeded`, exactly two attempts, at least one checkpoint) MUST remain, and no assertion, expected value, or test of the class MAY be removed, loosened, or skipped.
 - **FR-004**: Production behavior MUST NOT be weakened: any platform change MUST keep the claim, fencing, lease, expiry, retry, and outbox semantics of Agent Orchestration documented in `docs/architecture/`.
@@ -71,12 +71,12 @@ A maintainer running the Integration suite, or the verification of any implement
 
 - **SC-001**: The stall test passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of its class under CPU load.
 - **SC-002**: A probe that never expires the first attempt, and a probe that makes the second attempt fail, each make the test fail within the existing limits; the probes are removed afterward.
-- **SC-003**: The pull request names the evidenced cause and changes only the files the evidenced cause lives in, a focused test for a platform fix (T005), a docs/architecture correction only if a statement became false (T009), and this spec folder; no assertion is textually removed.
+- **SC-003**: The pull request names the evidenced cause and changes only the files the evidenced cause lives in, a focused test for a platform fix (T001 step 3), no docs/architecture change (T001 step 6 confirms its statements stay true), and this spec folder; no assertion is textually removed.
 - **SC-004** (post-merge evidence, observed when #184 retries and not verified by a task of this spec): the verification of #184 reports no flaky `SimulatedAgentWorkloadBehaviorTests` test.
 
 ## Assumptions
 
-- **Cause**: The test belongs to Agent Orchestration direct invocations (merged spec [Agent Orchestration Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md)); it races the shared fake clock between the test, the in-process runner, and the platform's lease monitor. The concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Member Invitations](../20261017-202624-member-invitations/spec.md) depends on this spec. Related specs that must not be repeated: [Deterministic Fail-Once Retry of the Simulated Agent Workload](../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md) and [Harden Integration Test Timing](../archive/20261019-221242-harden-integration-test-timing/spec.md).
+- **Cause**: The test belongs to Agent Orchestration direct invocations (merged spec [Agent Orchestration Invocations](../20261017-204332-agent-orchestration-invocations/spec.md)); it races the shared fake clock between the test, the in-process runner, and the platform's lease monitor. The concrete cause is established during implementation (FR-001).
+- **Dependencies**: [Member Invitations](../../20261017-202624-member-invitations/spec.md) depends on this spec. Related specs that must not be repeated: [Deterministic Fail-Once Retry of the Simulated Agent Workload](../20261020-224223-deterministic-simulated-workload-retry/spec.md) and [Harden Integration Test Timing](../20261019-221242-harden-integration-test-timing/spec.md).
 - **Out of scope**: Other flaky tests, simulated behaviors unrelated to the stall, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

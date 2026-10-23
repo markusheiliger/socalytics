@@ -18,7 +18,7 @@
 
    ```bash
    git diff --stat
-   git diff -U0 -- specs/20261023-150804-deterministic-stall-expiry-test/
+   git diff -U0 -- specs/archive/20261023-150804-deterministic-stall-expiry-test/
    ```
 
    Expected: two files and three changed lines (`spec.md` lines 80 and 19, `tasks.md` line 102), with only `archive/` added to the path of `20261020-224223-deterministic-simulated-workload-retry` in each; line 80 is the link fix, the other two are accepted plain-text side effects (SC-002, FR-001, FR-002, FR-003).
