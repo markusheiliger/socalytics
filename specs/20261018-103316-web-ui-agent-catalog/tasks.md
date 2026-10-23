@@ -212,6 +212,7 @@ description: "Task list for Web UI Agent Catalog Administration"
 
 - Consecutive `[P]` tasks under one heading run in parallel from the same commit; the next task without `[P]` runs after the whole group.
 - Tasks that change `agentCatalog.json`, `router.tsx`, or a simulated browser spec never carry `[P]`.
+- In Phase 9, T048 (the US3 correction of the agent version registration) is listed first and runs before T045, whose platform browser run depends on it, and before T047.
 
 ### Parallel Opportunities
 
