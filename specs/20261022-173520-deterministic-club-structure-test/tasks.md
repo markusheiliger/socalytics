@@ -47,3 +47,7 @@ Architecture updates: the plan states `None` (browser test code only, no design 
 
 - **MVP**: T001 (US1 is the only story).
 - Reproduce first, fix only the evidenced cause, then prove with repeated runs and failure probes; when the cause is not reproducible, say so in the comment and the summary rather than adding retries, longer timeouts, or weaker assertions.
+
+## Phase 2: Convergence
+
+- [ ] T002 [US1] In `src/clients/web`, run `npm run test:e2e -- --project platform-club-structure --no-deps --repeat-each 5` while one `yes > /dev/null` process runs per core (stop them afterward), then run `npm run test:e2e -- --project platform` five times, all without a retry. Add the passing and failing counts of both sets of runs, and the failing step of any failed run, to the existing evidence comment in `src/clients/web/tests/e2e/platform/club-structure.spec.ts`. That comment currently records only the 20 runs alone and the delay probe. If any run fails, fix the cause as in T001 step 4 without retries, longer timeouts, or removed or loosened assertions per FR-001, SC-001, SC-003 (partial)
