@@ -46,7 +46,7 @@ resource requirements. Analysis-run creation resolves that binding once for
 every recording, segment, and retry in the match.
 
 Development reference capabilities are not part of this catalog. The first one,
-`reference-media-probe` (decided, not yet implemented; see
+`reference-media-probe` (implemented as development evidence; see
 [Image Metadata And Packaging](analysts-models-and-hardware.md#image-metadata-and-packaging)),
 proves the Analyst SDK, segment media staging, and fact indexing with a real
 container; it passes none of the gates below and never enters a production

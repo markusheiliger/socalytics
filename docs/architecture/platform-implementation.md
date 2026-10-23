@@ -32,8 +32,10 @@ SocAlytics uses one `src` root with these first-level ownership areas:
   integration code
 - `src/analysts` owns the Analyst Manager, whose first desktop slice is
   executable under `src/analysts/manager`, and the Analyst SDK, executable
-  under `src/analysts/sdk`; Analyst capability implementations across their
-  required runtimes remain future
+  under `src/analysts/sdk`; the development reference capability
+  `reference-media-probe` exists under `src/analysts/capabilities/reference-media-probe`,
+  and the catalog's Analyst capability implementations across their required
+  runtimes remain future
 
 The executable platform projects are peers under `src/platform`, except for the
 test projects grouped under `src/platform/Tests`:
@@ -96,7 +98,8 @@ The platform API and control-plane baseline is ASP.NET Core on .NET 10 LTS; the
 initial host implements that runtime choice. The Python ecosystem tooling is
 future until its owning source area gains executable projects.
 The platform API, the Migrator, and the Web UI are cloud-neutral OCI images;
-the Analyst images and Hermes keep their own status and are not yet built.
+the development reference Analyst image is built as development evidence, and
+the production Analyst images and Hermes are not yet built.
 .NET Aspire owns local
 development composition, service discovery, health checks, OpenTelemetry
 defaults, and developer dependencies. Aspire is not the production
@@ -836,7 +839,9 @@ current and non-current migration states; and
   local socket: success with one accepted result, failing, missing-manifest,
   and out-of-memory Analysts, revocation during a hanging Analyst, and Manager
   restart with reconciliation that spares unlabelled containers, leaving
-  nothing on the host; and
+  nothing on the host, and run the SDK-built reference Analyst image on
+  materialized segment media, with accepted, indexed facts that team members
+  read; and
 - integration and end-to-end tests cover the Manager-mediated upstream read
   (current-attempt and input-snapshot scoping, refusals without disclosure,
   per-object read grants, coverage), digest-verified staging with cleanup in the
@@ -944,8 +949,8 @@ choice or reveals a material operational tradeoff:
   production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
   updates through its service worker as development evidence on Chromium), the other
   Web UI client workflows (the Coach Agent and consultation conversations),
-  cross-runtime schema agreement, reproducible Analyst
-  images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
+  cross-runtime schema agreement, byte-identical reproducible Analyst
+  image rebuilds and production Analyst images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
   profile on a Linux engine (Windows automation, Podman, and the other
   profiles) remain unsupported by implementation evidence. The headless server profile adds automated
   evidence (an executable without Avalonia, the lingering check, the generated
@@ -979,8 +984,12 @@ implementation-proven, evidence must demonstrate:
 - JSON Schema validation agrees at .NET and Python boundaries (the platform
   and the Analyst Manager agree on result manifests at the .NET boundary, and
   the Analyst SDK's conformance tests evidence the Python boundary over the
-  same examples; real Analyst images remain open)
-- locked Analyst images rebuild reproducibly and emit valid manifests
+  same examples, and the reference Analyst image evidences the Python boundary
+  in a real container; production Analyst images remain open)
+- locked Analyst images rebuild reproducibly and emit valid manifests (the
+  reference image evidences locked, pinned-input builds whose manifest the
+  Registry accepts; byte-identical rebuilds and production Analyst images remain
+  unevidenced)
 - Avalonia and OCI-runtime spikes satisfy the platform matrix in the
   [Analyst Manager architecture](analyst-manager.md)
 

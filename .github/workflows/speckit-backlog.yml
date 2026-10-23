@@ -1,0 +1,187 @@
+name: Spec Kit backlog
+
+# Authors the next logical specs and publishes them straight to the default branch, so there is always a spec twin to
+# request with `/speckit implement`. Started by Spec Kit orchestrate once no spec is left to request (repository
+# variable SPECKIT_BACKLOG_SPECS, default 5, 0 turns it off), or by hand. It does what `/speckit-gha-author --repeat <n>`
+# does in autopilot: n runs of the deterministic Spec Kit workflow `author` (.specify/extension-src/gha/workflows/author/)
+# one after another, each proposing the next logical spec from docs/architecture/, the existing specs, and the spec
+# twins, taking every recommended choice, and committing its spec; it stops at the first run that fails.
+#   author: read-only token; runs the Spec Kit workflow and packages the commits (speckit-backlog.mjs author)
+#   land:   write token, never runs agent-written code; checks that the commits only add new spec folders and change
+#           docs/architecture/, pushes them to the default branch, and dispatches Spec Kit prepare for their twins
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: How many specs to author (1 to 10)
+        required: false
+        type: string
+        default: "5"
+
+run-name: "Spec Kit backlog · Author the next ${{ inputs.count || '5' }} specs"
+
+# One refill at a time: a second one would propose the same specs.
+concurrency:
+  group: speckit-backlog
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  refuse:
+    name: Refuse non-default-branch runs
+    if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse the run
+        run: |
+          echo "::error::Spec Kit workflows only run from the default branch, not ${GITHUB_REF}."
+          exit 1
+
+  author:
+    name: Author the specs
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      copilot-requests: write
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_BACKLOG_COUNT: ${{ inputs.count || '5' }}
+      SPECKIT_TOOLING: ${{ github.workspace }}/tooling
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/workspace/.speckit-backlog
+      # Every Copilot CLI call of the Spec Kit workflow goes through speckit-copilot.mjs exec (models.json, deny-list).
+      SPECKIT_LEVEL: standard
+      SPECKIT_AI_CREDITS: ${{ vars.SPECKIT_AUTHOR_AI_CREDITS || '1000' }}
+      TZ: UTC
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare the workspace
+        working-directory: workspace
+        run: |
+          mkdir -p .speckit-backlog
+          printf '.speckit-backlog/\n' >> .git/info/exclude
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Without an upstream the author workflow treats a committed spec as unpublished: the next run proposes the
+          # next spec instead of continuing it, and the land job pushes them all.
+          git branch --unset-upstream 2>/dev/null || true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # The Spec Kit helper scripts (.specify/scripts/python) run as `python`.
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install the specify CLI
+        run: uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.0.13
+
+      - name: Install the Copilot CLI wrapper
+        run: |
+          npm install --global "@github/copilot@1.0.96" --no-audit --no-fund --loglevel=error
+          wrapper="$RUNNER_TEMP/speckit-copilot"
+          printf '#!/usr/bin/env bash\nexec node "%s/.github/scripts/speckit-copilot.mjs" exec "$@"\n' "$SPECKIT_TOOLING" > "$wrapper"
+          chmod +x "$wrapper"
+          echo "SPECKIT_INTEGRATION_COPILOT_EXECUTABLE=$wrapper" >> "$GITHUB_ENV"
+
+      # Optional, solution-owned extension point, so the plan's environment check and the agents see the toolchain.
+      - name: Set up the solution environment
+        continue-on-error: true
+        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      # The definition and its helper come from the trusted tooling checkout; the runs work on the workspace. GH_TOKEN
+      # (read-only) lets the proposal list the spec twins.
+      - name: Author the next specs
+        working-directory: workspace
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-backlog.mjs" author
+
+      - name: Upload the result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-backlog-result
+          path: |
+            workspace/.speckit-backlog/result.json
+            workspace/.speckit-backlog/specs.patch
+          retention-days: 7
+          if-no-files-found: ignore
+
+  land:
+    name: Publish the specs on the default branch
+    needs: author
+    if: always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: write
+      contents: write
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_AUTHOR_JOB: ${{ needs.author.result }}
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download the result
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: speckit-backlog-result
+          path: ${{ github.workspace }}/result
+
+      - name: Publish the specs and report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node tooling/.github/scripts/speckit-backlog.mjs land
