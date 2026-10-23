@@ -12,11 +12,13 @@ import { SessionContext, type SessionApi } from '../../../../src/session/session
 import '../../../../src/i18n';
 import { makeSession } from '../../session/helpers';
 
-const mocks = vi.hoisted(() => ({ getMatch: vi.fn(), getTeam: vi.fn(), listByMatch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getMatch: vi.fn(), getTeam: vi.fn(), listByMatch: vi.fn(), getRun: vi.fn(), listStreams: vi.fn(), getSet: vi.fn() }));
 
 vi.mock('../../../../src/platform/adapters/matchAdapter', () => ({ createMatchAdapter: () => ({ get: mocks.getMatch }) }));
 vi.mock('../../../../src/platform/adapters/teamAdapter', () => ({ createTeamAdapter: () => ({ get: mocks.getTeam }) }));
-vi.mock('../../../../src/platform/adapters/analysisRunAdapter', () => ({ createAnalysisRunAdapter: () => ({ listByMatch: mocks.listByMatch }) }));
+vi.mock('../../../../src/platform/adapters/analysisRunAdapter', () => ({ createAnalysisRunAdapter: () => ({ listByMatch: mocks.listByMatch, getRun: mocks.getRun }) }));
+vi.mock('../../../../src/platform/adapters/analysisFactAdapter', () => ({ createAnalysisFactAdapter: () => ({ listStreams: mocks.listStreams }) }));
+vi.mock('../../../../src/platform/adapters/recordingLineageAdapter', () => ({ createRecordingLineageAdapter: () => ({ getSet: mocks.getSet }) }));
 
 const MATCH = '33333333-3333-4333-8333-333333333333';
 const TEAM = '44444444-4444-4444-8444-444444444444';
@@ -188,5 +190,104 @@ describe('analysis comparison selection', () => {
     await screen.findByText(/Two finished runs are needed/);
     view.unmount();
     expect(screen.queryByLabelText('Left run')).not.toBeInTheDocument();
+  });
+});
+
+const status = (n: number, setId: string, over: Record<string, unknown> = {}) => ({
+  runId: id(n),
+  teamId: TEAM,
+  matchId: MATCH,
+  recordingSetVersionId: setId,
+  workflowId: 'default',
+  workflowVersion: '3',
+  state: 'Completed',
+  createdAt: new Date('2026-10-12T12:00:00Z'),
+  isCurrent: false,
+  requestedCapabilities: ['cap'],
+  nodes: [{ nodeKey: 'n1', capabilityId: 'cap', capabilityVersion: '1.0.0', tier: 'a', executionScope: 'match', state: 'Completed', jobs: { waiting: 0, ready: 0, claimed: 0, completed: 1, failed: 0, blocked: 0 } }],
+  ...over,
+});
+
+const stream = (factCount: number) => ({
+  nodeKey: 'n1',
+  capabilityId: 'cap',
+  capabilityVersion: '1.0.0',
+  schemaVersion: '1',
+  outputType: 'foundational-facts',
+  executionScope: 'match',
+  required: true,
+  factCount,
+  provenance: { workflow: { id: 'default', version: '3' }, analystProfile: { id: 'prof', digest: 'sha256:' + 'a'.repeat(64) }, imageDigest: 'sha256:' + 'b'.repeat(64) },
+  coverage: { accepted: 1, missing: 2, failed: 3, blocked: 4, skipped: 5 },
+});
+
+const recordingSet = (setId: string) => ({
+  id: setId,
+  matchId: MATCH,
+  teamId: TEAM,
+  finalizedAt: new Date('2026-10-11T10:00:00Z'),
+  members: [{ position: 1, recordingVersionId: 'rv-' + setId.slice(0, 4), recordingContentDigest: 'sha256:c1', timelineMappingId: 'tm1', timelineMappingDigest: 'sha256:d1' }],
+});
+
+describe('analysis comparison initial presentation', () => {
+  beforeEach(() => {
+    mocks.listByMatch.mockResolvedValue({ items: [], continuationToken: undefined });
+    mocks.getSet.mockImplementation(async (_match: string, setId: string) => recordingSet(setId));
+  });
+
+  it('shows each side independently with identity, history, recording set, links, and streams', async () => {
+    const successor = { runId: id(9), recordingSetVersionId: SET_B, recordingSetFinalizedAt: new Date('2026-10-13T10:00:00Z') };
+    const runs: Record<string, unknown> = {
+      [id(1)]: status(1, SET_A, { supersededBy: successor, supersededAt: new Date('2026-10-13T11:00:00Z') }),
+      [id(2)]: status(2, SET_B, { isCurrent: true }),
+    };
+    mocks.getRun.mockImplementation(async (runId: string) => ({ kind: 'found', run: runs[runId] }));
+    mocks.listStreams.mockImplementation(async (runId: string) => ({ kind: 'found', streams: [stream(runId === id(1) ? 0 : 7)] }));
+    renderPage(`?left=${id(1)}&right=${id(2)}`);
+
+    const left = await screen.findByRole('region', { name: 'Left run' });
+    const right = screen.getByRole('region', { name: 'Right run' });
+    expect(within(left).getByText(id(1))).toBeInTheDocument();
+    expect(within(left).getByText(/Superseded by/)).toBeInTheDocument();
+    expect(within(left).getByText(new RegExp(`run ${id(9)} \\(recording set ${SET_B}`))).toBeInTheDocument();
+    expect(within(left).getByText('Superseded at')).toBeInTheDocument();
+    expect(within(left).getByText(SET_A)).toBeInTheDocument();
+    expect(within(left).getAllByText('default 3').length).toBeGreaterThan(0);
+    expect(within(left).getByRole('link', { name: 'Open the detailed review of the Left run' })).toHaveAttribute('href', `/matches/${MATCH}/analysis-runs/${id(1)}`);
+    expect(within(left).getByText('Facts').nextSibling).toHaveTextContent('0');
+    expect(within(right).getByText('Facts').nextSibling).toHaveTextContent('7');
+    expect(within(right).getByRole('link', { name: 'Open the detailed review of the Right run' })).toHaveAttribute('href', `/matches/${MATCH}/analysis-runs/${id(2)}`);
+    expect(within(right).getByText('Yes')).toBeInTheDocument();
+    for (const label of ['Accepted: 1', 'Missing: 2', 'Failed: 3', 'Blocked: 4', 'Skipped: 5']) expect(within(left).getByText(label)).toBeInTheDocument();
+    expect(within(left).getByText('Provenance')).toBeInTheDocument();
+    expect(screen.getByText(/do not establish that both runs analyzed the same full inputs/)).toBeInTheDocument();
+  });
+
+  it('retains the non-current, non-superseded state', async () => {
+    mocks.getRun.mockImplementation(async (runId: string) => ({ kind: 'found', run: status(runId === id(1) ? 1 : 2, SET_A) }));
+    mocks.listStreams.mockResolvedValue({ kind: 'found', streams: [] });
+    renderPage(`?left=${id(1)}&right=${id(2)}`);
+    const left = await screen.findByRole('region', { name: 'Left run' });
+    expect(within(left).getByText('Not the current run and not superseded')).toBeInTheDocument();
+    expect(within(left).getByText('This run has no fact streams.')).toBeInTheDocument();
+  });
+
+  it('renders no result details until the whole pair is ready', async () => {
+    mocks.getRun.mockImplementation(async (runId: string) => ({ kind: 'found', run: status(runId === id(1) ? 1 : 2, SET_A) }));
+    mocks.listStreams.mockImplementation(async (runId: string) => {
+      if (runId === id(2)) throw new PlatformFailure('incompatible');
+      return { kind: 'found', streams: [stream(1)] };
+    });
+    renderPage(`?left=${id(1)}&right=${id(2)}`);
+    expect(await screen.findByText(/does not fit this comparison/)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Left run' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Fact streams of the Left run')).not.toBeInTheDocument();
+  });
+
+  it('explains an in-progress side instead of comparing', async () => {
+    mocks.getRun.mockImplementation(async (runId: string) => ({ kind: 'found', run: status(runId === id(1) ? 1 : 2, SET_A, runId === id(2) ? { state: 'Running' } : {}) }));
+    renderPage(`?left=${id(1)}&right=${id(2)}`);
+    expect(await screen.findByText('The Right run is still in progress and cannot be compared yet.')).toBeInTheDocument();
+    expect(mocks.listStreams).not.toHaveBeenCalled();
   });
 });

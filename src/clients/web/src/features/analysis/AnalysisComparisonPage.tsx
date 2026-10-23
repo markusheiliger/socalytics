@@ -16,7 +16,9 @@ import { NotFoundPage } from '../../shell/NotFoundPage';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { useMatchContext } from '../matches/useMatchContext';
 import { FailureAlert } from '../shared/FailureAlert';
-import { parseComparisonSelection } from './comparisonPresentation';
+import { ComparisonStreams } from './ComparisonStreams';
+import { parseComparisonSelection, type ComparisonSide } from './comparisonPresentation';
+import { useAnalysisComparison, type AnalysisComparison } from './useAnalysisComparison';
 
 interface CandidateState {
   runs: AnalysisRunSummary[];
@@ -159,7 +161,143 @@ function SelectionForm({
   );
 }
 
-/** Two-run selection of one match (FR-001 through FR-005, FR-012 through FR-015); the comparison itself follows in the next tasks. */
+function ComparisonSideView({ side, matchId, label }: { side: ComparisonSide; matchId: string; label: string }) {
+  const { t } = useTranslation('analysis');
+  const { run, recordingSet } = side;
+  const yes = t('comparison.side.yes');
+  const no = t('comparison.side.no');
+  const plain = !run.isCurrent && !run.supersededBy && !run.supersededAt;
+  return (
+    <section aria-label={label}>
+      <Typography variant="h3" component="h3" sx={{ mt: 3 }}>
+        {label}
+      </Typography>
+      <dl>
+        <div>
+          <dt>{t('comparison.side.runId')}</dt>
+          <dd>{run.runId}</dd>
+        </div>
+        <div>
+          <dt>{t('run.state')}</dt>
+          <dd>{t(`run.stateName.${run.state}`, { defaultValue: run.state })}</dd>
+        </div>
+        <div>
+          <dt>{t('comparison.side.current')}</dt>
+          <dd>{run.isCurrent ? yes : no}</dd>
+        </div>
+        {run.supersededBy && (
+          <div>
+            <dt>{t('comparison.side.supersededBy')}</dt>
+            <dd>
+              {t('comparison.side.successor', {
+                runId: run.supersededBy.runId,
+                setId: run.supersededBy.recordingSetVersionId,
+                finalizedAt: run.supersededBy.recordingSetFinalizedAt.toLocaleString(),
+              })}
+            </dd>
+          </div>
+        )}
+        {run.supersededAt && (
+          <div>
+            <dt>{t('comparison.side.supersededAt')}</dt>
+            <dd>{run.supersededAt.toLocaleString()}</dd>
+          </div>
+        )}
+        {plain && (
+          <div>
+            <dt>{t('comparison.side.history')}</dt>
+            <dd>{t('comparison.side.plain')}</dd>
+          </div>
+        )}
+        <div>
+          <dt>{t('run.workflow')}</dt>
+          <dd>{t('run.workflowValue', { id: run.workflowId, version: run.workflowVersion })}</dd>
+        </div>
+        <div>
+          <dt>{t('comparison.side.recordingSet')}</dt>
+          <dd>{recordingSet.id}</dd>
+        </div>
+        <div>
+          <dt>{t('comparison.side.finalizedAt')}</dt>
+          <dd>{recordingSet.finalizedAt.toLocaleString()}</dd>
+        </div>
+      </dl>
+      <Typography variant="h4" component="h4">
+        {t('comparison.side.members', { count: recordingSet.members.length })}
+      </Typography>
+      <ol aria-label={t('comparison.side.membersLabel', { side: label })}>
+        {recordingSet.members.map((member) => (
+          <li key={member.position}>
+            {t('comparison.side.member', {
+              position: member.position,
+              recordingVersionId: member.recordingVersionId,
+              contentDigest: member.recordingContentDigest,
+              mappingId: member.timelineMappingId,
+              mappingDigest: member.timelineMappingDigest,
+              interpolation: { escapeValue: false },
+            })}
+          </li>
+        ))}
+      </ol>
+      <Button component={Link} to={`/matches/${matchId}/analysis-runs/${run.runId}`} variant="outlined" size="small">
+        {t('comparison.side.review', { side: label })}
+      </Button>
+      <Typography variant="h4" component="h4" sx={{ mt: 2 }}>
+        {t('comparison.streams.title', { side: label })}
+      </Typography>
+      <ComparisonStreams streams={side.streams} sideLabel={label} />
+    </section>
+  );
+}
+
+function ComparisonResult({ comparison, matchId }: { comparison: AnalysisComparison; matchId: string }) {
+  const { t } = useTranslation('analysis');
+  const { state, model, invalid, failure, refresh } = comparison;
+  const retry = (
+    <Button variant="outlined" sx={{ mt: 1 }} onClick={refresh}>
+      {t('comparison.result.retry')}
+    </Button>
+  );
+  if (state === 'loading') return <Typography role="status">{t('comparison.result.loading')}</Typography>;
+  if (state === 'invalidSelection' && invalid && 'side' in invalid) {
+    return <Alert severity="warning">{t(`comparison.result.${invalid.reason}`, { side: t(`comparison.${invalid.side}`) })}</Alert>;
+  }
+  if (state === 'notFound') return <Alert severity="warning">{t('comparison.result.notFound')}</Alert>;
+  if (state === 'incompatible') {
+    return (
+      <>
+        <Alert severity="error">{t('comparison.result.incompatible')}</Alert>
+        {retry}
+      </>
+    );
+  }
+  if (state === 'error') {
+    return (
+      <>
+        {failure && <FailureAlert failure={failure} />}
+        {retry}
+      </>
+    );
+  }
+  if (state === 'ready' && model) {
+    return (
+      <section aria-label={t('comparison.result.title')}>
+        <Typography variant="h2" component="h2" sx={{ mt: 3 }}>
+          {t('comparison.result.title')}
+        </Typography>
+        <Typography>{t('comparison.result.caveat')}</Typography>
+        <ComparisonSideView side={model.left} matchId={matchId} label={t('comparison.left')} />
+        <ComparisonSideView side={model.right} matchId={matchId} label={t('comparison.right')} />
+        <Button variant="outlined" sx={{ mt: 2 }} onClick={refresh}>
+          {t('comparison.result.refresh')}
+        </Button>
+      </section>
+    );
+  }
+  return null;
+}
+
+/** Two-run selection of one match (FR-001 through FR-005, FR-012 through FR-015) and the initial independent stream presentation of the chosen pair. */
 export function AnalysisComparisonPage() {
   const { matchId = '' } = useParams();
   const { t } = useTranslation('analysis');
@@ -169,6 +307,7 @@ export function AnalysisComparisonPage() {
   const selection = useMemo(() => parseComparisonSelection(searchParams), [searchParams]);
   const { match, team, permitted } = useMatchContext(matchId);
   const { state, loadMore } = useCandidateRuns(matchId, permitted && !isUnreachable);
+  const comparison = useAnalysisComparison(matchId, selection);
 
   if (isUnreachable) {
     return (
@@ -181,6 +320,7 @@ export function AnalysisComparisonPage() {
   }
 
   const isNotPermitted = (error: unknown) => Boolean(error) && toPlatformFailure(error).kind === 'notPermitted';
+  if (comparison.state === 'notPermitted') return <NotPermittedPage />;
   if ((match.data && !permitted) || isNotPermitted(match.error) || isNotPermitted(team.error)) return <NotPermittedPage />;
   if (match.error && toPlatformFailure(match.error).status === 404) return <NotFoundPage framed />;
 
@@ -230,6 +370,7 @@ export function AnalysisComparisonPage() {
               {t('comparison.loadMore')}
             </Button>
           )}
+          <ComparisonResult comparison={comparison} matchId={matchId} />
         </>
       )}
       <Button component={Link} to={`/matches/${matchId}`} variant="outlined" sx={{ mt: 2 }}>

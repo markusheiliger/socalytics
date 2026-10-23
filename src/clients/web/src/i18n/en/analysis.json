@@ -176,6 +176,40 @@
     "exhausted": "All {{count}} run(s) of this match are loaded.",
     "insufficient": "All runs of this match are loaded, and {{count}} of them can be compared. Two finished runs are needed.",
     "connectionRequired": "A connection is required to compare analysis runs. SocAlytics shows no analysis data while the platform is not reachable.",
+    "result": {
+      "title": "Comparison",
+      "loading": "Loading both runs…",
+      "caveat": "Each run is shown on its own. Reported counts do not establish that both runs analyzed the same full inputs or that their outputs are equivalent, and a count of zero facts does not mean the analysis is complete.",
+      "notTerminal": "The {{side}} is still in progress and cannot be compared yet.",
+      "unknownState": "The {{side}} is in a state this version does not recognize and cannot be compared.",
+      "notFound": "One of the runs could not be found in this match. Choose the runs again.",
+      "incompatible": "The platform answered with data that does not fit this comparison, so nothing is shown.",
+      "retry": "Try loading the comparison again",
+      "refresh": "Reload the comparison"
+    },
+    "side": {
+      "runId": "Run ID",
+      "current": "Current run",
+      "yes": "Yes",
+      "no": "No",
+      "history": "History",
+      "plain": "Not the current run and not superseded",
+      "supersededBy": "Superseded by",
+      "successor": "run {{runId}} (recording set {{setId}}, finalized {{finalizedAt}})",
+      "supersededAt": "Superseded at",
+      "recordingSet": "Recording set",
+      "finalizedAt": "Recording set finalized",
+      "members": "Recording set members ({{count}})",
+      "membersLabel": "Recording set members of the {{side}}",
+      "member": "{{position}}: recording version {{recordingVersionId}} (content {{contentDigest}}), timeline mapping {{mappingId}} ({{mappingDigest}})",
+      "review": "Open the detailed review of the {{side}}"
+    },
+    "streams": {
+      "title": "Fact streams of the {{side}}",
+      "listLabel": "Fact streams of the {{side}}",
+      "itemLabel": "{{key}} of the {{side}}",
+      "empty": "This run has no fact streams."
+    },
     "invalid": {
       "malformedId": "A run identifier in the address is not valid.",
       "duplicateParameter": "The address names a run side more than once.",
