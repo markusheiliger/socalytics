@@ -228,7 +228,7 @@ unchanged.
 
 ### Implementation for User Story 4
 
-- [ ] T031 [P] [US4] Create
+- [x] T031 [P] [US4] Create
   `src/analysts/capabilities/reference-media-probe/analyst-manifest.payload-validated.json` (capability version
   `1.1.0`, manifest `1.2.0`, the `frame-second-probe` schema reduced to the subset from
   `schemas/frame-second-probe.payload.schema.json`), leaving `analyst-manifest.json` untouched
