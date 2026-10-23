@@ -70,5 +70,5 @@ User Story 1 is the whole feature: T001 delivers it.
 
 - Never add retries, fixed sleeps, longer limits, skips, or loosened assertions; a bounded wait on an observable condition is the only allowed waiting.
 - The implementation task cannot change anything under `specs/` except the tick of its own box; the Markdown of this folder is validated by the pipeline, not by the task.
-- Do not repeat the change of #209 (`specs/20261020-224223-deterministic-simulated-workload-retry`) or `specs/archive/20261019-221242-harden-integration-test-timing`.
+- Do not repeat the change of #209 (`specs/archive/20261020-224223-deterministic-simulated-workload-retry`) or `specs/archive/20261019-221242-harden-integration-test-timing`.
 - Passing runs are development evidence only, not deployment support or production readiness.
