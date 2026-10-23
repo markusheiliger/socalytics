@@ -395,6 +395,9 @@
       "title": "Retire version {{version}} of {{agentId}}",
       "body": "Agent {{agentId}}, version {{version}}.",
       "effect": "A retired version can no longer be enabled. Invocations that pinned it keep it.",
+      "enabledAdvice": "Enable another version or disable the agent first, then retire this version.",
+      "currentState": "Current state: {{state}}",
+      "done": "The version is retired. It can no longer be enabled.",
       "submit": "Retire version"
     },
     "enablement": {
