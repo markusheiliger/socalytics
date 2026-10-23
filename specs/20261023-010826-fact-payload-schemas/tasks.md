@@ -139,7 +139,7 @@ the first is accepted and readable, the second ends failed with the named reason
 - [x] T017 [P] [US1] Add `PayloadValidation:MaxDuration` (development default 5 seconds, valid range 1 to 60 seconds)
   to `src/platform/SocAlytics.Platform.Application/Analysis/Results/AnalysisResultOptions.cs` with validation like the
   existing `Analysis:Results` options
-- [ ] T018 [US1] Implement `src/platform/SocAlytics.Platform.Infrastructure/Registry/FactPayloadValidator.cs` with
+- [x] T018 [US1] Implement `src/platform/SocAlytics.Platform.Infrastructure/Registry/FactPayloadValidator.cs` with
   `JsonSchema.Net` (JSON Schema 2020-12, no format assertions, instance depth 32, bounded by `MaxDuration`, validating only
   payloads already inside the existing per-result facts size limit and retaining no copies, payloads never modified) and register it in the Infrastructure composition method (FR-010, FR-011)
 - [ ] T019 [US1] Add the payload step to
