@@ -29,4 +29,4 @@
 
 ## Evidence
 
-To be written by the implementation (FR-001): commands, run counts with and without load, the failing run's request log with timestamps, the result for each candidate of R3, and the repeated runs after the fix. This section is a placeholder until then.
+To be written by the implementation (FR-001): the tasks that only run commands (T001, T006, T007, T009, T010, T011, T012) each record their outcome here under a heading of their own, and T008 consolidates the section: commands, run counts with and without load, the failing run's request log with timestamps, the result for each candidate of R3, and the repeated runs after the fix. This section is a placeholder until then.
