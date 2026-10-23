@@ -43,7 +43,7 @@ FR-015, FR-017, SC-001 to SC-007).
 
 ### Valid and invalid manifest examples
 
-- [ ] T003 [P] Create valid manifest examples `segment-with-payload-schemas.json` and `match-with-payload-schemas.json`
+- [x] T003 [P] Create valid manifest examples `segment-with-payload-schemas.json` and `match-with-payload-schemas.json`
   in `contracts/analysis/analyst-manifest/v1/examples/valid/` (manifest `1.2.0`, one schema per emitted kind, one
   using `$defs`/`$ref`)
 - [x] T004 [P] Create invalid manifest examples in `contracts/analysis/analyst-manifest/v1/examples/invalid/`:
