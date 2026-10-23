@@ -29,7 +29,7 @@ description: "Task list for Deterministic Stall Expiry of the Simulated Agent Wo
 
 **Purpose**: A buildable baseline and a way to run the test repeatedly
 
-- [ ] T001 Restore and build the platform with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore`, then confirm a running Docker-compatible runtime and run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests"` once as the baseline; no file changes
+- [ ] T001 Restore and build the platform with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore`, then confirm a running Docker-compatible runtime and run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests"` once as the baseline, and record the outcome (build result, runtime check, tests passed and duration) in a new `## Baseline` section of `specs/20261023-150804-deterministic-stall-expiry-test/research.md`, so the task leaves a verifiable file change (a task without a change fails the implementation run)
 
 ---
 
