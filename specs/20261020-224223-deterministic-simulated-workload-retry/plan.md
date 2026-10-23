@@ -68,10 +68,12 @@ specs/20261020-224223-deterministic-simulated-workload-retry/
 ```text
 src/platform/Tests/
 ├── SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadBehaviorTests.cs
+├── SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadTests.cs
+├── SocAlytics.Platform.Integration.Tests/AgentOrchestration/Support/AgentOrchestrationFixture.cs
 └── SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs
 ```
 
-**Structure Decision**: Edit the files the evidenced cause lives in; the two files above are the expected set, and platform code changes only when the evidence (T005) requires it.
+**Structure Decision**: Edit the files the evidenced cause lives in; the four files above are the expected set (the fixture holds the shared work queue the evidenced cause lives in), and platform code and the runner change only when a run proves the isolation insufficient.
 
 ## Architecture Updates
 
