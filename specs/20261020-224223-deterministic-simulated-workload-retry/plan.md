@@ -16,7 +16,7 @@
 
 **Storage**: PostgreSQL in disposable test containers (existing).
 
-**Testing**: `SocAlytics.Platform.Integration.Tests` (Docker-backed), the class run repeatedly and under load.
+**Testing**: `SocAlytics.Platform.Integration.Tests` (Docker-backed), `SimulatedAgentWorkloadBehaviorTests` and `SimulatedAgentWorkloadTests` run repeatedly and under load.
 
 **Target Platform**: Linux and developer machines with a Docker-compatible runtime.
 
@@ -47,7 +47,7 @@ Post-design re-check: Pass.
 2. **Remove the cause where it lives.** The fixes that fit the candidates, applied only for the evidenced cause: derive both limits from one deadline so the runner outlives the wait; wait for the runner to stop and the invocation to be terminal before reading the counts (the code appears already ordered; T001 verifies it, and no change is made when it holds); make the runner settle a notification only after its effect is committed; keep the fake clock from being advanced for non-stall behaviors. A bounded wait on a condition is allowed; a longer fixed limit or a retry of the test is not.
 3. **Keep the shared code behavior.** Changes to `RunToEndAsync` or the runner keep the other `SimulatedAgentWorkloadBehaviorTests` and `SimulatedAgentWorkloadTests` assertions and behaviors unchanged.
 4. **Examine the stalled claim.** T005 reproduces the load failure (every core busy) and, with the diagnostics and temporary probes, finds the hop at which a submitted invocation is never claimed; T006 removes that cause where it lives by controlling the racing input or waiting on the awaited condition, not by a longer limit, and only then does the proof below apply.
-5. **Prove it.** Run the test at least 20 times alone and the class 5 times under load; use a probe that makes the second attempt fail to show the test still fails on its assertions; remove the probe.
+5. **Prove it.** Run the test at least 20 times alone and `SimulatedAgentWorkloadBehaviorTests` together with `SimulatedAgentWorkloadTests` 5 times under load; use a probe that makes the second attempt fail to show the test still fails on its assertions; remove the probe.
 
 ## Project Structure
 
