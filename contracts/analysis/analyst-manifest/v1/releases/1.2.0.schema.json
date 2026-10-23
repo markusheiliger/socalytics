@@ -126,18 +126,14 @@
       }
     }
   },
-  "allOf": [
-    {
-      "description": "Declaring factPayloadSchemas requires manifest 1.2.0.",
-      "if": {
-        "required": ["output"],
-        "properties": { "output": { "required": ["factPayloadSchemas"] } }
-      },
-      "then": {
-        "properties": { "manifestVersion": { "const": "1.2.0" } }
-      }
-    }
-  ],
+  "if": {
+    "description": "Declaring factPayloadSchemas requires manifest 1.2.0.",
+    "required": ["output"],
+    "properties": { "output": { "required": ["factPayloadSchemas"] } }
+  },
+  "then": {
+    "properties": { "manifestVersion": { "const": "1.2.0" } }
+  },
   "$defs": {
     "payloadSchema": {
       "description": "The closed JSON Schema keyword subset for fact payloads.",
