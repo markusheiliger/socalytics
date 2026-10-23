@@ -22,6 +22,7 @@ import {
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment } from './speckit-amend.mjs';
+import { maintainBacklog } from './speckit-backlog.mjs';
 import { maintainFixSpec, startFixAuthoring } from './speckit-fix.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
@@ -347,8 +348,15 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     report.line();
     for (const line of flaky.lines) report.line(line);
   }
+  const backlog = await maintainBacklog(client, env, { rootDir, now: now() });
+  if (backlog.lines.length > 0) {
+    report.line();
+    report.line('### Spec backlog');
+    report.line();
+    for (const line of backlog.lines) report.line(line);
+  }
   report.flush();
-  return { exitCode: 0, selection, flaky };
+  return { exitCode: 0, selection, flaky, backlog };
 }
 
 // Flaky-test ledger: a test that passed only on its rerun (the flaky markers of verification comments) in at least
