@@ -306,7 +306,24 @@
     "add": "Add dimension",
     "remove": "Remove dimension {{index}}"
   },
+  "profileForm": {
+    "dimensionSet": "Dimension set version",
+    "choose": "Choose a dimension set version",
+    "row": "Dimension {{id}}",
+    "weight": "Weight of {{id}}",
+    "rationale": "Rationale of {{id}}",
+    "provenance": "Provenance of {{id}}",
+    "total": "Total of the weights: {{total}} of 100",
+    "architectureReviewer": "Architecture reviewer {{index}}",
+    "footballDomainReviewer": "Football domain reviewer {{index}}",
+    "addArchitectureReviewer": "Add architecture reviewer",
+    "addFootballDomainReviewer": "Add football domain reviewer",
+    "removeArchitectureReviewer": "Remove architecture reviewer {{index}}",
+    "removeFootballDomainReviewer": "Remove football domain reviewer {{index}}",
+    "supersedesHint": "Optional: the version of this profile that the new version replaces"
+  },
   "hints": {
+    "reviewersEach": "At least one architecture reviewer and one football domain reviewer",
     "uniqueKebabIds": "Unique identifiers in lower-case kebab-case.",
     "required": "Required",
     "optional": "Optional",
