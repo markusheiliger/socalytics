@@ -56,14 +56,20 @@ public sealed class WorkflowAvailabilityTests(
         return false;
     }
 
-    // The NATS container is shared by the whole NatsFaultInjection collection, and its events stream and durable
-    // finalization consumer keep notifications that earlier tests left behind for recording sets that do not exist
-    // in this test's database. This test's consumer would fetch them after recovery and add receipts or consume
-    // fetch windows before the one expected notification. Deleting the stream (and with it the consumer) gives the
-    // test its own notification state; the topology recreates both when the platform starts.
-    // Verification: 20 of 20 solo runs and 5 of 5 runs of this class under CPU load (one busy loop per core) passed;
-    // a probe that made the workflow resolvable before the unresolvable assertions and a probe that finalized a
-    // second recording set after recovery each failed the test on its assertions; both probes were removed.
+    // Evidenced cause: the NATS container is shared by the whole NatsFaultInjection collection, and its
+    // SOCALYTICS_EVENTS stream and durable finalization consumer keep notifications that earlier NatsFaultInjection
+    // tests left behind for recording sets that do not exist in this test's database. After recovery this test's
+    // consumer fetched them first, added receipts, and consumed fetch windows before the one expected notification,
+    // so the assertions on run and receipt counts raced with that leftover state. Deleting the stream (and with it
+    // the consumer) gives the test its own notification state; the topology recreates both when the platform starts.
+    // The fixed delay before the unresolvable assertions was replaced by a wait on NotificationHeldBackAsync.
+    // Reproduction: the failure is intermittent and did not recur in the verification runs below, so the cause is
+    // established from the shared stream and durable consumer state, which outlive each test's database, not from a
+    // captured failing log.
+    // Verification (after the wait replaced the delay): 20 of 20 solo runs of this test and 5 of 5 runs of this class
+    // under CPU load (one busy loop per core, 4 cores) passed. A probe that made the workflow resolvable right after
+    // the held-back state and a probe that finalized a second recording set after recovery each failed the test on
+    // its receipt and run count assertions; both probes were removed.
     private async Task ResetEventsStreamAsync(CancellationToken ct)
     {
         await using var connection = new NatsConnection(new NatsOpts { Url = nats.ConnectionString });
