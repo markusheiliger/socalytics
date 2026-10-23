@@ -57,10 +57,47 @@ describe('ArtifactPage', () => {
     expect(await screen.findByText(/Never reveal other teams/)).toBeInTheDocument();
   });
 
-  it('shows kinds without a view as their raw document', async () => {
+  it('shows a dimension set through its dedicated view', async () => {
     renderPage(fakeAgentCatalogAdapter(), '/agent-catalog/artifacts/dimension-sets/football-dimensions/versions/1.0.0');
+    expect(await screen.findByText('Intensity of pressing')).toBeInTheDocument();
+    expect(screen.queryByText(/no dedicated view yet/)).not.toBeInTheDocument();
+  });
+
+  it('shows a modifier policy through its dedicated view', async () => {
+    renderPage(fakeAgentCatalogAdapter(), '/agent-catalog/artifacts/modifier-policies/coach-modifiers/versions/0.1.0');
+    expect(await screen.findByText('coach-modifiers version 0.1.0')).toBeInTheDocument();
+    expect(screen.queryByText(/no dedicated view yet/)).not.toBeInTheDocument();
+  });
+
+  it('shows a philosophy profile with its weights and distances', async () => {
+    renderPage(fakeAgentCatalogAdapter(), '/agent-catalog/artifacts/philosophy-profiles/possession-first/versions/1.0.0');
+    expect(await screen.findByText('Control the tempo.')).toBeInTheDocument();
+    expect(await screen.findByText('Preference for keeping the ball')).toBeInTheDocument();
+    expect(screen.getByText(/coach-lead 0.2.0 with profile possession-first 1.0.0: 8/)).toBeInTheDocument();
+    expect(screen.queryByText(/no dedicated view yet/)).not.toBeInTheDocument();
+  });
+
+  it('falls back to the raw document for a routable kind without a registered view', async () => {
+    const adapter = fakeAgentCatalogAdapter();
+    state.adapter = adapter;
+    const router = createMemoryRouter(
+      [{ path: '/agent-catalog/artifacts/:kind/:artifactId/versions/:version', element: <ArtifactPage views={{}} /> }],
+      { initialEntries: ['/agent-catalog/artifacts/dimension-sets/football-dimensions/versions/1.0.0'] },
+    );
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
     expect(await screen.findByText(/no dedicated view yet/)).toBeInTheDocument();
     expect(screen.getByLabelText('Stored document')).toHaveTextContent('"meaning": "Intensity of pressing"');
+  });
+
+  it('shows not found without a request for an unknown kind', async () => {
+    const adapter = fakeAgentCatalogAdapter();
+    renderPage(adapter, '/agent-catalog/artifacts/widgets/football-dimensions/versions/1.0.0');
+    expect(await screen.findByText('This catalog record was not found.')).toBeInTheDocument();
+    expect(adapter.getArtifact).not.toHaveBeenCalled();
   });
 
   it('shows not found for a missing record', async () => {

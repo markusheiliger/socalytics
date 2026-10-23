@@ -96,6 +96,17 @@ describe('AgentVersionPage', () => {
     expect(await screen.findByText(/The enablement was changed/)).toBeInTheDocument();
   });
 
+  it('says that an approved Coach Agent version is not available in conversations yet', async () => {
+    renderPage(fakeAgentCatalogAdapter(), approvedCoach.agentId, approvedCoach.version);
+    expect(await screen.findByText('Not available in conversations yet')).toBeInTheDocument();
+  });
+
+  it('does not say it for a draft Coach Agent version or a Specialist Agent version', async () => {
+    renderPage(fakeAgentCatalogAdapter(), draftCoach.agentId, draftCoach.version);
+    await screen.findByText(`${draftCoach.agentId} version ${draftCoach.version}`);
+    expect(screen.queryByText('Not available in conversations yet')).not.toBeInTheDocument();
+  });
+
   it('offers enabling for an approved Coach Agent version', async () => {
     renderPage(fakeAgentCatalogAdapter(), approvedCoach.agentId, approvedCoach.version);
     await userEvent.click(await screen.findByRole('button', { name: 'Enable' }));

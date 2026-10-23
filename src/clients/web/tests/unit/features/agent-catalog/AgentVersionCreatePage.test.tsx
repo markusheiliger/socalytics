@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { vi } from 'vitest';
 import { AgentVersionCreatePage } from '../../../../src/features/agent-catalog/AgentVersionCreatePage';
-import { fakeAgentCatalogAdapter, promptRecord, safetyRecord, type FakeAgentCatalogAdapter } from './fixtures';
+import { fakeAgentCatalogAdapter, modifierRecord, promptRecord, safetyRecord, type FakeAgentCatalogAdapter } from './fixtures';
 import '../../../../src/i18n';
 
 const state = vi.hoisted(() => ({ adapter: undefined as unknown }));
@@ -135,6 +135,23 @@ describe('AgentVersionCreatePage', () => {
     expect(await screen.findByLabelText(/Disclosure statement/)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Philosophy profile/)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Modifier policy/)).toBeInTheDocument();
+  });
+
+  it('lists the modifier policies matching the prompt template\u2019s dimension set major first', async () => {
+    const coachPrompt = { ...promptRecord, id: 'coach-prompt', document: { ...promptRecord.document, group: 'coach' as const, dimensionSetMajor: 2 } };
+    const other = { ...modifierRecord, id: 'a-other', document: { ...modifierRecord.document, dimensionSetMajor: 1 } };
+    const matching = { ...modifierRecord, id: 'z-matching', document: { ...modifierRecord.document, dimensionSetMajor: 2 } };
+    const all = [coachPrompt, other, matching] as never[];
+    const adapter = fakeAgentCatalogAdapter({
+      listArtifacts: vi.fn(async (kind: string) => (all as { kind: string }[]).filter((r) => r.kind === kind)) as never,
+      getArtifact: vi.fn(async (kind: string, id: string) => (all as { kind: string; id: string }[]).find((r) => r.kind === kind && r.id === id)) as never,
+    });
+    renderPage(adapter, '/agent-catalog/agents/coach-lead/versions/new');
+    const select = await screen.findByLabelText(/^Modifier policy/);
+    await userEvent.selectOptions(await screen.findByLabelText(/^Prompt template/), 'coach-prompt@0.1.0');
+    await waitFor(() => expect(screen.getByText(/Listed first: matches the dimension set major version 2/)).toBeInTheDocument());
+    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options.slice(1)).toEqual(['z-matching@0.1.0 (matches the prompt template)', 'a-other@0.1.0']);
   });
 
   it('reports an unknown agent', async () => {

@@ -132,6 +132,7 @@ export function AgentVersionPage() {
           {v.selfApproval && <Typography>{t('version.selfApproval')}</Typography>}
           {v.differentiationAcknowledged && <Typography>{t('version.differentiationAcknowledged')}</Typography>}
           <Typography>{v.enabled ? t('version.enabled') : t('version.notEnabled')}</Typography>
+          {v.group === 'coach' && v.state === 'approved' && <Typography>{t('version.coachNotAvailable')}</Typography>}
           {v.state === 'approved' && !v.enabled && enablement && (
             <Button variant="contained" sx={{ mt: 1 }} onClick={() => setEnabling(true)}>{t('version.enable')}</Button>
           )}

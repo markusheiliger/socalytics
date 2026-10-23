@@ -110,6 +110,18 @@ describe('ArtifactCreatePage', () => {
     expect(screen.getByLabelText(/^Prompt text/)).toHaveValue('Short');
   });
 
+  it('registers a modifier policy and a dimension set through their forms', async () => {
+    renderPage(fakeAgentCatalogAdapter(), '/agent-catalog/artifacts/modifier-policies/new');
+    expect(await screen.findByRole('heading', { level: 2, name: /modifier policy/i })).toBeInTheDocument();
+    expect(screen.queryByText(/not available in the Web UI yet/)).not.toBeInTheDocument();
+  });
+
+  it('shows the philosophy profile form with the registered dimension sets', async () => {
+    renderPage(fakeAgentCatalogAdapter(), '/agent-catalog/artifacts/philosophy-profiles/new');
+    expect(await screen.findByRole('heading', { level: 2, name: /philosophy profile/i })).toBeInTheDocument();
+    expect(screen.queryByText(/not available in the Web UI yet/)).not.toBeInTheDocument();
+  });
+
   it('offers only allowlisted tools for a tool policy and prefills from a record', async () => {
     const adapter = fakeAgentCatalogAdapter();
     renderPage(adapter, '/agent-catalog/artifacts/tool-policies/new?fromId=specialist-tools&fromVersion=0.1.0');

@@ -164,6 +164,7 @@
     "displayName": "Display name",
     "disclosure": "Simulation disclosure",
     "noDisclosure": "No disclosure statement",
+    "coachNotAvailable": "Not available in conversations yet",
     "artifactsTitle": "Artifact references",
     "artifactEntry": "{{kind}} {{id}} version {{version}}",
     "registeredBy": "Registered by {{who}} {{when}}",

@@ -220,11 +220,22 @@ test.describe('Artifacts', () => {
     await expectNoAxeViolations(page);
   });
 
-  test('shows a kind without a dedicated view as its stored document', async ({ page, api }) => {
-    api.seedCatalogArtifact({ schemaVersion: '1.0.0', kind: 'modifier-policy', id: 'bounded-modifiers', version: '1.0.0', perDimensionBound: 2 });
+  test('shows a modifier policy through its dedicated view', async ({ page, api }) => {
+    api.seedCatalogArtifact({
+      schemaVersion: '1.0.0',
+      kind: 'modifier-policy',
+      id: 'bounded-modifiers',
+      version: '1.0.0',
+      dimensionSetMajor: 1,
+      perDimensionBound: 2,
+      maxPositiveMovement: 5,
+      contextCategories: ['score-state'],
+      budgetNeutral: true,
+    });
     await open(page, '/agent-catalog/artifacts/modifier-policies/bounded-modifiers/versions/1.0.0');
-    await expect(page.getByText('This kind has no dedicated view yet.')).toBeVisible();
-    await expect(page.getByLabel('Stored document')).toContainText('"perDimensionBound": 2');
+    await expect(page.getByText('This kind has no dedicated view yet.')).toHaveCount(0);
+    await expect(page.getByText('Stored document')).toHaveCount(0);
+    await expect(page.getByText('2', { exact: true })).toBeVisible();
   });
 });
 

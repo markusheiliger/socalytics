@@ -5,7 +5,7 @@ import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -13,7 +13,10 @@ import { toPlatformFailure } from '../../platform/failure';
 import type {
   ArtifactKind,
   CatalogViolation,
+  DimensionSetDocument,
   ModelSelectionDocument,
+  ModifierPolicyDocument,
+  PhilosophyProfileDocument,
   PromptTemplateDocument,
   SafetyPolicyDocument,
   ToolPolicyDocument,
@@ -22,7 +25,10 @@ import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { FailureAlert } from '../shared/FailureAlert';
 import { agentCatalogKeys, useAgentCatalogAdapter, useCatalogBaseline, useRegisterArtifact } from './agentCatalogKeys';
 import { KIND_OF_PATH } from './ArtifactsPage';
+import { DimensionSetForm } from './artifacts/DimensionSetForm';
 import { ModelSelectionForm } from './artifacts/ModelSelectionForm';
+import { ModifierPolicyForm } from './artifacts/ModifierPolicyForm';
+import { PhilosophyProfileForm, type DimensionSetChoice } from './artifacts/PhilosophyProfileForm';
 import { PromptTemplateForm } from './artifacts/PromptTemplateForm';
 import { SafetyPolicyForm } from './artifacts/SafetyPolicyForm';
 import { ToolPolicyForm } from './artifacts/ToolPolicyForm';
@@ -35,10 +41,25 @@ const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SCHEMA_VERSION = '1.0.0';
 const IDENTITY_KEYS = ['schemaVersion', 'kind', 'id', 'version'];
 
-type FormKind = 'prompt-template' | 'model-selection' | 'tool-policy' | 'safety-policy';
+type FormKind =
+  | 'prompt-template'
+  | 'model-selection'
+  | 'tool-policy'
+  | 'safety-policy'
+  | 'dimension-set'
+  | 'philosophy-profile'
+  | 'modifier-policy';
 type Body = Record<string, unknown>;
 
-const FORM_KINDS: readonly string[] = ['prompt-template', 'model-selection', 'tool-policy', 'safety-policy'];
+const FORM_KINDS: readonly string[] = [
+  'prompt-template',
+  'model-selection',
+  'tool-policy',
+  'safety-policy',
+  'dimension-set',
+  'philosophy-profile',
+  'modifier-policy',
+];
 
 function emptyBody(kind: FormKind): Body {
   switch (kind) {
@@ -57,7 +78,46 @@ function emptyBody(kind: FormKind): Body {
         refusalCategories: [],
         rules: [],
       } satisfies SafetyPolicyDocument;
+    case 'dimension-set':
+      return { dimensions: [] } satisfies DimensionSetDocument;
+    case 'philosophy-profile':
+      return {
+        dimensionSet: { id: '', version: '' },
+        weights: {},
+        author: '',
+        reviewers: { architecture: [''], footballDomain: [''] },
+      } satisfies PhilosophyProfileDocument;
+    case 'modifier-policy':
+      return {
+        dimensionSetMajor: 1,
+        perDimensionBound: 1,
+        maxPositiveMovement: 1,
+        contextCategories: [],
+        budgetNeutral: true,
+      } satisfies ModifierPolicyDocument;
   }
+}
+
+// Loads the registered dimension sets a profile can be based on.
+function ProfileFormHost(props: Omit<React.ComponentProps<typeof PhilosophyProfileForm>, 'dimensionSets'>) {
+  const adapter = useAgentCatalogAdapter();
+  const list = useQuery({
+    queryKey: agentCatalogKeys.artifacts('dimension-set'),
+    queryFn: () => adapter.listArtifacts('dimension-set'),
+    retry: false,
+  });
+  const summaries = list.data ?? [];
+  const records = useQueries({
+    queries: summaries.map((summary) => ({
+      queryKey: agentCatalogKeys.artifact('dimension-set', summary.id, summary.version),
+      queryFn: () => adapter.getArtifact('dimension-set', summary.id, summary.version),
+      retry: false,
+    })),
+  });
+  const dimensionSets: DimensionSetChoice[] = records.flatMap((query) =>
+    query.data ? [{ id: query.data.id, version: query.data.version, document: query.data.document as DimensionSetDocument }] : [],
+  );
+  return <PhilosophyProfileForm {...props} dimensionSets={dimensionSets} />;
 }
 
 function withoutIdentity(document: Body): Body {
@@ -194,7 +254,7 @@ function ArtifactCreateForm({ kindSegment, kind, initialId, initialBody }: FormP
 
   const at = (location: string) => violations.filter((violation) => violation.location === location);
   const agent = baseline.data?.agents.find((candidate) => candidate.agentId === params.get('agentId'));
-  const waitingForBaseline = kind === 'tool-policy' && !baseline.data;
+  const waitingForBaseline = (kind === 'tool-policy' || kind === 'dimension-set') && !baseline.data;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -245,6 +305,12 @@ function ArtifactCreateForm({ kindSegment, kind, initialId, initialBody }: FormP
         return <ToolPolicyForm value={body as unknown as ToolPolicyDocument} onChange={setBody as never} allowlist={baseline.data?.tools ?? []} agent={agent} violations={violations} />;
       case 'safety-policy':
         return <SafetyPolicyForm value={body as unknown as SafetyPolicyDocument} onChange={setBody as never} violations={violations} disabled={register.isPending} />;
+      case 'dimension-set':
+        return <DimensionSetForm value={body as unknown as DimensionSetDocument} onChange={setBody as never} allowlist={baseline.data?.tools ?? []} violations={violations} disabled={register.isPending} />;
+      case 'philosophy-profile':
+        return <ProfileFormHost value={body as unknown as PhilosophyProfileDocument} onChange={setBody as never} violations={violations} disabled={register.isPending} />;
+      case 'modifier-policy':
+        return <ModifierPolicyForm value={body as unknown as ModifierPolicyDocument} onChange={setBody as never} violations={violations} disabled={register.isPending} />;
     }
   };
 
