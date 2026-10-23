@@ -166,7 +166,7 @@ the first is accepted and readable, the second ends failed with the named reason
   of `examples/fact-payloads.json` gives its verdict and pointer through the Infrastructure validator (FR-015), the
   time bound is reached by a pathological payload without a hang, the memory bound holds (instance depth 32, no payload
   beyond the per-result facts size limit validated), and payloads are returned unmodified
-- [ ] T022 [P] [US1] Add
+- [x] T022 [P] [US1] Add
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/FactPayloadAcceptanceTests.cs`:
   conforming results are accepted and read back identical, one bad payload among many fails with
   `result-payload-invalid` and leaves no accepted result, indexed fact, or visible trace, an undeclared kind fails with
