@@ -149,11 +149,15 @@ the first is accepted and readable, the second ends failed with the named reason
   `[kind=..;fact=..;count=..;at=..]` of at most 256 characters without payload values, a fact of an undeclared kind
   failing whenever the snapshot has any schema, no validation when the snapshot has none, and reason tags for metrics
   and audit records (FR-005 to FR-011, FR-018)
-- [ ] T020 [US1] Confirm that the completion-outcome reason storage and the `attempt-completion` contract in
-  `contracts/analysis/` accept the 256-character bounded reason; widen only what blocks it, with a forward-only
-  migration `NNNN_analysis_<description>.sql` under
-  `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/` (next free number) if a column limit
-  blocks it, and record the outcome in `research.md` R4
+- [ ] T020 [US1] Add a test to
+  `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/CompletionTests.cs` that a failed completion with
+  a 256-character bounded reason is stored and read back unchanged through the completion outcome and its
+  `CompletionOutcomeDto` response. The storage columns `analysis_completion_outcomes.reason` (migration 0018) and
+  `analysis_execution_attempts.close_reason` (migration 0012) are unbounded `text` and the `attempt-completion`
+  contract carries no reason, so no migration or contract change is expected (research.md R4); if the test shows a
+  limit that blocks it, widen only that with a forward-only migration `NNNN_analysis_<description>.sql` under
+  `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/` (next free number). This task does not
+  edit `research.md`
 
 ### Tests for User Story 1
 
