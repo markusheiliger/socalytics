@@ -76,6 +76,23 @@ public sealed class WorkflowAvailabilityTests(
         }
     }
 
+    // True once the events stream holds the finalization notification and the durable consumer reports it pending
+    // (not yet fetched, or delivered and negatively acknowledged) with nothing acknowledged, which is the state the
+    // platform keeps while the workflow is unresolvable.
+    private async Task<bool> NotificationHeldBackAsync(CancellationToken ct)
+    {
+        await using var connection = new NatsConnection(new NatsOpts { Url = nats.ConnectionString });
+        var js = new NatsJSContext(connection);
+        var stream = await js.GetStreamAsync("SOCALYTICS_EVENTS", cancellationToken: ct);
+        if (stream.Info.State.Messages < 1)
+        {
+            return false;
+        }
+
+        var consumer = await js.GetConsumerAsync("SOCALYTICS_EVENTS", "analysis-scheduler-recordings-finalized", ct);
+        return consumer.Info.AckFloor.StreamSeq == 0 && consumer.Info.NumPending + (ulong)consumer.Info.NumAckPending >= 1;
+    }
+
     [Fact]
     public async Task Missing_definition_reports_unhealthy_and_keeps_alive()
     {
@@ -110,7 +127,7 @@ public sealed class WorkflowAvailabilityTests(
             });
         await SocAlytics.Platform.Integration.Tests.Recordings.Support.RecordingFinalizationHelper.FinalizeAsync(s.Coach, s.Hierarchy.MatchId, 1, ct);
         (await WaitAsync(async () => await s.ScalarAsync("SELECT count(*) FROM socalytics.outbox_messages WHERE message_type = 'matches.recordings-finalized' AND state = 'published'", ct) == 1, ct)).ShouldBeTrue();
-        await Task.Delay(TimeSpan.FromSeconds(4), ct);
+        (await WaitAsync(() => NotificationHeldBackAsync(ct), ct)).ShouldBeTrue();
         (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct)).ShouldBe(0);
         (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(0);
 
