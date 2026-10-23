@@ -53,7 +53,7 @@ FR-015, FR-017, SC-001 to SC-007).
 
 ### Expectations, payload cases, and Domain rules
 
-- [ ] T005 [P] Register the eight invalid examples of T004 in
+- [x] T005 [P] Register the eight invalid examples of T004 in
   `contracts/analysis/analyst-manifest/v1/examples/invalid/expectations.json`: the first error pointer only for the
   schema-expressible refusals (unknown keyword, external `$ref`, schemas on an old manifest version) and a named Domain
   refusal code for the code-checked ones (cyclic `$ref`, depth, size, root type, kind count)
