@@ -46,6 +46,29 @@ public sealed class AnalysisResultOptionsTests
 		options.MaxFactArtifactBytes.ShouldBe(16_777_216);
 		options.MaxFactPayloadBytes.ShouldBe(16_384);
 		options.MaxFactsPerResult.ShouldBe(50_000);
+		options.PayloadValidation.MaxDuration.ShouldBe(TimeSpan.FromSeconds(5));
+	}
+
+	[Theory]
+	[InlineData("00:00:00")]
+	[InlineData("00:00:00.999")]
+	[InlineData("00:01:00.001")]
+	[InlineData("-00:00:05")]
+	public void Invalid_payload_validation_duration_fails_at_start(string value)
+	{
+		var settings = ValidSettings();
+		settings["Analysis:Results:PayloadValidation:MaxDuration"] = value;
+		AssertFails(settings, "PayloadValidation:MaxDuration");
+	}
+
+	[Theory]
+	[InlineData("00:00:01")]
+	[InlineData("00:01:00")]
+	public void Payload_validation_duration_boundaries_pass(string value)
+	{
+		var settings = ValidSettings();
+		settings["Analysis:Results:PayloadValidation:MaxDuration"] = value;
+		Should.NotThrow(() => Validate(settings));
 	}
 
 	[Theory]

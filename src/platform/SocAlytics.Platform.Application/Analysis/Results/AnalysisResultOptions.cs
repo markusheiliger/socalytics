@@ -21,6 +21,13 @@ public sealed class AnalysisResultOptions
     public int MaxFactPayloadBytes { get; set; }
 
     public int MaxFactsPerResult { get; set; }
+
+    public PayloadValidationOptions PayloadValidation { get; set; } = new();
+}
+
+public sealed class PayloadValidationOptions
+{
+    public TimeSpan MaxDuration { get; set; } = TimeSpan.FromSeconds(5);
 }
 
 internal sealed class AnalysisResultOptionsValidator : IValidateOptions<AnalysisResultOptions>
@@ -30,6 +37,8 @@ internal sealed class AnalysisResultOptionsValidator : IValidateOptions<Analysis
     private const int MinFactPayloadBytes = 256;
     private const int MaxAllowedFactPayloadBytes = 1_048_576;
     private const int MaxAllowedFactsPerResult = 1_000_000;
+    private static readonly TimeSpan MinPayloadValidationDuration = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan MaxPayloadValidationDuration = TimeSpan.FromSeconds(60);
 
     public ValidateOptionsResult Validate(string? name, AnalysisResultOptions options)
     {
@@ -74,6 +83,12 @@ internal sealed class AnalysisResultOptionsValidator : IValidateOptions<Analysis
         if (options.MaxFactsPerResult < 1 || options.MaxFactsPerResult > MaxAllowedFactsPerResult)
         {
             failures.Add($"{section}:MaxFactsPerResult must be between 1 and {MaxAllowedFactsPerResult}.");
+        }
+
+        var payloadDuration = options.PayloadValidation?.MaxDuration;
+        if (payloadDuration is null || payloadDuration < MinPayloadValidationDuration || payloadDuration > MaxPayloadValidationDuration)
+        {
+            failures.Add($"{section}:PayloadValidation:MaxDuration must be between 1 and 60 seconds.");
         }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);

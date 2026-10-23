@@ -136,7 +136,7 @@ the first is accepted and readable, the second ends failed with the named reason
 - [x] T016 [P] [US1] Create the port `src/platform/SocAlytics.Platform.Application/Abstractions/IFactPayloadValidator.cs`
   (compile a node's pinned schemas once per verification, validate each payload, return the first violation with kind,
   fact index, JSON pointer, and the count of violations, and report the time bound)
-- [ ] T017 [P] [US1] Add `PayloadValidation:MaxDuration` (development default 5 seconds, valid range 1 to 60 seconds)
+- [x] T017 [P] [US1] Add `PayloadValidation:MaxDuration` (development default 5 seconds, valid range 1 to 60 seconds)
   to `src/platform/SocAlytics.Platform.Application/Analysis/Results/AnalysisResultOptions.cs` with validation like the
   existing `Analysis:Results` options
 - [ ] T018 [US1] Implement `src/platform/SocAlytics.Platform.Infrastructure/Registry/FactPayloadValidator.cs` with
