@@ -212,7 +212,7 @@ named error is raised and no result is produced.
   facts are written, a nonconforming fact raises `fact-payload-invalid` and writes no result, an undeclared kind
   raises `fact-kind-undeclared`, a manifest without schemas behaves as before, and the manifest location and its
   error handling work (SC-005)
-- [ ] T030 [P] [US3] Add `src/analysts/sdk/tests/test_payload_cases.py` and extend `test_contract_examples.py` so the
+- [x] T030 [P] [US3] Add `src/analysts/sdk/tests/test_payload_cases.py` and extend `test_contract_examples.py` so the
   SDK gives the platform's verdicts on every shared manifest example (running each code-checked invalid manifest example through the SDK limit checks and asserting the same named refusal code as `expectations.json`) and every case of `examples/fact-payloads.json`
   (FR-012, FR-015, SC-004)
 

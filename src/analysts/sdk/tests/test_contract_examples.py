@@ -14,6 +14,7 @@ from socalytics_analyst.models import (
     SegmentManifest,
     StagedCoverage,
 )
+from socalytics_analyst.models.manifest import AnalystManifest, check_fact_payload_schemas
 
 CONTRACTS = Path(__file__).resolve().parents[4] / "contracts" / "analysis"
 
@@ -138,3 +139,30 @@ def test_invalid_segment_manifest_is_rejected_by_schema_and_model(path: Path) ->
 def test_every_invalid_segment_manifest_has_an_expectation() -> None:
     expectations = json.loads((SEGMENT_MANIFEST_EXAMPLES / "invalid" / "expectations.json").read_text(encoding="utf-8"))
     assert {path.name for path in _segment_examples("invalid")} == set(expectations)
+
+
+ANALYST_MANIFEST_EXAMPLES = CONTRACTS / "analyst-manifest" / "v1" / "examples"
+ANALYST_MANIFEST_INVALID = sorted(
+    path for path in (ANALYST_MANIFEST_EXAMPLES / "invalid").glob("*.json") if path.name != "expectations.json"
+)
+
+
+def _manifest_expectations() -> dict[str, object]:
+    return json.loads((ANALYST_MANIFEST_EXAMPLES / "invalid" / "expectations.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("path", ANALYST_MANIFEST_INVALID, ids=lambda p: p.name)
+def test_invalid_analyst_manifest_example_is_refused_like_the_platform(path: Path) -> None:
+    expected = _manifest_expectations()[path.name]
+    document = _load(path)
+    with pytest.raises(ValidationError) as raised:
+        AnalystManifest.model_validate(document)
+    if isinstance(expected, dict) and "code" in expected:
+        refusal = check_fact_payload_schemas(document["output"]["factPayloadSchemas"])
+        assert refusal is not None
+        assert refusal[0] == expected["code"]
+        assert expected["code"] in str(raised.value)
+
+
+def test_every_invalid_analyst_manifest_example_has_an_expectation() -> None:
+    assert {path.name for path in ANALYST_MANIFEST_INVALID} == set(_manifest_expectations())
