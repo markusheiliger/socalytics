@@ -83,7 +83,8 @@ All Technical Context unknowns are resolved here. Limits are development values;
   (unknown keyword, external `$ref`, schemas on an old manifest version) and a named Domain refusal code for the
   code-checked ones (cyclic `$ref`, size, depth, root type, kind count), asserted by running `FactPayloadSchemaLimits`. A new `examples/fact-payloads.json` lists cases
   (`manifest` example, `kind`, `payload`, `valid`, expected JSON pointer) used by both the platform Contracts tests and
-  the SDK tests; the SDK copy comes from `scripts/sync_contracts.py`.
+  the SDK tests; the SDK copy comes from `scripts/sync_contracts.py`, whose `ANALYSIS_CONTRACTS` list gains `analyst-manifest` (the
+  copy did not carry that contract before).
 
 ## R7: Reference capability 1.1.0 and end-to-end evidence
 

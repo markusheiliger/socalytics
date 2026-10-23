@@ -77,8 +77,16 @@ FR-015, FR-017, SC-001 to SC-007).
   case of `examples/fact-payloads.json` with the platform schema engine (formats not asserted) and the Domain subset
   checks of T007, and runs `FactPayloadSchemaLimits` on each code-checked invalid example of T004 to assert its
   named refusal (FR-015, SC-004)
-- [ ] T010 Refresh the SDK contract copy under `src/analysts/sdk/src/socalytics_analyst/contracts/` with
-  `uv run --no-sync python scripts/sync_contracts.py` and confirm `--check` passes (FR-013)
+- [ ] T010 Bring the `analyst-manifest` contract into the SDK contract copy (FR-013): the copy and its drift check
+  currently cover only the contracts listed in `ANALYSIS_CONTRACTS` of `src/analysts/sdk/scripts/sync_contracts.py`,
+  which does not list `analyst-manifest`, so a bare refresh changes nothing (attempts 1 and 2 of this task made no
+  change for that reason). Add `"analyst-manifest"` to `ANALYSIS_CONTRACTS`, extend
+  `test_copy_includes_every_implemented_contract` in `src/analysts/sdk/tests/test_contract_copy.py` to expect
+  `analysis/analyst-manifest/v1/releases/1.2.0.schema.json` in the copy, refresh the copy under
+  `src/analysts/sdk/src/socalytics_analyst/contracts/` with `uv run --no-sync python scripts/sync_contracts.py`
+  (it now adds `analysis/analyst-manifest/` with the current schema and the `1.0.0`, `1.1.0`, and `1.2.0` baselines),
+  and confirm `--check` and `uv run --no-sync pytest tests/test_contract_copy.py` pass; `schemas.py` and the typed
+  models stay with T025
 
 **Checkpoint**: Contract `1.2.0`, examples, and Domain rules exist; stories can start.
 
