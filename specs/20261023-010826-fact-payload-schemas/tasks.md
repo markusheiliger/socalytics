@@ -239,7 +239,7 @@ unchanged.
   the 1.1.0 manifest validates against manifest `1.2.0`, its schema equals the schema file, produced facts conform and
   stay deterministic, the Dockerfile variant is consistent with the manifest, and the 1.0.0 files are unchanged
   (FR-016)
-- [ ] T034 [US4] Build the second image in
+- [x] T034 [US4] Build the second image in
   `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/ReferenceAnalystImage.cs` from `Dockerfile.payload-validated`
   and extend `ReferenceAnalystImageTests.cs` with its image evidence
 - [ ] T035 [US4] Add the accepted path to

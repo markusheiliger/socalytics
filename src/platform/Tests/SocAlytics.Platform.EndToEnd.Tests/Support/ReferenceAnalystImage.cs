@@ -14,6 +14,13 @@ internal static class ReferenceAnalystImage
     private const string SdkPath = "src/analysts/sdk";
     private const string DockerfilePath = CapabilityPath + "/Dockerfile";
 
+    /// <summary>The 1.0.0 image from <c>Dockerfile</c> (manifest 1.1.0), which declares no payload schemas.</summary>
+    public static readonly ReferenceAnalystVariant Baseline = new(DockerfilePath, CapabilityPath + "/analyst-manifest.json", "1.0.0");
+
+    /// <summary>The 1.1.0 image from <c>Dockerfile.payload-validated</c> (manifest 1.2.0), which declares a payload schema.</summary>
+    public static readonly ReferenceAnalystVariant PayloadValidated = new(
+        CapabilityPath + "/Dockerfile.payload-validated", CapabilityPath + "/analyst-manifest.payload-validated.json", "1.1.0");
+
     private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.Ordinal)
     {
         ".venv",
@@ -27,8 +34,9 @@ internal static class ReferenceAnalystImage
     /// Assembles a temporary build context with the repository-relative paths the Dockerfile expects, builds the image
     /// with the Dockerfile's pinned build arguments, and pushes it exactly as <see cref="TestAnalystImage"/> does.
     /// </summary>
-    public static async Task<PushedAnalystImage> BuildAndPushAsync(string registryHost, string repositoryPrefix, CancellationToken ct)
+    public static async Task<PushedAnalystImage> BuildAndPushAsync(string registryHost, string repositoryPrefix, CancellationToken ct, ReferenceAnalystVariant? variant = null)
     {
+        variant ??= Baseline;
         var repositoryRoot = FindRepositoryRoot();
         var contextDirectory = Path.Combine(Path.GetTempPath(), $"socalytics-e2e-reference-analyst-{Guid.NewGuid():N}");
         Directory.CreateDirectory(contextDirectory);
@@ -44,7 +52,7 @@ internal static class ReferenceAnalystImage
 
             var image = new ImageFromDockerfileBuilder()
                 .WithDockerfileDirectory(contextDirectory)
-                .WithDockerfile(DockerfilePath)
+                .WithDockerfile(variant.DockerfilePath)
                 .WithName(new DockerImage(localName))
                 .WithDeleteIfExists(false)
                 .Build();
@@ -98,3 +106,6 @@ internal static class ReferenceAnalystImage
         }
     }
 }
+
+/// <summary>One buildable form of the reference Analyst: its Dockerfile, the manifest it carries, and its capability version.</summary>
+internal sealed record ReferenceAnalystVariant(string DockerfilePath, string ManifestPath, string CapabilityVersion);
