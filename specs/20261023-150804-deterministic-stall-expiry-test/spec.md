@@ -16,7 +16,7 @@
 
 - Q: May the fix change the test support code, the simulated agent workload, or platform code? → A: Yes. The cause may live in the test, its shared helper `RunToEndAsync`, the simulated workload runner (`SimulatedAgentWorkloadRunner`), the fixture `AgentOrchestrationFixture`, or the platform's claim, lease, and expiry operations; the fix goes where the cause lives, and no production behavior may be weakened.
 - Q: Are longer limits, fixed sleeps, or retries acceptable? → A: No. A bounded wait on an observable condition is allowed; nothing else.
-- Q: How does this spec relate to the merged fail-once spec (`specs/20261020-224223-deterministic-simulated-workload-retry`, #209) and `specs/archive/20261019-221242-harden-integration-test-timing`? → A: Neither may be repeated. #209 made the fail-once retry deterministic through the shared helper and left the Stall clock advance unchanged; the archived spec only raised limits. This spec handles the Stall-specific fake-clock expiry.
+- Q: How does this spec relate to the merged fail-once spec (`specs/archive/20261020-224223-deterministic-simulated-workload-retry`, #209) and `specs/archive/20261019-221242-harden-integration-test-timing`? → A: Neither may be repeated. #209 made the fail-once retry deterministic through the shared helper and left the Stall clock advance unchanged; the archived spec only raised limits. This spec handles the Stall-specific fake-clock expiry.
 
 ## Problem
 
@@ -77,6 +77,6 @@ A maintainer running the Integration suite, or the verification of any implement
 ## Assumptions
 
 - **Cause**: The test belongs to Agent Orchestration direct invocations (merged spec [Agent Orchestration Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md)); it races the shared fake clock between the test, the in-process runner, and the platform's lease monitor. The concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Member Invitations](../20261017-202624-member-invitations/spec.md) depends on this spec. Related specs that must not be repeated: [Deterministic Fail-Once Retry of the Simulated Agent Workload](../20261020-224223-deterministic-simulated-workload-retry/spec.md) and [Harden Integration Test Timing](../archive/20261019-221242-harden-integration-test-timing/spec.md).
+- **Dependencies**: [Member Invitations](../20261017-202624-member-invitations/spec.md) depends on this spec. Related specs that must not be repeated: [Deterministic Fail-Once Retry of the Simulated Agent Workload](../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md) and [Harden Integration Test Timing](../archive/20261019-221242-harden-integration-test-timing/spec.md).
 - **Out of scope**: Other flaky tests, simulated behaviors unrelated to the stall, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.
