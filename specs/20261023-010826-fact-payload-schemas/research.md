@@ -59,8 +59,12 @@ All Technical Context unknowns are resolved here. Limits are development values;
   `result-payload-validation-bound`, added to `ResultRejectionReasons`. The stored reason carries a bounded locator,
   for example `result-payload-invalid[kind=frame-second-probe;fact=3;count=2;at=/decodedFrames]` (at most 256
   characters, never a payload value). Metrics and audit records use the code as the reason tag, so payload failures
-  are distinguishable (FR-018). The implementation must confirm that the completion-outcome reason column and the
-  `attempt-completion` response contract accept the bounded form, and widen only what blocks it.
+  are distinguishable (FR-018). Confirmed during diagnosis: the completion-outcome reason column
+  (`analysis_completion_outcomes.reason`, migration 0018) and the attempt close reason
+  (`analysis_execution_attempts.close_reason`, migration 0012) are unbounded `text` with checks that only tie the
+  reason to the `failed` outcome, the `attempt-completion` contract is the Manager's request and has no reason field,
+  and the completion response carries a free `string? Reason`. No migration or contract change is needed; T020 proves
+  it with a round-trip test and widens only what that test shows to block.
 - **Alternatives**: A new structured field in the completion contract (contract change with no consumer).
 
 ## R5: SDK behavior
