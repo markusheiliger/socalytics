@@ -284,6 +284,21 @@ named reason. The API stores each fact as an immutable record of the accepted
 result in the same transaction as the acceptance, so no partially indexed
 result is ever visible.
 
+Fact payload schemas are decided and not implemented yet. A capability
+declares, per fact kind it emits, a payload schema in the Analyst manifest
+(`output.factPayloadSchemas`, manifest contract `1.2.0`) written in a
+restricted, self-contained subset of JSON Schema 2020-12: no format
+assertions, no external references, internal `$defs` and `$ref` only, and
+fixed size and depth limits (development values). The Registry validates and
+caches the declaration with the image, profile and workflow bindings pin it
+through the image digest, and each run's node snapshot pins the schemas and
+their digest. Before the accepting transaction, result acceptance validates
+every fact payload against the pinned schema of its kind, and a capability
+that declares any schema must declare every kind it emits. A violation ends the
+attempt as failed with a named, bounded reason and leaves no visible fact;
+payloads are never rewritten. The Python Analyst SDK performs the same check
+automatically before it writes a result.
+
 ### Capability-Scoped Result Access
 
 A high-level job receives its team, match, analysis-run, and accepted-
