@@ -10,7 +10,7 @@ public sealed class AgentCatalogOpenApiTests
 {
 	private sealed record Op(string Id, string Method, string[] SuccessCodes, bool HasBody);
 
-	// specs/20261018-103316-web-ui-agent-catalog/contracts/agent-catalog-openapi.md
+	// specs/archive/20261018-103316-web-ui-agent-catalog/contracts/agent-catalog-openapi.md
 	private static readonly Op[] Operations =
 	[
 		new("getAgentCatalogBaseline", "get", ["200"], false),

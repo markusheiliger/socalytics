@@ -2,13 +2,13 @@
 
 All Technical Context items are resolved; no `NEEDS CLARIFICATION` remains. Each decision cites the spec, contract, or
 code it rests on. The platform operations come from
-[Agent Catalog Registry](../archive/20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md); the Web UI patterns
-come from [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/plan.md).
+[Agent Catalog Registry](../20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md); the Web UI patterns
+come from [Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/plan.md).
 
 ## R1. OpenAPI schemas for the catalog operations and their record documents
 
 **Decision**: Use the agent catalog member operations exactly as
-[Agent Catalog Registry](../archive/20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md) defines them. Its task
+[Agent Catalog Registry](../20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md) defines them. Its task
 T014 already requires typed OpenAPI schemas for the operations; the open point is the record `document` of
 `registerAgentCatalogArtifact`, `getAgentCatalogArtifact`, `registerAgentVersion`, and `getAgentVersion`, whose shape
 depends on the record kind. When the committed snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` (after
@@ -35,7 +35,7 @@ typed server-side serialization (could reorder or drop fields of a digest-bearin
 ## R2. Response metadata: `ETag` and created versus replayed
 
 **Decision**: Reuse the `ResponseMetadataHandler`, `ResponseMetadataOption`, and `sendWithMetadataFor` that
-[Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/research.md#r3-reading-etag-and-the-created-status-in-the-web-ui)
+[Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/research.md#r3-reading-etag-and-the-created-status-in-the-web-ui)
 adds under `src/clients/web/src/platform/`. The adapter reads the `ETag` of `getAgentVersion`, `approveAgentVersion`,
 `retireAgentVersion`, and `setAgentEnablement` for the next `If-Match`, takes the enablement `etag` from
 `listAgentEnablements` items, and tells `201 Created` from `200 OK` on registrations ("already registered, nothing
@@ -54,7 +54,7 @@ location: top-level fields (`/model`, `/text`, `/disclosure`, `/perDimensionBoun
 `/hardBoundaries/0`, `/dimensions/3/acceptedEvidence/1`), profile rows (`/weights/<dimensionId>/weight`, `…/rationale`,
 `…/provenance`, and `/weights` for the total or missing dimensions), and agent-version references
 (`/artifacts/promptTemplate`). Unknown or empty pointers go to the summary above the form. Each code of
-[Agent Catalog Registry research R3](../archive/20261018-101517-agent-catalog-registry/research.md#r3--validation-pipeline-and-problem-responses)
+[Agent Catalog Registry research R3](../20261018-101517-agent-catalog-registry/research.md#r3--validation-pipeline-and-problem-responses)
 has its own translation key (`schema-violation` shows the platform's `detail`); unknown codes show the raw code and
 detail (FR-012, FR-022).
 
@@ -106,7 +106,7 @@ and `listAvailableAgents` (`GET /api/v1/agent-catalog/agents`, which Club Admins
 version" or, for Coach Agents, "not available in conversations yet" (clarification 4).
 
 **Rationale**: The available-agents read is what the triage conversation views use
-([Web UI Match Triage Conversations](../archive/20261017-210231-web-ui-triage-conversations/research.md)), so the area shows
+([Web UI Match Triage Conversations](../20261017-210231-web-ui-triage-conversations/research.md)), so the area shows
 exactly what members are offered, and needs no change when Coach Agents become available.
 
 ## R7. Version proposal and starting from an existing record
@@ -118,7 +118,7 @@ and proposes its next patch version; a new identifier proposes `0.1.0` (clarific
 (clarification 2).
 
 **Rationale**: Revising a prompt or policy is the common case in
-[Adding Or Revising A Coach Agent](../../docs/architecture/intelligence-agent-catalog.md#adding-or-revising-a-coach-agent)
+[Adding Or Revising A Coach Agent](../../../docs/architecture/intelligence-agent-catalog.md#adding-or-revising-a-coach-agent)
 and Prompt And Advice Governance; prefill avoids retyping long prompts.
 
 **Refined decision (agent version registration)**: `registerAgentVersion` takes the version as the `version` query
