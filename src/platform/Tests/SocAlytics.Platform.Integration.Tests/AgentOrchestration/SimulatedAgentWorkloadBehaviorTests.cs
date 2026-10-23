@@ -81,18 +81,21 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 			RetryDelay = TimeSpan.FromMilliseconds(200),
 		};
 		using var http = f.Factory.CreateApiClient();
-		await using var runner = new SimulatedAgentWorkloadRunner(options, http, f.Factory.Time);
+		var runnerLog = new CapturingLoggerProvider();
+		await using var runner = new SimulatedAgentWorkloadRunner(options, http, f.Factory.Time, runnerLog.CreateLogger("SimulatedAgentWorkload"));
 		using var run = CancellationTokenSource.CreateLinkedTokenSource(ct);
 		run.CancelAfter(TimeSpan.FromMinutes(4));
 		var worker = runner.RunAsync(run.Token);
 
 		var expired = false;
 		JsonElement? ended = null;
+		JsonElement? lastRead = null;
 		var deadline = DateTime.UtcNow.AddMinutes(3);
 		while (ended is null && DateTime.UtcNow < deadline)
 		{
 			using var read = await MemberAsync(f, HttpMethod.Get, $"/api/v1/agent-invocations/{invocationId}", null, null, ct);
 			var body = await ReadAsync(read, ct);
+			lastRead = body;
 			if (body.GetProperty("state").GetString() is "succeeded" or "failed")
 			{
 				ended = body;
@@ -112,10 +115,12 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 		await run.CancelAsync();
 		await worker;
 
-		ended.ShouldNotBeNull("The invocation did not end in time.");
 		var attempts = await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}'", ct);
 		var checkpoints = await f.ScalarAsync(
 			$"SELECT count(*) FROM socalytics.agent_lineage_entries WHERE invocation_id = '{invocationId}' AND kind = 'checkpoint'", ct);
+		ended.ShouldNotBeNull(
+			$"The invocation did not end in time. Last read: {lastRead?.GetRawText() ?? "none"}; attempts: {attempts}; checkpoints: {checkpoints}; "
+			+ $"runner log: {string.Join(" | ", runnerLog.Entries.Select(e => $"{e.Level} {e.Message}{(e.Exception is null ? "" : " " + e.Exception)}"))}");
 		return (ended.Value, attempts, checkpoints);
 	}
 

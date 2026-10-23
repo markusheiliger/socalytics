@@ -29,7 +29,7 @@ description: "Task list for Deterministic Fail-Once Retry of the Simulated Agent
 
 ### Establish the cause
 
-- [ ] T001 [US1] Reproduce the intermittent failure of `FailOnceSucceedsOnTheSecondAttempt` by running `SimulatedAgentWorkloadBehaviorTests` repeatedly alone and with CPU load, capturing the runner and platform logs of failing runs, and identify which race of `plan.md` § Design (or another) produces it; record the evidenced cause in the pull request description without committing probe code or logs (FR-001)
+- [x] T001 [US1] Reproduce the intermittent failure of `FailOnceSucceedsOnTheSecondAttempt` by running `SimulatedAgentWorkloadBehaviorTests` repeatedly alone and with CPU load, capturing the runner and platform logs of failing runs, and identify which race of `plan.md` § Design (or another) produces it; record the evidenced cause in the pull request description without committing probe code or logs (FR-001)
 
 ### Remove the cause
 
