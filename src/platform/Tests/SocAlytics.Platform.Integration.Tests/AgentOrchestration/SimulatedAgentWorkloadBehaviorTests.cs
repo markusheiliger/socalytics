@@ -91,9 +91,35 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 		run.CancelAfter(limit + TimeSpan.FromSeconds(10));
 		using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
 		wait.CancelAfter(limit);
+		var stalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		runner.AttemptStalled += _ => stalled.TrySetResult();
 		var worker = runner.RunAsync(run.Token);
 
-		var expired = false;
+		// Cause (evidenced by reading the code; no intermittent failure was reproduced in this environment): the claim commits the active
+		// attempt row before the runner has read the claim response, so a blind clock jump after "one attempt row" can land before the stall
+		// is in effect and overshoot the second attempt's lease. The stall is therefore observed on the runner, and the clock moves once,
+		// just past the first attempt's recorded lease expiry. The cause lives in this helper; the platform is not defective (no change).
+		if (expireFirstAttempt)
+		{
+			try
+			{
+				await stalled.Task.WaitAsync(wait.Token);
+				var leaseExpiresAt = DateTimeOffset.FromUnixTimeMilliseconds(await f.ScalarAsync(
+					$"SELECT (extract(epoch FROM lease_expires_at) * 1000)::bigint FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}' AND attempt_number = 1", ct));
+				f.Factory.Time.Advance(leaseExpiresAt - f.Factory.Time.GetUtcNow() + TimeSpan.FromMilliseconds(100));
+				var expiredSql = $"SELECT count(*) FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}' AND state = 'expired' AND end_reason = 'lease-expired'";
+				while (await f.ScalarAsync(expiredSql, ct) == 0)
+				{
+					await Task.Delay(50, wait.Token);
+				}
+
+				(await f.ScalarAsync(expiredSql, ct)).ShouldBe(1);
+			}
+			catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+			{
+			}
+		}
+
 		JsonElement? ended = null;
 		JsonElement? lastRead = null;
 		while (ended is null && !wait.IsCancellationRequested)
@@ -105,13 +131,6 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 			{
 				ended = body;
 				break;
-			}
-
-			if (expireFirstAttempt && !expired
-				&& await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}'", ct) == 1)
-			{
-				f.Factory.Time.Advance(TimeSpan.FromSeconds(3));
-				expired = true;
 			}
 
 			try
