@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://socalytics.invalid/contracts/analysis/analyst-manifest/v1/analyst-manifest.schema.json",
-  "x-socalytics-version": "1.1.0",
+  "x-socalytics-version": "1.2.0",
   "title": "Analyst manifest v1",
   "description": "The analyst-manifest.json an Analyst image carries in its last layer. The Registry validates it when an image is imported and stores it as the capability declaration. Unknown properties are refused, so additive changes take a new minor version.",
   "type": "object",
@@ -20,7 +20,7 @@
     "determinism"
   ],
   "properties": {
-    "manifestVersion": { "enum": ["1.0.0", "1.1.0"] },
+    "manifestVersion": { "enum": ["1.0.0", "1.1.0", "1.2.0"] },
     "capability": {
       "type": "object",
       "additionalProperties": false,
@@ -63,7 +63,14 @@
       "additionalProperties": false,
       "required": ["schemaVersion"],
       "properties": {
-        "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" }
+        "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+        "factPayloadSchemas": {
+          "description": "Payload schema per fact kind (manifest 1.2.0). Each value uses the closed payload schema subset.",
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+          "additionalProperties": { "$ref": "#/$defs/payloadSchema" }
+        }
       }
     },
     "compatibleProfiles": {
@@ -116,6 +123,58 @@
       "properties": {
         "deterministic": { "type": "boolean" },
         "idempotent": { "type": "boolean" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "description": "Declaring factPayloadSchemas requires manifest 1.2.0.",
+      "if": {
+        "required": ["output"],
+        "properties": { "output": { "required": ["factPayloadSchemas"] } }
+      },
+      "then": {
+        "properties": { "manifestVersion": { "const": "1.2.0" } }
+      }
+    }
+  ],
+  "$defs": {
+    "payloadSchema": {
+      "description": "The closed JSON Schema keyword subset for fact payloads.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["object", "array", "string", "number", "integer", "boolean", "null"] },
+        "enum": { "type": "array", "minItems": 1 },
+        "const": true,
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/payloadSchema" }
+        },
+        "required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "additionalProperties": {
+          "oneOf": [{ "type": "boolean" }, { "$ref": "#/$defs/payloadSchema" }]
+        },
+        "items": { "$ref": "#/$defs/payloadSchema" },
+        "minItems": { "type": "integer", "minimum": 0 },
+        "maxItems": { "type": "integer", "minimum": 0 },
+        "minimum": { "type": "number" },
+        "maximum": { "type": "number" },
+        "exclusiveMinimum": { "type": "number" },
+        "exclusiveMaximum": { "type": "number" },
+        "minLength": { "type": "integer", "minimum": 0 },
+        "maxLength": { "type": "integer", "minimum": 0 },
+        "$defs": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/payloadSchema" }
+        },
+        "$ref": { "type": "string", "pattern": "^#/\\$defs/[A-Za-z0-9_.-]+$" },
+        "title": { "type": "string" },
+        "description": { "type": "string" }
       }
     }
   }

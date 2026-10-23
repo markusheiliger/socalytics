@@ -25,7 +25,7 @@ FR-015, FR-017, SC-001 to SC-007).
 
 **Purpose**: Release manifest contract `1.2.0` with the closed `payloadSchema` definition.
 
-- [ ] T001 Update `contracts/analysis/analyst-manifest/v1/analyst-manifest.schema.json` to `1.2.0`: add `1.2.0` to the
+- [x] T001 Update `contracts/analysis/analyst-manifest/v1/analyst-manifest.schema.json` to `1.2.0`: add `1.2.0` to the
   `manifestVersion` enum, set `x-socalytics-version` to `1.2.0`, add optional `output.factPayloadSchemas` (object, at
   most 64 properties, property names matching the fact kind pattern of the fact-artifact contract, values
   `#/$defs/payloadSchema`), and add `$defs/payloadSchema` with the closed keyword set of
