@@ -17,7 +17,7 @@
 - Q: May the fix change production code if the cause lives there? → A: Yes, but only where the evidence puts the cause, and without weakening the documented behavior of workflow availability, notification redelivery, or run creation. Test-only causes are fixed in the test project.
 - Q: Are longer limits or retries acceptable? → A: No. The requester excludes them; the test must wait on the awaited condition or control the racing input.
 - Q: Does the spec cover the other tests of `WorkflowAvailabilityTests`? → A: Only through shared helpers or code they use. Their assertions are not otherwise in scope.
-- Q: Are the timing margins of `SecretHygieneTests` and the other tests of [Timing Margins for Intermittent Integration Tests](../archive/20261019-221242-harden-integration-test-timing/spec.md) in scope? → A: No; that spec owns them and this spec must not repeat it.
+- Q: Are the timing margins of `SecretHygieneTests` and the other tests of [Timing Margins for Intermittent Integration Tests](../20261019-221242-harden-integration-test-timing/spec.md) in scope? → A: No; that spec owns them and this spec must not repeat it.
 
 ## Problem
 
@@ -66,7 +66,7 @@ A maintainer running the Integration suite, or the verification of any implement
 - **FR-003**: Every assertion of the test (no receipt, no run, unhealthy check while unresolvable; exactly one run, healthy check, exactly one receipt after recovery) MUST remain, and no assertion, expected value, or test of the class MAY be removed, loosened, or skipped.
 - **FR-004**: Production behavior MUST NOT be weakened: any platform change MUST keep the postponement, redelivery, idempotency, and single-run semantics of the analysis notification workflow documented in `docs/architecture/`.
 - **FR-005**: A change to shared code MUST keep the other tests that use it behaviorally unchanged, including the other tests of `WorkflowAvailabilityTests` and the `NatsFaultInjection` collection.
-- **FR-006**: The change MUST NOT repeat the scope of [Timing Margins for Intermittent Integration Tests](../archive/20261019-221242-harden-integration-test-timing/spec.md).
+- **FR-006**: The change MUST NOT repeat the scope of [Timing Margins for Intermittent Integration Tests](../20261019-221242-harden-integration-test-timing/spec.md).
 
 ## Success Criteria *(mandatory)*
 
@@ -74,12 +74,12 @@ A maintainer running the Integration suite, or the verification of any implement
 
 - **SC-001**: The test passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of its class under CPU load.
 - **SC-002**: A probe that creates a run while the workflow is unresolvable, and a probe that creates two runs after recovery, each make the test fail on its assertions; the probes are removed afterward.
-- **SC-003**: The code comment and commit message name the evidenced cause and changes only the files that cause lives in plus this spec folder; no assertion is textually removed.
+- **SC-003**: The code comment and commit message name the evidenced cause and carry the verification note; the change touches only the files that cause lives in (no file in this spec folder); no assertion is textually removed.
 - **SC-004** (post-merge evidence, observed when #184 retries and not verified by a task of this spec): the verification of #184 reports no flaky `WorkflowAvailabilityTests` test.
 
 ## Assumptions
 
 - **Cause**: The test belongs to the analysis workflow availability behavior (the merged durable analysis workflow specs under `specs/archive/`); it races real time and shared NATS state between the test, the consumer worker, and the cached availability status. The concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Member Invitations](../20261017-202624-member-invitations/spec.md) (implementation #184, twin #154) depends on this spec. Related specs that cover other tests and must not be repeated: [Timing Margins for Intermittent Integration Tests](../archive/20261019-221242-harden-integration-test-timing/spec.md), [Deterministic Fail-Once Retry of the Simulated Agent Workload](../20261020-224223-deterministic-simulated-workload-retry/spec.md), and [Analyst Manager Deterministic Tests](../20261020-072206-deterministic-manager-tests/spec.md).
+- **Dependencies**: [Member Invitations](../../20261017-202624-member-invitations/spec.md) (implementation #184, twin #154) depends on this spec. Related specs that cover other tests and must not be repeated: [Timing Margins for Intermittent Integration Tests](../20261019-221242-harden-integration-test-timing/spec.md), [Deterministic Fail-Once Retry of the Simulated Agent Workload](../../20261020-224223-deterministic-simulated-workload-retry/spec.md), and [Analyst Manager Deterministic Tests](../../20261020-072206-deterministic-manager-tests/spec.md).
 - **Out of scope**: Other flaky tests, the default values of the notification options, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

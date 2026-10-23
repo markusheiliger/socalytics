@@ -225,7 +225,18 @@ it allows:
   before it offers the release.
 - The stamp operator chooses the `stable` or `preview` channel for the stamp.
   The stamp offers the latest release of that channel by default, and the
-  operator may pin a version.
+  operator may pin a version. The `preview` channel offers the highest verified
+  version among preview and stable releases; the `stable` channel offers only
+  stable releases. The stamp never offers a release below its minimum Manager
+  version. The channel (`Registry:UpdateFeed:Channel`, default `stable`) and
+  the optional pin (`Registry:UpdateFeed:PinnedVersion`) are deployment
+  settings validated at start and applied on configuration reload. The stamp
+  serves one offer for the whole stamp (not per registration) through the
+  DPoP-authenticated Manager operation
+  `GET /api/v1/analyst-managers/self/update-offer`, caches verified releases
+  and failed verifications for short development lifetimes (15 minutes and
+  1 minute), and offers nothing rather than an unverified release. This
+  decision is not implemented yet.
 - The stamp declares a minimum Manager version, which is implemented through
   deployment configuration (see below). An older Manager admits no new work and
   shows an update notice until it is updated.
