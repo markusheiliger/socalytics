@@ -242,7 +242,7 @@ unchanged.
 - [x] T034 [US4] Build the second image in
   `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/ReferenceAnalystImage.cs` from `Dockerfile.payload-validated`
   and extend `ReferenceAnalystImageTests.cs` with its image evidence
-- [ ] T035 [US4] Add the accepted path to
+- [x] T035 [US4] Add the accepted path to
   `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ReferenceAnalystEndToEndTests.cs`: register 1.1.0 next to
   1.0.0, run over the synthetic recording, and assert facts read back identical to the written payloads while the
   1.0.0 tests stay unchanged (FR-017)
