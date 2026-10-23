@@ -68,7 +68,7 @@
 - Phase 2 (T003 → T004) after T002; blocks US1.
 - US1: T005 → T006 → T007 → T008 → T009 → T010; T008 needs T006 and T007 results.
 - Polish (T011, T012) after US1.
-- Every task that only runs commands records its outcome in `src/clients/web/tests/e2e/simulated/recovery-evidence.md`, because the implementation refuses a task that changes no file and refuses every change under `specs/`; T001 (already done) recorded its outcome there although its text still names `research.md`; `research.md` § Evidence only points to that file. T008 then merges the evidence of T001-T007 into a coherent section (keeping the per-task headings), and T009-T012 append their own headings afterwards.
+- Every task that only runs commands records its outcome in `src/clients/web/tests/e2e/simulated/recovery-evidence.md`, because the implementation refuses a task that changes no file and refuses every change under `specs/`; T001 (already done) recorded its outcome there; `research.md` § Evidence only points to that file. T008 then merges the evidence of T001-T007 into a coherent section (keeping the per-task headings), and T009-T012 append their own headings afterwards.
 - No task is marked `[P]`: tasks share the same files or depend on the previous task's evidence, and the Playwright runs share one fake object store and its fixed port, so they must not run in parallel.
 
 ## Implementation Strategy
