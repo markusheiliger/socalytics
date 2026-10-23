@@ -16,7 +16,7 @@
 
 - Q: May the fix change Web UI or platform code if the cause lives there? → A: Yes, but only where the evidence puts the cause, and without changing the documented behavior of the season and team screens or the club structure operations. Test-only causes are fixed in the test or its support code.
 - Q: Are longer timeouts or retries acceptable? → A: No. The requester excludes them; the test must wait on the awaited condition or control the racing input. Removing the existing explicit `timeout` margins is not required, and they must not be lengthened.
-- Q: Does this repeat [Deterministic Web UI Keyboard and Club Structure Browser Tests](../archive/20261014-172346-fix-web-ui-keyboard-flake/spec.md)? → A: No. That spec hardened the test once (waiting for focus, the unmounted team form); this spec covers the cause that remains after it, which must be found by reproduction and not assumed.
+- Q: Does this repeat [Deterministic Web UI Keyboard and Club Structure Browser Tests](../20261014-172346-fix-web-ui-keyboard-flake/spec.md)? → A: No. That spec hardened the test once (waiting for focus, the unmounted team form); this spec covers the cause that remains after it, which must be found by reproduction and not assumed.
 - Q: Is the keyboard support of the simulated projects in scope? → A: No, only what the platform club structure test uses.
 
 ## Problem
@@ -67,7 +67,7 @@ A maintainer running the Web UI browser tests, or the verification of any implem
 - **FR-003**: Every assertion of the test, including the absence of the old team name in the Teams list, MUST remain, and no assertion, expected value, or step MAY be removed, loosened, or skipped.
 - **FR-004**: Production behavior MUST NOT be changed: any Web UI or platform change MUST keep the documented behavior of the season and team screens and the club structure operations in `docs/architecture/`.
 - **FR-005**: A change to shared support code MUST keep the other platform specs that use it behaviorally unchanged.
-- **FR-006**: The change MUST NOT repeat the scope of [Deterministic Web UI Keyboard and Club Structure Browser Tests](../archive/20261014-172346-fix-web-ui-keyboard-flake/spec.md); it addresses the cause that remains after that spec.
+- **FR-006**: The change MUST NOT repeat the scope of [Deterministic Web UI Keyboard and Club Structure Browser Tests](../20261014-172346-fix-web-ui-keyboard-flake/spec.md); it addresses the cause that remains after that spec.
 
 ## Success Criteria *(mandatory)*
 
@@ -81,6 +81,6 @@ A maintainer running the Web UI browser tests, or the verification of any implem
 ## Assumptions
 
 - **Cause**: The test belongs to the Web UI club structure behavior (the merged Web UI foundation and club structure specs under `specs/archive/`). The test is presumed to race refetches or shared state between specs against one platform instance and one Club Admin; this is a hypothesis, and the concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Evidence Clip Access](../20261017-224326-evidence-clip-access/spec.md) (implementation #225, twin #162) depends on this spec. Related specs that must not be repeated: [Deterministic Web UI Keyboard and Club Structure Browser Tests](../archive/20261014-172346-fix-web-ui-keyboard-flake/spec.md).
+- **Dependencies**: [Evidence Clip Access](../../20261017-224326-evidence-clip-access/spec.md) (implementation #225, twin #162) depends on this spec. Related specs that must not be repeated: [Deterministic Web UI Keyboard and Club Structure Browser Tests](../20261014-172346-fix-web-ui-keyboard-flake/spec.md).
 - **Out of scope**: Other flaky tests, the simulated browser projects, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

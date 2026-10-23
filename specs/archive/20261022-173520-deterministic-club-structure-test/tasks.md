@@ -1,6 +1,6 @@
 # Tasks: Deterministic Club Structure Browser Test
 
-**Input**: Design documents from `specs/20261022-173520-deterministic-club-structure-test/`
+**Input**: Design documents from `specs/archive/20261022-173520-deterministic-club-structure-test/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [quickstart.md](quickstart.md); [contracts/README.md](contracts/README.md) states that there is no contract.
 
