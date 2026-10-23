@@ -208,7 +208,7 @@ requested from the Segment Service.
   `resolveAnalysisEvidenceMedia` with outcomes resolution, `notFound`, `rateLimited` with delay,
   `storageUnavailable`, `offline`, `error`; unknown states kept raw); add
   `src/clients/web/tests/unit/platform/adapters/analysisEvidenceAdapter.test.ts` (FR-018; contracts/evidence-player.md)
-- [ ] T020 [US3] Create `src/clients/web/src/features/analysis/evidenceTimeline.ts` (piece order, seek target from
+- [x] T020 [US3] Create `src/clients/web/src/features/analysis/evidenceTimeline.ts` (piece order, seek target from
   the first seekable time plus `startOffsetMs`, stop at `endOffsetMs`, match-time position, inside-fact test, expiry
   margin of 30 seconds) and `src/clients/web/tests/unit/features/analysis/evidenceTimeline.test.ts` (FR-018, FR-020)
 
