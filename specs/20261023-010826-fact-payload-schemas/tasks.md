@@ -232,7 +232,7 @@ unchanged.
   `src/analysts/capabilities/reference-media-probe/analyst-manifest.payload-validated.json` (capability version
   `1.1.0`, manifest `1.2.0`, the `frame-second-probe` schema reduced to the subset from
   `schemas/frame-second-probe.payload.schema.json`), leaving `analyst-manifest.json` untouched
-- [ ] T032 [P] [US4] Create `src/analysts/capabilities/reference-media-probe/Dockerfile.payload-validated` and
+- [x] T032 [P] [US4] Create `src/analysts/capabilities/reference-media-probe/Dockerfile.payload-validated` and
   `Dockerfile.payload-validated.dockerignore` (same code and pins as `Dockerfile`, carrying the new manifest at
   `/opt/socalytics/analyst-manifest.json` and its own manifest label), leaving `Dockerfile` untouched
 - [ ] T033 [US4] Add `src/analysts/capabilities/reference-media-probe/tests/test_payload_validated_manifest.py`:
