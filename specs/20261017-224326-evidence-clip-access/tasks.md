@@ -214,7 +214,7 @@ requested from the Segment Service.
 
 ### Player
 
-- [ ] T021 [US3] Create `src/clients/web/src/features/analysis/useEvidencePlayback.ts` and
+- [x] T021 [US3] Create `src/clients/web/src/features/analysis/useEvidencePlayback.ts` and
   `src/clients/web/tests/unit/features/analysis/useEvidencePlayback.test.ts`: the reducer-based state machine of
   data-model.md (`resolving`, `playing`, `preparing` with at most 20 automatic re-resolutions after
   `retryAfterSeconds`, `partUnavailable`, `shortened`, `renewing`, `notFound`, `rateLimited`, `offline`, `error`),
