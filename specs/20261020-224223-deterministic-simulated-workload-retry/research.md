@@ -27,3 +27,11 @@
 - **Rationale**: Both attempts of the investigation reached the same cause with probes: with four CPU burners the outbox row was `published`, the stream and consumer showed no pending messages, and the runner's claim answered `404 not-found`, which the runner correctly treats as obsolete and acknowledges. All test classes share one NATS container (assembly fixture), one stream `AGENT_WORK`, and one durable consumer `agent-workload`, while each test has its own database, so under load overlapping classes steal each other's notifications. The runner's behavior is right for production; the race is in the test setup.
 - **Rejected alternatives**: serializing the runner-driving tests in one collection (hides the shared state and slows the suite; isolation removes the cause); a retry, longer limits, or republish waits (excluded by the requester); changing the runner to not acknowledge a `404` (alters the documented claim semantics).
 - **Not established**: the single 1 ms failure seen in 46 solo runs did not reproduce in any later run; it is not treated as part of this cause, and T003's repeated runs remain the check for it.
+
+## Refined decision: verification-only tasks T003 and T004 are retired
+
+- **Decision**: T003 (repeated runs and probe) and T004 (architecture confirmation) are no longer tasks; the same checks are the phase verification, `/speckit-gha-drift`, and `/speckit-converge`, and the evidence of T003's attempts stays in the pull request comments.
+- **Rationale**: The implementation workflow lands a task only when its attempt changes files; an attempt without a change fails with "the agent made no changes". T003's two attempts passed every check (20 of 20 alone, 5 of 5 under four burners, the probe made the test fail on its assertions) and still failed twice, so no further attempt can succeed. T004 is of the same kind (it changes nothing unless platform code changed, which it did not).
+- **Rejected alternatives**: a placeholder change to satisfy the task (a change without purpose, against Principle V); more retries (they fail the same way); relaxing the checks (SC-001 to SC-003 stay as they are).
+- **Evidence**: T003 attempts 1 and 2 both ended with "the agent made no changes" and summaries reporting all runs passed.
+
