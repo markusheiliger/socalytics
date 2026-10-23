@@ -181,7 +181,7 @@ requested from the Segment Service.
 
 ### State tests and end to end
 
-- [ ] T017 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidencePartStateTests.cs`:
+- [x] T017 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/EvidencePartStateTests.cs`:
   never-materialized segment reported `materializing` then available with a link after the worker ran; purged segment
   reported `rematerializing`; `failed` without and with `retryFailed`; `not-covered` without demand; altered stored
   bytes refused, segment `failed`, objects deleted; mixed available and preparing parts; two members resolving the

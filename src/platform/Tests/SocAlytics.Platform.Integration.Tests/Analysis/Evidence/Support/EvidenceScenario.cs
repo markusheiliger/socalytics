@@ -109,7 +109,8 @@ internal sealed class EvidenceScenario : IAsyncDisposable
 		RustFsContainerFixture rustFs,
 		CancellationToken ct,
 		bool secondRecording = false,
-		Dictionary<string, string?>? extraSettings = null)
+		Dictionary<string, string?>? extraSettings = null,
+		Action<IServiceCollection>? configureServices = null)
 	{
 		var workingDirectory = Path.Combine(Path.GetTempPath(), $"socalytics-evidence-tests-{Guid.NewGuid():N}");
 		var media = SyntheticMedia.Create();
@@ -122,7 +123,7 @@ internal sealed class EvidenceScenario : IAsyncDisposable
 				settings[key] = value;
 			}
 
-			setup = await FinalizationSetup.StartAsync(postgres, rustFs, ct, extraSettings: settings);
+			setup = await FinalizationSetup.StartAsync(postgres, rustFs, ct, extraSettings: settings, configureServices: configureServices);
 			var viewer = await MemberAsync(setup, "viewer-1", "viewer", ct);
 			var outsider = await MemberAsync(setup, "outsider-1", null, ct);
 
