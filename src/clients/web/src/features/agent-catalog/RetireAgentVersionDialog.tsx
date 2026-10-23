@@ -94,7 +94,7 @@ export function RetireAgentVersionDialog({ version, open, onClose, onDone }: Ret
       <DialogActions>
         <Button onClick={close}>{finished ? t('common.close') : t('common.cancel')}</Button>
         {!finished && (
-          <Button variant="contained" color="warning" disabled={sent} onClick={confirm}>
+          <Button variant="contained" color="error" disabled={sent} onClick={confirm}>
             {mutation.isPending ? t('common.working') : t('confirm.retire.submit')}
           </Button>
         )}

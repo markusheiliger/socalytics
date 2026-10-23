@@ -302,7 +302,13 @@ function AgentVersionCreateForm({ agentId, group, initialDisplayName, initialDis
           </Alert>
         )}
         <Stack spacing={2}>
-          <TextField label={t('fields.agentId')} value={agentId} disabled helperText={t(`versionCreate.group.${group}`)} />
+          <TextField
+            label={t('fields.agentId')}
+            value={agentId}
+            disabled
+            helperText={t(`versionCreate.group.${group}`)}
+            slotProps={{ formHelperText: { sx: { '&.Mui-disabled': { color: 'text.secondary' } } } }}
+          />
           <TextField
             required
             label={t('fields.version')}
