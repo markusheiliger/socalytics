@@ -2034,15 +2034,21 @@ export class SimulatedApi {
         return reply(200, { items });
       }
       case 'registerAgentVersion': {
-        const violations = this.validateCatalogRecord('agent-version', body);
+        // As the platform: the version is the query parameter and the document carries none.
+        const queryVersion = url.searchParams.get('version');
+        const violations = this.validateCatalogRecord('agent-version', { ...body, version: queryVersion ?? undefined });
+        if ('version' in body) {
+          violations.unshift(catalogViolation('schema-violation', '/version', 'The version is not part of the document; send it as the version query parameter.'));
+        }
         if (violations.length) return refuse(400, 'agent-catalog-validation-failed', { violations });
-        const existing = this.catalogVersions.find((v) => v.agentId === body.agentId && v.version === body.version);
+        const existing = this.catalogVersions.find((v) => v.agentId === body.agentId && v.version === queryVersion);
+        const stored = { ...body, version: queryVersion };
         if (existing) {
-          return existing.digest === digestOf(body)
+          return existing.digest === digestOf(stored)
             ? reply(200, { ...versionView(existing) }, { ETag: etagOf(existing.rowVersion) })
             : refuse(409, 'agent-catalog-version-exists');
         }
-        const created = this.seedCatalogAgentVersion(body, { registeredBy: actor });
+        const created = this.seedCatalogAgentVersion(stored, { registeredBy: actor });
         return reply(201, { ...versionView(created) }, {
           ETag: etagOf(created.rowVersion),
           Location: `/api/v1/agent-catalog/agent-versions/${created.agentId}/versions/${created.version}`,

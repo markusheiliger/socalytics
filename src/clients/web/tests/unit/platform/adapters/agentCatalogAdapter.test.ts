@@ -238,16 +238,31 @@ describe('agentCatalogAdapter changes', () => {
   it('maps an existing version with different content', async () => {
     const { api } = setup(() => problem(409, 'agent-catalog-version-exists'));
     expect(await createAgentCatalogAdapter(api).registerArtifact('tool-policy', {} as never)).toEqual({ kind: 'versionExists' });
-    expect(await createAgentCatalogAdapter(api).registerAgentVersion({} as never)).toEqual({ kind: 'versionExists' });
+    expect(await createAgentCatalogAdapter(api).registerAgentVersion('0.1.0', {} as never)).toEqual({ kind: 'versionExists' });
   });
 
   it('registers an agent version', async () => {
     const { api, calls } = setup((call) => (call.url.includes('/members') ? ok(200, { items: [] }) : withHeaders(201, agentVersion, { ETag: '"1"' })));
-    const document = agentVersion.document;
-    const outcome = await createAgentCatalogAdapter(api).registerAgentVersion(document as never);
-    expect(calls[0].url).toContain('/agent-catalog/agent-versions');
+    const { version: _version, ...document } = agentVersion.document;
+    const outcome = await createAgentCatalogAdapter(api).registerAgentVersion('0.1.0', document as never);
+    expect(calls[0].url).toContain('/agent-catalog/agent-versions?version=0.1.0');
     expect(bodyOf(calls[0])).toEqual(document);
+    expect(bodyOf(calls[0])).not.toHaveProperty('version');
     expect(outcome).toMatchObject({ kind: 'created', value: { etag: '"1"', agentId: 'specialist-tactics' } });
+  });
+
+  it('maps a version violation of the registration to the version field', async () => {
+    const { api } = setup(() =>
+      problemWith(400, {
+        code: 'agent-catalog-validation-failed',
+        violations: [{ code: 'schema-violation', pointer: '/version', detail: 'The version is a semantic version.' }],
+      }),
+    );
+    const outcome = await createAgentCatalogAdapter(api).registerAgentVersion('x', {} as never);
+    expect(outcome).toEqual({
+      kind: 'validationFailed',
+      violations: [{ code: 'schema-violation', pointer: '/version', detail: 'The version is a semantic version.', location: 'field:version' }],
+    });
   });
 
   it('approves with If-Match and the acknowledgement, and returns the new etag', async () => {

@@ -77,12 +77,12 @@ describe('AgentVersionCreatePage', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Working…' }).closest('form') as HTMLFormElement);
     expect(adapter.registerAgentVersion).toHaveBeenCalledTimes(1);
     expect(adapter.registerAgentVersion).toHaveBeenCalledWith(
+      '0.1.2',
       expect.objectContaining({
         kind: 'agent-version',
         agentId: 'specialist-tactics',
         group: 'specialist',
         displayName: 'Tactics Specialist',
-        version: '0.1.2',
         artifacts: expect.objectContaining({ promptTemplate: expect.objectContaining({ id: 'specialist-prompt', version: '0.1.0' }) }),
       }),
     );

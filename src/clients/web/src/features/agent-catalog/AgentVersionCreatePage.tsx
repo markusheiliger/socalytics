@@ -259,13 +259,12 @@ function AgentVersionCreateForm({ agentId, group, initialDisplayName, initialDis
         schemaVersion: SCHEMA_VERSION,
         kind: 'agent-version',
         agentId,
-        version,
         group,
         displayName,
         artifacts,
         ...(group === 'coach' ? { disclosure } : {}),
       };
-      const outcome = await register.mutateAsync(document as never);
+      const outcome = await register.mutateAsync({ version, document: document as never });
       const address = (value: { agentId: string; version: string }) =>
         `/agent-catalog/agents/${encodeURIComponent(value.agentId)}/versions/${encodeURIComponent(value.version)}`;
       if (outcome.kind === 'created') {

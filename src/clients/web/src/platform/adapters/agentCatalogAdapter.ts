@@ -55,7 +55,7 @@ export interface AgentCatalogAdapter {
 
   listAgentVersions(filter?: { agentId?: string; state?: string }): Promise<AgentVersionSummary[]>;
   getAgentVersion(agentId: string, version: string): Promise<AgentVersion>;
-  registerAgentVersion(document: AgentVersionDocument & Record<string, unknown>): Promise<RegistrationOutcome<AgentVersion>>;
+  registerAgentVersion(version: string, document: AgentVersionDocument & Record<string, unknown>): Promise<RegistrationOutcome<AgentVersion>>;
   approveAgentVersion(
     agentId: string,
     version: string,
@@ -429,10 +429,10 @@ export function createAgentCatalogAdapter(api: PlatformApi): AgentCatalogAdapter
       return toAgentVersion(body, lookup, etag);
     },
 
-    registerAgentVersion: (document) =>
+    registerAgentVersion: (version, document) =>
       refusable(async (): Promise<RegistrationOutcome<AgentVersion>> => {
-        // The document is sent unchanged: the generated serializer would reorder it or drop unknown fields.
-        const info = withJson(catalog.agentVersions.toPostRequestInformation({}), document);
+        // The version travels as the query parameter; the document is sent unchanged without a version property.
+        const info = withJson(catalog.agentVersions.toPostRequestInformation({}, { queryParameters: { version } }), document);
         const { body, status, etag } = await exchange(api, info, (createAgentVersionDtoFromDiscriminatorValue as ParsableFactory<AgentVersionDto>));
         const lookup = await memberLookup(api, [body.registeredBy, body.approvedBy, body.retiredBy]);
         return { kind: status === 201 ? 'created' : 'replayed', value: toAgentVersion(body, lookup, etag) };

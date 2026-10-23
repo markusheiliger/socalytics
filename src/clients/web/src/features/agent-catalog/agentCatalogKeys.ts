@@ -82,7 +82,8 @@ export function useRegisterAgentVersion() {
   const adapter = useAgentCatalogAdapter();
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: (document: AgentVersionDocument & Record<string, unknown>) => adapter.registerAgentVersion(document),
+    mutationFn: (input: { version: string; document: AgentVersionDocument & Record<string, unknown> }) =>
+      adapter.registerAgentVersion(input.version, input.document),
     onSuccess: invalidate,
   });
 }
