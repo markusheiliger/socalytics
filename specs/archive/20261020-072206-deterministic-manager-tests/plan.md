@@ -2,7 +2,7 @@
 
 **Branch**: `20261020-072206-deterministic-manager-tests` | **Date**: 2026-10-20 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261020-072206-deterministic-manager-tests/spec.md`
+**Input**: Feature specification from `specs/archive/20261020-072206-deterministic-manager-tests/spec.md`
 
 ## Summary
 
@@ -33,7 +33,7 @@ Replace the chance-dependent `ShouldNotContain("SU")` assertion with a shape che
 ## Project Structure
 
 ```text
-specs/20261020-072206-deterministic-manager-tests/
+specs/archive/20261020-072206-deterministic-manager-tests/
 ├── spec.md
 ├── plan.md
 ├── tasks.md
