@@ -155,5 +155,33 @@
     "incomplete": "The analysis is incomplete. Some windows are not accepted.",
     "completeWithoutFacts": "The analysis is complete and produced no facts.",
     "nonAcceptedWindows": "Windows that are not accepted"
+  },
+  "comparison": {
+    "title": "Compare analysis runs",
+    "intro": "Choose two finished analysis runs of this match. Choosing runs does not start, repeat, or cancel any work.",
+    "eligibility": "Only runs in a known finished state (completed, partially completed, failed, or cancelled) can be compared. Runs that are still requested or running, or in an unfamiliar state, are not offered.",
+    "formLabel": "Choose the two runs to compare",
+    "left": "Left run",
+    "right": "Right run",
+    "choose": "Choose a finished run",
+    "option": "{{state}} · run {{runId}}{{current}} · recording set {{setId}} · workflow {{workflow}} · requested {{time}}",
+    "currentMarker": " · current run",
+    "optionNotLoaded": "Run {{runId}} (selected; not in the loaded runs)",
+    "identical": "Choose two different runs.",
+    "compare": "Compare the runs",
+    "loadingRuns": "Loading analysis runs…",
+    "loaded": "{{count}} run(s) loaded, {{eligible}} of them finished. Older runs may still exist; load more to see them.",
+    "loadMore": "Load older runs",
+    "retry": "Retry loading runs",
+    "exhausted": "All {{count}} run(s) of this match are loaded.",
+    "insufficient": "All runs of this match are loaded, and {{count}} of them can be compared. Two finished runs are needed.",
+    "connectionRequired": "A connection is required to compare analysis runs. SocAlytics shows no analysis data while the platform is not reachable.",
+    "invalid": {
+      "malformedId": "A run identifier in the address is not valid.",
+      "duplicateParameter": "The address names a run side more than once.",
+      "unsupportedParameter": "The address contains a parameter that the comparison does not support.",
+      "rightWithoutLeft": "A right run needs a left run. Choose the left run first.",
+      "identicalIds": "Both sides name the same run. Choose two different runs."
+    }
   }
 }
