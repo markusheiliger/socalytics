@@ -115,3 +115,14 @@ Other users of the unchanged Web UI upload code and helpers still pass unchanged
 | --- | --- |
 | `npx playwright test --project=simulated tests/e2e/simulated/uploads.spec.ts tests/e2e/simulated/upload-shell.spec.ts` | 11 passed (1.2m), no failures, no retries |
 | `npm test` | 125 test files and 1267 tests passed (110.8s) |
+
+## T010
+
+Strength of the named test `refuses a different file and changes nothing (scenario 2)` (SC-003). Both probes were temporary edits of the different-size branch of `reselectFile` in `src/uploads/uploadCoordinator.ts` (the probe code is removed). Each run rebuilt the Web UI first (`npm run build`), because the preview server serves the build.
+
+| Probe | Command | Outcome |
+| --- | --- | --- |
+| 1: the refusal still happens but sends a part (a `PUT` of part 3 to the fake object store) | `npx playwright test --project=simulated tests/e2e/simulated/recovery.spec.ts -g "refuses a different file" --workers=1 --retries=0` | failed on its assertion `expect((await storageState()).requests).toHaveLength(0)` (`Expected length: 0, Received length: 1`, the probe's part 3 request); it did not hang |
+| 2: the different file is not refused (the refusal transition is removed, so no refusal status appears) and a part is sent | same command | failed on its assertion `toContainText('not the file that was selected')` (`element(s) not found`, after the 5 s assertion timeout); it did not hang |
+
+Both probes were removed with `git checkout src/uploads/uploadCoordinator.ts`, the Web UI was rebuilt, and `git status --short` lists no file under `src/clients/web/src/` (FR-005).
