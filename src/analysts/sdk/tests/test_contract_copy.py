@@ -29,6 +29,7 @@ def test_copy_includes_every_implemented_contract() -> None:
     assert "common/v1/common.schema.json" in copied
     for name in sync.ANALYSIS_CONTRACTS:
         assert f"analysis/{name}/v1/{name}.schema.json" in copied
+    assert "analysis/analyst-manifest/v1/releases/1.2.0.schema.json" in copied
     for name in sync.SEGMENT_CONTRACTS:
         assert f"segments/{name}/v1/{name}.schema.json" in copied
         assert f"segments/{name}/v1/releases/1.0.0.schema.json" in copied

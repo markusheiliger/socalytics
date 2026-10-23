@@ -77,7 +77,7 @@ FR-015, FR-017, SC-001 to SC-007).
   case of `examples/fact-payloads.json` with the platform schema engine (formats not asserted) and the Domain subset
   checks of T007, and runs `FactPayloadSchemaLimits` on each code-checked invalid example of T004 to assert its
   named refusal (FR-015, SC-004)
-- [ ] T010 Bring the `analyst-manifest` contract into the SDK contract copy (FR-013): the copy and its drift check
+- [x] T010 Bring the `analyst-manifest` contract into the SDK contract copy (FR-013): the copy and its drift check
   currently cover only the contracts listed in `ANALYSIS_CONTRACTS` of `src/analysts/sdk/scripts/sync_contracts.py`,
   which does not list `analyst-manifest`, so a bare refresh changes nothing (attempts 1 and 2 of this task made no
   change for that reason). Add `"analyst-manifest"` to `ANALYSIS_CONTRACTS`, extend
