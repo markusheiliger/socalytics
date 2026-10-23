@@ -32,7 +32,7 @@ FR-015, FR-017, SC-001 to SC-007).
   `contracts/payload-schema-subset.md` (`additionalProperties: false`, `$ref` restricted to `#/$defs/<name>`, no
   `pattern`, `format`, `$id`, `$schema`, or combinators); a manifest with `factPayloadSchemas` requires
   `manifestVersion` `1.2.0`
-- [ ] T002 Create the released baseline `contracts/analysis/analyst-manifest/v1/releases/1.2.0.schema.json` from the
+- [x] T002 Create the released baseline `contracts/analysis/analyst-manifest/v1/releases/1.2.0.schema.json` from the
   schema of T001, leaving `releases/1.0.0.schema.json` and `releases/1.1.0.schema.json` byte-identical
 
 ## Phase 2: Foundational (Golden Examples, Domain Limits, Shared Evidence)
