@@ -201,7 +201,7 @@ named error is raised and no result is produced.
 - [x] T027 [US3] Load the Analyst's own manifest from `SOCALYTICS_ANALYST_MANIFEST` (default
   `/opt/socalytics/analyst-manifest.json`; no file means no schemas, an unreadable or invalid file is an input
   error) in `src/analysts/sdk/src/socalytics_analyst/context.py` and `entrypoint.py`, and pass it to the writer
-- [ ] T028 [US3] Validate in `ResultWriter.add_fact` in `src/analysts/sdk/src/socalytics_analyst/result.py` with
+- [x] T028 [US3] Validate in `ResultWriter.add_fact` in `src/analysts/sdk/src/socalytics_analyst/result.py` with
   `jsonschema` Draft 2020-12 without a format checker before staging, raising `ResultError` with no warning mode,
   failing a kind without a declared schema when any schema exists, and accepting an explicit manifest object for unit
   tests (FR-014)

@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
 from . import errors, schemas
@@ -55,6 +56,24 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _declared_payload_schemas(manifest: Any) -> dict[str, Any]:
+    """The fact payload schemas of an Analyst manifest model or of its JSON object; empty when none are declared."""
+    if manifest is None:
+        return {}
+    if isinstance(manifest, dict):
+        output = manifest.get("output")
+        declared = output.get("factPayloadSchemas") if isinstance(output, dict) else None
+    else:
+        output = getattr(manifest, "output", None)
+        declared = getattr(output, "fact_payload_schemas", None)
+    if not declared:
+        return {}
+    return {
+        kind: schema.model_dump(by_alias=True, exclude_unset=True) if hasattr(schema, "model_dump") else schema
+        for kind, schema in declared.items()
+    }
+
+
 class _Staged:
     """A document written into the staging directory, with the digest and size of the written bytes."""
 
@@ -84,7 +103,8 @@ class ResultWriter:
         if output_type not in _OUTPUT_TYPES:
             raise errors.ResultError(errors.RESULT_VALUE_INVALID, "the output type is not a supported output type.")
         self._inputs = tuple(inputs or ())
-        self._analyst_manifest = manifest
+        self._payload_schemas = _declared_payload_schemas(manifest)
+        self._payload_validators: dict[str, Draft202012Validator] = {}
         self._job = job
         self._attempt = attempt
         self._output_type = output_type
@@ -130,7 +150,27 @@ class ResultWriter:
             ).encode("utf-8")
         except (TypeError, ValueError):
             raise errors.ResultError(errors.FACT_INVALID, "a fact payload is not valid JSON.") from None
+        self._validate_payload(checked.kind, json.loads(encoded)["payload"])
         self._facts.append((checked.start_ms, checked.end_ms, encoded))
+
+    def _validate_payload(self, kind: str, payload: Any) -> None:
+        if not self._payload_schemas:
+            return
+        validator = self._payload_validators.get(kind)
+        if validator is None:
+            schema = self._payload_schemas.get(kind)
+            if schema is None:
+                raise errors.ResultError(
+                    errors.FACT_KIND_UNDECLARED, f"the fact kind {kind} has no declared payload schema."
+                )
+            validator = self._payload_validators[kind] = Draft202012Validator(schema)
+        failure = next(iter(validator.iter_errors(payload)), None)
+        if failure is not None:
+            location = "/".join(str(part) for part in failure.absolute_path) or "(root)"
+            raise errors.ResultError(
+                errors.FACT_PAYLOAD_INVALID,
+                f"the payload of a {kind} fact violates its declared schema at {location} ({failure.validator}).",
+            )
 
     def add_artifact(self, name: str, media_type: str, data: bytes) -> None:
         self._require_open()
