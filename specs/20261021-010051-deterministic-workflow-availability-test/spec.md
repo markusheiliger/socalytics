@@ -74,7 +74,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 - **SC-001**: The test passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of its class under CPU load.
 - **SC-002**: A probe that creates a run while the workflow is unresolvable, and a probe that creates two runs after recovery, each make the test fail on its assertions; the probes are removed afterward.
-- **SC-003**: The code comment and commit message name the evidenced cause and changes only the files that cause lives in plus this spec folder; no assertion is textually removed.
+- **SC-003**: The code comment and commit message name the evidenced cause and carry the verification note; the change touches only the files that cause lives in (no file in this spec folder); no assertion is textually removed.
 - **SC-004** (post-merge evidence, observed when #184 retries and not verified by a task of this spec): the verification of #184 reports no flaky `WorkflowAvailabilityTests` test.
 
 ## Assumptions
