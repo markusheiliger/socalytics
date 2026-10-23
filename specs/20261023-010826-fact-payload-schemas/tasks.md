@@ -57,7 +57,7 @@ FR-015, FR-017, SC-001 to SC-007).
   `contracts/analysis/analyst-manifest/v1/examples/invalid/expectations.json`: the first error pointer only for the
   schema-expressible refusals (unknown keyword, external `$ref`, schemas on an old manifest version) and a named Domain
   refusal code for the code-checked ones (cyclic `$ref`, depth, size, root type, kind count)
-- [ ] T006 [P] Create `contracts/analysis/analyst-manifest/v1/examples/fact-payloads.json` with cases
+- [x] T006 [P] Create `contracts/analysis/analyst-manifest/v1/examples/fact-payloads.json` with cases
   `{ manifest, kind, payload, valid, at }` over the valid examples of T003, covering a missing required property, a
   wrong type, a forbidden extra property, an enum, a numeric bound, an array bound, and a `$ref` case
 - [x] T007 [P] Add the Domain rules in `src/platform/SocAlytics.Platform.Domain/Registry/FactPayloadSchemaLimits.cs`:
