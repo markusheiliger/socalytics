@@ -110,4 +110,30 @@ describe('AgentVersionPage', () => {
       unmount();
     }
   });
+
+  it('offers approval only for a draft and retirement only for an approved version', async () => {
+    for (const [v, approve, retire] of [[draftTactics, true, false], [approvedTactics, false, true], [retiredTactics, false, false]] as const) {
+      const { unmount } = renderAndKeep(fakeAgentCatalogAdapter(), v.agentId, v.version);
+      await screen.findByText(`${v.agentId} version ${v.version}`);
+      expect(screen.queryByRole('button', { name: 'Approve' }) !== null).toBe(approve);
+      expect(screen.queryByRole('button', { name: 'Retire' }) !== null).toBe(retire);
+      unmount();
+    }
+  });
+
+  it('opens the approval confirmation for a draft and sends nothing before it is confirmed', async () => {
+    const adapter = fakeAgentCatalogAdapter();
+    renderPage(adapter, draftTactics.agentId, draftTactics.version);
+    await userEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(adapter.approveAgentVersion).not.toHaveBeenCalled();
+  });
+
+  it('opens the retirement confirmation for an approved version and sends nothing before it is confirmed', async () => {
+    const adapter = fakeAgentCatalogAdapter();
+    renderPage(adapter, approvedTactics.agentId, approvedTactics.version);
+    await userEvent.click(await screen.findByRole('button', { name: 'Retire' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(adapter.retireAgentVersion).not.toHaveBeenCalled();
+  });
 });

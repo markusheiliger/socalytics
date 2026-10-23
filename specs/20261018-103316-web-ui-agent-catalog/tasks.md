@@ -142,7 +142,7 @@ description: "Task list for Web UI Agent Catalog Administration"
 
 ### Lifecycle wiring
 
-- [ ] T036 [US4] Wire "Approve" for drafts and "Retire" for approved versions into `src/clients/web/src/features/agent-catalog/AgentVersionPage.tsx`, showing the approval or retirement with member and time afterwards; add further texts to `src/clients/web/src/i18n/en/agentCatalog.json`; extend `src/clients/web/tests/unit/features/agent-catalog/AgentVersionPage.test.tsx` (FR-014, FR-015)
+- [x] T036 [US4] Wire "Approve" for drafts and "Retire" for approved versions into `src/clients/web/src/features/agent-catalog/AgentVersionPage.tsx`, showing the approval or retirement with member and time afterwards; add further texts to `src/clients/web/src/i18n/en/agentCatalog.json`; extend `src/clients/web/tests/unit/features/agent-catalog/AgentVersionPage.test.tsx` (FR-014, FR-015)
 - [ ] T037 [US4] Extend `src/clients/web/tests/e2e/simulated/agent-catalog.spec.ts` with lifecycle scenarios: approve with the self-approval note, cancel, retire the enabled version refused, retire a non-enabled version, approve a non-draft refused, and stale approval and retirement from a second page (US4 acceptance scenarios 1, 3–5; SC-006)
 
 **Checkpoint**: User Stories 1–4 work independently.

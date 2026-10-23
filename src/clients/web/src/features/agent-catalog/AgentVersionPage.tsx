@@ -12,8 +12,10 @@ import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { DigestText } from '../registry/DigestText';
 import { FailureAlert } from '../shared/FailureAlert';
 import { useAgentVersion, useEnablements } from './agentCatalogKeys';
+import { ApproveAgentVersionDialog } from './ApproveAgentVersionDialog';
 import { ChangeEnablementDialog } from './ChangeEnablementDialog';
 import { CatalogText } from './CatalogText';
+import { RetireAgentVersionDialog } from './RetireAgentVersionDialog';
 import { DistanceList } from './artifacts/DistanceList';
 
 const KIND_SEGMENTS: Record<string, string> = {
@@ -60,6 +62,8 @@ export function AgentVersionPage() {
   const query = useAgentVersion(agentId, version);
   const enablementsQuery = useEnablements();
   const [enabling, setEnabling] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [retiring, setRetiring] = useState(false);
   const failure = query.error ? toPlatformFailure(query.error) : undefined;
 
   if (failure?.kind === 'notPermitted') return <NotPermittedPage />;
@@ -131,6 +135,12 @@ export function AgentVersionPage() {
           {v.state === 'approved' && !v.enabled && enablement && (
             <Button variant="contained" sx={{ mt: 1 }} onClick={() => setEnabling(true)}>{t('version.enable')}</Button>
           )}
+          {v.state === 'draft' && (
+            <Button variant="contained" sx={{ mt: 1 }} onClick={() => setApproving(true)}>{t('version.approve')}</Button>
+          )}
+          {v.state === 'approved' && (
+            <Button variant="outlined" color="error" sx={{ mt: 1, ml: 1 }} onClick={() => setRetiring(true)}>{t('version.retire')}</Button>
+          )}
           <Box sx={{ mt: 1 }}>
             <Link to={`/agent-catalog/agents/${encodeURIComponent(agentId)}/versions/new?from=${encodeURIComponent(v.version)}`}>
               {t('version.newVersion')}
@@ -146,6 +156,8 @@ export function AgentVersionPage() {
               onClose={() => setEnabling(false)}
             />
           )}
+          {approving && <ApproveAgentVersionDialog version={v} open onClose={() => setApproving(false)} />}
+          {retiring && <RetireAgentVersionDialog version={v} open onClose={() => setRetiring(false)} />}
           {v.group === 'coach' && (
             <>
               <Typography variant="h3" sx={{ mt: 2 }}>{t('version.distancesTitle')}</Typography>
