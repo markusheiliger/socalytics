@@ -16,7 +16,7 @@
 
 ## Refined decision: the load failure is a stalled first claim, not the poll limits
 
-- **Decision**: Add T005 (establish the cause of the stalled claim) and T006 (remove it) before the verification T003.
+- **Decision**: Add two tasks, T005 and T006, before the verification T003 to address the stalled claim. Superseded by the next section, which gives their final meanings: T005 is the per-fixture work queue and T006 the runner configuration of the two runner-driving test classes.
 - **Rationale**: Reading the code found no failure on the unloaded runner, and T002 unified the poll and runner limits. T003 then showed that with every core busy the invocation stays `accepted`/`queued` with 0 attempts, 0 checkpoints, and an empty runner log for the full wait, and that `RunnerClaimsAndCompletesASubmittedInvocationSoTheOwnerReadsSimulatedAdvice`, which T002 did not touch, fails in the same runs. The limits are therefore not the cause; the runner never claims the work.
 - **Rejected alternative**: Longer waits or a retry of the test (excluded by the requester); accepting the load failure as environmental (SC-001 requires passing under load).
 - **Evidence**: T003 attempt 1: solo 20/20 passed, class under load failed about half the time with four burners and 2 of 5 with two; attempt 2: solo 45 of 46 (one 1 ms fixture-startup failure), four burners 4 of 5 failed, two burners 1 of 5 failed; the probe made the test fail on its assertions in both attempts.
