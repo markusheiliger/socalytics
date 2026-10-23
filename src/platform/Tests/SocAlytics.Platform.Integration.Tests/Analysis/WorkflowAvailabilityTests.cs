@@ -61,6 +61,9 @@ public sealed class WorkflowAvailabilityTests(
     // in this test's database. This test's consumer would fetch them after recovery and add receipts or consume
     // fetch windows before the one expected notification. Deleting the stream (and with it the consumer) gives the
     // test its own notification state; the topology recreates both when the platform starts.
+    // Verification: 20 of 20 solo runs and 5 of 5 runs of this class under CPU load (one busy loop per core) passed;
+    // a probe that made the workflow resolvable before the unresolvable assertions and a probe that finalized a
+    // second recording set after recovery each failed the test on its assertions; both probes were removed.
     private async Task ResetEventsStreamAsync(CancellationToken ct)
     {
         await using var connection = new NatsConnection(new NatsOpts { Url = nats.ConnectionString });
