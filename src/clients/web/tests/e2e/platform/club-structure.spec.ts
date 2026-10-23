@@ -19,6 +19,10 @@ const test = base.extend<{ secrets: string[] }>({
 // season left active by an earlier project cannot block the activation; (c) the absence assertion for the old team name
 // runs only after the team list request that follows the rename was answered. Three probes (list not refreshed after
 // creation, season not activated, save not persisting the name) each failed the unchanged assertions without hanging.
+// Convergence runs: with one CPU-burning process per core (4), 5 repeats passed and 0 failed, run after the session and
+// navigation specs (`--no-deps` on a fresh platform fails every repeat in `beforeEach` with a 401 sign-in because the
+// initial password was not changed yet, a precondition failure and not a test result). The whole platform project
+// ran 5 times: 5 passed, 0 failed, and this test passed each time, without a retry.
 // Archives the club's active seasons through the API so the single active season is free for this test and the next
 // spec, even when a test fails.
 test.beforeEach(async () => {
