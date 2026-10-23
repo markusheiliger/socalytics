@@ -99,7 +99,7 @@ and see the refusal; create a run, register a newer image with a changed schema,
 
 ### Implementation for User Story 2
 
-- [ ] T011 [US2] Import payload schemas in
+- [x] T011 [US2] Import payload schemas in
   `src/platform/SocAlytics.Platform.Infrastructure/Registry/AnalystManifestValidator.cs`: read
   `output.factPayloadSchemas` into `CapabilityDeclaration.FactPayloadSchemas`, refuse invalid, unsupported, external,
   cyclic, oversized, or too deep schemas, root types other than `object`, and schemas on a manifest older than `1.2.0`
