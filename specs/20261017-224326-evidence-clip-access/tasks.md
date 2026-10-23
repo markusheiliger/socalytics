@@ -187,7 +187,7 @@ requested from the Segment Service.
   bytes refused, segment `failed`, objects deleted; mixed available and preparing parts; two members resolving the
   same absent segment concurrently end with one association; storage unavailable gives `503` without links (SC-004;
   FR-007–FR-011)
-- [ ] T018 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/EvidenceMediaEndToEndTests.cs`: after
+- [x] T018 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/EvidenceMediaEndToEndTests.cs`: after
   the development workflow completes over an uploaded synthetic recording, a Coach resolves an indexed fact, waits
   for `materializing` parts to become available within a bounded time, and downloads media whose digest equals the
   returned `mediaDigest` (FR-024)
