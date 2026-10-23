@@ -171,7 +171,7 @@ export function EvidencePlayerDialog({ adapter, runId, fact, capability, onClose
             preload="auto"
             playsInline
             controls
-            style={{ width: '100%', display: index === active && status === 'playing' && !playback.finished ? 'block' : 'none' }}
+            style={{ width: '100%', maxHeight: '50vh', display: index === active && status === 'playing' && !playback.finished ? 'block' : 'none' }}
             onTimeUpdate={() => onTimeUpdate(index)}
             onEnded={() => index === active && advance()}
             onError={() => index === active && mediaFailed()}

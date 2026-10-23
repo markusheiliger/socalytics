@@ -646,6 +646,38 @@ export function operationalSummaryFixture(): SimulatedOperationalSummary {
   };
 }
 
+/** JSON shape of an `EvidencePartDto`; `media` accompanies `available` only. */
+export interface SimulatedEvidencePart {
+  startMs: number;
+  endMs: number;
+  state: string;
+  reason?: string;
+  retryAfterSeconds?: number;
+  media?: {
+    url: string;
+    expiresAt: string;
+    mediaType: string;
+    mediaDigest: string;
+    mediaSizeBytes: number;
+    startOffsetMs: number;
+    endOffsetMs: number;
+    recordingVersionId: string;
+  };
+}
+
+export interface SimulatedEvidenceResolution {
+  requested: { fromMs: number; toMs: number };
+  fact?: { startMs: number; endMs: number };
+  shortened?: boolean;
+  parts: SimulatedEvidencePart[];
+}
+
+/** One scripted answer of `resolveAnalysisEvidenceMedia`: a resolution, a problem status, or a lost connection. */
+export type SimulatedEvidenceAnswer =
+  | { resolution: SimulatedEvidenceResolution }
+  | { status: 404 | 429 | 503; retryAfterSeconds?: number }
+  | { abort: true };
+
 /** Answers `/api/v1/**` with typed fixtures. Tests may override any route with `on`. */
 export class SimulatedApi {
   private current: { role: SimulatedRole; passwordChangeRequired: boolean } | null = null;
@@ -661,6 +693,10 @@ export class SimulatedApi {
   readonly analysisRuns: AnalysisRunSummaryDto[] = [];
   /** Analysis state behind `/analysis/runs/{runId}`, by run identifier; see `seedAnalysisRun`. */
   readonly analysisStates = new Map<string, SeededAnalysisRun>();
+  /** Scripted answers of `resolveAnalysisEvidenceMedia`, one per request; the last one repeats. See `scriptEvidence`. */
+  private evidenceScript: SimulatedEvidenceAnswer[] = [];
+  /** Bodies of the evidence resolutions received, in order. */
+  readonly evidenceRequests: { runId: string; body: Record<string, unknown> }[] = [];
   /** Fact page size of the simulated platform (its default page size); tests may lower it to page. */
   factPageSize = 50;
   private readonly statusReads = new Map<string, number>();
@@ -694,6 +730,49 @@ export class SimulatedApi {
     this.analysisStates.set(run.runId, run);
     this.syncRunSummary(run);
     return run;
+  }
+
+  /** Replaces the scripted answers of the evidence resolution and forgets the requests received so far. */
+  scriptEvidence(...answers: SimulatedEvidenceAnswer[]): void {
+    this.evidenceScript = answers;
+    this.evidenceRequests.length = 0;
+  }
+
+  private async handleEvidenceResolution(
+    route: Route,
+    runId: string,
+    role: SimulatedRole,
+    json: (status: number, body: unknown) => Promise<void>,
+  ): Promise<void> {
+    const run = this.analysisStates.get(runId);
+    const permitted = run && (members[role].teamRoles ?? []).some((r) => r.teamId === run.teamId);
+    if (!run || !permitted) return json(404, problem(404, 'Not found'));
+    this.evidenceRequests.push({ runId, body: route.request().postDataJSON() ?? {} });
+    const answer = this.evidenceScript.length > 1 ? this.evidenceScript.shift() : this.evidenceScript[0];
+    if (!answer) return json(404, problem(404, 'Not found'));
+    if ('abort' in answer) return route.abort('internetdisconnected');
+    if ('status' in answer) {
+      const code = { 404: undefined, 429: 'evidence-rate-limited', 503: 'evidence-storage-unavailable' }[answer.status];
+      return route.fulfill({
+        status: answer.status,
+        contentType: 'application/problem+json',
+        headers: answer.retryAfterSeconds === undefined ? {} : { 'retry-after': String(answer.retryAfterSeconds) },
+        body: JSON.stringify(problem(answer.status, 'Evidence unavailable', code ? { code } : {})),
+      });
+    }
+    const { resolution } = answer;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'cache-control': 'no-store' },
+      body: JSON.stringify({
+        run: { runId: run.runId, matchId: run.matchId, teamId: run.teamId },
+        requested: resolution.requested,
+        ...(resolution.fact ? { fact: resolution.fact } : {}),
+        shortened: resolution.shortened ?? false,
+        parts: resolution.parts,
+      }),
+    });
   }
 
   /** Applies the next step of the run, as a status poll does; returns false when no step is left. */
@@ -1870,6 +1949,10 @@ export class SimulatedApi {
     }
     if (path.startsWith('/operations/')) {
       return this.handleOperations(method, path, new URL(request.url()).searchParams, role, json);
+    }
+    const evidence = method === 'POST' ? /^\/analysis\/runs\/([^/]+)\/evidence-media$/.exec(path) : null;
+    if (evidence) {
+      return this.handleEvidenceResolution(route, evidence[1], role, json);
     }
     if (method === 'GET' && path.startsWith('/analysis/runs/')) {
       return this.handleAnalysisRead(route, path, role, json);

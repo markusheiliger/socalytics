@@ -231,7 +231,7 @@ requested from the Segment Service.
 
 ### Browser tests
 
-- [ ] T023 [P] [US3] Add the `resolveAnalysisEvidenceMedia` route to `src/clients/web/tests/e2e/support/simulatedApi.ts`
+- [x] T023 [P] [US3] Add the `resolveAnalysisEvidenceMedia` route to `src/clients/web/tests/e2e/support/simulatedApi.ts`
   (scripted resolutions with links to objects seeded from `syntheticVideo.ts` into the fake store) and
   `src/clients/web/tests/e2e/simulated/evidence-playback.spec.ts`: fact inside one segment, across two segments
   without member action, preparing then available, failed and not-covered parts, shortened notice, expiry during
