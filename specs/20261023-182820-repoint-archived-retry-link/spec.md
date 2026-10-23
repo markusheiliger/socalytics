@@ -44,7 +44,7 @@ A maintainer or the implementation automation runs the repository Markdown valid
 ### Functional Requirements
 
 - **FR-001**: The Dependencies bullet (line 80) of `specs/20261023-150804-deterministic-stall-expiry-test/spec.md` MUST link the workload retry spec at `../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md` instead of `../20261020-224223-deterministic-simulated-workload-retry/spec.md`.
-- **FR-002**: The change MUST be the output of the archive rewrite: the link target on line 80 (the required fix) and the plain-text mentions of `specs/20261020-224223-deterministic-simulated-workload-retry` on line 19 of the stall expiry `spec.md` and line 102 of its `tasks.md`, which point to `specs/archive/20261020-224223-deterministic-simulated-workload-retry` afterwards (accepted side effects). The link text, the rest of line 80, and every other line of the stall expiry spec folder MUST stay unchanged.
+- **FR-002**: The change MUST be the output of the archive rewrite: the link target on line 80 (the required fix) and the plain-text mentions of `specs/archive/20261020-224223-deterministic-simulated-workload-retry` on line 19 of the stall expiry `spec.md` and line 102 of its `tasks.md`, which point to `specs/archive/20261020-224223-deterministic-simulated-workload-retry` afterwards (accepted side effects). The link text, the rest of line 80, and every other line of the stall expiry spec folder MUST stay unchanged.
 - **FR-003**: The change MUST touch only Markdown of the stall expiry spec folder (`spec.md` and `tasks.md`); no code, test, environment action, or `docs/architecture/` file may change.
 - **FR-004**: After the change, the repository Markdown validation MUST report no dead link on the whole repository.
 
