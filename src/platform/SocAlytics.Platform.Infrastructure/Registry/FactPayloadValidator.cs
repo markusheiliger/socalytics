@@ -97,7 +97,15 @@ internal sealed class FactPayloadValidator : IFactPayloadValidator
         {
             if (!detail.IsValid && detail.Errors is { Count: > 0 })
             {
-                return detail.InstanceLocation.ToString();
+                var pointer = detail.InstanceLocation.ToString();
+
+                // A refused additional property is reported at its object, as the Python SDK does.
+                if (detail.EvaluationPath.ToString().EndsWith("/additionalProperties", StringComparison.Ordinal))
+                {
+                    pointer = pointer[..pointer.LastIndexOf('/')];
+                }
+
+                return pointer;
             }
         }
 
