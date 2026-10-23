@@ -3,6 +3,8 @@ import {
   isRunTerminal,
   type AnalysisRunStatus,
   type FactStreamSummary,
+  type NodeInputCoverage,
+  type NodeStatus,
 } from '../../platform/models/analysis';
 import type { RecordingSetVersion } from '../../platform/models/recordings';
 
@@ -169,4 +171,249 @@ export function validateComparisonSide(input: ComparisonSideInput): ComparisonSi
   validateRecordingSet(input);
   validateStreams(input.run, input.streams);
   return { run: input.run, streams: input.streams, recordingSet: input.recordingSet };
+}
+
+export type StreamField =
+  | 'nodeKey'
+  | 'capabilityVersion'
+  | 'schemaVersion'
+  | 'outputType'
+  | 'profileId'
+  | 'profileDigest'
+  | 'imageDigest'
+  | 'modelDigest';
+
+export interface FieldDifference {
+  field: StreamField;
+  left: string | undefined;
+  right: string | undefined;
+}
+
+export type InputCoverageField =
+  'coverageMode' | 'minimumAcceptedFraction' | 'accepted' | 'missing' | 'failed' | 'blocked' | 'skipped';
+
+export type DependencyComparison =
+  | { upstreamNodeKey: string; kind: 'leftOnly'; left: NodeInputCoverage }
+  | { upstreamNodeKey: string; kind: 'rightOnly'; right: NodeInputCoverage }
+  | {
+      upstreamNodeKey: string;
+      kind: 'same' | 'changed';
+      left: NodeInputCoverage;
+      right: NodeInputCoverage;
+      changedFields: InputCoverageField[];
+    };
+
+export interface InputCoverageComparison {
+  /** Undefined means "not reported" (distinct from a reported empty list). */
+  left: NodeInputCoverage[] | undefined;
+  right: NodeInputCoverage[] | undefined;
+  /** Dependencies in left report order followed by right-only keys; never merged across keys. */
+  dependencies: DependencyComparison[];
+  /** Matching reports never prove equal full input snapshots. */
+  establishesEqualInputs: false;
+}
+
+export type AvailabilityKind =
+  | 'noExpectedUnits'
+  | 'noAcceptedResults'
+  | 'incompleteCoverage'
+  | 'completeZeroFacts'
+  | 'completeFacts'
+  | 'incompatible';
+
+export interface StreamAvailability {
+  kind: AvailabilityKind;
+  zeroFacts: boolean;
+  /** Every expected unit was skipped. */
+  allSkipped: boolean;
+}
+
+export type UnmatchedReason = 'noCounterpart' | 'ambiguous';
+
+export type StreamComparisonEntry =
+  | {
+      kind: 'aligned';
+      left: FactStreamSummary;
+      right: FactStreamSummary;
+      differences: FieldDifference[];
+      inputCoverage: InputCoverageComparison;
+      leftAvailability: StreamAvailability;
+      rightAvailability: StreamAvailability;
+    }
+  | {
+      kind: 'unmatched';
+      side: 'left' | 'right';
+      stream: FactStreamSummary;
+      reason: UnmatchedReason;
+      availability: StreamAvailability;
+    };
+
+const COUNT_KEYS = ['accepted', 'missing', 'failed', 'blocked', 'skipped'] as const;
+
+function validCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** Derives the availability branch of one stream from its fact count and output coverage counts. */
+export function describeStreamAvailability(stream: FactStreamSummary): StreamAvailability {
+  const { coverage, factCount } = stream;
+  const zeroFacts = factCount === 0;
+  const incompatible: StreamAvailability = {
+    kind: 'incompatible',
+    zeroFacts,
+    allSkipped: false,
+  };
+  if (!validCount(factCount) || COUNT_KEYS.some((key) => !validCount(coverage[key]))) return incompatible;
+  const expected = COUNT_KEYS.reduce((sum, key) => sum + coverage[key], 0);
+  if (!Number.isSafeInteger(expected)) return incompatible;
+  if (factCount > 0 && coverage.accepted === 0) return incompatible;
+  const allSkipped = expected > 0 && coverage.skipped === expected;
+  if (expected === 0) return { kind: 'noExpectedUnits', zeroFacts, allSkipped: false };
+  if (coverage.accepted === 0) return { kind: 'noAcceptedResults', zeroFacts, allSkipped };
+  if (coverage.accepted < expected) return { kind: 'incompleteCoverage', zeroFacts, allSkipped: false };
+  return {
+    kind: zeroFacts ? 'completeZeroFacts' : 'completeFacts',
+    zeroFacts,
+    allSkipped: false,
+  };
+}
+
+function tupleKey(stream: FactStreamSummary): string {
+  return JSON.stringify([stream.capabilityId, stream.executionScope]);
+}
+
+function groupByTuple(streams: FactStreamSummary[]): Map<string, FactStreamSummary[]> {
+  const groups = new Map<string, FactStreamSummary[]>();
+  for (const stream of streams) {
+    const key = tupleKey(stream);
+    const group = groups.get(key);
+    if (group) group.push(stream);
+    else groups.set(key, [stream]);
+  }
+  return groups;
+}
+
+function streamDifferences(left: FactStreamSummary, right: FactStreamSummary): FieldDifference[] {
+  const fields: [StreamField, string | undefined, string | undefined][] = [
+    ['nodeKey', left.nodeKey, right.nodeKey],
+    ['capabilityVersion', left.capabilityVersion, right.capabilityVersion],
+    ['schemaVersion', left.schemaVersion, right.schemaVersion],
+    ['outputType', left.outputType, right.outputType],
+    ['profileId', left.provenance.analystProfile.id, right.provenance.analystProfile.id],
+    ['profileDigest', left.provenance.analystProfile.digest, right.provenance.analystProfile.digest],
+    ['imageDigest', left.provenance.imageDigest, right.provenance.imageDigest],
+    ['modelDigest', left.provenance.modelDigest, right.provenance.modelDigest],
+  ];
+  return fields.filter(([, l, r]) => l !== r).map(([field, l, r]) => ({ field, left: l, right: r }));
+}
+
+function indexDependencies(entries: NodeInputCoverage[]): Map<string, NodeInputCoverage> {
+  const index = new Map<string, NodeInputCoverage>();
+  for (const entry of entries) {
+    if (index.has(entry.upstreamNodeKey)) throw incompatible();
+    index.set(entry.upstreamNodeKey, entry);
+  }
+  return index;
+}
+
+function compareInputCoverage(
+  left: NodeInputCoverage[] | undefined,
+  right: NodeInputCoverage[] | undefined,
+): InputCoverageComparison {
+  const leftIndex = indexDependencies(left ?? []);
+  const rightIndex = indexDependencies(right ?? []);
+  const dependencies: DependencyComparison[] = [];
+  for (const [key, l] of leftIndex) {
+    const r = rightIndex.get(key);
+    if (!r) {
+      dependencies.push({ upstreamNodeKey: key, kind: 'leftOnly', left: l });
+      continue;
+    }
+    const changedFields = (['coverageMode', 'minimumAcceptedFraction', ...COUNT_KEYS] as InputCoverageField[]).filter(
+      (field) => l[field] !== r[field],
+    );
+    dependencies.push({
+      upstreamNodeKey: key,
+      kind: changedFields.length === 0 ? 'same' : 'changed',
+      left: l,
+      right: r,
+      changedFields,
+    });
+  }
+  for (const [key, r] of rightIndex) {
+    if (!leftIndex.has(key)) dependencies.push({ upstreamNodeKey: key, kind: 'rightOnly', right: r });
+  }
+  return { left, right, dependencies, establishesEqualInputs: false };
+}
+
+function indexSide(side: ComparisonSide): Map<string, NodeStatus> {
+  const nodes = new Map<string, NodeStatus>();
+  for (const node of side.run.nodes) {
+    if (nodes.has(node.nodeKey)) throw incompatible();
+    nodes.set(node.nodeKey, node);
+  }
+  const seen = new Set<string>();
+  for (const stream of side.streams) {
+    if (seen.has(stream.nodeKey) || !nodes.has(stream.nodeKey)) throw incompatible();
+    seen.add(stream.nodeKey);
+  }
+  return nodes;
+}
+
+/**
+ * Accounts for every stream exactly once on its own side. Only a capability/scope group with exactly one stream on
+ * each side is aligned; ambiguous groups are emitted as independent unmatched streams, never zipped or subset.
+ * Order: left streams in their order (aligned entries at the left position), then right-only streams.
+ */
+export function compareStreams(left: ComparisonSide, right: ComparisonSide): StreamComparisonEntry[] {
+  const leftNodes = indexSide(left);
+  const rightNodes = indexSide(right);
+  const leftGroups = groupByTuple(left.streams);
+  const rightGroups = groupByTuple(right.streams);
+  const entries: StreamComparisonEntry[] = [];
+  const alignedRight = new Set<FactStreamSummary>();
+
+  for (const stream of left.streams) {
+    const key = tupleKey(stream);
+    const leftGroup = leftGroups.get(key) ?? [];
+    const rightGroup = rightGroups.get(key) ?? [];
+    if (leftGroup.length === 1 && rightGroup.length === 1) {
+      const counterpart = rightGroup[0];
+      alignedRight.add(counterpart);
+      entries.push({
+        kind: 'aligned',
+        left: stream,
+        right: counterpart,
+        differences: streamDifferences(stream, counterpart),
+        inputCoverage: compareInputCoverage(
+          leftNodes.get(stream.nodeKey)?.inputCoverage,
+          rightNodes.get(counterpart.nodeKey)?.inputCoverage,
+        ),
+        leftAvailability: describeStreamAvailability(stream),
+        rightAvailability: describeStreamAvailability(counterpart),
+      });
+    } else {
+      entries.push({
+        kind: 'unmatched',
+        side: 'left',
+        stream,
+        reason: leftGroup.length > 1 || rightGroup.length > 1 ? 'ambiguous' : 'noCounterpart',
+        availability: describeStreamAvailability(stream),
+      });
+    }
+  }
+
+  for (const stream of right.streams) {
+    if (alignedRight.has(stream)) continue;
+    const key = tupleKey(stream);
+    const ambiguous = (leftGroups.get(key)?.length ?? 0) > 1 || (rightGroups.get(key)?.length ?? 0) > 1;
+    entries.push({
+      kind: 'unmatched',
+      side: 'right',
+      stream,
+      reason: ambiguous ? 'ambiguous' : 'noCounterpart',
+      availability: describeStreamAvailability(stream),
+    });
+  }
+  return entries;
 }
