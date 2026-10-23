@@ -109,7 +109,7 @@ and see the refusal; create a run, register a newer image with a changed schema,
   `src/platform/SocAlytics.Platform.Application/Registry/ResolvedWorkflowDefinition.cs` and fill them in
   `src/platform/SocAlytics.Platform.Infrastructure/Registry/RegistryWorkflowDefinitionResolver.cs` and
   `ConfiguredWorkflowDefinitionResolver.cs` from the image digest's declaration (FR-004)
-- [ ] T013 [US2] Write `factPayloadSchemas` and `factPayloadSchemasDigest` into the node snapshot in
+- [x] T013 [US2] Write `factPayloadSchemas` and `factPayloadSchemasDigest` into the node snapshot in
   `src/platform/SocAlytics.Platform.Application/Analysis/WorkflowSnapshotMapper.cs`, omitting both keys when the
   declaration has no schemas so existing snapshots and run digests stay unchanged (FR-004, FR-007)
 

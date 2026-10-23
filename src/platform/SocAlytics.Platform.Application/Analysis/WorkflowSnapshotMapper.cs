@@ -78,7 +78,21 @@ public sealed class WorkflowSnapshotMapper(ICanonicalJson canonicalJson)
         return edge;
     }
 
-    private static Dictionary<string, object?> NodeObject(ResolvedWorkflowNode n) => new()
+    private static Dictionary<string, object?> NodeObject(ResolvedWorkflowNode n)
+    {
+        var node = BaseNodeObject(n);
+
+        // Both keys are omitted without schemas so existing snapshots and run digests stay unchanged.
+        if (n.FactPayloadSchemas is { Count: > 0 } schemas && n.FactPayloadSchemasDigest is not null)
+        {
+            node["factPayloadSchemas"] = schemas;
+            node["factPayloadSchemasDigest"] = n.FactPayloadSchemasDigest;
+        }
+
+        return node;
+    }
+
+    private static Dictionary<string, object?> BaseNodeObject(ResolvedWorkflowNode n) => new()
     {
         ["nodeKey"] = n.NodeKey,
         ["capabilityId"] = n.CapabilityId,
