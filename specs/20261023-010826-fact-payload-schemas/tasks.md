@@ -173,7 +173,7 @@ the first is accepted and readable, the second ends failed with the named reason
   `result-payload-kind-undeclared`, a size-limit violation keeps its existing reason, a fenced, cancelled, or
   superseded attempt keeps its existing outcome, a capability without schemas and a run without snapshot schemas
   behave as before, and retry rules apply (SC-001, SC-002, SC-003)
-- [ ] T023 [P] [US1] Add
+- [x] T023 [P] [US1] Add
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/FactPayloadTelemetryTests.cs`: metrics and
   audit records carry the payload reason codes and never a payload value (FR-018)
 - [ ] T024 [P] [US1] Add

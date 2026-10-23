@@ -11,7 +11,7 @@ using SocAlytics.Platform.Integration.Tests.Recordings;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis.Support;
 
-internal sealed record FactSpec(string Kind, long StartMs, long EndMs);
+internal sealed record FactSpec(string Kind, long StartMs, long EndMs, JsonObject? Payload = null);
 
 internal sealed record PreparedResult(string ManifestReference, string ManifestChecksum, JsonObject Manifest);
 
@@ -84,7 +84,7 @@ internal static class ResultObjectsHelper
                 ["startMs"] = f.StartMs,
                 ["endMs"] = f.EndMs,
                 ["confidence"] = 0.5,
-                ["payload"] = new JsonObject { ["k"] = f.Kind },
+                ["payload"] = f.Payload?.DeepClone() ?? new JsonObject { ["k"] = f.Kind },
             }).ToArray()),
         };
         return Encoding.UTF8.GetBytes(artifact.ToJsonString());
