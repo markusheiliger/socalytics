@@ -15,6 +15,7 @@ flowchart TD
     prepare["<b>🤖 Spec Kit prepare</b><br/>Syncs one twin issue per spec folder,<br/>infers blocked-by dependencies,<br/>validates implement requests"]
     orchestrate["<b>⚙ Spec Kit orchestrate</b><br/>Schedules implementations,<br/>restarts broken chains,<br/>finalizes merged or closed pull requests"]
     commands["<b>⚙ Spec Kit commands</b><br/>/speckit comments and<br/>amendment feedback"]
+    backlog["<b>🤖 Spec Kit backlog</b><br/>no spec left to request:<br/>authors the next specs like<br/>/speckit-gha-author --repeat"]
 
     subgraph chain["Implementation chain · one per spec"]
         spec["<b>⚙ Spec Kit implement decide</b><br/>a run without work: reports stops,<br/>starts the diagnosis, marks done"]
@@ -75,6 +76,8 @@ flowchart TD
     commands -- "fix, revise" --> fixspec
     commands -- "person pushed: check" --> analyze
     orchestrate -- "blockers implemented: retry" --> spec
+    orchestrate -- "no spec left to request" --> backlog
+    backlog -- "pushes new specs, dispatches Spec Kit prepare" --> specs
 ```
 
 Edges: dotted arrows are GitHub events that trigger a workflow, solid arrows are workflow dispatches or effects on a
@@ -89,7 +92,7 @@ They become ready only after final verification, immediately before an automatic
 | Workflow | File | Triggered by | Does |
 | --- | --- | --- | --- |
 | Spec Kit prepare | [speckit-prepare.yml](speckit-prepare.yml) | Push to `specs/**`, stage label changes (restored when a person made them), manual | Keeps one twin issue per spec folder, infers dependencies between new twins, validates implement requests; a dispatched, applying run then dispatches `Spec Kit orchestrate`. |
-| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; requested twins that block running implementations start regardless and first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
+| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; requested twins that block running implementations start regardless and first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
 | Spec Kit implement decide | [speckit-implement-decide.yml](speckit-implement-decide.yml) | Orchestrate, commands, the chain | The run without work: when the next work is none (a stop at an attempt limit, a failure, a running merge, a finished implementation) or cannot be told, it decides and acts on it (reports the stop, starts the diagnosis, marks the implementation done); work it finds after all is handed over to the workflow of its kind. |
 | Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Orchestrate, commands, the chain | A sequential group (consecutive tasks without `[P]`, one at a time), a parallel group (consecutive `[P]` tasks under one heading, at most 5 at once, verified together only when a landing merged a sibling's edits to the same files), or the convergence or a conflict resolution as a group of one; then starts the next run. |
 | Spec Kit implement verify | [speckit-implement-verify.yml](speckit-implement-verify.yml) | The chain | The full verification of a finished phase in a run of its own; a failure stops with a pending repair. |
@@ -99,6 +102,7 @@ They become ready only after final verification, immediately before an automatic
 | Spec Kit implement task | [speckit-implement-task.yml](speckit-implement-task.yml) | Implement group, repair (`workflow_call`) | One task, the convergence, a repair, or a conflict resolution: runs its gha Spec Kit workflow with a read-only token, packages and verifies the change, then validates, ticks, commits, pushes, and reports it through a write-isolated land job. |
 | Spec Kit commands | [speckit-commands.yml](speckit-commands.yml) | Pull request comments, reviews, and events | Handles `/speckit` commands (`retry`, `sync`, `author`, and `implement` on twin issues, `help`) and feedback on amendments and authored spec pull requests; keeps Spec Kit pull requests out of stacks. |
 | Spec Kit diagnose | [speckit-diagnose.md](speckit-diagnose.md) ([lock](speckit-diagnose.lock.yml)) | The implementation chain, analyze | Automatically explains why an implementation stopped and recommends one ready-to-post command that fits the category, chosen from the "Commands you can recommend" reference its evidence generates from `PR_COMMANDS`; for spec artifact defects opens and reworks an amendment pull request. |
+| Spec Kit backlog | [speckit-backlog.yml](speckit-backlog.yml) | Orchestrate (no spec left to request), manual | Authors the next `SPECKIT_BACKLOG_SPECS` (default 5) logical specs like `/speckit-gha-author --repeat` in autopilot and publishes them straight to the default branch, then dispatches `Spec Kit prepare` for their twins (see [Spec backlog](#spec-backlog)). |
 | Spec Kit author | [speckit-author.yml](speckit-author.yml) | Commands (`/speckit author`), analyze | One decision step (reuse, refuse, or a feature description), then the Spec Kit workflow `author` unattended to author an ordinary spec for a cause outside the stopped spec and propose it against the default branch (one cause, one spec); reworks it after findings or feedback from the stage they concern. A consistent spec pull request is merged automatically unless it changes `docs/architecture/` (with a **Design decisions** comment from its plan) or a person pushed to it. |
 | Spec Kit analyze | [speckit-analyze.md](speckit-analyze.md) ([lock](speckit-analyze.lock.yml)) | Diagnose, author, commands | Runs a read-only `/speckit-analyze` of the amended spec folder or the new spec and decides between a correction round, a rework, or human review. |
 
@@ -356,6 +360,26 @@ options at publication, with `/speckit author` as the fallback.
 
 Architecture impact: none. This changes repository automation, not the product design in `docs/architecture/`.
 
+## Spec backlog
+
+`Spec Kit orchestrate` keeps a spec ready to request. After each run it counts the specs a person can request with
+`/speckit implement`: folders under `specs/` on the default branch at the computed stage `tasked` with every checklist
+item checked, whose twin is open and not requested yet (or not created yet). When there is none, it starts
+`Spec Kit backlog` ([speckit-backlog.yml](speckit-backlog.yml)) with `count` set to the repository variable
+`SPECKIT_BACKLOG_SPECS` (default 5, at most 10; `0` turns the refill off). Only one refill runs at a time, and after a
+refill that did not succeed, the next one starts a day later; start `Spec Kit backlog` by hand to refill sooner.
+
+The refill does what `/speckit-gha-author --repeat <count>` does in autopilot: its read-only job `author` runs the
+Spec Kit workflow `author` `count` times one after another, each without a feature, unattended (every recommended
+choice), and committing its spec, so each run proposes the next logical spec from `docs/architecture/`, the existing
+specs, and the spec twins, including the specs committed by the runs before it. It stops at the first run that fails
+and before a run that would not fit into the job's time budget; the specs committed so far are kept. Its job `land`
+(write token, never runs agent-written code) applies the commits on the latest default branch, checks that they only
+add new spec folders (with `spec.md` and `tasks.md`) and change `docs/architecture/`, pushes them straight to the
+default branch without a pull request, and dispatches `Spec Kit prepare`, which creates their twins and infers their
+dependencies. Implementation still starts only when someone comments `/speckit implement` on a twin. The direct push
+needs a default branch that lets the workflow token push; a refused push fails the run with the reason in its summary.
+
 ## Where AI runs and where guidance applies
 
 Most of the automation is script code. AI runs only in the places below, each in a read-only job whose output a
@@ -377,6 +401,7 @@ engine of GitHub Agentic Workflows.
 | Comment commands | Spec Kit commands | none (script) | stores the guidance in a marker for the work above |
 | Diagnosis, amendment correction and rework | Spec Kit diagnose | agentic (`copilot` engine) | never (it reads recent comments as context; rework rounds use analysis findings and review feedback) |
 | New spec authoring (`/speckit author`), correction and rework | Spec Kit author | Copilot CLI, level `standard`: one decision step, then the agent steps of the Spec Kit workflow `author` | `author`: the decision step (the guidance shapes the feature description) |
+| Spec backlog refill | Spec Kit backlog | Copilot CLI, level `standard`, in the agent steps of the Spec Kit workflow `author` | never |
 | Consistency check of amendments and authored specs | Spec Kit analyze | agentic (`copilot` engine), read-only | never |
 <!-- speckit-ai:end -->
 
