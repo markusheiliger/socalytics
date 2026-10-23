@@ -84,14 +84,17 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 		var runnerLog = new CapturingLoggerProvider();
 		await using var runner = new SimulatedAgentWorkloadRunner(options, http, f.Factory.Time, runnerLog.CreateLogger("SimulatedAgentWorkload"));
 		using var run = CancellationTokenSource.CreateLinkedTokenSource(ct);
-		run.CancelAfter(TimeSpan.FromMinutes(4));
+		// One limit bounds the wait and the runner, so the runner is never stopped while the wait still runs.
+		var limit = TimeSpan.FromMinutes(3);
+		run.CancelAfter(limit + TimeSpan.FromSeconds(10));
+		using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
+		wait.CancelAfter(limit);
 		var worker = runner.RunAsync(run.Token);
 
 		var expired = false;
 		JsonElement? ended = null;
 		JsonElement? lastRead = null;
-		var deadline = DateTime.UtcNow.AddMinutes(3);
-		while (ended is null && DateTime.UtcNow < deadline)
+		while (ended is null && !wait.IsCancellationRequested)
 		{
 			using var read = await MemberAsync(f, HttpMethod.Get, $"/api/v1/agent-invocations/{invocationId}", null, null, ct);
 			var body = await ReadAsync(read, ct);
@@ -109,7 +112,13 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 				expired = true;
 			}
 
-			await Task.Delay(250, ct);
+			try
+			{
+				await Task.Delay(250, wait.Token);
+			}
+			catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+			{
+			}
 		}
 
 		await run.CancelAsync();

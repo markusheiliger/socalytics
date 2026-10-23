@@ -33,7 +33,7 @@ description: "Task list for Deterministic Fail-Once Retry of the Simulated Agent
 
 ### Remove the cause
 
-- [ ] T002 [US1] Remove the cause T001 evidenced, where it lives, in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadBehaviorTests.cs` and, only if the cause lives in the runner, `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs`, by controlling the racing input or waiting on the awaited condition, with no retry, skip, or longer fixed limit; keep every assertion and the behavior of the other tests that use the helper or runner (FR-002 to FR-005)
+- [x] T002 [US1] Remove the cause T001 evidenced, where it lives, in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadBehaviorTests.cs` and, only if the cause lives in the runner, `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs`, by controlling the racing input or waiting on the awaited condition, with no retry, skip, or longer fixed limit; keep every assertion and the behavior of the other tests that use the helper or runner (FR-002 to FR-005)
 
 ### Verification
 
