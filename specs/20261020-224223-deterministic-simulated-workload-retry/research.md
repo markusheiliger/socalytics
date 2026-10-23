@@ -26,7 +26,7 @@
 - **Decision**: T005 becomes the per-fixture work queue (stream, subject, consumer names) in the test fixture and T006 makes the two runner-driving test classes use it; the investigation T005 formerly asked for is closed, because it produced evidence only and a task without a committed change ends with "the agent made no changes" however well it succeeds.
 - **Rationale**: Both attempts of the investigation reached the same cause with probes: with four CPU burners the outbox row was `published`, the stream and consumer showed no pending messages, and the runner's claim answered `404 not-found`, which the runner correctly treats as obsolete and acknowledges. All test classes share one NATS container (assembly fixture), one stream `AGENT_WORK`, and one durable consumer `agent-workload`, while each test has its own database, so under load overlapping classes steal each other's notifications. The runner's behavior is right for production; the race is in the test setup.
 - **Rejected alternatives**: serializing the runner-driving tests in one collection (hides the shared state and slows the suite; isolation removes the cause); a retry, longer limits, or republish waits (excluded by the requester); changing the runner to not acknowledge a `404` (alters the documented claim semantics).
-- **Not established**: the single 1 ms failure seen in 46 solo runs did not reproduce in any later run; it is not treated as part of this cause, and T003's repeated runs remain the check for it.
+- **Not established**: the single 1 ms failure seen in 46 solo runs did not reproduce in any later run; it is not treated as part of this cause, and the phase verification and the convergence (with the evidence recorded in the pull request) remain the check for it.
 
 ## Refined decision: verification-only tasks T003 and T004 are retired
 
@@ -34,4 +34,3 @@
 - **Rationale**: The implementation workflow lands a task only when its attempt changes files; an attempt without a change fails with "the agent made no changes". T003's two attempts passed every check (20 of 20 alone, 5 of 5 under four burners, the probe made the test fail on its assertions) and still failed twice, so no further attempt can succeed. T004 is of the same kind (it changes nothing unless platform code changed, which it did not).
 - **Rejected alternatives**: a placeholder change to satisfy the task (a change without purpose, against Principle V); more retries (they fail the same way); relaxing the checks (SC-001 to SC-003 stay as they are).
 - **Evidence**: T003 attempts 1 and 2 both ended with "the agent made no changes" and summaries reporting all runs passed.
-
