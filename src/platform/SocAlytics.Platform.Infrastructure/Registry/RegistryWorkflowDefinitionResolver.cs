@@ -180,6 +180,16 @@ internal sealed class RegistryWorkflowDefinitionResolver(IServiceScopeFactory sc
             content.StaleTimeoutSeconds,
             content.ExecutionTimeoutSeconds,
             content.VideoPolicy);
+        var schemas = declaration.Declaration.FactPayloadSchemas;
+        if (schemas.Count > 0)
+        {
+            resolvedNode = resolvedNode with
+            {
+                FactPayloadSchemas = schemas,
+                FactPayloadSchemasDigest = FactPayloadSchemaLimits.Digest(schemas),
+            };
+        }
+
         return (resolvedNode, declaration.Declaration.Upstream);
     }
 

@@ -105,7 +105,7 @@ and see the refusal; create a run, register a newer image with a changed schema,
   cyclic, oversized, or too deep schemas, root types other than `object`, and schemas on a manifest older than `1.2.0`
   with a named reason and no cached declaration, using the Domain rules of T007; the cached manifest keeps the schemas
   unchanged (FR-002, FR-003)
-- [ ] T012 [US2] Carry the pinned map and digest through the resolved definitions: add them to the resolved node in
+- [x] T012 [US2] Carry the pinned map and digest through the resolved definitions: add them to the resolved node in
   `src/platform/SocAlytics.Platform.Application/Registry/ResolvedWorkflowDefinition.cs` and fill them in
   `src/platform/SocAlytics.Platform.Infrastructure/Registry/RegistryWorkflowDefinitionResolver.cs` and
   `ConfiguredWorkflowDefinitionResolver.cs` from the image digest's declaration (FR-004)
