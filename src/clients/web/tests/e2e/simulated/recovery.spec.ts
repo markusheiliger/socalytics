@@ -35,8 +35,14 @@ async function startInterrupted(page: Page, api: { signInAs(role: 'Coach'): void
   await page.getByRole('button', { name: 'Add to upload queue' }).click();
   await expect.poll(async () => (await storageState()).parts.length, { timeout: 30_000 }).toBe(2);
   await page.waitForTimeout(500);
+  const before = await storageState();
+  const resetAt = Date.now();
   await control('reset');
+  console.log(`T002 reset@${resetAt} parts=${before.parts.length} requests=${JSON.stringify((before.requests as { partNumber: number; ts?: number }[]).map((r) => [r.partNumber, r.ts]))}`);
   await page.reload();
+  await new Promise((r) => setTimeout(r, 1500));
+  const after = await storageState();
+  console.log(`T002 after-reload requests=${JSON.stringify((after.requests as { partNumber: number; ts?: number }[]).map((r) => [r.partNumber, r.ts! - resetAt]))}`);
   return file;
 }
 

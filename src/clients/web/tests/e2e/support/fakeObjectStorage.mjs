@@ -105,7 +105,7 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
     const segments = url.pathname.split('/').filter(Boolean);
     const partNumber = Number(url.searchParams.get('partNumber') ?? segments.at(-1));
     const claimed = req.headers['x-amz-checksum-sha256'];
-    requests.push({ method: 'PUT', path: url.pathname, partNumber, size: body.length, checksum: claimed ?? null });
+    requests.push({ method: 'PUT', path: url.pathname, partNumber, size: body.length, checksum: claimed ?? null, ts: Date.now() });
 
     if (faults.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, faults.delayMs));
 
