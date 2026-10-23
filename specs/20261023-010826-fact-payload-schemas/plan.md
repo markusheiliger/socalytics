@@ -92,7 +92,7 @@ src/platform/
 │   └── Persistence/Migrations/NNNN_analysis_<description>.sql  # conditional (T020), only if the reason column blocks 256 characters
 └── Tests/                                          # Contracts, Integration, EndToEnd (reference 1.1.0)
 
-src/analysts/sdk/                                   # result.py, errors.py, manifest loading, contract copy, tests
+src/analysts/sdk/                                   # result.py, errors.py, manifest loading, contract copy (sync_contracts.py gains analyst-manifest), tests
 src/analysts/capabilities/reference-media-probe/    # analyst-manifest.payload-validated.json, Dockerfile.payload-validated, tests
 
 docs/architecture/, README.md files, AGENTS.md      # status corrections
