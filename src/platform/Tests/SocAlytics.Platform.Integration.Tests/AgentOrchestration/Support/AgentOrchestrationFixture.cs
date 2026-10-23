@@ -31,8 +31,10 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 
 	private AgentOrchestrationFixture(
 		IsolatedDatabase db, PlatformApiFactory factory, HttpClient anon, ApiSession admin, ClubHierarchy hierarchy,
-		TestAgentWorkload workload, TestAgentWorkload disabledWorkload)
+		TestAgentWorkload workload, TestAgentWorkload disabledWorkload, string agentWorkStream, string agentWorkConsumer)
 	{
+		AgentWorkStream = agentWorkStream;
+		AgentWorkConsumer = agentWorkConsumer;
 		Db = db;
 		Factory = factory;
 		Anon = anon;
@@ -56,6 +58,11 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 
 	public TestAgentWorkload DisabledWorkload { get; }
 
+	// The per-fixture work queue: the NATS server is shared by the assembly, so a runner must never see another test's notifications.
+	public string AgentWorkStream { get; }
+
+	public string AgentWorkConsumer { get; }
+
 	public DateTimeOffset Now => Factory.Time.GetUtcNow();
 
 	public static async Task<AgentOrchestrationFixture> StartAsync(
@@ -66,8 +73,14 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
 		var workload = new TestAgentWorkload();
 		var disabled = new TestAgentWorkload(DisabledClientId);
+		var unique = Guid.NewGuid().ToString("N");
+		var agentWorkStream = $"AGENT_WORK_{unique}";
+		var agentWorkConsumer = $"agent-workload-{unique}";
 		var extra = new Dictionary<string, string?>
 		{
+			["Messaging:Nats:AgentWorkStream"] = agentWorkStream,
+			["Messaging:Nats:AgentWorkSubject"] = $"agents.invocations.ready.{unique}",
+			["Messaging:Nats:AgentWorkConsumer"] = agentWorkConsumer,
 			["AgentOrchestration:Execution:LeaseSeconds"] = "2",
 			["AgentOrchestration:Execution:MaxAttemptSeconds"] = "10",
 			["AgentOrchestration:Workloads:TokenLifetime"] = "00:05:00",
@@ -109,7 +122,7 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 		await TestMembers.SeedAsync(db, "admin-1", clubRoles: ["club-admin", "registrar"], cancellationToken: ct);
 		var admin = await ApiSession.SignInAsync(factory, "admin-1", TestMembers.DefaultPassword, ct);
 		var hierarchy = await new ClubHierarchyBuilder(factory, admin).CreateAsync(ct);
-		return new AgentOrchestrationFixture(db, factory, factory.CreateApiClient(), admin, hierarchy, workload, disabled);
+		return new AgentOrchestrationFixture(db, factory, factory.CreateApiClient(), admin, hierarchy, workload, disabled, agentWorkStream, agentWorkConsumer);
 	}
 
 	// Disables the configured client in the live options, as a configuration reload would.

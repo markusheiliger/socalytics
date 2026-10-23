@@ -28,6 +28,7 @@ The path of the test contains several sources of nondeterminism that the impleme
 - the runner's fetch of work notifications expires on a real-time interval, and a notification that is not settled (a transient report failure) is redelivered only after the queue's acknowledgement wait;
 - the test reads the attempt and checkpoint counts right after the runner is cancelled, while the runner may be in the middle of a report whose effect the platform has not yet committed (the code may already order this correctly; T001 rules it in or out);
 - the runner and the platform share one fake clock that other parts of the test also read.
+- the first claim: the hops from submission through the outbox publication and the queue delivery to the runner's first claim can stall under load, so the first attempt starts late or not at all within the test's limits.
 
 The implementation first reproduces the failure and identifies which of these (or another cause) produces it, using evidence such as repeated runs under load and the platform and runner logs, and then removes that cause.
 
@@ -59,7 +60,7 @@ A maintainer running the Integration suite, or the verification of any implement
 ### Functional Requirements
 
 - **FR-001**: The implementation MUST first establish the cause of the intermittent failure of `FailOnceSucceedsOnTheSecondAttempt` with evidence (repeated runs, with and without CPU load, and the logs of the failing runs) and record it in the pull request.
-- **FR-002**: The cause MUST be removed where it lives (the test, its shared helper `RunToEndAsync`, the simulated workload runner, or platform code) by controlling the racing input or by waiting on the awaited condition (invocation terminal, runner stopped), not by adding retries, skipping, or lengthening a fixed limit.
+- **FR-002**: The cause MUST be removed where it lives (the test, its shared helper `RunToEndAsync`, the test fixture that provides the shared work queue, the simulated workload runner, or platform code) by controlling the racing input or by waiting on the awaited condition (invocation terminal, runner stopped), not by adding retries, skipping, or lengthening a fixed limit.
 - **FR-003**: Every assertion of the test (`succeeded`, exactly two attempts, at least one checkpoint) MUST remain, and no assertion, expected value, or test of the class MAY be removed, loosened, or skipped.
 - **FR-004**: Production behavior of the platform MUST NOT be weakened: any platform change MUST keep the claim, fencing, lease, retry, and outbox semantics of Agent Orchestration documented in `docs/architecture/`.
 - **FR-005**: A change to shared code (the helper or the runner) MUST keep the other tests that use it (`FailRetryableEndsWithAttemptsExhausted`, `FailPermanentEndsWithExecutionFailed`, `StallExpiresTheFirstAttemptAndSucceedsOnTheSecond`, and `SimulatedAgentWorkloadTests`) behaviorally unchanged.
@@ -68,14 +69,15 @@ A maintainer running the Integration suite, or the verification of any implement
 
 ### Measurable Outcomes
 
-- **SC-001**: `FailOnceSucceedsOnTheSecondAttempt` passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of its class under CPU load.
+- **SC-001**: `FailOnceSucceedsOnTheSecondAttempt` passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of its class together with `SimulatedAgentWorkloadTests` under CPU load; both classes count toward this criterion, because they share the helper and the runner and fail together under load.
 - **SC-002**: A probe that makes the second attempt fail makes the test fail on its assertions within the existing limits; the probe is removed afterward.
 - **SC-003**: The pull request names the evidenced cause and changes only the files that cause lives in plus this spec folder; no assertion is textually removed.
+- SC-001 to SC-003 are verified by evidence, not by a task: the phase verification and the convergence, together with the repeated-run and probe evidence recorded in the pull request comments of the implementation, are their check.
 - **SC-004** (post-merge evidence, observed when #201 retries and not verified by a task of this spec): the merge verification of #201 reports no flaky `SimulatedAgentWorkloadBehaviorTests` test.
 
 ## Assumptions
 
-- **Cause**: The test belongs to Agent Orchestration direct invocations (merged spec [Agent Orchestration Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md)); it races real time between the test, the in-process runner, and the platform's outbox and queue. The concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Analyst Manager Deterministic Tests](../20261020-072206-deterministic-manager-tests/spec.md) (implementation #201) depends on this spec. Related merged specs, which cover other tests and must not be repeated: [Bounded Wait for the Simulated Agent Workload Advice Test](../archive/20261020-144627-deterministic-integration-races/spec.md) and [Fix Upload Expiry Test](../archive/20261014-114032-fix-upload-expiry-test/spec.md).
+- **Cause**: The test belongs to Agent Orchestration direct invocations (merged spec [Agent Orchestration Invocations](../20261017-204332-agent-orchestration-invocations/spec.md)); it races real time between the test, the in-process runner, and the platform's outbox and queue. The concrete cause is established during implementation (FR-001).
+- **Dependencies**: [Analyst Manager Deterministic Tests](../../20261020-072206-deterministic-manager-tests/spec.md) (implementation #201) depends on this spec. Related merged specs, which cover other tests and must not be repeated: [Bounded Wait for the Simulated Agent Workload Advice Test](../20261020-144627-deterministic-integration-races/spec.md) and [Fix Upload Expiry Test](../20261014-114032-fix-upload-expiry-test/spec.md).
 - **Out of scope**: Other flaky tests, simulated behaviors unrelated to the fail-once retry, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.
