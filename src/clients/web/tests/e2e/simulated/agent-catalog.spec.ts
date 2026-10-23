@@ -593,3 +593,140 @@ test.describe('Registration', () => {
     await expect(page.locator('dl').first().locator('code').first()).toHaveText(stored.digest.slice(0, 'sha-256:'.length + 12));
   });
 });
+
+test.describe('Lifecycle', () => {
+  const ADMIN = '00000000-0000-4000-8000-000000000011';
+  const draftVersion = (version = '0.2.0') =>
+    ({ schemaVersion: '1.0.0', kind: 'agent-version', agentId: AGENT, version, group: 'specialist', displayName: 'Tactics Specialist', artifacts: {} });
+  const dialog = (page: Page) => page.getByRole('dialog');
+  const alertOf = (page: Page, text: string) => dialog(page).getByRole('alert').filter({ hasText: text });
+  const versionPath = (version: string) => `/agent-catalog/agents/${AGENT}/versions/${version}`;
+  const stateOf = (api: SimulatedApi, version: string) => api.catalogVersions.find((v) => v.agentId === AGENT && v.version === version)!;
+
+  function watchPosts(page: Page, segment: 'approval' | 'retirement') {
+    const posts: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().endsWith(`/${segment}`)) posts.push(request.url());
+    });
+    return posts;
+  }
+
+  test('approves a draft the member registered with the self-approval note (acceptance 1; SC-006)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(draftVersion(), { state: 'draft', registeredBy: ADMIN });
+    await open(page, versionPath('0.2.0'));
+    await page.getByRole('button', { name: 'Approve', exact: true }).click();
+    await expect(dialog(page)).toContainText(`Agent: ${AGENT}`);
+    await expect(dialog(page)).toContainText('Version: 0.2.0');
+    await expect(dialog(page)).toContainText(`Version digest: ${stateOf(api, '0.2.0').digest}`);
+    await expect(dialog(page)).toContainText('Approved versions never change.');
+    await expect(dialog(page)).toContainText('It is not evaluation evidence.');
+    await expect(dialog(page)).toContainText('The approval is recorded as a self-approval.');
+    await expectNoAxeViolations(page);
+
+    await dialog(page).getByRole('button', { name: 'Approve version' }).click();
+    await expect(dialog(page).getByRole('status')).toBeVisible();
+    await dialog(page).getByRole('button', { name: 'Close' }).click();
+    await expect(dialog(page)).toHaveCount(0);
+
+    expect(stateOf(api, '0.2.0')).toMatchObject({ state: 'approved', selfApproval: true });
+    await expect(page.locator('dl').first().getByText('approved', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^Approved by /)).toBeVisible();
+    await expect(page.getByText('The approval was a self-approval')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
+  });
+
+  test('states no self-approval for a draft someone else registered (acceptance 1)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(draftVersion(), { state: 'draft' });
+    await open(page, versionPath('0.2.0'));
+    await page.getByRole('button', { name: 'Approve', exact: true }).click();
+    await expect(dialog(page)).not.toContainText('self-approval');
+  });
+
+  test('cancelling the approval sends nothing and changes nothing (acceptance 1)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(draftVersion(), { state: 'draft', registeredBy: ADMIN });
+    await open(page, versionPath('0.2.0'));
+    const posts = watchPosts(page, 'approval');
+    await page.getByRole('button', { name: 'Approve', exact: true }).click();
+    await dialog(page).getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog(page)).toHaveCount(0);
+    expect(posts).toHaveLength(0);
+    expect(stateOf(api, '0.2.0').state).toBe('draft');
+    await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+  });
+
+  test('refuses to retire the enabled version and explains what to do first (acceptance 4)', async ({ page, api }) => {
+    await open(page, versionPath('0.1.0'));
+    await page.getByRole('button', { name: 'Retire', exact: true }).click();
+    await expect(dialog(page)).toContainText('A retired version can no longer be enabled. Invocations that pinned it keep it.');
+    await dialog(page).getByRole('button', { name: 'Retire version' }).click();
+    await expect(alertOf(page, 'This version is enabled')).toBeVisible();
+    await expect(alertOf(page, 'Enable another version or disable the agent first, then retire this version.')).toBeVisible();
+    await expect(dialog(page).getByRole('button', { name: 'Retire version' })).toHaveCount(0);
+    await expectNoAxeViolations(page);
+    expect(stateOf(api, '0.1.0').state).toBe('approved');
+    await dialog(page).getByRole('button', { name: 'Close' }).click();
+    await expect(page.locator('dl').first().getByText('approved', { exact: true })).toBeVisible();
+  });
+
+  test('retires an approved version that is not enabled (acceptance 3; SC-006)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(draftVersion(), { state: 'approved' });
+    await open(page, versionPath('0.2.0'));
+    await page.getByRole('button', { name: 'Retire', exact: true }).click();
+    await dialog(page).getByRole('button', { name: 'Retire version' }).click();
+    await expect(dialog(page).getByRole('status')).toContainText('The version is retired. It can no longer be enabled.');
+    await dialog(page).getByRole('button', { name: 'Close' }).click();
+
+    expect(stateOf(api, '0.2.0').state).toBe('retired');
+    await expect(page.locator('dl').first().getByText('retired', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^Retired by /)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retire', exact: true })).toHaveCount(0);
+  });
+
+  test('explains the refusal to approve a version that is no longer a draft (acceptance 4)', async ({ page, api }) => {
+    const version = api.seedCatalogAgentVersion(draftVersion(), { state: 'draft' });
+    await open(page, versionPath('0.2.0'));
+    await page.getByRole('button', { name: 'Approve', exact: true }).click();
+    version.state = 'approved';
+    await dialog(page).getByRole('button', { name: 'Approve version' }).click();
+    await expect(alertOf(page, 'Only a draft agent version can be approved.')).toBeVisible();
+    await expect(dialog(page).getByRole('button', { name: 'Approve version' })).toHaveCount(0);
+  });
+
+  test('explains the refusal to retire a version that is not approved (acceptance 4)', async ({ page, api }) => {
+    const version = api.seedCatalogAgentVersion(draftVersion(), { state: 'approved' });
+    await open(page, versionPath('0.2.0'));
+    await page.getByRole('button', { name: 'Retire', exact: true }).click();
+    version.state = 'draft';
+    await dialog(page).getByRole('button', { name: 'Retire version' }).click();
+    await expect(alertOf(page, 'Only an approved agent version can be retired.')).toBeVisible();
+    await expect(alertOf(page, 'Current state: draft')).toBeVisible();
+  });
+
+  test('says that the version changed on a stale approval and sends it once (acceptance 5)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(draftVersion(), { state: 'draft' });
+    await open(page, versionPath('0.2.0'));
+    await page.getByRole('button', { name: 'Approve', exact: true }).click();
+    api.changeCatalogBehindTheScenes({ agentId: AGENT, version: '0.2.0' });
+    const posts = watchPosts(page, 'approval');
+    await dialog(page).getByRole('button', { name: 'Approve version' }).click();
+    await expect(alertOf(page, 'has changed since you loaded it')).toBeVisible();
+    await expect(alertOf(page, 'draft')).toBeVisible();
+    await expect(dialog(page).getByRole('button', { name: 'Approve version' })).toHaveCount(0);
+    await expectNoAxeViolations(page);
+    expect(posts).toHaveLength(1);
+    expect(stateOf(api, '0.2.0').state).toBe('draft');
+  });
+
+  test('says that the version changed on a stale retirement and sends it once (acceptance 5)', async ({ page, api }) => {
+    api.seedCatalogAgentVersion(draftVersion(), { state: 'approved' });
+    await open(page, versionPath('0.2.0'));
+    await page.getByRole('button', { name: 'Retire', exact: true }).click();
+    api.changeCatalogBehindTheScenes({ agentId: AGENT, version: '0.2.0' });
+    const posts = watchPosts(page, 'retirement');
+    await dialog(page).getByRole('button', { name: 'Retire version' }).click();
+    await expect(alertOf(page, 'has changed since you loaded it')).toBeVisible();
+    await expect(alertOf(page, 'Current state: approved')).toBeVisible();
+    expect(posts).toHaveLength(1);
+    expect(stateOf(api, '0.2.0').state).toBe('approved');
+  });
+});
