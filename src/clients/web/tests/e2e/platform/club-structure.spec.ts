@@ -12,19 +12,34 @@ const test = base.extend<{ secrets: string[] }>({
   },
 });
 
-const run = Date.now().toString(36);
-const seasonName = `E2E structure ${run}`;
-const firstTeam = `E2E first ${run}`;
-const secondTeam = `E2E second ${run}`;
-const renamedTeam = `E2E renamed ${run}`;
+// Evidence (FR-001, SC-003): the flaky cause was not reproduced. 20 repeats alone passed, and a 1.5 s delay on every
+// season and team list GET (candidates 1 to 3 of the spec's research) did not fail the unchanged test. The fixes below
+// are therefore supported candidates, not a reproduced cause: (a) names are derived per attempt, so a rerun or repeat
+// never meets the previous attempt's season and teams; (b) the club's active seasons are archived before the test, so a
+// season left active by an earlier project cannot block the activation; (c) the absence assertion for the old team name
+// runs only after the team list request that follows the rename was answered. Three probes (list not refreshed after
+// creation, season not activated, save not persisting the name) each failed the unchanged assertions without hanging.
+// Convergence runs: with one CPU-burning process per core (4), 5 repeats passed and 0 failed, run after the session and
+// navigation specs (`--no-deps` on a fresh platform fails every repeat in `beforeEach` with a 401 sign-in because the
+// initial password was not changed yet, a precondition failure and not a test result). The whole platform project
+// ran 5 times: 5 passed, 0 failed, and this test passed each time, without a retry.
+// Archives the club's active seasons through the API so the single active season is free for this test and the next
+// spec, even when a test fails.
+test.beforeEach(async () => {
+  await archiveActiveSeasons();
+});
 
-// Archives the club's active seasons through the API so the single active season is free for the next spec, even when
-// the test fails.
 test.afterEach(async () => {
   await archiveActiveSeasons();
 });
 
 test('creates and activates a season, creates two teams, and edits one (SC-002)', async ({ page }) => {
+  const run = `${Date.now().toString(36)}-${test.info().repeatEachIndex}`;
+  const seasonName = `E2E structure ${run}`;
+  const firstTeam = `E2E first ${run}`;
+  const secondTeam = `E2E second ${run}`;
+  const renamedTeam = `E2E renamed ${run}`;
+
   await page.goto('/');
   await expect(page).toHaveURL(/\/sign-in$/);
   await page.getByLabel('Sign-in name').fill(ADMIN_ACCOUNT);
@@ -71,8 +86,12 @@ test('creates and activates a season, creates two teams, and edits one (SC-002)'
   await expect(page.getByRole('heading', { level: 2, name: renamedTeam })).toBeVisible();
   await expect(page.getByLabel(/^Team name/)).toHaveValue(renamedTeam);
 
+  const isTeamList = (response: { url(): string; request(): { method(): string } }) =>
+    response.request().method() === 'GET' && /\/api\/v1\/seasons\/[^/]+\/teams(\?|$)/.test(response.url());
+  const refreshedList = page.waitForResponse(isTeamList);
   await page.getByRole('link', { name: 'Back to teams' }).click();
   await page.getByLabel('Season', { exact: true }).selectOption({ label: `${seasonName} (Active)` });
+  await refreshedList;
   await expect(page.getByRole('link', { name: renamedTeam })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('link', { name: firstTeam })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('link', { name: secondTeam })).toHaveCount(0);
