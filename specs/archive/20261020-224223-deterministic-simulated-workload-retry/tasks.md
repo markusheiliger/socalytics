@@ -5,7 +5,7 @@ description: "Task list for Deterministic Fail-Once Retry of the Simulated Agent
 
 # Tasks: Deterministic Fail-Once Retry of the Simulated Agent Workload
 
-**Input**: Design documents from `specs/20261020-224223-deterministic-simulated-workload-retry/`
+**Input**: Design documents from `specs/archive/20261020-224223-deterministic-simulated-workload-retry/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md)
 

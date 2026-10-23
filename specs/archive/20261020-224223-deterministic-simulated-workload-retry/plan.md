@@ -2,7 +2,7 @@
 
 **Branch**: `20261020-224223-deterministic-simulated-workload-retry` | **Date**: 2026-10-20 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261020-224223-deterministic-simulated-workload-retry/spec.md`
+**Input**: Feature specification from `/specs/archive/20261020-224223-deterministic-simulated-workload-retry/spec.md`
 
 ## Summary
 
@@ -54,7 +54,7 @@ Post-design re-check: Pass.
 ### Documentation (this feature)
 
 ```text
-specs/20261020-224223-deterministic-simulated-workload-retry/
+specs/archive/20261020-224223-deterministic-simulated-workload-retry/
 ├── plan.md
 ├── research.md
 ├── spec.md
