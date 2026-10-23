@@ -50,3 +50,13 @@ Repeated runs after the fix (the `startInterrupted` helper waits for observable 
 | `npx playwright test --project=simulated tests/e2e/simulated/recovery.spec.ts --workers=1 --repeat-each=30` | 180 passed (10.2m): all 30 runs of each of the 6 tests, no failures, no retries |
 
 Spec scenario 3 (no fault or activity of one serial test affects the next): all 180 runs passed in serial order with the unchanged `beforeEach` reset, so no request or fault of a previous test changed the next test's start state. This confirms the T002 note: Playwright closes a test's context, with its page and dedicated worker, before the next `beforeEach` runs, so the existing close order is sufficient between tests, and the race fixed by T005 was inside one test.
+
+## T007
+
+Repeated runs after the fix under CPU load (four busy-loop processes, one per core, started before the run and stopped afterward).
+
+| Command | Condition | Outcome |
+| --- | --- | --- |
+| `npx playwright test --project=simulated tests/e2e/simulated/recovery.spec.ts --workers=1 --repeat-each=10` | four busy-loop processes (one per core) for the duration | 60 passed (8.2m): all 10 runs of each of the 6 tests, no failures, no retries |
+
+The same load made 3 of 49 helper starts of the old helper record a part 3 request after the `reset` (T002); with the fixed helper no run failed (SC-001).
