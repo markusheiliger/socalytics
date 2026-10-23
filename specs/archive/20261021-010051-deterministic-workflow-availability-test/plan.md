@@ -2,7 +2,7 @@
 
 **Branch**: `20261021-010051-deterministic-workflow-availability-test` | **Date**: 2026-10-21 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261021-010051-deterministic-workflow-availability-test/spec.md`
+**Input**: Feature specification from `/specs/archive/20261021-010051-deterministic-workflow-availability-test/spec.md`
 
 ## Summary
 
@@ -53,7 +53,7 @@ Post-design re-check: Pass.
 ### Documentation (this feature)
 
 ```text
-specs/20261021-010051-deterministic-workflow-availability-test/
+specs/archive/20261021-010051-deterministic-workflow-availability-test/
 ├── plan.md
 ├── research.md
 ├── spec.md

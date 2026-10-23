@@ -5,7 +5,7 @@ description: "Task list for Deterministic Pending-Notification Recovery Test"
 
 # Tasks: Deterministic Pending-Notification Recovery Test
 
-**Input**: Design documents from `specs/20261021-010051-deterministic-workflow-availability-test/`
+**Input**: Design documents from `specs/archive/20261021-010051-deterministic-workflow-availability-test/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md)
 
