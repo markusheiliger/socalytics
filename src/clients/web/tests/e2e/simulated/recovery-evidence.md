@@ -126,3 +126,15 @@ Strength of the named test `refuses a different file and changes nothing (scenar
 | 2: the different file is not refused (the refusal transition is removed, so no refusal status appears) and a part is sent | same command | failed on its assertion `toContainText('not the file that was selected')` (`element(s) not found`, after the 5 s assertion timeout); it did not hang |
 
 Both probes were removed with `git checkout src/uploads/uploadCoordinator.ts`, the Web UI was rebuilt, and `git status --short` lists no file under `src/clients/web/src/` (FR-005).
+
+## T011
+
+Final change review against the base of the implementation branch (`01c17cb`, the merge base with `origin/main`).
+
+| Command | Outcome |
+| --- | --- |
+| `git diff --name-only 01c17cb HEAD` | outside this spec's own folder only `src/clients/web/tests/e2e/simulated/recovery-evidence.md`, `src/clients/web/tests/e2e/simulated/recovery.spec.ts`, `src/clients/web/tests/e2e/support/fakeObjectStorage.mjs`, and `src/clients/web/tests/unit/support/fakeObjectStorage.test.ts`; nothing under `specs/` except this spec's own folder (written by the spec authoring commits, not by an implementation task), no other spec folder, no production file |
+| `fakeObjectStorage.d.mts` | unchanged: it does not type the state shape (no match for `state` or `inFlight`) |
+| `grep -c waitForTimeout src/clients/web/tests/e2e/simulated/recovery.spec.ts` | 0 (the one `page.waitForTimeout(500)` was replaced) |
+| `grep -n "console.log"` in `recovery.spec.ts`, `fakeObjectStorage.mjs`, and `fakeObjectStorage.test.ts` | only the existing startup message of the fake object store (`Fake object storage listening on …`); no temporary logging, stress code, `TODO`, or `DEBUG` |
+| removed lines of `git diff 01c17cb HEAD` under `src/` | no assertion line removed (SC-004): only the `waitForTimeout(500)` and `page.reload()` steps of `startInterrupted`, the old `storageState` return type (extended with `inFlight`), the `state` response line (extended with `inFlight`), the `vitest` import (extended with `vi`), and a type cast of the unit test (extended) |
