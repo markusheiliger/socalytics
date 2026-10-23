@@ -115,7 +115,7 @@ and see the refusal; create a run, register a newer image with a changed schema,
 
 ### Tests for User Story 2
 
-- [ ] T014 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/FactPayloadImportTests.cs`:
+- [x] T014 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/FactPayloadImportTests.cs`:
   import shows the schemas unchanged in the registered image's declaration, each refusal of FR-002 (including more than 64
   kinds) returns its named reason and caches nothing, and a manifest without schemas imports as before
 - [ ] T015 [P] [US2] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/FactPayloadPinningTests.cs`:
