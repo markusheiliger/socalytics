@@ -79,10 +79,12 @@ class ResultWriter:
         output_type: str,
         root: Path = DEFAULT_ROOT,
         inputs: Any = (),
+        manifest: Any = None,
     ) -> None:
         if output_type not in _OUTPUT_TYPES:
             raise errors.ResultError(errors.RESULT_VALUE_INVALID, "the output type is not a supported output type.")
         self._inputs = tuple(inputs or ())
+        self._analyst_manifest = manifest
         self._job = job
         self._attempt = attempt
         self._output_type = output_type

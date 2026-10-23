@@ -198,7 +198,7 @@ named error is raised and no result is produced.
   `FactPayloadSchemaLimits`, giving the same named refusal code for each code-checked refusal)
 - [x] T026 [P] [US3] Add the error categories `fact-payload-invalid` and `fact-kind-undeclared` (exit code 1; messages
   name the kind and fact position, never payload values) to `src/analysts/sdk/src/socalytics_analyst/errors.py`
-- [ ] T027 [US3] Load the Analyst's own manifest from `SOCALYTICS_ANALYST_MANIFEST` (default
+- [x] T027 [US3] Load the Analyst's own manifest from `SOCALYTICS_ANALYST_MANIFEST` (default
   `/opt/socalytics/analyst-manifest.json`; no file means no schemas, an unreadable or invalid file is an input
   error) in `src/analysts/sdk/src/socalytics_analyst/context.py` and `entrypoint.py`, and pass it to the writer
 - [ ] T028 [US3] Validate in `ResultWriter.add_fact` in `src/analysts/sdk/src/socalytics_analyst/result.py` with

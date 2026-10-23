@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
@@ -14,11 +15,14 @@ from .inputs import load_inputs
 from .media import SegmentMedia, load_media
 from .models.attempt import AttemptContext
 from .models.job import LogicalJob
+from .models.manifest import AnalystManifest
 
 DEFAULT_ROOT = Path("/socalytics")
 JOB_FILE = "job.json"
 ATTEMPT_FILE = "attempt.json"
 SCRATCH_DIRECTORY = "scratch"
+MANIFEST_ENVIRONMENT_VARIABLE = "SOCALYTICS_ANALYST_MANIFEST"
+DEFAULT_MANIFEST_PATH = Path("/opt/socalytics/analyst-manifest.json")
 
 _Model = TypeVar("_Model", bound=BaseModel)
 
@@ -77,6 +81,33 @@ def load_attempt(root: Path = DEFAULT_ROOT) -> AttemptContext:
 def load_documents(root: Path = DEFAULT_ROOT) -> tuple[LogicalJob, AttemptContext]:
     """Load and verify the job and the attempt context from the mount `root`."""
     return load_job(root), load_attempt(root)
+
+
+def load_manifest(path: Path | None = None) -> AnalystManifest | None:
+    """Load the Analyst's own manifest; no file means no declared schemas, an unreadable or invalid one is an input error.
+
+    The location is `path`, else `SOCALYTICS_ANALYST_MANIFEST`, else `/opt/socalytics/analyst-manifest.json`.
+    """
+    if path is None:
+        configured = os.environ.get(MANIFEST_ENVIRONMENT_VARIABLE)
+        path = Path(configured) if configured else DEFAULT_MANIFEST_PATH
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise errors.InputError(errors.INPUT_INVALID, "the analyst manifest is unreadable.") from None
+    try:
+        document = json.loads(raw)
+    except (ValueError, RecursionError):
+        raise errors.InputError(errors.INPUT_INVALID, "the analyst manifest is not valid JSON.") from None
+    try:
+        return AnalystManifest.model_validate(document)
+    except ValidationError as exc:
+        locations = "; ".join(
+            f"{error['type']} at /" + "/".join(str(part) for part in error["loc"]) for error in exc.errors()[:10]
+        )
+        raise errors.InputError(errors.INPUT_INVALID, f"the analyst manifest violates its model: {locations}.") from None
 
 
 def scratch_path(root: Path = DEFAULT_ROOT) -> Path:
