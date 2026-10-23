@@ -52,6 +52,20 @@ proves the Analyst SDK, segment media staging, and fact indexing with a real
 container; it passes none of the gates below and never enters a production
 workflow.
 
+The Wave 0 metrics harness is decided as development tooling, not a catalog
+capability: a Python project `analyst-evaluation-harness` under
+`src/analysts/capabilities/` that is decided but not implemented yet. It
+stages each clip of a labelled corpus the way a Manager stages segment media,
+runs a capability through the Analyst SDK's container interface (a container run
+from a locally present image digest reference, never a pull, or a subprocess
+run of a local command), pairs the written facts with the labels one-to-one,
+and writes a versioned, content-addressed report with precision, recall, and F1
+per label kind and source profile (never one aggregate score), the verdict
+against a declared comparator (a built-in trivial rule or another capability),
+a repeat-run determinism check, and OCI, capability, SDK, and toolchain
+lineage. Every gate it cannot evidence is reported as not evidenced, it carries
+no production thresholds, and it never decides promotion.
+
 ## Container-Owned Preprocessing And Spatial Tiling
 
 Spatial frame tiling is model-specific preprocessing inside a detector AC. It
