@@ -60,7 +60,7 @@ FR-015, FR-017, SC-001 to SC-007).
 - [ ] T006 [P] Create `contracts/analysis/analyst-manifest/v1/examples/fact-payloads.json` with cases
   `{ manifest, kind, payload, valid, at }` over the valid examples of T003, covering a missing required property, a
   wrong type, a forbidden extra property, an enum, a numeric bound, an array bound, and a `$ref` case
-- [ ] T007 [P] Add the Domain rules in `src/platform/SocAlytics.Platform.Domain/Registry/FactPayloadSchemaLimits.cs`:
+- [x] T007 [P] Add the Domain rules in `src/platform/SocAlytics.Platform.Domain/Registry/FactPayloadSchemaLimits.cs`:
   at most 64 kinds, 16 KiB per schema, depth 8, 256 schema nodes, root `type` `object`, the closed keyword set, `$ref`
   of the form `#/$defs/<name>` that resolves and is acyclic, and the canonical-JSON `sha-256:<hex>` digest of the
   schema map; add `FactPayloadSchemas` (`IReadOnlyDictionary<string, JsonElement>`, empty by default) to
