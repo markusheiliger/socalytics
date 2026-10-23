@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.example/schemas/analyst-evaluation-harness/evaluation-report/1.0.0",
+  "title": "Evaluation report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reportVersion", "identity", "corpus", "subject", "comparator", "configuration", "lineage", "clips", "profiles", "determinism", "gates", "run"],
+  "properties": {
+    "reportVersion": { "const": "1.0.0" },
+    "identity": { "$ref": "#/$defs/digest" },
+    "corpus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["corpusId", "corpusVersion", "identity", "clipCounts"],
+      "properties": {
+        "corpusId": { "type": "string" },
+        "corpusVersion": { "type": "string" },
+        "identity": { "$ref": "#/$defs/digest" },
+        "clipCounts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+      }
+    },
+    "subject": { "$ref": "#/$defs/subject" },
+    "comparator": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "not-declared" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "rule"], "properties": { "kind": { "const": "builtin" }, "rule": { "enum": ["predict-nothing", "predict-everything"] } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "subject"], "properties": { "kind": { "const": "capability" }, "subject": { "$ref": "#/$defs/subject" } } }
+      ]
+    },
+    "configuration": { "type": "object" },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sdkVersion", "harnessVersion", "ffmpeg", "ffprobe", "python"],
+      "properties": {
+        "sdkVersion": { "type": "string" },
+        "harnessVersion": { "type": "string" },
+        "ffmpeg": { "type": "string" },
+        "ffprobe": { "type": "string" },
+        "python": { "type": "string" }
+      }
+    },
+    "clips": { "type": "array", "items": { "$ref": "#/$defs/clipResult" } },
+    "profiles": {
+      "type": "object",
+      "propertyNames": { "enum": ["fixed", "broadcast"] },
+      "additionalProperties": { "$ref": "#/$defs/profileResult" }
+    },
+    "determinism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "repetitions", "differences"],
+      "properties": {
+        "status": { "$ref": "#/$defs/gateStatus" },
+        "repetitions": { "type": "integer", "minimum": 1 },
+        "differences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["clipId", "run"],
+            "properties": {
+              "clipId": { "type": "string" },
+              "run": { "type": "integer", "minimum": 2 },
+              "category": { "type": "string" },
+              "factIndex": { "type": "integer", "minimum": 0 },
+              "field": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/gateStatus" },
+      "required": ["determinism", "lineage", "profileCoverage"]
+    },
+    "thresholdVerdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "labelKind", "profile", "metric", "minimum", "value", "met"],
+        "properties": {
+          "scope": { "const": "evaluation-local" },
+          "labelKind": { "type": "string" },
+          "profile": { "enum": ["fixed", "broadcast"] },
+          "metric": { "enum": ["precision", "recall", "f1"] },
+          "minimum": { "type": "number" },
+          "value": { "type": ["number", "null"] },
+          "met": { "enum": [true, false, null] }
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startedAt", "finishedAt", "durationSeconds"],
+      "properties": {
+        "startedAt": { "type": "string", "format": "date-time" },
+        "finishedAt": { "type": "string", "format": "date-time" },
+        "durationSeconds": { "type": "number", "minimum": 0 },
+        "host": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha-256:[0-9a-f]{64}$" },
+    "gateStatus": { "enum": ["passed", "failed", "not-evidenced"] },
+    "verdict": { "enum": ["beat", "did-not-beat", "not-evidenced"] },
+    "ratio": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilityId", "capabilityVersion", "mode", "reference", "imageDigest", "imageDigestStatus", "outputType"],
+      "properties": {
+        "capabilityId": { "type": "string" },
+        "capabilityVersion": { "type": "string" },
+        "mode": { "enum": ["container", "subprocess"] },
+        "reference": { "type": "string" },
+        "imageDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+        "imageDigestStatus": { "enum": ["evaluated as an image", "not evaluated as an image"] },
+        "outputType": { "enum": ["foundational-facts", "soccer-concepts"] }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["succeeded", "failed", "not-run"] },
+        "failureCategory": { "type": "string" },
+        "factCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "pairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["labelKind", "pairs", "missedLabels", "falsePositives", "unlabelled"],
+      "properties": {
+        "labelKind": { "type": "string" },
+        "pairs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["labelIndex", "factIndex", "distanceMs"],
+            "properties": {
+              "labelIndex": { "type": "integer", "minimum": 0 },
+              "factIndex": { "type": "integer", "minimum": 0 },
+              "distanceMs": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "missedLabels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["labelIndex", "reason"],
+            "properties": {
+              "labelIndex": { "type": "integer", "minimum": 0 },
+              "reason": { "enum": ["no-fact", "payload-mismatch", "clip-failed"] }
+            }
+          }
+        },
+        "falsePositives": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+        "unlabelled": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+      }
+    },
+    "clipResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clipId", "profile", "subject", "comparator"],
+      "properties": {
+        "clipId": { "type": "string" },
+        "profile": { "enum": ["fixed", "broadcast"] },
+        "subject": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["execution", "pairings"],
+          "properties": {
+            "execution": { "$ref": "#/$defs/execution" },
+            "pairings": { "type": "array", "items": { "$ref": "#/$defs/pairing" } }
+          }
+        },
+        "comparator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["execution", "pairings"],
+          "properties": {
+            "execution": { "$ref": "#/$defs/execution" },
+            "pairings": { "type": "array", "items": { "$ref": "#/$defs/pairing" } }
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["truePositives", "falsePositives", "falseNegatives", "precision", "recall", "f1"],
+      "properties": {
+        "truePositives": { "type": "integer", "minimum": 0 },
+        "falsePositives": { "type": "integer", "minimum": 0 },
+        "falseNegatives": { "type": "integer", "minimum": 0 },
+        "precision": { "$ref": "#/$defs/ratio" },
+        "recall": { "$ref": "#/$defs/ratio" },
+        "f1": { "$ref": "#/$defs/ratio" },
+        "precisionUndefined": { "type": "string" },
+        "recallUndefined": { "type": "string" },
+        "f1Undefined": { "type": "string" }
+      }
+    },
+    "profileResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "subject", "comparisonGate", "verdict", "labelKindVerdicts"],
+      "properties": {
+        "status": { "enum": ["evidenced", "not-evidenced"] },
+        "subject": { "type": "object", "additionalProperties": { "$ref": "#/$defs/metrics" } },
+        "comparator": { "type": "object", "additionalProperties": { "$ref": "#/$defs/metrics" } },
+        "comparisonGate": { "$ref": "#/$defs/gateStatus" },
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "labelKindVerdicts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["verdict", "primaryMetric"],
+            "properties": {
+              "verdict": { "$ref": "#/$defs/verdict" },
+              "primaryMetric": { "enum": ["precision", "recall", "f1"] },
+              "subjectValue": { "type": ["number", "null"] },
+              "comparatorValue": { "type": ["number", "null"] },
+              "margin": { "type": ["number", "null"] },
+              "reason": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
