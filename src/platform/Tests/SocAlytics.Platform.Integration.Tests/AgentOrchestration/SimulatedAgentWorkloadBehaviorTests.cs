@@ -91,9 +91,40 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 		run.CancelAfter(limit + TimeSpan.FromSeconds(10));
 		using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
 		wait.CancelAfter(limit);
+		var stalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		runner.AttemptStalled += _ => stalled.TrySetResult();
 		var worker = runner.RunAsync(run.Token);
 
-		var expired = false;
+		// Cause (research.md candidates 1 and 3, established from the code and not reproduced as a failure): the claim commits the active
+		// attempt row before the runner has read the claim response, so a blind 3 s clock jump after "one attempt row" can land before the
+		// stall is in effect (candidate 1) or before the first lease is established or past the second attempt's lease (candidate 3).
+		// Probe runs with the old blind step restored: 0 of 10 failed with a 1.5 s pause between the claim response and the stall branch
+		// of the runner, and 0 of 10 failed without it, so the failure rate is below what 10 runs can show and the cause stays a code-level
+		// race. Candidates 2, 4, and 5 are excluded only by absence: none of the 20 probe runs showed a rejected DPoP proof, an out-of-order
+		// or duplicate claim, or any other failure, so no log pointed at them. The cause lives in this helper; a runner-side stall event
+		// is required (a), because the active row exists before the runner stalls; the platform is not defective (b), so it is unchanged.
+		// The stall is therefore observed on the runner, and the clock moves once, just past the first attempt's recorded lease expiry.
+		if (expireFirstAttempt)
+		{
+			try
+			{
+				await stalled.Task.WaitAsync(wait.Token);
+				var leaseExpiresAt = DateTimeOffset.FromUnixTimeMilliseconds(await f.ScalarAsync(
+					$"SELECT (extract(epoch FROM lease_expires_at) * 1000)::bigint FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}' AND attempt_number = 1", ct));
+				f.Factory.Time.Advance(leaseExpiresAt - f.Factory.Time.GetUtcNow() + TimeSpan.FromMilliseconds(100));
+				var expiredSql = $"SELECT count(*) FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}' AND state = 'expired' AND end_reason = 'lease-expired'";
+				while (await f.ScalarAsync(expiredSql, ct) == 0)
+				{
+					await Task.Delay(50, wait.Token);
+				}
+
+				(await f.ScalarAsync(expiredSql, ct)).ShouldBe(1);
+			}
+			catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+			{
+			}
+		}
+
 		JsonElement? ended = null;
 		JsonElement? lastRead = null;
 		while (ended is null && !wait.IsCancellationRequested)
@@ -105,13 +136,6 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 			{
 				ended = body;
 				break;
-			}
-
-			if (expireFirstAttempt && !expired
-				&& await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}'", ct) == 1)
-			{
-				f.Factory.Time.Advance(TimeSpan.FromSeconds(3));
-				expired = true;
 			}
 
 			try

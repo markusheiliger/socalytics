@@ -6,7 +6,7 @@
 
 ## Summary
 
-The Dependencies bullet (line 80) of `specs/20261023-150804-deterministic-stall-expiry-test/spec.md` links the workload retry spec at its pre-archive location. The spec now lives in `specs/archive/20261020-224223-deterministic-simulated-workload-retry/`, so `node .github/scripts/check-markdown.mjs` reports one dead link and fails whole-repository verification of every implementation. The approach is the archive tooling's reference rewrite, which changes the link target to `../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md` (the required fix) and, as accepted side effects, two plain-text mentions of the spec path, verified by the Markdown check. See [research.md](research.md) for the decisions.
+The Dependencies bullet (line 80) of `specs/archive/20261023-150804-deterministic-stall-expiry-test/spec.md` links the workload retry spec at its pre-archive location. The spec now lives in `specs/archive/20261020-224223-deterministic-simulated-workload-retry/`, so `node .github/scripts/check-markdown.mjs` reports one dead link and fails whole-repository verification of every implementation. The approach is the archive tooling's reference rewrite, which changes the link target to `../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md` (the required fix) and, as accepted side effects, two plain-text mentions of the spec path, verified by the Markdown check. See [research.md](research.md) for the decisions.
 
 ## Technical Context
 
@@ -62,7 +62,7 @@ No `contracts/` folder: the feature exposes no interface.
 ### Source Code (repository root)
 
 ```text
-specs/20261023-150804-deterministic-stall-expiry-test/
+specs/archive/20261023-150804-deterministic-stall-expiry-test/
 ├── spec.md              # line 80: link target; line 19: plain-text mention
 └── tasks.md             # line 102: plain-text mention
 ```

@@ -50,6 +50,9 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 		_key.ImportPkcs8PrivateKey(Convert.FromBase64String(options.PrivateKey), out _);
 	}
 
+	/// <summary>Raised once the runner has read the claim of a first attempt it stalls on purpose; the argument is the attempt id.</summary>
+	public event Action<Guid>? AttemptStalled;
+
 	/// <summary>Processes notifications until cancelled; transient failures are logged and retried after a delay.</summary>
 	public async Task RunAsync(CancellationToken cancellationToken)
 	{
@@ -145,6 +148,7 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 		if (behavior == Behavior.Stall && attemptNumber == 1)
 		{
 			// The first attempt neither renews nor ends; the platform's monitor expires it and the next attempt succeeds.
+			AttemptStalled?.Invoke(attemptId);
 			return true;
 		}
 
