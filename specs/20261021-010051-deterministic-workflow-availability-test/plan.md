@@ -58,7 +58,6 @@ specs/20261021-010051-deterministic-workflow-availability-test/
 ├── research.md
 ├── spec.md
 ├── tasks.md
-├── verification.md   # created by T002
 └── checklists/
     └── requirements.md
 ```
