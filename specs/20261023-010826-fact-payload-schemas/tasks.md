@@ -176,7 +176,7 @@ the first is accepted and readable, the second ends failed with the named reason
 - [x] T023 [P] [US1] Add
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/FactPayloadTelemetryTests.cs`: metrics and
   audit records carry the payload reason codes and never a payload value (FR-018)
-- [ ] T024 [P] [US1] Add
+- [x] T024 [P] [US1] Add
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/FactPayloadPerformanceTests.cs`: a
   maximum-fact-count result adds at most 10% to acceptance time compared with the same result without schemas (SC-006), measured as the median of repeated runs after a warm-up with a
   generous documented tolerance for CI; reaching the FR-011 bound with its named reason
