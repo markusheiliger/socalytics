@@ -73,7 +73,7 @@ FR-015, FR-017, SC-001 to SC-007).
   byte-identical, every earlier valid manifest stays valid, and the new valid and invalid examples give their expected
   verdicts and error pointers for the schema-expressible refusals, and each code-checked invalid example is run through
   `FactPayloadSchemaLimits` (T007) and gives its named Domain refusal code (FR-001, FR-002, FR-012, SC-003)
-- [ ] T009 Add `src/platform/Tests/SocAlytics.Platform.Contracts.Tests/FactPayloadCaseTests.cs` that validates every
+- [x] T009 Add `src/platform/Tests/SocAlytics.Platform.Contracts.Tests/FactPayloadCaseTests.cs` that validates every
   case of `examples/fact-payloads.json` with the platform schema engine (formats not asserted) and the Domain subset
   checks of T007, and runs `FactPayloadSchemaLimits` on each code-checked invalid example of T004 to assert its
   named refusal (FR-015, SC-004)
