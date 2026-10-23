@@ -99,5 +99,5 @@ User Story 1 is the whole feature: T001 to T008 deliver it; T009 and T010 close 
 ## Notes
 
 - Never add retries, fixed sleeps, longer limits, skips, or loosened assertions; a bounded wait on an observable condition is the only allowed waiting.
-- Do not repeat the change of #209 (`specs/20261020-224223-deterministic-simulated-workload-retry`) or `specs/archive/20261019-221242-harden-integration-test-timing`.
+- Do not repeat the change of #209 (`specs/archive/20261020-224223-deterministic-simulated-workload-retry`) or `specs/archive/20261019-221242-harden-integration-test-timing`.
 - Passing runs are development evidence only, not deployment support or production readiness.
