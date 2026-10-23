@@ -46,7 +46,7 @@ FR-015, FR-017, SC-001 to SC-007).
 - [ ] T003 [P] Create valid manifest examples `segment-with-payload-schemas.json` and `match-with-payload-schemas.json`
   in `contracts/analysis/analyst-manifest/v1/examples/valid/` (manifest `1.2.0`, one schema per emitted kind, one
   using `$defs`/`$ref`)
-- [ ] T004 [P] Create invalid manifest examples in `contracts/analysis/analyst-manifest/v1/examples/invalid/`:
+- [x] T004 [P] Create invalid manifest examples in `contracts/analysis/analyst-manifest/v1/examples/invalid/`:
   `payload-schema-unknown-keyword.json`, `payload-schema-external-ref.json`, `payload-schema-cyclic-ref.json`,
   `payload-schema-too-deep.json`, `payload-schema-too-large.json`, `payload-schema-root-not-object.json`,
   `payload-schemas-too-many-kinds.json` (65 kinds), and `payload-schemas-on-old-version.json`
