@@ -60,8 +60,12 @@ public class QueueCredentialProviderTests : IDisposable
         Requests.ShouldBe(1);
         _provider.Current!.ExpiresAt.ShouldBe(_time.GetUtcNow() + Lifetime);
         var body = JsonNode.Parse(_platform.Requests.Single(r => r.Uri.AbsolutePath.EndsWith("/queue-credentials", StringComparison.Ordinal)).Body)!;
-        ((string)body["userPublicKey"]!).ShouldStartWith("U");
-        body.ToJsonString().ShouldNotContain("SU");
+        var publicKey = (string)body["userPublicKey"]!;
+        publicKey.Length.ShouldBe(56);
+        publicKey.ShouldStartWith("U");
+        publicKey.ShouldMatch("^[A-Z2-7]+$");
+        body.AsObject().Select(p => p.Key).OrderBy(k => k, StringComparer.Ordinal)
+            .ShouldBe(["capabilities", "userPublicKey"]);
 
         _time.Advance(TimeSpan.FromMinutes(19));
         (await StepAsync()).ShouldBe(TimeSpan.FromMinutes(1));

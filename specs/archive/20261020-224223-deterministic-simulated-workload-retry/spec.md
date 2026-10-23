@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Fix for**: #201 (implementation of `specs/20261020-072206-deterministic-manager-tests`, twin #200)
+**Fix for**: #201 (implementation of `specs/archive/20261020-072206-deterministic-manager-tests`, twin #200)
 
-**Input**: User description: "`SimulatedAgentWorkloadBehaviorTests.FailOnceSucceedsOnTheSecondAttempt` in SocAlytics.Platform.Integration.Tests/AgentOrchestration failed and then passed on its one rerun in the verifications of three implementation pull requests (#151, #186, #201), so it is flaky. Find and remove the cause of the flakiness (timing, ordering, shared state, external dependencies) in the test or in the code it covers, without weakening, skipping, or deleting the test or its assertions, and without adding retries or longer timeouts as the fix. The Analyst Manager tests spec (`specs/20261020-072206-deterministic-manager-tests`) depends on this spec."
+**Input**: User description: "`SimulatedAgentWorkloadBehaviorTests.FailOnceSucceedsOnTheSecondAttempt` in SocAlytics.Platform.Integration.Tests/AgentOrchestration failed and then passed on its one rerun in the verifications of three implementation pull requests (#151, #186, #201), so it is flaky. Find and remove the cause of the flakiness (timing, ordering, shared state, external dependencies) in the test or in the code it covers, without weakening, skipping, or deleting the test or its assertions, and without adding retries or longer timeouts as the fix. The Analyst Manager tests spec (`specs/archive/20261020-072206-deterministic-manager-tests`) depends on this spec."
 
 ## Clarifications
 
@@ -78,6 +78,6 @@ A maintainer running the Integration suite, or the verification of any implement
 ## Assumptions
 
 - **Cause**: The test belongs to Agent Orchestration direct invocations (merged spec [Agent Orchestration Invocations](../20261017-204332-agent-orchestration-invocations/spec.md)); it races real time between the test, the in-process runner, and the platform's outbox and queue. The concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Analyst Manager Deterministic Tests](../../20261020-072206-deterministic-manager-tests/spec.md) (implementation #201) depends on this spec. Related merged specs, which cover other tests and must not be repeated: [Bounded Wait for the Simulated Agent Workload Advice Test](../20261020-144627-deterministic-integration-races/spec.md) and [Fix Upload Expiry Test](../20261014-114032-fix-upload-expiry-test/spec.md).
+- **Dependencies**: [Analyst Manager Deterministic Tests](../20261020-072206-deterministic-manager-tests/spec.md) (implementation #201) depends on this spec. Related merged specs, which cover other tests and must not be repeated: [Bounded Wait for the Simulated Agent Workload Advice Test](../20261020-144627-deterministic-integration-races/spec.md) and [Fix Upload Expiry Test](../20261014-114032-fix-upload-expiry-test/spec.md).
 - **Out of scope**: Other flaky tests, simulated behaviors unrelated to the fail-once retry, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

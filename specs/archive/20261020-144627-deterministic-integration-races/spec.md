@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Fix for**: #201 (implementation of `specs/20261020-072206-deterministic-manager-tests`, twin #200)
+**Fix for**: #201 (implementation of `specs/archive/20261020-072206-deterministic-manager-tests`, twin #200)
 
 **Input**: User description: "SimulatedAgentWorkloadTests.RunnerClaimsAndCompletesASubmittedInvocationSoTheOwnerReadsSimulatedAdvice in SocAlytics.Platform.Integration.Tests/AgentOrchestration fails intermittently on loaded runners (advice null): it gives the simulated runner and the polling loop 30 seconds of real time and then asserts the advice. Make it wait for the awaited condition with a generous bounded limit without weakening any assertion. The prerequisite of the Analyst Manager tests spec is that the platform Integration suite passes in the merge verification."
 
@@ -57,6 +57,6 @@ A maintainer running the Integration suite, or the verification of any implement
 ## Assumptions
 
 - **Cause**: The test belongs to Agent Orchestration direct invocations and races real time; the diagnosis of #201 (round 3) reported `advice null` at the test's line 105.
-- **Dependencies**: [Analyst Manager Deterministic Tests](../../20261020-072206-deterministic-manager-tests/spec.md) (implementation #201) depends on this spec, together with the two specs named above, which cover the other two tests that failed in its verification.
+- **Dependencies**: [Analyst Manager Deterministic Tests](../20261020-072206-deterministic-manager-tests/spec.md) (implementation #201) depends on this spec, together with the two specs named above, which cover the other two tests that failed in its verification.
 - **Out of scope**: Production code and defaults, the other two failing tests, other flaky tests, and skipping or retrying whole tests.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.
