@@ -71,7 +71,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 - **SC-001**: The stall test passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of its class under CPU load.
 - **SC-002**: A probe that never expires the first attempt, and a probe that makes the second attempt fail, each make the test fail within the existing limits; the probes are removed afterward.
-- **SC-003**: The pull request names the evidenced cause and changes only the files that cause lives in plus this spec folder; no assertion is textually removed.
+- **SC-003**: The pull request names the evidenced cause and changes only the files the evidenced cause lives in, a focused test for a platform fix (T005), a docs/architecture correction only if a statement became false (T009), and this spec folder; no assertion is textually removed.
 - **SC-004** (post-merge evidence, observed when #184 retries and not verified by a task of this spec): the verification of #184 reports no flaky `SimulatedAgentWorkloadBehaviorTests` test.
 
 ## Assumptions
