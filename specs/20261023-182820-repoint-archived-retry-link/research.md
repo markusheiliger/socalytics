@@ -4,7 +4,7 @@ No `NEEDS CLARIFICATION` remains in the Technical Context. The decisions below r
 
 ## Decision 1: Repoint the link to the archive location
 
-- **Decision**: Change the link target on line 80 of `specs/20261023-150804-deterministic-stall-expiry-test/spec.md` from `../20261020-224223-deterministic-simulated-workload-retry/spec.md` to `../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md`.
+- **Decision**: Change the link target on line 80 of `specs/archive/20261023-150804-deterministic-stall-expiry-test/spec.md` from `../20261020-224223-deterministic-simulated-workload-retry/spec.md` to `../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md`.
 - **Rationale**: The archived spec exists at that path, and the sibling link on the same line to the archived `harden-integration-test-timing` spec already uses the `../archive/` form. The change keeps the link text and the meaning of the bullet.
 - **Alternatives considered**: Removing the link (loses the reference); replacing it with plain text (loses navigation); running `/speckit-gha-archive` for the stall expiry spec (it rewrites other specs and archives a spec that is not implemented here, which exceeds the scope).
 

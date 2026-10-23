@@ -2,7 +2,7 @@
 
 **Branch**: `20261023-150804-deterministic-stall-expiry-test` | **Date**: 2026-10-23 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261023-150804-deterministic-stall-expiry-test/spec.md`
+**Input**: Feature specification from `/specs/archive/20261023-150804-deterministic-stall-expiry-test/spec.md`
 
 ## Summary
 
@@ -54,7 +54,7 @@ Post-design re-check: Pass.
 ### Documentation (this feature)
 
 ```text
-specs/20261023-150804-deterministic-stall-expiry-test/
+specs/archive/20261023-150804-deterministic-stall-expiry-test/
 ├── plan.md
 ├── research.md
 ├── data-model.md
@@ -78,4 +78,4 @@ src/platform/Tests/
 
 ## Architecture Updates
 
-None. The fix removes a race in test code or the Development and Test simulated workload and changes no architecture narrative, design decision, or status statement in `docs/architecture/`; if the evidence puts the cause in platform code, the fix keeps the documented Agent Orchestration claim, lease, expiry, and retry semantics (see [Intelligence and Agents](../../docs/architecture/intelligence-and-agents.md)) and the implementation re-checks this section.
+None. The fix removes a race in test code or the Development and Test simulated workload and changes no architecture narrative, design decision, or status statement in `docs/architecture/`; if the evidence puts the cause in platform code, the fix keeps the documented Agent Orchestration claim, lease, expiry, and retry semantics (see [Intelligence and Agents](../../../docs/architecture/intelligence-and-agents.md)) and the implementation re-checks this section.

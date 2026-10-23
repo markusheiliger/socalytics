@@ -5,7 +5,7 @@ description: "Task list for Deterministic Stall Expiry of the Simulated Agent Wo
 
 # Tasks: Deterministic Stall Expiry of the Simulated Agent Workload
 
-**Input**: Design documents from `/specs/20261023-150804-deterministic-stall-expiry-test/`
+**Input**: Design documents from `/specs/archive/20261023-150804-deterministic-stall-expiry-test/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, quickstart.md (no `contracts/`: the feature adds no external interface)
 
@@ -23,7 +23,7 @@ description: "Task list for Deterministic Stall Expiry of the Simulated Agent Wo
 
 - Test: `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadBehaviorTests.cs` (helper `RunToEndAsync`, test `StallExpiresTheFirstAttemptAndSucceedsOnTheSecond`)
 - Runner: `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs`
-- Spec folder: `specs/20261023-150804-deterministic-stall-expiry-test/` (read-only for the implementation task)
+- Spec folder: `specs/archive/20261023-150804-deterministic-stall-expiry-test/` (read-only for the implementation task)
 
 ## Phase 1: User Story 1 - The stall test fails only when behavior is wrong (Priority: P1) 🎯 MVP
 

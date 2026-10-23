@@ -6,11 +6,11 @@
 
 **Status**: Draft
 
-**Input**: User description: "Repoint the archived workload retry link in the stall expiry spec. The Dependencies bullet on line 80 of `specs/20261023-150804-deterministic-stall-expiry-test/spec.md` links `../20261020-224223-deterministic-simulated-workload-retry/spec.md`, but that spec was archived to `specs/archive/20261020-224223-deterministic-simulated-workload-retry/`, so the repository Markdown check reports one dead link and fails the phase, finalize, and merge verification of every implementation."
+**Input**: User description: "Repoint the archived workload retry link in the stall expiry spec. The Dependencies bullet on line 80 of `specs/archive/20261023-150804-deterministic-stall-expiry-test/spec.md` links `../20261020-224223-deterministic-simulated-workload-retry/spec.md`, but that spec was archived to `specs/archive/20261020-224223-deterministic-simulated-workload-retry/`, so the repository Markdown check reports one dead link and fails the phase, finalize, and merge verification of every implementation."
 
 ## Problem
 
-The spec [Deterministic Stall Expiry of the Simulated Agent Workload](../20261023-150804-deterministic-stall-expiry-test/spec.md) (merged by #263) was merged with a relative link in its Dependencies bullet (line 80) to the spec `20261020-224223-deterministic-simulated-workload-retry` at its pre-archive location. That spec has since been archived to [specs/archive/20261020-224223-deterministic-simulated-workload-retry](../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md), so the link no longer resolves.
+The spec [Deterministic Stall Expiry of the Simulated Agent Workload](../archive/20261023-150804-deterministic-stall-expiry-test/spec.md) (merged by #263) was merged with a relative link in its Dependencies bullet (line 80) to the spec `20261020-224223-deterministic-simulated-workload-retry` at its pre-archive location. That spec has since been archived to [specs/archive/20261020-224223-deterministic-simulated-workload-retry](../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md), so the link no longer resolves.
 
 The repository Markdown validation (`node .github/scripts/check-markdown.mjs`) therefore reports exactly one dead link on the whole repository. Because phase, finalize, and merge verification of every implementation run that validation on the whole repository, every implementation currently fails verification for a reason unrelated to its own change. This blocks, among others, the implementation of the sibling spec `specs/20261023-031208-deterministic-upload-recovery-test` (pull request #248), whose Phase 4 verification only passes once the link is repointed.
 
@@ -43,7 +43,7 @@ A maintainer or the implementation automation runs the repository Markdown valid
 
 ### Functional Requirements
 
-- **FR-001**: The Dependencies bullet (line 80) of `specs/20261023-150804-deterministic-stall-expiry-test/spec.md` MUST link the workload retry spec at `../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md` instead of `../20261020-224223-deterministic-simulated-workload-retry/spec.md`.
+- **FR-001**: The Dependencies bullet (line 80) of `specs/archive/20261023-150804-deterministic-stall-expiry-test/spec.md` MUST link the workload retry spec at `../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md` instead of `../20261020-224223-deterministic-simulated-workload-retry/spec.md`.
 - **FR-002**: The change MUST be the output of the archive rewrite: the link target on line 80 (the required fix) and the plain-text mentions of `specs/archive/20261020-224223-deterministic-simulated-workload-retry` on line 19 of the stall expiry `spec.md` and line 102 of its `tasks.md`, which point to `specs/archive/20261020-224223-deterministic-simulated-workload-retry` afterwards (accepted side effects). The link text, the rest of line 80, and every other line of the stall expiry spec folder MUST stay unchanged.
 - **FR-003**: The change MUST touch only Markdown of the stall expiry spec folder (`spec.md` and `tasks.md`); no code, test, environment action, or `docs/architecture/` file may change.
 - **FR-004**: After the change, the repository Markdown validation MUST report no dead link on the whole repository.
@@ -53,7 +53,7 @@ A maintainer or the implementation automation runs the repository Markdown valid
 ### Measurable Outcomes
 
 - **SC-001**: `node .github/scripts/check-markdown.mjs` reports zero dead links and zero other findings on the whole repository.
-- **SC-002**: Measured against the base branch and scoped to the stall expiry spec folder (`git diff -U0 <base>... -- specs/20261023-150804-deterministic-stall-expiry-test/`, excluding this spec's own folder), the difference is exactly three changed lines in two files: line 80 and line 19 of `spec.md` and line 102 of `tasks.md`, and in each only the `specs/<folder>` path of the retry spec differs (adding `archive/`).
+- **SC-002**: Measured against the base branch and scoped to the stall expiry spec folder (`git diff -U0 <base>... -- specs/archive/20261023-150804-deterministic-stall-expiry-test/`, excluding this spec's own folder), the difference is exactly three changed lines in two files: line 80 and line 19 of `spec.md` and line 102 of `tasks.md`, and in each only the `specs/<folder>` path of the retry spec differs (adding `archive/`).
 - **SC-003**: Phase 4 verification of the implementation of `specs/20261023-031208-deterministic-upload-recovery-test` (pull request #248) no longer fails on the Markdown validation after this spec is merged.
 
 ## Assumptions

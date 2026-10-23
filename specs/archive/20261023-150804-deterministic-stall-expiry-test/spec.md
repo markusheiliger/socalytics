@@ -76,7 +76,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 ## Assumptions
 
-- **Cause**: The test belongs to Agent Orchestration direct invocations (merged spec [Agent Orchestration Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md)); it races the shared fake clock between the test, the in-process runner, and the platform's lease monitor. The concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Member Invitations](../20261017-202624-member-invitations/spec.md) depends on this spec. Related specs that must not be repeated: [Deterministic Fail-Once Retry of the Simulated Agent Workload](../archive/20261020-224223-deterministic-simulated-workload-retry/spec.md) and [Harden Integration Test Timing](../archive/20261019-221242-harden-integration-test-timing/spec.md).
+- **Cause**: The test belongs to Agent Orchestration direct invocations (merged spec [Agent Orchestration Invocations](../20261017-204332-agent-orchestration-invocations/spec.md)); it races the shared fake clock between the test, the in-process runner, and the platform's lease monitor. The concrete cause is established during implementation (FR-001).
+- **Dependencies**: [Member Invitations](../../20261017-202624-member-invitations/spec.md) depends on this spec. Related specs that must not be repeated: [Deterministic Fail-Once Retry of the Simulated Agent Workload](../20261020-224223-deterministic-simulated-workload-retry/spec.md) and [Harden Integration Test Timing](../20261019-221242-harden-integration-test-timing/spec.md).
 - **Out of scope**: Other flaky tests, simulated behaviors unrelated to the stall, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.
