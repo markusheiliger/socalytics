@@ -138,3 +138,13 @@ Final change review against the base of the implementation branch (`01c17cb`, th
 | `grep -c waitForTimeout src/clients/web/tests/e2e/simulated/recovery.spec.ts` | 0 (the one `page.waitForTimeout(500)` was replaced) |
 | `grep -n "console.log"` in `recovery.spec.ts`, `fakeObjectStorage.mjs`, and `fakeObjectStorage.test.ts` | only the existing startup message of the fake object store (`Fake object storage listening on …`); no temporary logging, stress code, `TODO`, or `DEBUG` |
 | removed lines of `git diff 01c17cb HEAD` under `src/` | no assertion line removed (SC-004): only the `waitForTimeout(500)` and `page.reload()` steps of `startInterrupted`, the old `storageState` return type (extended with `inFlight`), the `state` response line (extended with `inFlight`), the `vitest` import (extended with `vi`), and a type cast of the unit test (extended) |
+
+## T012
+
+Markdown validation and architecture check.
+
+| Command | Outcome |
+| --- | --- |
+| `node .github/scripts/check-markdown.mjs --files src/clients/web/tests/e2e/simulated/recovery-evidence.md specs/20261023-031208-deterministic-upload-recovery-test/research.md specs/20261023-031208-deterministic-upload-recovery-test/tasks.md` | `No changed Markdown files to check.`: the script reads `--files` as the path of a newline-separated list file, so the paths given inline are not read as the list |
+| the same three paths in a temporary list file, `node .github/scripts/check-markdown.mjs --files <list file>` | 3 files checked, `0 issues in 0 files`; the list file was removed afterwards |
+| `docs/architecture/` | no change needed (plan: Architecture Updates is `None`); the change only touches the `simulated` browser test, the fake object store test support, and evidence, and the statement in `platform-implementation.md` that the `simulated` project runs against a simulated API and a fake object store stays true |
