@@ -589,3 +589,227 @@ test.describe('Stream alignment and honest differences', () => {
     });
   }
 });
+
+type UnitCounts = Partial<Record<SeededCoverageState, number>>;
+type SeededCoverageState = 'accepted' | 'missing' | 'failed' | 'blocked' | 'skipped';
+
+/** One coverage window per expected unit; the simulated platform reports their counts per state. */
+function unitStream(nodeKey: string, units: UnitCounts, facts: number, capabilityId = 'wording', executionScope = 'Segment') {
+  let start = 0;
+  const coverage = (Object.entries(units) as [SeededCoverageState, number][]).flatMap(([state, count]) =>
+    Array.from({ length: count }, () => ({ startMs: (start += 10_000) - 10_000, endMs: start, state })),
+  );
+  return mkStream(nodeKey, capabilityId, executionScope, {
+    coverage,
+    coverageEndMs: Math.max(start, 1),
+    facts: Array.from({ length: facts }, (_, ordinal) => ({
+      acceptedResultId: `00000000-0000-4000-8000-${String(700 + ordinal).padStart(12, '0')}`,
+      ordinal,
+      kind: 'detection',
+      startMs: 0,
+      endMs: 1000,
+      confidence: 0.5,
+      payload: {},
+    })),
+  });
+}
+
+const unitText = (m: number, f: number, b: number, s: number) =>
+  `Missing units: ${m}, failed units: ${f}, blocked units: ${b}, skipped units: ${s}.`;
+const successShaped = /Facts with complete reported coverage|contain zero facts\.?$/;
+const ranking = /\b(better|worse|improved?|improvement|regress\w*|winner|best|rank\w*|score\w*|faster|slower|more accurate|less accurate|higher quality|lower quality|performance)\b/i;
+const availability = (page: Page, name: 'Left run' | 'Right run', key: string) => field(streamItem(page, name, key), 'Availability');
+
+const matrix: { name: string; units: UnitCounts; facts: number; text: string; success: boolean; extra?: RegExp }[] = [
+  { name: 'complete positive facts', units: { accepted: 2 }, facts: 3, text: 'Facts with complete reported coverage.', success: true },
+  { name: 'accepted complete zero facts', units: { accepted: 2 }, facts: 0, text: 'Accepted results with complete reported coverage contain zero facts.', success: true },
+  {
+    name: 'partial positive facts',
+    units: { accepted: 1, missing: 1, failed: 1 },
+    facts: 2,
+    text: `Accepted results with incomplete coverage. ${unitText(1, 1, 0, 0)}`,
+    success: false,
+    extra: /absence of facts proves nothing/,
+  },
+  {
+    name: 'partial zero facts',
+    units: { accepted: 1, blocked: 2 },
+    facts: 0,
+    text: `Accepted results with incomplete coverage. ${unitText(0, 0, 2, 0)} The accepted results contain no facts, and coverage is incomplete, so absence of facts proves nothing.`,
+    success: false,
+  },
+  { name: 'no accepted results', units: { missing: 2, failed: 1 }, facts: 0, text: `No accepted results. ${unitText(2, 1, 0, 0)}`, success: false, extra: /Every expected unit was skipped/ },
+  { name: 'zero expected units', units: {}, facts: 0, text: 'No expected execution units were reported, so completeness is not established.', success: false },
+  {
+    name: 'all skipped units',
+    units: { skipped: 3 },
+    facts: 0,
+    text: `No accepted results. ${unitText(0, 0, 0, 3)} Every expected unit was skipped; the analysis for this output was skipped, not completed.`,
+    success: false,
+  },
+  { name: 'all failed units', units: { failed: 2 }, facts: 0, text: `No accepted results. ${unitText(0, 2, 0, 0)}`, success: false, extra: /Every expected unit was skipped/ },
+  { name: 'all blocked units', units: { blocked: 2 }, facts: 0, text: `No accepted results. ${unitText(0, 0, 2, 0)}`, success: false, extra: /Every expected unit was skipped/ },
+  { name: 'all missing units', units: { missing: 4 }, facts: 0, text: `No accepted results. ${unitText(4, 0, 0, 0)}`, success: false, extra: /Every expected unit was skipped/ },
+];
+
+async function expectAvailability(locator: Locator, entry: (typeof matrix)[number]) {
+  await expect(locator).toHaveText(entry.text);
+  if (!entry.success) await expect(locator).not.toHaveText(successShaped);
+  if (entry.extra) await expect(locator).not.toContainText(entry.extra);
+}
+
+test.describe('Availability and quantity wording', () => {
+  for (const [index, entry] of matrix.entries()) {
+    test(`words ${entry.name} on both sides of an aligned pair without success-shaped substitutions`, async ({ page, api }) => {
+      api.signInAs('Viewer');
+      // The other side is a different case so that each side's own wording is checked independently.
+      const other = matrix[(index + 1) % matrix.length];
+      const left = unitStream('left-node', entry.units, entry.facts);
+      const right = unitStream('right-node', other.units, other.facts);
+      const { leftRun, rightRun } = seedPair(api, { streams: [left] }, { streams: [right] });
+
+      await openPair(page, leftRun, rightRun);
+      await expectEveryStreamOnce(page, [left], [right], 1);
+      await expectAvailability(availability(page, 'Left run', 'left-node'), entry);
+      await expectAvailability(availability(page, 'Right run', 'right-node'), other);
+      const item = alignmentItems(page).nth(0);
+      await expect(item).toContainText(entry.text);
+      await expect(item).toContainText(other.text);
+      await expect(item).toContainText(`Left run: ${entry.facts} facts; output coverage accepted ${entry.units.accepted ?? 0}`);
+      await expect(item).toContainText(`Right run: ${other.facts} facts; output coverage accepted ${other.units.accepted ?? 0}`);
+    });
+
+    test(`words ${entry.name} on an unmatched stream with its own counts only`, async ({ page, api }) => {
+      api.signInAs('Viewer');
+      const left = unitStream('only-left', entry.units, entry.facts, 'left-capability');
+      const right = unitStream('only-right', { accepted: 1 }, 1, 'right-capability');
+      const { leftRun, rightRun } = seedPair(api, { streams: [left] }, { streams: [right] });
+
+      await openPair(page, leftRun, rightRun);
+      await expectEveryStreamOnce(page, [left], [right], 0);
+      await expectAvailability(availability(page, 'Left run', 'only-left'), entry);
+      await expect(field(streamItem(page, 'Left run', 'only-left'), 'Facts')).toHaveText(String(entry.facts));
+      await expect(availability(page, 'Right run', 'only-right')).toHaveText('Facts with complete reported coverage.');
+    });
+  }
+
+  for (const state of ['Failed', 'Cancelled', 'PartiallyCompleted']) {
+    test(`keeps the accepted results of a ${state} run with their limitations`, async ({ page, api }) => {
+      api.signInAs('Viewer');
+      const retained = unitStream('retained', { accepted: 2, failed: 1, skipped: 1 }, 4);
+      const empty = unitStream('empty-node', { accepted: 1 }, 0);
+      const toRun = (stream: SeededFactStream, runState: string) =>
+        seedRun(api, { state: runState, streams: [stream], nodes: [mkNode(stream.nodeKey, stream.capabilityId, stream.executionScope)] });
+      const leftRun = toRun(retained, state);
+      const rightRun = toRun(empty, 'Completed');
+
+      await openPair(page, leftRun, rightRun);
+      await expect(field(side(page, 'Left run'), 'State')).toHaveText(state === 'PartiallyCompleted' ? /Partially completed/i : state);
+      await expect(field(streamItem(page, 'Left run', 'retained'), 'Facts')).toHaveText('4');
+      await expect(availability(page, 'Left run', 'retained')).toHaveText(`Accepted results with incomplete coverage. ${unitText(0, 1, 0, 1)}`);
+      await expect(availability(page, 'Right run', 'empty-node')).toHaveText('Accepted results with complete reported coverage contain zero facts.');
+      await expect(alignmentRegion(page)).not.toContainText(ranking);
+    });
+  }
+
+  test('shows one or both explicit empty stream lists without inventing streams or zero counts', async ({ page, api }) => {
+    api.signInAs('Viewer');
+    const stream = unitStream('present', { accepted: 1 }, 1);
+    const one = seedPair(api, { streams: [] , nodes: [] }, { streams: [stream] });
+
+    await openPair(page, one.leftRun, one.rightRun);
+    const empty = 'This run reported an empty list of fact streams. Nothing was invented for it.';
+    await expect(side(page, 'Left run').getByText(empty)).toHaveCount(1);
+    await expect(side(page, 'Right run').getByText(empty)).toHaveCount(0);
+    await expectEveryStreamOnce(page, [], [stream], 0);
+    await expect(alignmentItems(page).nth(0)).toContainText('Right only: present');
+    await expect(alignmentItems(page).nth(0)).not.toContainText(/aligned|Differences|0 facts/);
+
+    const both = seedPair(api, { streams: [], nodes: [] }, { streams: [], nodes: [] });
+    await openPair(page, both.leftRun, both.rightRun);
+    await expect(page.getByText(empty)).toHaveCount(2);
+    await expect(alignmentRegion(page).getByText('There are no streams to align.')).toBeVisible();
+    await expect(alignmentItems(page)).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Comparison', exact: true })).not.toContainText(successShaped);
+  });
+
+  const ranked: [string, UnitCounts, number, UnitCounts, number][] = [
+    ['more facts with less coverage', { accepted: 4 }, 2, { accepted: 1, missing: 3 }, 9],
+    ['fewer facts with more coverage', { accepted: 1, missing: 3 }, 9, { accepted: 4 }, 2],
+    ['more facts with equal coverage', { accepted: 2 }, 1, { accepted: 2 }, 5],
+    ['fewer facts with equal coverage', { accepted: 2 }, 5, { accepted: 2 }, 1],
+  ];
+  for (const [name, leftUnits, leftFacts, rightUnits, rightFacts] of ranked) {
+    test(`ranks nothing when the newer run has ${name}`, async ({ page, api }) => {
+      api.signInAs('Viewer');
+      const left = unitStream('older', leftUnits, leftFacts);
+      const right = unitStream('newer', rightUnits, rightFacts);
+      const { leftRun, rightRun } = seedPair(api, { streams: [left] }, { streams: [right] });
+
+      await openPair(page, leftRun, rightRun);
+      // The page's own disclaimer names these words to deny them, so only the alignment and the side details are scanned.
+      for (const scope of [alignmentRegion(page), side(page, 'Left run'), side(page, 'Right run')]) {
+        await expect(scope).not.toContainText(ranking);
+        await expect(scope).not.toContainText(wording);
+        await expect(scope).not.toContainText(/\b(more|fewer|less|greater|increase\w*|decrease\w*|gain\w*|loss) (facts|coverage)\b/i);
+      }
+      await expect(field(streamItem(page, 'Left run', 'older'), 'Facts')).toHaveText(String(leftFacts));
+      await expect(field(streamItem(page, 'Right run', 'newer'), 'Facts')).toHaveText(String(rightFacts));
+      await expect(alignmentItems(page).nth(0)).toContainText(`Left run: ${leftFacts} facts`);
+      await expect(alignmentItems(page).nth(0)).toContainText(`Right run: ${rightFacts} facts`);
+    });
+  }
+
+  const incompatible: [string, (item: Record<string, unknown>) => unknown][] = [
+    ['an omitted coverage collection', ({ coverage: _omitted, ...rest }) => rest],
+    ['a null coverage collection', (item) => ({ ...item, coverage: null })],
+    ['an omitted coverage count', ({ coverage, ...rest }) => ({ ...rest, coverage: { ...(coverage as object), failed: undefined } })],
+    ['a null coverage count', ({ coverage, ...rest }) => ({ ...rest, coverage: { ...(coverage as object), blocked: null } })],
+    ['a fractional coverage count', ({ coverage, ...rest }) => ({ ...rest, coverage: { ...(coverage as object), skipped: 1.5 } })],
+    ['a negative fact count', (item) => ({ ...item, factCount: -1 })],
+    ['a fractional fact count', (item) => ({ ...item, factCount: 0.5 })],
+    ['a non-numeric fact count', (item) => ({ ...item, factCount: '3' })],
+    ['a null stream list', () => null],
+    ['a null stream item', () => [null]],
+    ['a node capability that contradicts its stream', (item) => ({ ...item, capability: { id: 'other', version: '1.0.0' } })],
+    ['a node scope that contradicts its stream', (item) => ({ ...item, executionScope: 'Match' })],
+    ['a workflow identity that contradicts the run', (item) => ({ ...item, provenance: { ...(item.provenance as object), workflow: { id: 'elsewhere', version: '1' } } })],
+  ];
+  for (const [name, mutate] of incompatible) {
+    test(`shows no comparison, and no success-shaped substitute, for ${name}`, async ({ page, api }) => {
+      api.signInAs('Viewer');
+      const { leftRun, rightRun } = seedPair(
+        api,
+        { streams: [unitStream('node', { accepted: 1 }, 1)] },
+        { streams: [unitStream('node', { accepted: 1 }, 1)] },
+      );
+      const item = {
+        nodeKey: 'node',
+        capability: { id: 'wording', version: '1.0.0' },
+        schemaVersion: '1.0.0',
+        outputType: 'foundational-facts',
+        executionScope: 'Segment',
+        required: true,
+        factCount: 1,
+        provenance: leftRun.streams[0].provenance,
+        coverage: { accepted: 1, missing: 0, failed: 0, blocked: 0, skipped: 0 },
+      };
+      const mutated = mutate(item);
+      const items = Array.isArray(mutated) || mutated === null ? mutated : [mutated];
+      await page.route(`**/api/v1/analysis/runs/${leftRun.runId}/fact-streams*`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ run: { runId: leftRun.runId, teamId: leftRun.teamId, matchId: leftRun.matchId, state: leftRun.state }, items }),
+        }),
+      );
+
+      await page.goto(`${comparisonPath}?left=${leftRun.runId}&right=${rightRun.runId}`);
+      await expect(page.getByText('The platform answered with data that does not fit this comparison, so nothing is shown.')).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Comparison', exact: true })).toHaveCount(0);
+      await expect(alignmentRegion(page)).toHaveCount(0);
+      await expect(page.getByText(successShaped)).toHaveCount(0);
+      await expect(page.getByText(/Facts with complete reported coverage|contain zero facts/)).toHaveCount(0);
+    });
+  }
+});
