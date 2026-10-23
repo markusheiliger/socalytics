@@ -202,7 +202,7 @@ requested from the Segment Service.
 
 ### Adapter and timeline
 
-- [ ] T019 [US3] Add the evidence resolution, part, and media-piece models to
+- [x] T019 [US3] Add the evidence resolution, part, and media-piece models to
   `src/clients/web/src/platform/models/analysis.ts` and the new adapter
   `src/clients/web/src/platform/adapters/analysisEvidenceAdapter.ts` (`resolve(runId, request)` over
   `resolveAnalysisEvidenceMedia` with outcomes resolution, `notFound`, `rateLimited` with delay,
