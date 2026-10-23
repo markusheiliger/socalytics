@@ -36,7 +36,7 @@ Find, by reproduction, why the `platform-club-structure` browser test passes onl
 | II. Source-area ownership | Only `src/clients/web` (tests, and screens if the evidence requires). | Pass |
 | III. API-first control plane | The UI keeps using the `/api/v1` operations; no logic moves into the client. | Pass |
 | IV. Evidence over claims | Pass/fail is proved by repeated runs (alone, under load, after the other platform projects) and by three failure probes (SC-001, SC-002). | Pass |
-| V. Focused, minimal changes | Touches only the files the evidenced cause lives in plus this spec folder (SC-003). | Pass |
+| V. Focused, minimal changes | Touches only the files the evidenced cause lives in (SC-003). | Pass |
 | Environment | `environment-setup` and `environment-verify` already provide Node.js 24, Playwright Chromium, and Docker for the platform projects; no new tool. | Pass |
 
 Re-check after design: unchanged, the design adds no file, dependency, or behavior.
