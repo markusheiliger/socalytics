@@ -14,8 +14,10 @@ function workflows() {
       return {
         file,
         name: text.match(/^name: (.+)$/m)?.[1].trim(),
-        levels: [...new Set([...text.matchAll(/^\s+level: (\w+)$/gm)].map((match) => match[1]))],
-        copilot: /actions\/speckit-copilot/.test(text),
+        levels: [...new Set([...text.matchAll(/^\s+(?:level|SPECKIT_LEVEL): (\w+)$/gm)].map((match) => match[1]))],
+        // Copilot runs directly (speckit-copilot), in a gha Spec Kit workflow (speckit-workflow), or in the agent steps
+        // of a Spec Kit workflow run through the speckit-copilot.mjs wrapper.
+        copilot: /actions\/speckit-(copilot|workflow)\b|speckit-copilot\.mjs" exec/.test(text),
         engine: text.match(/^engine: (\w+)$/m)?.[1] ?? null,
       };
     });

@@ -11,15 +11,16 @@ through approved changes.
     platform host and its ownership guidance.
 - [`src/clients/`](src/clients/README.md) contains the executable
     Web UI foundation (without offline mode), including its installable PWA shell and the
-    match triage conversations with Specialist Agents and the Analyst Registry
-    administration for Club Admins, under
+    match triage conversations with Specialist Agents, the Analyst Registry
+    administration, and the workflow operations area for Club Admins, under
     `src/clients/web/`; the offline mode for coaches is planned.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.
 - [`src/analysts/`](src/analysts/README.md) contains the executable Analyst
     Manager desktop app under `src/analysts/manager/`, the executable Python
-    Analyst SDK under `src/analysts/sdk/`, and records the planned Analyst
-    capability ownership boundary.
+    Analyst SDK under `src/analysts/sdk/`, the development reference Analyst
+    capability under `src/analysts/capabilities/reference-media-probe/`, and
+    records the planned catalog Analyst capability ownership boundary.
 - [`docs/`](docs/README.md) indexes architecture, component, and operational documentation.
 - [`contracts/`](contracts/README.md) holds the canonical machine-readable
     contracts (JSON Schema 2020-12), the golden-fixture set shared by the
@@ -36,7 +37,8 @@ through approved changes.
 
 The agents source area remains a non-executable ownership scaffold. The
 platform, the Web UI, and the Analyst Manager contain the repository's current
-application projects and tests. No deployment manifests or product automation exist yet.
+application projects and tests. The only deployment artifact is the Docker Compose evaluation stamp under
+`src/platform/deploy/compose/`; no production deployment manifests or product automation exist yet.
 
 ## Development
 
@@ -59,7 +61,16 @@ dotnet run --project src/platform/SocAlytics.Platform.AppHost
 Running the AppHost and running `dotnet test` (Host.Tests and
 Integration.Tests) require a running Docker-compatible container runtime. The
 AppHost starts PostgreSQL (`postgres:18`), then the one-off Migrator, then the
-API. To run the Migrator on its own, set `ConnectionStrings__socalytics-migrator`
+API. The API host's Segment Service extracts video segments with `ffmpeg` and
+`ffprobe`: both must be on `PATH` of the API process (or configured through
+`Segments__Toolchain__FfmpegPath` and `Segments__Toolchain__FfprobePath`; the
+AppHost passes `SOCALYTICS_FFMPEG_PATH` and `SOCALYTICS_FFPROBE_PATH`), and the
+Development configuration expects version 8.1 (`Segments:Toolchain:ExpectedVersionPrefix`
+`n8.1`). Without the toolchain the host still starts, and segment
+materialization fails explicitly with a non-retryable reason. The Integration
+and end-to-end tests that materialize segments need the same toolchain;
+`.github/actions/environment-setup` installs the pinned build in the
+verification environment. To run the Migrator on its own, set `ConnectionStrings__socalytics-migrator`
 and run:
 
 ```powershell
@@ -209,10 +220,35 @@ contract:
 dotnet test src/platform/Tests/SocAlytics.Platform.Images.Tests
 ```
 
-The images are not deployment support or production readiness: registries, publication, the composed stamp, and the
-production profile values remain unresolved. Their runtime contract is described in
+The images are not deployment support or production readiness: registries, publication, and the production profile
+values remain unresolved. Their runtime contract is described in
 [`src/platform/README.md`](src/platform/README.md#container-images) and
 [`src/clients/README.md`](src/clients/README.md#container-image).
+
+### Evaluation stamp (Docker Compose)
+
+A Docker Compose definition runs one self-hosted stamp (PostgreSQL, NATS, S3-compatible storage, the one-off
+Migrator, the API, and the Web UI) for evaluation. It needs Docker with the Compose v2 plugin and the three images of
+one release built as above. From the repository root, the setup console writes a stamp directory outside any Git
+working tree (it must not exist yet) and generates every secret; fill the empty operator values in its `stamp.env`,
+then start and remove the stamp with a Compose project name of your choice:
+
+```powershell
+$stampDir = Join-Path $HOME 'socalytics-stamps/club-a'
+dotnet run --project src/platform/SocAlytics.Platform.StampSetup -- --output $stampDir
+docker compose -f src/platform/deploy/compose/compose.yaml -p club-a --env-file "$stampDir/stamp.env" up -d
+docker compose -f src/platform/deploy/compose/compose.yaml -p club-a --env-file "$stampDir/stamp.env" down --volumes --remove-orphans
+```
+
+The evidence is the Docker-backed Compose test project:
+
+```powershell
+dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests
+```
+
+The values, the lifecycle commands, and the limitations are in
+[`src/platform/deploy/compose/README.md`](src/platform/deploy/compose/README.md). The evaluation stamp is not
+deployment support or production readiness: it is not a production profile and passes no production preflight.
 
 ### Analyst Manager
 
@@ -265,6 +301,33 @@ of the canonical schemas; `scripts/sync_contracts.py` refreshes it after a
 contract change. This is development evidence, not a published package or
 production readiness.
 
+### Reference Analyst capability
+
+The development reference Analyst `reference-media-probe` lives in
+`src/analysts/capabilities/reference-media-probe/` (Python 3.12, `uv`, the
+pinned `ffmpeg` and `ffprobe` on `PATH`; author documentation in its
+`README.md`). From that directory, run the same locked sequence as for the SDK:
+
+```text
+UV_PYTHON_DOWNLOADS=never
+uv sync --locked --all-groups --no-install-local --no-build
+uv sync --locked --all-groups --no-build-isolation
+uv build --wheel --no-build-isolation --python .venv/bin/python
+uv run --no-sync pytest
+```
+
+From the repository root, build its `linux/amd64` image (a Linux engine is
+required; the build takes no build arguments) and run its Docker-backed
+end-to-end evidence:
+
+```text
+docker build -f src/analysts/capabilities/reference-media-probe/Dockerfile -t reference-media-probe:local .
+dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ReferenceAnalyst"
+```
+
+This is development evidence, not a catalog capability, a published image, or
+production readiness.
+
 ### Contracts
 
 Canonical machine-readable contracts live in [`contracts/`](contracts/README.md),
@@ -287,8 +350,9 @@ The project constitution in
 every specification, plan, and task list.
 
 Using the committed skills in GitHub Copilot needs only Python 3.11+ on `PATH`
-as `python`. The `specify` CLI is needed only to upgrade Spec Kit or add
-extensions. It requires [uv](https://docs.astral.sh/uv/) and is installed from
+as `python`. The `specify` CLI is needed to author specs with `/speckit-gha-author`
+or the Spec Kit workflow `author` (see [specs/README.md](specs/README.md#author)), to upgrade
+Spec Kit, or to add extensions. It requires [uv](https://docs.astral.sh/uv/) and is installed from
 the pinned release tag:
 
 ```powershell
@@ -318,7 +382,9 @@ amends the constitution. Do not use `/speckit-taskstoissues`: this repository
 mirrors features, not tasks, to GitHub through spec twins (see below).
 
 The skills under `.github/skills/speckit-*` and the files under `.specify/`
-other than the constitution are managed by the `specify` CLI. Do not edit them
+other than the constitution, the `gha` extension source
+(`.specify/extension-src/`, which also holds the source of the `author`
+workflow), and `.specify/.gitignore` are managed by the `specify` CLI. Do not edit them
 by hand; run `specify self check` to look for a newer release and follow the
 [Spec Kit upgrade guide](https://github.github.io/spec-kit/upgrade.html) to
 refresh them.
@@ -432,42 +498,54 @@ posts.
   comparison, conflict check, and link of the implementation uses the base
   branch named on the pull request, never an assumed `main`. The default
   branch only provides the trusted workflows and scripts.
-- Then the spec's implementation chain takes over: runs of
-  `Spec Kit implement spec` (`speckit-implement-spec.yml`), one at a time per
-  spec, each started by the previous one and named after the spec, for example
-  `Spec Kit implement spec #35 · Recording Lineage and Upload` (the spec title
-  from the pull request title). Every run decides what comes next from the
-  state on GitHub (job `decide`, shown as `Decide what comes next`),
-  runs it, and starts the next run (job `continue`, shown as
-  `Start the next run`), until the implementation is merged, waits for
-  review, or needs a person. Of what a run can do next (a phase, a repair, the
-  convergence, a conflict resolution, or the merge) only one runs, and the
-  others show as skipped; job names say what a job does, and GitHub shows
-  their order. Every run starts with the job `sync` (`Merge the base branch`),
+- Then the spec's implementation chain takes over: one run at a time per
+  spec, each in the workflow of its kind of work and started by the previous
+  one, and named after the spec and what it works on, for example
+  `Spec Kit implement spec #35 · Recording Lineage and Upload · Phase 3: User Story 1 · T013 to T016 one after another`
+  (the spec title from the pull request title). Every other Spec Kit run is named
+  `Spec Kit <workflow> …` as well: a diagnosis after the stop it diagnoses
+  (for example `Spec Kit diagnose spec #35 · T013 reached the attempt limit`),
+  and a run that reacts to a pull request, comment, or issue after that item
+  by number (for example
+  `Spec Kit orchestrate · pull request #214 synchronize · Implement: …`). Every run first prepares itself with the reusable
+  `Spec Kit implement prepare` (`speckit-implement-prepare.yml`, shown as
+  `Prepare the run`): it decides what comes next from the state on GitHub
+  (`Decide what comes next`), runs only the jobs of its kind, and starts the
+  next run in the workflow of that run's kind (`Start the next run`), until
+  the implementation is merged, waits for review, or needs a person. The run
+  that starts the next one predicts its work without changing anything; when
+  the state changed in the meantime, the run hands the work over to the right
+  workflow before it starts any attempt. A run without work (a stop at an
+  attempt limit, a failure, a finished implementation) runs in `Spec Kit
+  implement decide` (`speckit-implement-decide.yml`), which reports the stop,
+  starts the diagnosis, or marks the implementation done, and the chain ends
+  there. Every run starts with `Merge the base branch`,
   which merges the base branch when it is ahead and the next work is a phase
   that has not started, the convergence, or the merge; a conflict
-  is resolved by the conflict resolution in the same run. Task groups,
-  single-task implementation, guided repair, convergence, conflict resolution,
-  and merge run in dedicated
-  nested reusable workflows, which appear in the run as job groups. The run
-  graph joins the names of nested jobs, for example
-  `Phase 3: … / T013 / Implement T013`, so job names stay
-  short; the job summaries carry the full titles, such as
-  `Spec Kit implement task #35 · T013 [P] [US1] Create …`:
+  is resolved by the conflict resolution in the same run. Each task,
+  the convergence, a guided repair, and a conflict resolution run in the
+  reusable workflow `Spec Kit implement task` (`speckit-implement-task.yml`),
+  which appears in the run as a job group named after its work, for example
+  `T013 / Implement T013`:
 
   | Next | Runs in | What it does |
   | --- | --- | --- |
-  | A phase | job `phase`, which calls `Spec Kit implement phase` (`speckit-implement-phase.yml`), named after the phase heading of `tasks.md` as written | the phase planner forms ordered units. Its serialized `groups` matrix calls `Spec Kit implement group` once per unit. A singleton group calls `Spec Kit implement task` once; a consecutive `[P]` group fans out one task-workflow call per task and always verifies the combined result before the next unit starts |
-  | Repair | job `repair`, which calls `Spec Kit implement repair` (`speckit-implement-repair.yml`) | after diagnosis and a writer-approved `/speckit retry <guidance>`, repairs an already-landed task, group, phase, or prospective merge verification failure and reverifies that scope before normal planning resumes |
-  | Acceptance gate | job `converge`, which calls `Spec Kit implement convergence` (`speckit-implement-converge.yml`), named `Convergence` | once all tasks are checked, `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
-  | Merge | job `merge`, which calls `Spec Kit implement merge` (`speckit-implement-merge.yml`) | its nested `archive`, `verify`, and `land` jobs archive the spec on the branch, build and fully verify the prospective merged tree, and squash-merge the pull request into the base branch or hand it to a person for review |
-  | Conflicts | job `resolve`, which calls `Spec Kit implement conflict resolution` (`speckit-implement-resolve.yml`), named `Conflict resolution` | resolves conflicts with the base branch with Copilot CLI, verifies, and pushes the merge commit, in the run whose `sync` job or merge found them; the next run continues the work on the merged branch |
+  | A sequential group | `Spec Kit implement group` (`speckit-implement-group.yml`), a matrix with one entry per task and `max-parallel: 1` | the consecutive unchecked tasks without `[P]` of the current phase, up to the next `[P]` task or the end of the phase, one after another; a task that does not land cancels the ones after it |
+  | A parallel group | `Spec Kit implement group`, a matrix with one entry per task and `max-parallel: 5`, then `Verify the parallel tasks together` and `Report the group verification` | the consecutive unchecked `[P]` tasks under one heading (also a single one), at most 5 at once; each lands on its own, and the group is verified together only when a landing merged a sibling's edits to the same files |
+  | Phase verification | `Spec Kit implement verify` (`speckit-implement-verify.yml`): `Verify the phase` and `Record the phase verification`, in a run of its own after the phase's last group | mode `phase` (the checks with all their tests) for all changes of the implementation branch; a failure stops for a person and a diagnosis with a pending repair, without using up the attempts of the task that came last |
+  | Repair | `Spec Kit implement repair` (`speckit-implement-repair.yml`): the repair as its one matrix entry (`Failed phase verification / Repair the implementation`), then `Verify the repair` and `Report the repair` | after diagnosis and a writer-approved `/speckit retry <guidance>`, repairs an already-landed task, group, phase, or prospective merge verification failure and reverifies that scope before normal planning resumes |
+  | Acceptance gate | `Spec Kit implement group` with the convergence as its one entry | once all tasks are checked and verified, `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
+  | Conflicts | `Spec Kit implement group` with the conflict resolution as its one entry | resolves conflicts with the base branch with Copilot CLI, verifies, and pushes the merge commit, in the run whose `sync` job or merge found them; the next run continues the work on the merged branch |
+  | Merge | `Spec Kit implement merge` (`speckit-implement-merge.yml`): `Archive the spec before the merge`, `Verify the merged result`, and `Merge into the base branch` | archive the spec on the branch, build and fully verify the prospective merged tree, and squash-merge the pull request into the base branch or hand it to a person for review |
 
   Each job is short, so specs of any size never hit the 6-hour job limit.
-  Every call of `Spec Kit implement task` handles exactly one task:
+  Every call of `Spec Kit implement task` handles exactly one task, the
+  convergence, a repair, or a conflict resolution:
   1. its `work` job sets up the solution
       environment with the optional `.github/actions/environment-setup`
-      action, then runs Copilot CLI (60 minutes at most) with a read-only
+      action, then runs the gha extension's Spec Kit workflow for the work
+      (`implement-task`, `converge`, `repair`, or `resolve`) with
+      Copilot CLI (60 minutes at most) and a read-only
       token, which reaches the CLI only as `COPILOT_GITHUB_TOKEN` and is
       hidden from the agent's shells; `git push`, `gh`, `curl`, and `wget` are
       denied;
@@ -475,11 +553,7 @@ posts.
       `.github/actions/environment-verify` action. After a task, mode `task`
       runs the checks the changed paths call for with only the tests the task
       touched (the agent is told to run only those as well, not the whole
-      suite). After the phase's last task, the phase workflow's job "Verify
-      the phase" runs mode `phase` (those checks with all their tests) for all
-      changes of the implementation branch; if it fails, the implementation
-      stops for a person (and a diagnosis) without using up the attempts of
-      the task that came last. A conflict resolution and the merge run every
+      suite). A conflict resolution and the merge run every
       check with all tests (mode `finalize`). Every verification runs once
       and its result counts: re-running unchanged code only delayed real
       failures, so flaky tests are fixed where they live instead;
@@ -491,10 +565,8 @@ posts.
       clashes git merges without a conflict, such as two migrations with the
       same number; none under `.github/`, `.specify/`, or `specs/`; it is
       replayed onto git's own merge), then commits, pushes, updates the pull request body and
-      check run, and comments the result. The group workflow coordinates
-      parallel calls: each task rebuilds safely when a sibling moved the branch,
-      and after all tasks land the group always runs full combined verification.
-      A singleton group skips group-level verification and reporting.
+      check run, and comments the result. In a parallel group each task
+      rebuilds safely when a sibling moved the branch.
 
   GitHub documents the order in which matrix jobs are created, not that they
   run in that order; with one job at a time they run in order in practice.
@@ -512,7 +584,7 @@ posts.
   lands in the merge commit itself, verified with everything else, and the base
   branch never has a broken link.
   Its `verify` job (read-only token) builds the prospective merged tree and runs
-  every check of `environment-verify`; its `land` job (write token, API only) squash-merges
+  every check of `environment-verify`; its `report` job (write token, API only) squash-merges
   the pull request into its base branch only if the base branch still is the
   commit that was verified, sets the twin to `implemented` and closes it,
   points the twin's links to the archive (when the base branch is the default
@@ -569,16 +641,16 @@ posts.
   5. Specs that need the new tooling name the environment spec under
       Assumptions → Dependencies, so dependency inference blocks them until it
       is merged (or add the "blocked by" link on GitHub).
-- Tasks marked `[P]` run through `Spec Kit implement group` in parallel, up to `SPECKIT_MAX_PARALLEL_TASKS`
-  (default 3) at a time. Consecutive unchecked `[P]` tasks under the same
+- Tasks marked `[P]` run as a parallel group, at most 5 at once, since they
+  change disjoint files. Consecutive unchecked `[P]` tasks under the same
   heading run together; an unchecked task without `[P]` or a new heading
   ends them. Each task is verified and landed by its own task workflow. A task
   whose siblings landed first is rebuilt on the new head (its change without
   `tasks.md`, plus its own tick) and validated again. Files that a sibling
   (or a person) also changed since the task started are merged three-way;
-  the group verification then runs mode `phase` on the combined result even
-  when the changed files do not overlap. If it fails, the landed tasks remain
-  checked and a durable repair blocks later units. Automatic diagnosis
+  the group verification then runs the affected tests of the group's changes
+  on the combined result. If it fails, the landed tasks remain
+  checked and a durable repair blocks later groups. Automatic diagnosis
   recommends `/speckit retry <guidance>`; after a writer posts it, the dedicated
   repair workflow changes no task checkbox and clears the repair only after
   reverification passes. Only when task edits conflict, or a change no longer
@@ -586,7 +658,6 @@ posts.
   not count as a failed attempt, but every task has at most six attempts. A
   push that is refused although the branch did not move counts as a failed
   attempt.
-  `SPECKIT_MAX_PARALLEL_TASKS=1` runs `[P]` tasks one after another.
   `/speckit-tasks` sets `[P]` from the task texts alone, so its
   `/speckit-gha-refine` hook checks each group against the files its tasks
   will really change (including registrations, project files, and shared
@@ -709,7 +780,7 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     | --- | --- | --- |
     | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | review and merge the linked **amendment pull request** (below) |
     | `retry` | a transient failure, or the agent took a poor approach while the artifacts are fine | `/speckit retry <guidance>` |
-    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit specify <what to fix>` for code, tests, or the environment actions (a **new spec**, below); `/speckit sync` once a fix is on the base branch, or after an action the comment names |
+    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit author <what to fix>` for code, tests, or the environment actions (a **new spec**, below); `/speckit sync` once a fix is on the base branch, or after an action the comment names |
     | `decision` | a trade-off only a person can make | `/speckit retry 1. … 2. …`, prefilled with the recommended answers as guidance |
     | `unknown` | not enough evidence | another diagnosis starts automatically with the previous findings as context |
 
@@ -786,26 +857,29 @@ finished.
 #### New Specs for Causes Outside the Spec
 
 When the cause lies outside the stopped spec (`outside`), for example a flaky
-test of another feature on the base branch, `/speckit specify <what to fix>`
+test of another feature on the base branch, `/speckit author <what to fix>`
 keeps the fix inside Spec Kit instead of patching around it. It creates an
 ordinary spec, treated like any other.
 
-1. The `Spec Kit specify` agentic workflow
-    ([`speckit-specify.md`](.github/workflows/speckit-specify.md)) runs
-    `/speckit-gha-author` itself, without asking (every recommended choice),
-    with a feature description from the stop, the diagnosis, and your
-    guidance: specify, clarify, plan, tasks, analyze, and the publish checks.
-    The spec lands in a normal `specs/<timestamp>-<name>/` folder and is
-    proposed as a draft pull request `speckit-spec/<folder>` → the default
-    branch that may only change that folder and `docs/architecture/`. When an
+1. The `Spec Kit author` workflow
+    ([`speckit-author.yml`](.github/workflows/speckit-author.yml)), a regular
+    workflow without an agent of its own, first lets one decision step write
+    `decision.json` from the stop, the diagnosis, and your guidance. When an
     open or merged spec already removes the cause, it writes nothing and
     reuses that one. When a spec cannot remove the cause (tooling under
     `.github/`, permissions, quotas, external services), it changes nothing
-    and says why.
-2. An independent `/speckit-analyze` checks it, with correction rounds. Once
+    and says why. Otherwise it runs the Spec Kit workflow `author`
+    unattended (every recommended choice) with the feature description of the
+    decision: specify, clarify, plan, tasks, analyze, and the publish checks.
+    The spec lands in a normal `specs/<timestamp>-<name>/` folder and is
+    proposed as a draft pull request `speckit-spec/<folder>` → the default
+    branch that may only change that folder and `docs/architecture/`.
+2. An independent `/speckit-analyze` checks it, with correction rounds (the
+    same workflow reworks the spec from the stage the findings concern). Once
     it is consistent, the pull request is merged automatically. It waits for
     your review instead when it changes `docs/architecture/` (a **Design
-    decisions** comment explains each decision) or when a person pushed to it.
+    decisions** comment lists each decision of its plan's Architecture
+    Updates) or when a person pushed to it.
 3. On the default branch it gets a twin and dependency inference like any
     spec, and the stopped spec's twin is made to depend on it. Nothing
     requests its implementation automatically: sign it off with
@@ -825,9 +899,9 @@ The implementation pull request records every step in a comment.
 These pull request comment commands are not skills. To walk through a stop
 locally, run the skill `/speckit-gha-diagnose [pull request, twin, or folder]`
 in GitHub Copilot: it uses the same method, asks you the decisions, and pushes
-the result. The diagnose, analyze, and specify workflows are compiled with GitHub
-Agentic Workflows; after editing `speckit-diagnose.md`, `speckit-analyze.md`, or
-`speckit-specify.md`, install the extension (`gh extension install github/gh-aw`)
+the result. The diagnose and analyze workflows are compiled with GitHub
+Agentic Workflows; after editing `speckit-diagnose.md` or `speckit-analyze.md`,
+install the extension (`gh extension install github/gh-aw`)
 and run `gh aw compile`.
 Do not edit the generated `.lock.yml` files. Their Copilot engine uses the
 workflow token with the `copilot-requests` permission, so no secret is needed.
@@ -841,7 +915,6 @@ place. The workflows and scripts need no changes for any of it.
 | --- | --- | --- | --- |
 | `SPECKIT_AUTO_MERGE` | repository variable | `true` | `false` holds every implementation for review instead of merging it automatically |
 | `SPECKIT_TASK_AI_CREDITS` | repository variable | `1000` | Copilot CLI credit cap per agent run (tasks, convergence, conflict resolution) |
-| `SPECKIT_MAX_PARALLEL_TASKS` | repository variable | `3` | how many consecutive `[P]` tasks run at the same time; `1` runs them one after another |
 | `SPECKIT_MAX_ACTIVE_SPECS` | repository variable | `3` | how many specs the scheduler implements at the same time; a spec waiting for review or for a person does not count |
 | `.github/actions/environment-setup` | composite action, optional | not run | installs the SDKs and tools for building, testing, and verifying |
 | `.github/actions/environment-verify` | composite action, optional | no verification | runs the checks for changed paths (modes `task`: only the touched tests; `phase` and `finalize`: all tests) and reports files no check covers |

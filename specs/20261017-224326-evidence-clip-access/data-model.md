@@ -2,7 +2,7 @@
 
 This feature adds no table and no migration. It reads the run, its recording-set lineage, indexed facts, and
 materialized-segment records, records materialization demand through the Segment Service of
-[Materialized Video Segments](../20261017-222433-materialized-segments/data-model.md), and writes one security audit
+[Materialized Video Segments](../archive/20261017-222433-materialized-segments/data-model.md), and writes one security audit
 event per resolution that issues links. Links are never persisted.
 
 ## Evidence Request (API input)

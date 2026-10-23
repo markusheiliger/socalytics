@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import { renderSpecLine } from './speckit-prepare-core.mjs';
 import { presentAmendment, resolveAmendment, runRecordAnalysis, startRework } from './speckit-amend.mjs';
 import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, RETRY_COMMENT_MARKER, maintainDependencyBlock, parseFixEvents, renderFixEvent, setAttention, setBlocked } from './speckit-implement-core.mjs';
-import { authoredFor, checkFixSpec, fixBlock, fixStamp, isAutomationCommit, linkPrerequisite, maintainFixSpec, parseDesignDecisions, runEvidence, runRecord, settleClosedFix, startFixAuthoring, syncDesignDecisions } from './speckit-fix.mjs';
+import { authoredFor, checkFixSpec, main as fixMain, designDecisionsFromPlan, fixBlock, fixStamp, isAutomationCommit, linkPrerequisite, maintainFixSpec, parseAuthorReport, parseDesignDecisions, readResult, reworkOutcome, reworkStage, runDecide, runEvidence, runInputs, runLand, runPackage, runRecord, settleClosedFix, startFixAuthoring, syncDesignDecisions, validateDecision } from './speckit-fix.mjs';
+import { defaultGit } from './speckit-orchestrate.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
 const FOLDER = '20261014-100000-upload-expiry';
@@ -24,6 +26,21 @@ const env = (extra = {}) => ({ GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_B
 const SPEC = '# Feature Specification: Upload session expiry test\n\n## Summary\n\nMake the test independent of runner load.\n\n## Assumptions\n\n- `specs/f` depends on this spec.\n';
 const PLAN = '# Plan\n\n## Architecture Updates\n\nNone: the fix changes a test only.\n';
 const TASKS = '## Phase 1\n\n- [ ] T001 Use a longer SessionLifetime in UploadSessionExpiryTests\n';
+// The result of the author job (result.json) in a temporary result folder, for runRecord.
+function withResult(result, body) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-fix-result-'));
+  try {
+    writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result));
+    return body(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const authorResult = (fields = {}) => {
+  const { reuse, refused, ...rest } = fields;
+  const decision = reuse ? 'reuse' : refused ? 'refuse' : 'author';
+  return { decision, ...(decision === 'author' ? { outcome: 'authored' } : {}), folder: FOLDER, summary: 'Lengthens the session lifetime of the expiry test.', ...(reuse ? { reuse } : {}), ...(refused ? { refused } : {}), ...rest };
+};
 const twinBody = (folder) => renderSpecLine({ serverUrl: 'https://github.com', repository: 'octo/repo', branch: 'main' }, folder);
 
 // The implementation pull request #9 of twin #5 (`specs/f`), stopped and diagnosed, and the prerequisite spec pull
@@ -46,14 +63,7 @@ function fixRepo({ files = null, spec = SPEC, branch = BRANCH, title = 'Spec: Up
 async function authored(github, extra = {}, actor = 'dev', fields = {}) {
   await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, implementation: await github.getPullRequest(9), guidance: 'Make the test robust', actor, now: github.clock });
   const check = github.repo.checkRuns.at(-1);
-  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-fix-'));
-  try {
-    const output = path.join(dir, 'agent_output.json');
-    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_fix', report: JSON.stringify({ folder: FOLDER, summary: 'Lengthens the session lifetime of the expiry test.', ...fields }) }] }));
-    return await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_DETECTION: 'success', SPECKIT_CREATED_PULL: '12', ...extra }), log: silent });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  return withResult(authorResult(fields), (dir) => runRecord({ client: github, env: env({ SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_CREATED_PULL: '12', ...extra }), log: silent }));
 }
 
 const addTwin = (github, number, folder, labels = []) => github.issues.push({ number, id: number * 1000, node_id: `I_${number}`, state: 'open', state_reason: null, title: `Twin ${number}`, body: twinBody(folder), labels: [{ name: 'speckit:spec' }, ...labels.map((name) => ({ name }))] });
@@ -71,9 +81,9 @@ test('records an authored spec: reports it, blocks the implementation, and start
   const created = github.comments.filter((item) => item.number === 9).at(-1);
   assert.match(created.body, /^<!-- speckit-fix:created \{"pull":12,"folder":"20261014-100000-upload-expiry"\} -->\n<!-- speckit-implement:blocked \{"pull":12,"stage":"review"\} -->\n\*\*Spec \[Spec: Upload session expiry \(#12\)\]\(https:\/\/github\.com\/octo\/repo\/pull\/12\) was authored\*\*[\s\S]*merged automatically[\s\S]*Lengthens the session lifetime[\s\S]*\*\*Blocked\*\* by spec #12: [\s\S]*- \*\*Next\*\*: #12 is checked for consistency and merged into `main` automatically[\s\S]*- \*\*To drop the spec\*\*: close #12 without merging/);
   assert.equal(github.comments.filter((item) => item.number === 9 && item.body.includes('speckit-implement:blocked')).length, 1, 'the label comes with exactly one explanation');
-  const authoring = github.repo.checkRuns.find((check) => check.name === 'Spec Kit specify');
+  const authoring = github.repo.checkRuns.find((check) => check.name === 'Spec Kit author');
   assert.deepEqual([authoring.status, authoring.conclusion, authoring.external_id], ['completed', 'success', 'speckit:fix-authored']);
-  assert.match(github.comments.find((item) => item.number === 12).body, /This spec was requested with `\/speckit specify` on #9[\s\S]*then it is merged automatically/);
+  assert.match(github.comments.find((item) => item.number === 12).body, /This spec was requested with `\/speckit author` on #9[\s\S]*then it is merged automatically/);
   const analysis = github.repo.runs.at(-1);
   assert.deepEqual([analysis.workflow, analysis.inputs.kind, analysis.inputs.folder, analysis.inputs.amendment, analysis.inputs.pull], ['speckit-analyze.lock.yml', 'spec', FOLDER, '12', '9']);
   const context = await resolveAmendment(github, env(), 12);
@@ -88,7 +98,7 @@ test('a spec pull request on the earlier speckit-fix/ branch and with the earlie
   assert.deepEqual([context.kind, context.folder, context.implementation.number, context.twin], ['fix', FOLDER, 9, 5]);
   await startRework(github, env(), context, { mode: 'revise', feedback: { items: [] } });
   const rework = github.repo.runs.at(-1);
-  assert.deepEqual([rework.workflow, rework.inputs.mode, rework.inputs.branch], ['speckit-specify.lock.yml', 'revise', undefined], 'the workflow finds the legacy branch by its folder');
+  assert.deepEqual([rework.workflow, rework.inputs.mode, rework.inputs.branch], ['speckit-author.yml', 'revise', undefined], 'the workflow finds the legacy branch by its folder');
   assert.equal(github.repo.pulls.find((item) => item.number === 12).title, 'Spec: Upload session expiry', 'renamed to the title prefix the rework\'s push requires');
   const dir = mkdtempSync(path.join(tmpdir(), 'speckit-fix-legacy-'));
   try {
@@ -102,7 +112,7 @@ test('a spec pull request on the earlier speckit-fix/ branch and with the earlie
   assert.equal(github.repo.branches[`speckit-fix/${FOLDER}`], undefined, 'its own branch is deleted');
 });
 
-test('a spec is owned by the person who asked for it with /speckit specify, from its creation to its review', async () => {
+test('a spec is owned by the person who asked for it with /speckit author, from its creation to its review', async () => {
   const github = fixRepo();
   await authored(github, {}, 'fixer');
   const pull = github.repo.pulls.find((item) => item.number === 12);
@@ -145,7 +155,7 @@ test('a missing, refused, or broken spec goes back to the implementation with th
   assert.equal(broken.repo.pulls.find((item) => item.number === 12).state, 'closed');
   assert.equal(broken.repo.branches[BRANCH], undefined);
   assert.match(broken.comments.at(-1).body, /^\*\*The authored spec #12 was rejected and closed\*\*: it changes files outside `specs\/20261014-100000-upload-expiry\/` and `docs\/architecture\/`: `src\/platform\/Tests\/UploadSessionExpiryTests\.cs`/);
-  assert.equal(broken.repo.checkRuns.find((check) => check.name === 'Spec Kit specify').conclusion, 'failure');
+  assert.equal(broken.repo.checkRuns.find((check) => check.name === 'Spec Kit author').conclusion, 'failure');
 
   const elsewhere = fixRepo({ branch: `feature/${FOLDER}` });
   assert.equal((await authored(elsewhere)).outcome, 'rejected');
@@ -166,10 +176,10 @@ test('checks a prerequisite spec: a new, publishable spec folder, without a Fix 
   existing.setFile('main', `${PREFIX}/spec.md`, SPEC);
   const more = (await checkFixSpec(existing, { folder: FOLDER, pull: await existing.getPullRequest(12) })).reasons.join('\n');
   assert.doesNotMatch(more, /may only add/, 'docs/architecture/ may change');
-  assert.match(more, /it changes `docs\/architecture\/overview\.md`, but its author report lists no design decisions: report each decision behind these changes in `designDecisions`/);
+  assert.match(more, /it changes `docs\/architecture\/overview\.md`, but its plan lists no design decisions for it: name each decision behind these changes in the `## Architecture Updates` section/);
   assert.match(more, /already exists on `main`/);
 
-  // The Design decisions comment (from the author report) satisfies the rule.
+  // The Design decisions comment satisfies the rule.
   const decided = fixRepo({ files: [...[`${PREFIX}/spec.md`, `${PREFIX}/plan.md`, `${PREFIX}/tasks.md`, `${PREFIX}/checklists/requirements.md`], 'docs/architecture/overview.md'] });
   await syncDesignDecisions(decided, 12, parseDesignDecisions([{ decision: 'Uploads expire after 10 minutes', why: 'Runner load delays the first part.', files: ['docs/architecture/overview.md'] }]));
   assert.deepEqual((await checkFixSpec(decided, { folder: FOLDER, pull: await decided.getPullRequest(12) })).reasons, []);
@@ -178,15 +188,15 @@ test('checks a prerequisite spec: a new, publishable spec folder, without a Fix 
   assert.equal(decided.comments.filter((item) => item.number === 12).length, 1, 'one comment, updated in place');
 });
 
-test('a spec is reworked by Spec Kit specify, and its evidence names the branch prefix and the spec that depends on it', async () => {
+test('a spec is reworked by Spec Kit author, and its evidence names the branch prefix and the spec that depends on it', async () => {
   const github = fixRepo();
   await authored(github);
   const context = await resolveAmendment(github, env(), 12);
   await startRework(github, env(), context, { mode: 'revise', feedback: { items: [{ kind: 'comment', author: 'dev', body: 'Keep the 2 s sweep check.', at: github.tick() }] } });
   const rework = github.repo.runs.at(-1);
-  assert.deepEqual([rework.workflow, rework.inputs.mode, rework.inputs.amendment, rework.inputs.folder, rework.inputs.branch], ['speckit-specify.lock.yml', 'revise', '12', FOLDER, BRANCH]);
+  assert.deepEqual([rework.workflow, rework.inputs.mode, rework.inputs.amendment, rework.inputs.folder, rework.inputs.branch], ['speckit-author.yml', 'revise', '12', FOLDER, BRANCH]);
   // GitHub rejects a dispatch with an input the workflow does not declare.
-  for (const run of github.repo.runs.filter((item) => item.workflow.endsWith('.lock.yml'))) {
+  for (const run of github.repo.runs.filter((item) => item.workflow.endsWith('.lock.yml') || item.workflow === 'speckit-author.yml')) {
     const declared = declaredInputs(run.workflow.replace('.lock.yml', '.md'));
     assert.deepEqual(Object.keys(run.inputs).filter((name) => !declared.includes(name)), [], `${run.workflow} declares every input it is dispatched with`);
   }
@@ -235,7 +245,7 @@ test('after the merge, the stopped spec depends on the new twin, which waits for
   assert.deepEqual(github.find(30).labels.map((label) => label.name).sort(), ['speckit:spec', 'speckit:stage:tasked'], 'not requested automatically');
   assert.equal(github.comments.filter((item) => item.number === 30).length, 0, 'nothing is written on the new twin');
   const linked = github.comments.filter((item) => item.number === 9).at(-1).body;
-  assert.match(linked, /^<!-- speckit-fix:linked \{"pull":12,"folder":"20261014-100000-upload-expiry","twin":30\} -->\n<!-- speckit-implement:blocked \{"blockers":\[30\],"unrequested":\[30\]\} -->\n\*\*Spec #12 is spec twin \[#30\]\([^)]*\)\*\*, and this spec now depends on it\. @dev, you asked for it with `\/speckit specify`/);
+  assert.match(linked, /^<!-- speckit-fix:linked \{"pull":12,"folder":"20261014-100000-upload-expiry","twin":30\} -->\n<!-- speckit-implement:blocked \{"blockers":\[30\],"unrequested":\[30\]\} -->\n\*\*Spec #12 is spec twin \[#30\]\([^)]*\)\*\*, and this spec now depends on it\. @dev, you asked for it with `\/speckit author`/);
   assert.match(linked, /\*\*Recommended next step\*\*: Comment the following on spec twin #30 to request its implementation\.\n\n```text\n\/speckit implement\n```[\s\S]*`\/speckit-implement <folder>` locally for its folder does the same/);
   assert.equal(linked.match(/\*\*Recommended next step\*\*/g).length, 1);
   assert.equal(github.repo.runs.at(-1).workflow, 'speckit-orchestrate.yml');
@@ -257,7 +267,7 @@ test('after the merge, the stopped spec depends on the new twin, which waits for
   const retried = github.comments.filter((item) => item.number === 9).at(-1);
   assert.ok(retried.body.startsWith(RETRY_COMMENT_MARKER), 'the retry preserves the current phase base');
   assert.match(retried.body, /<!-- speckit-implement:unblocked -->\n\*\*The block is lifted\*\*: prerequisite #30 is implemented/);
-  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }]);
+  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-group.yml', { issue: '5', pull: '9', title: 'F', subject: 'P · T002 Next' }]);
   assert.equal((await dependency()).outcome, 'none', 'retried once');
   assert.equal((await maintain()).outcome, 'linked');
   assert.deepEqual(parseFixEvents(github.comments.filter((item) => item.number === 9)).map((event) => event.event), ['requested', 'created', 'merged', 'linked']);
@@ -300,9 +310,11 @@ test('a consistent spec is merged automatically, and Spec Kit prepare and orches
 test('a spec that changes docs/architecture/ is held for review with its Design decisions; without decisions a correction round asks for them', async () => {
   const files = [`${PREFIX}/spec.md`, `${PREFIX}/plan.md`, `${PREFIX}/tasks.md`, `${PREFIX}/checklists/requirements.md`, 'docs/architecture/recordings.md'];
   const github = fixRepo({ files });
-  await authored(github, {}, 'dev', { designDecisions: [{ decision: 'Upload sessions expire after 10 minutes', why: 'Runner load delays the first part.', files: ['docs/architecture/recordings.md'] }] });
+  github.setFile('sha-fix', `${PREFIX}/plan.md`, '# Plan\n\n## Architecture Updates\n\n### Design updates\n\n- Upload sessions expire after 10 minutes (`docs/architecture/recordings.md`)\n');
+  github.setFile('sha-fix', `${PREFIX}/tasks.md`, `${TASKS}- [ ] T002 Update docs/architecture/recordings.md for the expiry\n`);
+  await authored(github);
   const decisions = github.comments.find((item) => item.number === 12 && item.body.startsWith('<!-- speckit-spec:design-decisions'));
-  assert.match(decisions.body, /^<!-- speckit-spec:design-decisions \{"count":1\} -->\n\*\*Design decisions\*\* of this spec[\s\S]*1\. \*\*Upload sessions expire after 10 minutes\*\*\n {3}- Why: Runner load delays the first part\.\n {3}- Files: `docs\/architecture\/recordings\.md`/);
+  assert.match(decisions.body, /^<!-- speckit-spec:design-decisions \{"count":1\} -->\n\*\*Design decisions\*\* of this spec \(from the `## Architecture Updates` section of its plan\)[\s\S]*1\. \*\*Upload sessions expire after 10 minutes \(docs\/architecture\/recordings\.md\)\*\*\n {3}- Why: plan\.md § Architecture Updates, Design updates\n {3}- Files: `docs\/architecture\/recordings\.md`/);
   const result = await recordSpecAnalysis(github);
   assert.equal(result.outcome, 'consistent');
   assert.deepEqual(github.repo.merges, [], 'not merged automatically');
@@ -313,15 +325,9 @@ test('a spec that changes docs/architecture/ is held for review with its Design 
     assert.match(body, /It changes `docs\/architecture\/`, so a person reviews its design decisions/);
   }
 
-  // A rework that reports new decisions replaces them; the comment stays one.
-  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-fix-rework-'));
-  try {
-    const output = path.join(dir, 'agent_output.json');
-    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_fix', report: JSON.stringify({ summary: 'Reworked.', artifacts: [], responses: [], designDecisions: [{ decision: 'Sessions expire after 15 minutes', why: 'Reviewer feedback.', files: ['docs/architecture/recordings.md'] }] }) }] }));
-    await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_MODE: 'revise', SPECKIT_AMENDMENT: '12', SPECKIT_FOLDER: FOLDER, SPECKIT_DETECTION: 'success', SPECKIT_CHECK_RUN: '' }), log: silent });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  // A rework that changes the plan's decisions replaces them; the comment stays one.
+  github.setFile('sha-rework', `${PREFIX}/plan.md`, '# Plan\n\n## Architecture Updates\n\n- Sessions expire after 15 minutes (`docs/architecture/recordings.md`)\n');
+  await withResult({ decision: 'author', outcome: 'authored', stage: 'plan', files: [`${PREFIX}/plan.md`] }, (dir) => runRecord({ client: github, env: env({ SPECKIT_RESULT_DIR: dir, SPECKIT_MODE: 'revise', SPECKIT_AMENDMENT: '12', SPECKIT_FOLDER: FOLDER, SPECKIT_PUSH_SHA: 'sha-rework', SPECKIT_CHECK_RUN: '' }), log: silent }));
   const updated = github.comments.filter((item) => item.number === 12 && item.body.startsWith('<!-- speckit-spec:design-decisions'));
   assert.equal(updated.length, 1);
   assert.match(updated[0].body, /Sessions expire after 15 minutes/);
@@ -330,8 +336,8 @@ test('a spec that changes docs/architecture/ is held for review with its Design 
   await authored(undecided);
   assert.equal((await recordSpecAnalysis(undecided)).outcome, 'correcting');
   const round = undecided.repo.runs.at(-1);
-  assert.deepEqual([round.workflow, round.inputs.mode], ['speckit-specify.lock.yml', 'fix']);
-  assert.match(round.inputs.guidance, /\*\*RULE\*\*: it changes `docs\/architecture\/recordings\.md`, but its author report lists no design decisions/);
+  assert.deepEqual([round.workflow, round.inputs.mode], ['speckit-author.yml', 'fix']);
+  assert.match(round.inputs.guidance, /\*\*RULE\*\*: it changes `docs\/architecture\/recordings\.md`, but its plan lists no design decisions for it/);
 });
 
 test('a consistent spec a person pushed to, or requested changes on, is handed to a person instead of being merged', async () => {
@@ -374,7 +380,7 @@ test('linking never creates a dependency cycle: a reverse dependency is reported
   assert.deepEqual(github.edges, [[5, 30]]);
 });
 
-test('one cause, one spec: /speckit specify on another implementation joins the existing one', async () => {
+test('one cause, one spec: /speckit author on another implementation joins the existing one', async () => {
   const github = fixRepo();
   github.permissions.dev = 'write';
   await authored(github);
@@ -391,10 +397,8 @@ test('one cause, one spec: /speckit specify on another implementation joins the 
     assert.match(evidence, /### #12 Spec: Upload session expiry \(`specs\/20261014-100000-upload-expiry`, open pull request, asked for by #9\)\n\n# Feature Specification: Upload session expiry test/);
 
     await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 6, implementation: await github.getPullRequest(20), actor: 'dev', now: github.clock });
-    const output = path.join(dir, 'agent_output.json');
-    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_fix', report: JSON.stringify({ reuse: '#12', summary: 'The same flaky expiry test stops this implementation.' }) }] }));
     const runs = github.repo.runs.length;
-    const joined = await runRecord({ client: github, env: { ...second, GH_AW_AGENT_OUTPUT: output, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), SPECKIT_DETECTION: 'success', SPECKIT_CREATED_PULL: '' }, log: silent });
+    const joined = await withResult({ decision: 'reuse', reuse: 12, summary: 'The same flaky expiry test stops this implementation.' }, (resultDir) => runRecord({ client: github, env: { ...second, SPECKIT_RESULT_DIR: resultDir, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), SPECKIT_CREATED_PULL: '' }, log: silent }));
     assert.deepEqual([joined.outcome, joined.pull], ['joined', 12]);
     assert.equal(github.repo.runs.length, runs, 'no second consistency check');
     assert.equal(github.repo.pulls.filter((pull) => String(pull.head.ref).startsWith('speckit-spec/')).length, 1, 'no second spec');
@@ -432,19 +436,12 @@ test('one cause, one spec: /speckit specify on another implementation joins the 
 test('a reuse must name an existing spec; a spec created anyway for the same cause is discarded', async () => {
   const report = async (github, fields, created = '') => {
     await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, implementation: await github.getPullRequest(9), actor: 'dev', now: github.clock });
-    const dir = mkdtempSync(path.join(tmpdir(), 'speckit-fix-reuse-'));
-    try {
-      const output = path.join(dir, 'agent_output.json');
-      writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_fix', report: JSON.stringify(fields) }] }));
-      return await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), SPECKIT_DETECTION: 'success', SPECKIT_CREATED_PULL: created }), log: silent });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    return withResult({ decision: 'reuse', ...fields }, (dir) => runRecord({ client: github, env: env({ SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), SPECKIT_CREATED_PULL: created }), log: silent }));
   };
   const invalid = fixRepo();
   const refused = await report(invalid, { reuse: 77 });
   assert.equal(refused.outcome, 'none');
-  assert.match(invalid.comments.filter((item) => item.number === 9).at(-1).body, /\*\*No spec was created\*\*: the agent named spec #77 for this cause, but it is neither an open spec pull request authored by `\/speckit specify` nor a merged one/);
+  assert.match(invalid.comments.filter((item) => item.number === 9).at(-1).body, /\*\*No spec was created\*\*: the decision named spec #77 for this cause, but it is neither an open spec pull request authored by `\/speckit author` nor a merged one/);
 
   const duplicate = fixRepo();
   duplicate.repo.branches['speckit-spec/20261014-120000-other'] = 'sha-fix';
@@ -533,7 +530,7 @@ test('a blocked label always comes with one explanation, replaces the attention 
   assert.deepEqual(implementation.labels.map((label) => label.name), ['bug']);
 });
 
-test('specs authored by /speckit specify are added to the default branch only, with a UTC folder stamp', async () => {
+test('specs authored by /speckit author are added to the default branch only, with a UTC folder stamp', async () => {
   const github = fixRepo();
   github.repo.pulls[0].base.ref = 'release';
   const refused = await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, implementation: await github.getPullRequest(9), actor: 'dev' });
@@ -551,15 +548,8 @@ test('a spec that does not block (link: false) is authored, maintained, and merg
   const request = github.comments.filter((item) => item.number === 9).at(-1);
   assert.match(request.body, /^<!-- speckit-fix:requested \{"by":"dev","stamp":"\d{8}-\d{6}","link":false\} -->/);
   assert.match(request.body, /It does not block this implementation, which continues meanwhile\./);
-  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-fix-'));
-  try {
-    const output = path.join(dir, 'agent_output.json');
-    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_fix', report: JSON.stringify({ folder: FOLDER, summary: 'Removes the timing dependency.' }) }] }));
-    const result = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), SPECKIT_DETECTION: 'success', SPECKIT_CREATED_PULL: '12' }), log: silent });
-    assert.equal(result.outcome, 'created');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const result = await withResult(authorResult({ summary: 'Removes the timing dependency.' }), (dir) => runRecord({ client: github, env: env({ SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), SPECKIT_CREATED_PULL: '12' }), log: silent }));
+  assert.equal(result.outcome, 'created');
   const created = github.comments.filter((item) => item.number === 9).at(-1);
   assert.match(created.body, /^<!-- speckit-fix:created \{"pull":12,"folder":"20261014-100000-upload-expiry","link":false\} -->\n\*\*Spec \[[^\n]*It does not block this implementation, which continues\./);
   assert.doesNotMatch(created.body, /speckit-implement:blocked/);
@@ -581,4 +571,212 @@ test('a spec that does not block (link: false) is authored, maintained, and merg
   assert.ok(!labels().includes(BLOCKED_LABEL));
   await maintainFixSpec(github, env(), { implementation: implementation(), twin: 5 }, { now: github.clock, report: silent });
   assert.equal(github.comments.filter((item) => item.number === 9 && item.body.includes('speckit-fix:merged')).length, 1, 'recorded once');
+});
+
+// ── Spec Kit author: the decision, the inputs, the result, and the land job ──────────────────────────────────────
+
+function tempRepo() {
+  const root = mkdtempSync(path.join(tmpdir(), 'speckit-author-git-'));
+  const work = path.join(root, 'work');
+  mkdirSync(work);
+  const git = defaultGit(work);
+  const run = (args) => {
+    const result = git(args);
+    assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
+    return result.stdout.trim();
+  };
+  run(['init', '--quiet', '-b', 'main']);
+  run(['config', 'user.name', 'test']);
+  run(['config', 'user.email', 'test@example.com']);
+  run(['config', 'core.autocrlf', 'false']);
+  writeFileSync(path.join(work, 'README.md'), '# Repo\n');
+  run(['add', '.']);
+  run(['commit', '--quiet', '-m', 'init']);
+  return { root, work, git, run, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+test('validates the decision of the decision step', () => {
+  assert.deepEqual(validateDecision({ decision: 'author', feature: ' Lengthen the session lifetime. ', summary: 'Fixes the flaky test.' }), { reasons: [], decision: { decision: 'author', summary: 'Fixes the flaky test.', feature: 'Lengthen the session lifetime.' } });
+  assert.deepEqual(validateDecision({ decision: 'reuse', reuse: '#12' }).decision, { decision: 'reuse', summary: '', reuse: 12 });
+  assert.deepEqual(validateDecision({ decision: 'refuse', refused: 'The runner image is broken.' }).decision, { decision: 'refuse', summary: '', refused: 'The runner image is broken.' });
+  assert.deepEqual(validateDecision({ decision: 'author' }).reasons, ['"feature" (the feature description) is missing']);
+  assert.deepEqual(validateDecision({ decision: 'reuse', reuse: 'twelve' }).reasons, ['"reuse" must be the number of the existing spec pull request']);
+  assert.deepEqual(validateDecision({ decision: 'refuse' }).reasons, ['"refused" (why no spec can remove the cause) is missing']);
+  assert.match(validateDecision({ decision: 'maybe' }).reasons[0], /"decision" must be one of author, reuse, refuse/);
+  assert.match(validateDecision({ decision: 'author', feature: 'x'.repeat(8001) }).reasons[0], /longer than 8000 characters/);
+});
+
+test('decide keeps the validated decision, resets the workspace, and turns an invalid decision into a refusal', () => {
+  const repo = tempRepo();
+  try {
+    const dir = path.join(repo.work, '.speckit-author');
+    mkdirSync(dir);
+    const output = path.join(repo.root, 'output.txt');
+    writeFileSync(path.join(dir, 'decision.json'), JSON.stringify({ decision: 'author', feature: 'Lengthen the session lifetime.', summary: 'Fixes it.' }));
+    writeFileSync(path.join(repo.work, 'README.md'), 'changed by the decision step\n');
+    writeFileSync(path.join(repo.work, 'stray.txt'), 'new file\n');
+    const result = runDecide({ env: { SPECKIT_RESULT_DIR: dir, GITHUB_OUTPUT: output }, log: silent, git: repo.git });
+    assert.equal(result.outcome, 'author');
+    assert.equal(readFileSync(path.join(dir, 'feature.txt'), 'utf8'), 'Lengthen the session lifetime.');
+    assert.equal(JSON.parse(readFileSync(path.join(dir, 'decision-validated.json'), 'utf8')).decision, 'author');
+    assert.equal(readFileSync(path.join(repo.work, 'README.md'), 'utf8'), '# Repo\n', 'the decision step changes nothing');
+    assert.ok(!existsSync(path.join(repo.work, 'stray.txt')));
+    assert.ok(existsSync(dir), 'the result folder survives the reset');
+    assert.equal(readFileSync(output, 'utf8'), 'decision=author\n');
+
+    writeFileSync(path.join(dir, 'decision.json'), '{ not json');
+    assert.equal(runDecide({ env: { SPECKIT_RESULT_DIR: dir }, log: silent, git: repo.git }).outcome, 'refuse');
+    assert.match(JSON.parse(readFileSync(path.join(dir, 'decision-validated.json'), 'utf8')).refused, /^The decision step did not decide: decision\.json is not valid JSON/);
+    assert.equal(readFileSync(path.join(dir, 'feature.txt'), 'utf8'), '');
+    rmSync(path.join(dir, 'decision.json'));
+    runDecide({ env: { SPECKIT_RESULT_DIR: dir }, log: silent, git: repo.git });
+    assert.match(JSON.parse(readFileSync(path.join(dir, 'decision-validated.json'), 'utf8')).refused, /the decision step wrote no decision\.json/);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('the read-only steps of the author job run without a GitHub token', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-author-tokenless-'));
+  try {
+    writeFileSync(path.join(dir, 'decision.json'), JSON.stringify({ decision: 'refuse', refused: 'An outage.' }));
+    const tokenless = { SPECKIT_RESULT_DIR: dir, SPECKIT_WORKSPACE: dir };
+    assert.equal(await fixMain(['decide'], { env: tokenless, log: silent, git: () => ({ status: 0, stdout: '', stderr: '' }) }), 0);
+    assert.equal(JSON.parse(readFileSync(path.join(dir, 'decision-validated.json'), 'utf8')).decision, 'refuse');
+    assert.equal(await fixMain(['package'], { env: env({ ...tokenless, SPECKIT_MODE: 'author' }), log: silent, git: () => assert.fail('a refusal needs no git') }), 0);
+    await assert.rejects(fixMain(['record'], { env: env(tokenless), log: silent }), /A GitHub token is required/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a rework starts at the earliest artifact its feedback names', () => {
+  assert.equal(reworkStage('Requirement FR-003 in spec.md is ambiguous; tasks.md misses it', 'tasks'), 'clarify');
+  assert.equal(reworkStage('data-model.md lacks the expiry field', 'clarify'), 'plan');
+  assert.equal(reworkStage('see contracts/upload.yaml', 'clarify'), 'plan');
+  assert.equal(reworkStage('T004 in tasks.md has no test', 'clarify'), 'tasks');
+  assert.equal(reworkStage('Make it shorter', 'clarify'), 'clarify');
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-author-inputs-'));
+  try {
+    const output = path.join(dir, 'output.txt');
+    assert.equal(runInputs({ env: env({ SPECKIT_MODE: 'fix', SPECKIT_AMENDMENT: '12', SPECKIT_FOLDER: FOLDER, SPECKIT_ROUND: '2', SPECKIT_RESULT_DIR: dir, SPECKIT_GUIDANCE: 'C1: no task covers FR-002', GITHUB_OUTPUT: output }), log: silent }).outcome, 'tasks');
+    assert.match(readFileSync(path.join(dir, 'feedback.txt'), 'utf8'), /^Resolve these findings of the consistency check \(correction round 2\):\n\nC1: no task covers FR-002$/);
+    assert.equal(readFileSync(output, 'utf8'), 'stage=tasks\n');
+    assert.equal(runInputs({ env: env({ SPECKIT_MODE: 'revise', SPECKIT_AMENDMENT: '12', SPECKIT_FOLDER: FOLDER, SPECKIT_RESULT_DIR: dir, SPECKIT_GUIDANCE: 'Also cover retries' }), log: silent }).outcome, 'clarify');
+    assert.match(readFileSync(path.join(dir, 'feedback.txt'), 'utf8'), /^Address this feedback from the review of the spec pull request:\n\nAlso cover retries$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('reads the design decisions from the plan\'s Architecture Updates', () => {
+  assert.deepEqual(designDecisionsFromPlan(PLAN), [], 'None lists no decisions');
+  assert.deepEqual(designDecisionsFromPlan('# Plan\n\n## Summary\n\n- not a decision\n'), []);
+  const plan = '# Plan\n\n## Architecture Updates\n\n- Uploads resume across sessions (`docs/architecture/recordings.md#uploads`).\n\n### Status statements\n\n* Correct docs/architecture/overview.md and docs/architecture/recordings.md.\n\n## Project Structure\n\n- src/x\n';
+  assert.deepEqual(designDecisionsFromPlan(plan), [
+    { decision: 'Uploads resume across sessions (docs/architecture/recordings.md#uploads).', why: 'plan.md § Architecture Updates', files: ['docs/architecture/recordings.md'] },
+    { decision: 'Correct docs/architecture/overview.md and docs/architecture/recordings.md.', why: 'plan.md § Architecture Updates, Status statements', files: ['docs/architecture/overview.md', 'docs/architecture/recordings.md'] },
+  ]);
+});
+
+test('reads the result of the author job, and a missing one as a job that did not finish', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-author-result-'));
+  try {
+    assert.deepEqual(readResult({ SPECKIT_RESULT_DIR: dir, SPECKIT_AUTHOR_JOB: 'cancelled' }), { decision: 'author', outcome: 'failed', error: 'the author job did not finish (cancelled)' });
+    writeFileSync(path.join(dir, 'result.json'), JSON.stringify({ decision: 'author', outcome: 'authored', folder: FOLDER }));
+    assert.equal(readResult({ SPECKIT_RESULT_DIR: dir }).outcome, 'authored');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.deepEqual(parseAuthorReport({ decision: 'author', outcome: 'failed', error: 'the gate failed', folder: FOLDER }), { summary: '', refused: 'the gate failed', folder: FOLDER, reuse: null });
+  assert.equal(parseAuthorReport({ decision: 'reuse', reuse: '#12' }).reuse, 12);
+  assert.equal(parseAuthorReport({ decision: 'author', outcome: 'authored', reuse: 12 }).reuse, null, 'only a reuse decision reuses');
+  assert.deepEqual(reworkOutcome({ outcome: 'failed', error: 'the analysis failed' }, {}), { reasons: ['the analysis failed'], report: null, pushed: '', pushFailures: 0, incomplete: [] });
+  assert.deepEqual(reworkOutcome({ outcome: 'authored', stage: 'tasks', files: [`${PREFIX}/tasks.md`] }, { SPECKIT_PUSH_SHA: 'abc' }), { reasons: [], report: { summary: `The Spec Kit workflow \`author\` reworked the spec from tasks: \`${PREFIX}/tasks.md\`.`, responses: [] }, pushed: 'abc', pushFailures: 0, incomplete: [] });
+  assert.deepEqual(reworkOutcome({ outcome: 'authored', pushRefused: 'it changes src/x' }, { SPECKIT_PUSH_FAILURES: '1' }).incomplete, ['it changes src/x']);
+});
+
+test('package passes a reuse through and reports an author run that did not start', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-author-package-'));
+  try {
+    writeFileSync(path.join(dir, 'decision-validated.json'), JSON.stringify({ decision: 'reuse', summary: 'Same cause.', reuse: 12 }));
+    await runPackage({ env: env({ SPECKIT_MODE: 'author', SPECKIT_RESULT_DIR: dir }), log: silent, git: () => assert.fail('a reuse needs no git'), rootDir: dir });
+    assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'result.json'), 'utf8')), { decision: 'reuse', summary: 'Same cause.', reuse: 12, stage: null });
+    writeFileSync(path.join(dir, 'decision-validated.json'), JSON.stringify({ decision: 'author', summary: '', feature: 'x' }));
+    assert.equal((await runPackage({ env: env({ SPECKIT_MODE: 'author', SPECKIT_RESULT_DIR: dir }), log: silent, git: () => assert.fail('no run, no diff'), rootDir: dir })).outcome, 'failed');
+    const result = JSON.parse(readFileSync(path.join(dir, 'result.json'), 'utf8'));
+    assert.equal(result.error, 'the Spec Kit workflow `author` did not start');
+    assert.ok(!existsSync(path.join(dir, 'changes.patch')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The author job's patch: a commit on top of main, as the Spec Kit workflow `author` makes it with publish=commit.
+function authorPatch(repo, files) {
+  const start = repo.run(['rev-parse', 'HEAD']);
+  for (const [file, content] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(repo.work, file)), { recursive: true });
+    writeFileSync(path.join(repo.work, file), content);
+  }
+  repo.run(['add', '.']);
+  repo.run(['commit', '--quiet', '-m', 'authored']);
+  const patch = repo.git(['diff', '--binary', '--no-renames', start, 'HEAD']).stdout;
+  repo.run(['reset', '--quiet', '--hard', start]);
+  return patch;
+}
+
+test('land publishes the authored spec on its own branch and opens its draft pull request', async () => {
+  const repo = tempRepo();
+  try {
+    const remote = path.join(repo.root, 'remote', 'octo', 'repo.git');
+    mkdirSync(remote, { recursive: true });
+    defaultGit(remote)(['init', '--quiet', '--bare']);
+    const dir = path.join(repo.root, 'result');
+    mkdirSync(dir);
+    writeFileSync(path.join(dir, 'changes.patch'), authorPatch(repo, { [`${PREFIX}/spec.md`]: SPEC, [`${PREFIX}/plan.md`]: PLAN, [`${PREFIX}/tasks.md`]: TASKS }));
+    writeFileSync(path.join(dir, 'result.json'), JSON.stringify(authorResult({ title: 'Upload session expiry' })));
+    const github = fixRepo();
+    delete github.repo.branches[BRANCH];
+    let created = null;
+    github.createPullRequest = async (fields) => {
+      created = fields;
+      github.repo.branches[fields.head] = 'sha-fix';
+      return github.getPullRequest(12);
+    };
+    await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, implementation: await github.getPullRequest(9), guidance: 'Make the test robust', actor: 'dev', now: github.clock });
+    const serverUrl = pathToFileURL(path.join(repo.root, 'remote')).href;
+    const result = await runLand({ client: github, env: env({ SPECKIT_MODE: 'author', SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), GITHUB_SERVER_URL: serverUrl, GITHUB_TOKEN: 'token' }), log: silent, git: repo.git });
+    assert.equal(result.outcome, 'created');
+    assert.deepEqual({ ...created, body: undefined }, { title: 'Spec: Upload session expiry', head: BRANCH, base: 'main', body: undefined, draft: true });
+    assert.match(created.body, /^Lengthens the session lifetime of the expiry test\.\n\nAuthored by the Spec Kit workflow `author` for #9\.$/);
+    const shown = repo.git([`--git-dir=${remote}`, 'show', '--name-only', '--format=%an %s', BRANCH]);
+    const pushed = shown.stdout;
+    assert.equal(shown.status, 0, shown.stderr);
+    assert.match(pushed, /^github-actions\[bot\] Spec: Upload session expiry\n/);
+    for (const file of ['spec.md', 'plan.md', 'tasks.md']) assert.match(pushed, new RegExp(`${PREFIX}/${file}`));
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('land refuses a spec that changes files outside its folder and docs/architecture/', async () => {
+  const repo = tempRepo();
+  try {
+    const dir = path.join(repo.root, 'result');
+    mkdirSync(dir);
+    writeFileSync(path.join(dir, 'changes.patch'), authorPatch(repo, { [`${PREFIX}/spec.md`]: SPEC, 'src/app.cs': 'class App {}\n' }));
+    writeFileSync(path.join(dir, 'result.json'), JSON.stringify(authorResult()));
+    const github = fixRepo();
+    delete github.repo.branches[BRANCH];
+    github.createPullRequest = async () => assert.fail('no pull request for a refused spec');
+    await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, implementation: await github.getPullRequest(9), guidance: 'Make the test robust', actor: 'dev', now: github.clock });
+    const result = await runLand({ client: github, env: env({ SPECKIT_MODE: 'author', SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), GITHUB_TOKEN: 'token' }), log: silent, git: repo.git });
+    assert.notEqual(result.outcome, 'created');
+    assert.match(JSON.parse(readFileSync(path.join(dir, 'result.json'), 'utf8')).error, /^The new spec could not be published: it changes files outside `specs\/20261014-100000-upload-expiry\/` and `docs\/architecture\/`: `src\/app\.cs`\.$/);
+    const stop = github.comments.filter((item) => item.number === 9).at(-1);
+    assert.match(stop.body, /could not be published: it changes files outside/);
+  } finally {
+    repo.cleanup();
+  }
 });

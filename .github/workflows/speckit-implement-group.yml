@@ -1,101 +1,112 @@
 name: Spec Kit implement group
 
-# One ordered phase unit, never started on its own: called serially by Spec Kit implement phase. A singleton delegates
-# directly to one task workflow. Consecutive `[P]` tasks fan out to task workflows; after every task has landed, the
-# group is verified together only when a landing had to merge a sibling's edits to the same files (the affected tests
-# of the group's changes). Otherwise each task's own verification and the phase verification cover the group, and the
-# report only shows the next unit.
+# A group of tasks of an implementation chain (see Spec Kit implement decide), also the convergence or a conflict resolution as
+# a group of one: prepare the run, implement the group (one matrix job per work item, each a call of Spec Kit implement
+# task), verify a parallel group together when a landing combined a sibling's edits, report it, and start the next run.
+# A sequential group (consecutive tasks without `[P]` of one phase) runs one item at a time (max-parallel 1) and stops at
+# the first item that does not land; a parallel group (consecutive `[P]` tasks under one heading) runs at most
+# MAX_PARALLEL_TASKS (5) at a time, every task landing on its own.
+run-name: >-
+  Spec Kit implement spec #${{ inputs.issue }}${{ inputs.title && format(' · {0}', inputs.title) || '' }}${{ inputs.subject && format(' · {0}', inputs.subject) || '' }}
+
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
-      twin:
-        description: Spec twin issue number
+      issue:
+        description: Spec twin issue number (labelled speckit:spec)
         required: true
         type: string
       pull:
         description: Implementation pull request number
         required: true
         type: string
-      folder:
-        description: Spec folder name under specs/
-        required: true
+      guidance:
+        description: Guidance for the agent of what stopped (optional)
+        required: false
         type: string
-      base:
-        description: Base branch of the implementation pull request
-        required: true
+      title:
+        description: The spec title, for the run name (optional; the implementation pull request title without "Implement:")
+        required: false
         type: string
-      order:
-        description: Ordered phase units as JSON
-        required: true
+      subject:
+        description: What the run will work on, for the run name (optional; decided when it was started)
+        required: false
         type: string
-      index:
-        description: Index of this unit in the phase order
-        required: true
-        type: number
 
 permissions: {}
 
+# One chain per spec, shared with the chain before groups (Spec Kit implement spec), so runs of both never overlap:
+# GitHub keeps one pending run per group; a replaced pending run is harmless, because every run decides from the state
+# on GitHub.
+concurrency:
+  group: speckit-implement-${{ inputs.issue }}
+  cancel-in-progress: false
+
 jobs:
-  prepare:
-    name: Prepare the group
+  refuse:
+    name: Refuse non-default-branch runs
+    if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    outputs:
-      head: ${{ steps.group.outputs.head }}
-      parallel: ${{ steps.group.outputs.parallel }}
+    timeout-minutes: 5
     steps:
-      - name: Check out the implementation branch
-        uses: actions/checkout@v5
-        with:
-          ref: speckit/${{ inputs.folder }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Record the group
-        id: group
-        env:
-          ORDER: ${{ inputs.order }}
-          INDEX: ${{ inputs.index }}
-        shell: bash
+      - name: Refuse the run
         run: |
-          count="$(node -e 'const order=JSON.parse(process.env.ORDER); console.log(order[Number(process.env.INDEX)].include.length)')"
-          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          if [ "$count" -gt 1 ]; then echo "parallel=true" >> "$GITHUB_OUTPUT"; else echo "parallel=false" >> "$GITHUB_OUTPUT"; fi
+          echo "::error::Spec Kit workflows only run from the default branch, not ${GITHUB_REF}."
+          exit 1
 
-  tasks:
-    name: ${{ matrix.task }}
-    needs: prepare
+  # Merges the base branch when the next work needs it and decides what comes next (Spec Kit implement prepare). A run
+  # that finds work of another kind hands it over to that kind's workflow before it starts anything.
+  decide:
+    name: Prepare the run
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    uses: ./.github/workflows/speckit-implement-prepare.yml
+    permissions:
+      actions: write
+      checks: write
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      issue: ${{ inputs.issue }}
+      pull: ${{ inputs.pull }}
+      guidance: ${{ inputs.guidance }}
+      workflow: speckit-implement-group.yml
+
+  # One matrix job per work item of decide, named after what it works on ("T013", "Convergence"). A sequential group runs
+  # them one at a time and in order (GitHub runs matrix jobs in the order it created them when max-parallel is 1), and
+  # fail-fast cancels the items after one that does not land; a parallel group runs at most 5 at a time.
+  implement:
+    name: ${{ matrix.name }}
+    needs: decide
+    if: ${{ !cancelled() && needs.decide.outputs.action == 'group' }}
     strategy:
-      fail-fast: false
-      max-parallel: ${{ fromJSON(vars.SPECKIT_MAX_PARALLEL_TASKS || '3') }}
-      matrix: ${{ fromJSON(inputs.order)[inputs.index] }}
+      max-parallel: ${{ fromJSON(needs.decide.outputs.max_parallel) }}
+      fail-fast: ${{ needs.decide.outputs.mode != 'parallel' }}
+      matrix:
+        include: ${{ fromJSON(needs.decide.outputs.entries) }}
     uses: ./.github/workflows/speckit-implement-task.yml
     permissions:
+      actions: read
       checks: write
       contents: write
       copilot-requests: write
       issues: read
       pull-requests: write
     with:
-      twin: ${{ inputs.twin }}
+      issue: ${{ inputs.issue }}
       pull: ${{ inputs.pull }}
-      folder: ${{ inputs.folder }}
-      base: ${{ inputs.base }}
-      order: ${{ inputs.order }}
-      index: ${{ inputs.index }}
-      task: ${{ matrix.task }}
-      attempt: ${{ matrix.attempt }}
-      prompt: ${{ matrix.prompt }}
-      verify_mode: ${{ matrix.verify_mode }}
-      summary: ${{ matrix.summary }}
-      defer_progress: ${{ needs.prepare.outputs.parallel == 'true' }}
+      folder: ${{ needs.decide.outputs.folder }}
+      base: ${{ needs.decide.outputs.base_branch }}
+      kind: ${{ needs.decide.outputs.kind }}
+      order: ${{ needs.decide.outputs.order }}
+      entry: ${{ toJSON(matrix) }}
 
+  # Only a landing that merged a sibling's edits to the same files three-way adds a risk the tasks' own verifications
+  # did not cover; it records those files in its commit message (read-only token; it runs agent-written code).
   verify:
     name: Verify the parallel tasks together
-    needs: [prepare, tasks]
-    if: always() && needs.prepare.outputs.parallel == 'true' && needs.tasks.result == 'success'
+    needs: [decide, implement]
+    if: always() && needs.decide.outputs.mode == 'parallel' && needs.implement.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -111,14 +122,14 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           path: tooling
           persist-credentials: false
 
       - name: Check out the parallel result
         uses: actions/checkout@v5
         with:
-          ref: speckit/${{ inputs.folder }}
+          ref: speckit/${{ needs.decide.outputs.folder }}
           path: workspace
           fetch-depth: 0
           persist-credentials: false
@@ -126,7 +137,7 @@ jobs:
       - name: List the group changes
         working-directory: workspace
         env:
-          GROUP_START: ${{ needs.prepare.outputs.head }}
+          GROUP_START: ${{ needs.decide.outputs.head }}
         run: |
           mkdir -p "$SPECKIT_RESULT_DIR"
           git diff --name-only --no-renames "$GROUP_START" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
@@ -141,12 +152,10 @@ jobs:
         with:
           node-version: 24
 
-      # Only a landing that merged a sibling's edits to the same files three-way adds a risk the tasks' own
-      # verifications did not cover; it records those files in its commit message.
       - name: Find combined edits
         id: combined
         env:
-          SPECKIT_GROUP_START: ${{ needs.prepare.outputs.head }}
+          SPECKIT_GROUP_START: ${{ needs.decide.outputs.head }}
         run: node tooling/.github/scripts/speckit-group.mjs combined-edits
 
       - name: Set up the solution environment
@@ -176,8 +185,8 @@ jobs:
 
   report:
     name: Report the group verification
-    needs: [prepare, tasks, verify]
-    if: always() && needs.prepare.outputs.parallel == 'true' && needs.tasks.result == 'success'
+    needs: [decide, implement, verify]
+    if: always() && needs.decide.outputs.mode == 'parallel' && needs.implement.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -189,7 +198,7 @@ jobs:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up Node.js
@@ -201,15 +210,49 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          SPECKIT_BASE_BRANCH: ${{ inputs.base }}
-          SPECKIT_TWIN: ${{ inputs.twin }}
+          SPECKIT_BASE_BRANCH: ${{ needs.decide.outputs.base_branch }}
+          SPECKIT_TWIN: ${{ inputs.issue }}
           SPECKIT_PULL: ${{ inputs.pull }}
-          SPECKIT_FOLDER: ${{ inputs.folder }}
-          SPECKIT_ORDER: ${{ inputs.order }}
-          SPECKIT_ORDER_INDEX: ${{ inputs.index }}
+          SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
+          SPECKIT_ORDER: ${{ needs.decide.outputs.order }}
+          SPECKIT_ORDER_INDEX: "0"
           SPECKIT_HEAD: ${{ needs.verify.outputs.head }}
           SPECKIT_LAND_OK: "true"
           SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
           SPECKIT_COMBINED: ${{ needs.verify.outputs.combined || 'true' }}
           SPECKIT_VERIFY_FLAKY: ${{ needs.verify.outputs.flaky }}
         run: node .github/scripts/speckit-group.mjs combined-verified
+
+  # Starts the next run in the workflow of its kind unless this run was cancelled; a stop (attempt limit, diagnosis,
+  # review) is decided by the next run.
+  continue:
+    name: Start the next run
+    needs: [decide, report]
+    if: ${{ !cancelled() && needs.decide.outputs.continue == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Start the next run
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_TWIN: ${{ inputs.issue }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+        run: node .github/scripts/speckit-spec.mjs continue

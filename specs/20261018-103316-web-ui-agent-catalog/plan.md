@@ -7,7 +7,7 @@
 ## Summary
 
 Add a connected Agent Catalog area for Club Admins to the Web UI at `src/clients/web/`, over the agent catalog member
-operations of [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md), with
+operations of [Agent Catalog Registry](../archive/20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md), with
 the navigation, page, confirmation, refusal, and response-metadata patterns of
 [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/plan.md).
 

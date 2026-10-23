@@ -289,7 +289,7 @@ public sealed partial class UpstreamStager(
         }
     }
 
-    private static async Task<string> WriteAsync(Stream source, string path, CancellationToken ct)
+    internal static async Task<string> WriteAsync(Stream source, string path, CancellationToken ct)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         await using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
@@ -491,7 +491,7 @@ public sealed partial class UpstreamStager(
         }
     }
 
-    private sealed class LocalWriteException : Exception;
+    internal sealed class LocalWriteException : Exception;
 
     private sealed record Dependency(
         QueueCapability Capability, string SchemaVersion, UpstreamDescriptor Upstream, List<UpstreamResult> Results,

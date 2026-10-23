@@ -6,6 +6,7 @@ import { specDir, stageLabelChange } from './speckit-prepare-core.mjs';
 import { archiveSpec, referenceOnlySpecChanges, refreshArchivedReferences, resolveSpecConflicts } from './speckit-archive.mjs';
 import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
+import { workflowFailure } from './speckit-workflow-job.mjs';
 import {
   CHECK_CONFLICT,
   CHECK_DONE,
@@ -44,7 +45,6 @@ import {
   renderFlakyLines,
   renderNextSteps,
   renderRepairMarker,
-  renderResolvePrompt,
   renderSyncSkippedMarker,
   renderBaseOwnedMarker,
   baseOwnedChanges,
@@ -60,6 +60,7 @@ import {
   tickTask,
   validateConvergeChange,
   validateTaskChange,
+  WORK_VERBS,
 } from './speckit-implement-core.mjs';
 
 export const MAX_PATCH_BYTES = 5 * 1024 * 1024;
@@ -174,7 +175,7 @@ function isSafeRelativePath(file) {
 // `baseOwned`, recorded on the pull request, and hold the final merge for a person's review. Deleting such files,
 // protected paths, and the environment actions stay off limits. Runs during the uncommitted merge, so HEAD is the
 // implementation branch.
-function resolutionScope({ git, baseSha, paths, deleted = [] }) {
+export function resolutionScope({ git, baseSha, paths, deleted = [] }) {
   if (paths.length === 0) return { reasons: [], baseOwned: [] };
   const reasons = [];
   if (paths.length > MAX_CHANGED_FILES) reasons.push(`the resolution changes more than ${MAX_CHANGED_FILES} files besides the conflicts`);
@@ -235,9 +236,13 @@ export function checkStagedConvergence({ git, workspace, folder, patchBytes }) {
   return { ...validation, reasons: [...sizeReasons(patchBytes, paths), ...validation.reasons], paths };
 }
 
+// The agent runs as a Spec Kit workflow (the speckit-workflow action): a run that did not complete reports the
+// workflow's own reason (workflow.json); agent-exit.txt says whether it completed.
 function agentReasons(resultDir) {
   const exitFile = path.join(resultDir, 'agent-exit.txt');
   const agentExit = existsSync(exitFile) ? Number(readFileSync(exitFile, 'utf8').trim()) : null;
+  const failure = workflowFailure(resultDir);
+  if (failure) return { agentExit, reasons: [failure] };
   if (agentExit === 124) return { agentExit, reasons: ['the agent did not finish within 60 minutes'] };
   if (agentExit !== 0) return { agentExit, reasons: [agentExit === null ? 'the agent did not run' : `the agent exited with code ${agentExit}`] };
   return { agentExit, reasons: [] };
@@ -265,7 +270,7 @@ const isProtected = isProtectedPath;
 // A file of the implemented spec's own folder (active or archived).
 const isOwnSpecPath = (file, folder) => [specDir(folder), specDir(folder, { archived: true })].some((dir) => file.startsWith(`${dir}/`));
 
-// Spec Kit implement conflict resolution and Spec Kit implement merge, job "verify": merges the base branch
+// Spec Kit implement task (a conflict resolution) and Spec Kit implement merge, job "Verify the merged result": merges the base branch
 // (SPECKIT_BASE_BRANCH) into the checked-out implementation branch without committing, records the base branch SHA and
 // any conflicted files, and prepares the agent prompt for conflict resolution. Conflicts in protected paths need a
 // person. After a clean merge it writes the paths the implementation changes compared to the base branch for the
@@ -275,7 +280,6 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   const baseBranch = baseBranchFromEnv(env);
   const baseSha = gitOrThrow(git, ['rev-parse', `refs/remotes/origin/${baseBranch}`]).trim();
   const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
-  const forkPoint = git(['merge-base', 'HEAD', baseSha]);
   const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', baseSha]);
   const root = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
   const specs = resolveSpecConflicts({ git, root, folder });
@@ -316,14 +320,6 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   setOutput(env, 'agent', String(agent));
   setOutput(env, 'verify', String(inputs.kind === 'merge' && conflicts.length === 0 && result.reasons.length === 0));
   setOutput(env, 'environment', String(inputs.kind === 'merge' && result.environment));
-  setOutput(env, 'prompt', agent ? renderResolvePrompt({
-    folder,
-    files: conflicts,
-    base: baseBranch,
-    forkPoint: forkPoint.status === 0 ? forkPoint.stdout.trim() : null,
-    archived: isArchivedIn(root, folder),
-    guidance: env.SPECKIT_GUIDANCE,
-  }) : '');
   log(conflicts.length > 0 ? `Conflicts with ${baseBranch} (${baseSha}): ${conflicts.join(', ')}` : `Merged ${baseBranch} (${baseSha}) cleanly.`);
   return { exitCode: 0, result };
 }
@@ -596,7 +592,7 @@ export function combinedGroupEdits(git, start, head = 'HEAD') {
   return [...files].sort();
 }
 
-// Spec Kit implement group, job "verify" (read-only): decides whether the parallel tasks need a combined verification.
+// Spec Kit implement group, job "Verify the parallel tasks together" (read-only): decides whether the parallel tasks need a combined verification.
 // Writes combined=true|false and the combined files; the workflow verifies only a combination.
 export function runCombinedEdits({ git, env, log }) {
   const start = String(env.SPECKIT_GROUP_START ?? '').trim();
@@ -1115,7 +1111,7 @@ export async function runLandTasks({ client, git, env, folder, workspace, result
   return { exitCode: ok ? 0 : 1, ok, head, combined, outcomes };
 }
 
-// Spec Kit implement group, job "report" (write token, never runs agent-written code): after parallel tasks land,
+// Spec Kit implement group, job "Report the group verification" (write token, never runs agent-written code): after parallel tasks land,
 // the group decides how the phase continues. Without combined edits (SPECKIT_COMBINED=false) nothing was verified
 // together, because each task passed its own verification and the phase verification covers them; with combined
 // edits the affected tests of the group's changes ran. Success: the next tasks are shown as in progress on the new
@@ -1213,6 +1209,8 @@ export async function runRepairReport({ client, env, log }) {
     await client.createComment(pull, [
       renderRepairMarker({ id: repair.id, state: 'resolved', at: new Date().toISOString(), head }),
       ...markerLines(inputs, 'success'),
+      // A repaired phase verification verified the phase, so the chain does not verify it again.
+      ...(String(repair.id).startsWith('phase:') && repair.phase !== undefined ? [renderAttemptMarker({ kind: 'verify', attempt, outcome: 'success', phase: repair.phase || null })] : []),
       `**Repair verified** (attempt ${attempt}): the ${repair.scope} verification passes on \`${head}\`.`,
       ...(flaky.length > 0 ? ['', ...flaky] : []),
     ].join('\n'));
@@ -1417,7 +1415,7 @@ function baseOwnedDiff(git, baseSha, files, baseBranch) {
   return ['', `<details><summary>Changes to files of \`${baseBranch}\`</summary>`, '', ['```diff', neutralizeMarkers(text).replaceAll('```', "'''"), '```'].join('\n'), '', '</details>'];
 }
 
-// Spec Kit implement merge, job "land" (write token, no checkout of workspace code): reports the verified integration
+// Spec Kit implement merge, job "Merge into the base branch" (write token, no checkout of workspace code): reports the verified integration
 // and squash-merges the implementation into its base branch (the pull request's base), or asks for review when
 // automatic merging is off.
 export async function runMergeLand({ client, env, inputs, resultDir, workResult, log }) {
@@ -1649,7 +1647,7 @@ export async function pointPullRequestLinks(client, pull, folder, { baseBranch, 
   }
 }
 
-// Spec Kit implement merge, job "archive" (write token, trusted tooling; it never runs agent-written code): archives
+// Spec Kit implement merge, job "Archive the spec before the merge" (write token, trusted tooling; it never runs agent-written code): archives
 // the implemented spec on the implementation branch right before the merge, so the move to specs/archive/<folder> and
 // every rewritten reference land with the implementation. It works on the branch merged with the base branch, because
 // specs merged there since may link to this one, and it also points references to specs archived there since to the
@@ -1769,7 +1767,7 @@ export async function main(argv, { env = process.env, log = console.log, client,
     })).exitCode;
   }
   if (!['integrate', 'package', 'verdict', 'merge-land'].includes(command)) {
-    throw new TaskInputError(`Usage: speckit-task.mjs <${COMMANDS}> (inputs come from SPECKIT_* environment variables)`);
+    throw new TaskInputError(`Usage: speckit-implement.mjs <${COMMANDS}> (inputs come from SPECKIT_* environment variables)`);
   }
   const inputs = parseTaskInputs(env);
   if (command === 'integrate') return runIntegrate({ git: git ?? defaultGit(workspace), env, inputs, folder, resultDir, log }).exitCode;
@@ -1782,7 +1780,7 @@ export async function main(argv, { env = process.env, log = console.log, client,
 export async function runTypedCommand(kind, commands, argv, options = {}) {
   const [command] = argv;
   if (!commands.includes(command)) {
-    throw new TaskInputError(`Usage: speckit-${kind}.mjs <${commands.join(' | ')}> (inputs come from SPECKIT_* environment variables)`);
+    throw new TaskInputError(`Usage: speckit-${WORK_VERBS[kind] ?? kind}.mjs <${commands.join(' | ')}> (inputs come from SPECKIT_* environment variables)`);
   }
   return main(argv, { ...options, env: { ...(options.env ?? process.env), SPECKIT_KIND: kind } });
 }

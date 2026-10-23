@@ -5,4 +5,5 @@ public enum AgentFailureReason
 	AttemptsExhausted,
 	ExecutionFailed,
 	ScopeLost,
+	AgentNotAvailable,
 }

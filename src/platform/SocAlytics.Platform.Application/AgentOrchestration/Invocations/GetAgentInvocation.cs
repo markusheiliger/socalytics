@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.AgentOrchestration.Catalog;
 using SocAlytics.Platform.Application.AgentOrchestration.Execution;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Domain.AgentOrchestration;
@@ -12,6 +13,7 @@ public sealed record GetAgentInvocationQuery(Guid InvocationId);
 public sealed class GetAgentInvocationHandler(
     IUnitOfWork unitOfWork,
     IAgentInvocationStore invocations,
+    IAgentInvocationPinStore pins,
     IAccessAuthorizer authorizer,
     IRequestContext requestContext,
     IOptionsMonitor<AgentOrchestrationOptions> options)
@@ -52,6 +54,6 @@ public sealed class GetAgentInvocationHandler(
             retryAfter = AgentExecutionSupport.ResolvePolicy(invocation.ExecutionPolicyJson, options.CurrentValue).SuggestedPollingSeconds;
         }
 
-        return new AgentInvocationView(invocation, advice, retryAfter);
+        return new AgentInvocationView(invocation, advice, retryAfter, await AgentPins.ReadAsync(pins, invocation, cancellationToken));
     }
 }

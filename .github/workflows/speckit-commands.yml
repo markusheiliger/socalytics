@@ -5,7 +5,7 @@ name: Spec Kit commands
 #   and on spec twin issues (label speckit:spec): implement (the only way to request an implementation), help.
 #   - Feedback on amendment pull requests (speckit-amend/<folder>) and authored spec pull requests
 #     (speckit-spec/<folder>, earlier speckit-fix/<folder>): a comment, or a review with Comment or Request changes,
-#     has it reworked (Spec Kit diagnose or Spec Kit specify, mode revise) and checked again (Spec Kit analyze).
+#     has it reworked (Spec Kit diagnose or Spec Kit author, mode revise) and checked again (Spec Kit analyze).
 #   - Closing an amendment pull request: merged (the implementation continues) or discarded; closing an authored spec
 #     pull request: merged (its twin is implemented next, and the stopped implementation, which depends on it, retries
 #     once it is implemented) or discarded. A person's push to such a branch is checked again.
@@ -28,6 +28,10 @@ on:
         description: Amendment pull request whose feedback to handle (set by the review forwarder)
         required: true
         type: string
+
+# Every run says which pull request or issue it handles: GitHub would otherwise name it after the pull request title
+# alone ("Implement: …", "Amend: …").
+run-name: "${{ github.event_name == 'issue_comment' && format('Spec Kit commands · comment on #{0} · {1}', github.event.issue.number, github.event.issue.title) || github.event_name == 'pull_request_review' && format('Spec Kit commands · review of pull request #{0} · {1}', github.event.pull_request.number, github.event.pull_request.title) || github.event_name == 'pull_request_target' && format('Spec Kit commands · pull request #{0} {1} · {2}', github.event.pull_request.number, github.event.action, github.event.pull_request.title) || format('Spec Kit commands · feedback on pull request #{0}', inputs.pull) }}"
 
 permissions: {}
 

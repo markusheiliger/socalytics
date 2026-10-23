@@ -402,9 +402,9 @@ public sealed class DockerRuntimeEndToEndTests
         imageConfig.GetProperty("RepoDigests").EnumerateArray().Select(d => d.GetString()).ShouldContain(d => d!.EndsWith("@sha256:" + imageDigest.Substring(8)));
     }
 
-    private static async Task DefineDefaultWorkflowAsync(
+    internal static async Task DefineDefaultWorkflowAsync(
         EndToEndHarness harness, string reference, CancellationToken ct, string mode = "succeed", int maxAttempts = 3, int leaseSeconds = 60,
-        int staleTimeoutSeconds = 120)
+        int staleTimeoutSeconds = 120, string videoPolicy = "forbidden", int segmentationSeconds = 60)
     {
         var capabilityId = mode == "succeed" ? TestAnalystImage.CapabilityId : TestAnalystImage.CapabilityFor(mode);
         var profileId = mode == "succeed" ? TestAnalystImage.ProfileId : TestAnalystImage.ProfileFor(mode);
@@ -425,7 +425,7 @@ public sealed class DockerRuntimeEndToEndTests
               "leaseSeconds": {{leaseSeconds}},
               "staleTimeoutSeconds": {{staleTimeoutSeconds}},
               "executionTimeoutSeconds": 900,
-              "videoPolicy": "forbidden",
+              "videoPolicy": "{{videoPolicy}}",
               "inputSchemaVersions": {},
               "outputSchemaVersion": "1.0.0"
             }
@@ -448,7 +448,7 @@ public sealed class DockerRuntimeEndToEndTests
             workflowVersion = "1",
             requestedCapabilities = new[] { capabilityId },
             completionPolicy = "all-requested-capabilities",
-            segmentationPolicy = new { version = 1, durationSeconds = 60, digest = "sha-256:" + new string('1', 64) },
+            segmentationPolicy = new { version = 1, durationSeconds = segmentationSeconds, digest = "sha-256:" + new string('1', 64) },
             nodes = new[] { new { nodeKey = "analyst", profileId, profileVersion = version } },
             edges = Array.Empty<object>(),
         }, ct);
@@ -467,7 +467,7 @@ public sealed class DockerRuntimeEndToEndTests
         JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)).RootElement.Clone();
 
     /// <summary>A compatibility entry for the engine under test, so the preflight passes on Docker Engine and Docker Desktop alike.</summary>
-    private static async Task<string> WriteCompatibilityListAsync(DockerEngine docker, CancellationToken ct)
+    internal static async Task<string> WriteCompatibilityListAsync(DockerEngine docker, CancellationToken ct)
     {
         var version = await docker.GetJsonAsync("/version", ct);
         var platform = version.TryGetProperty("Platform", out var p) && p.TryGetProperty("Name", out var n) ? n.GetString() ?? "Docker" : "Docker";
@@ -521,7 +521,7 @@ public sealed class DockerRuntimeEndToEndTests
 
         await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
         var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
-            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), definition.WorkflowId, definition.WorkflowVersion, definition.RequestedCapabilities,
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, definition.WorkflowId, definition.WorkflowVersion, definition.RequestedCapabilities,
             definition.CompletionPolicy, AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord(mapped.RunSnapshotJson, mapped.RunSnapshotDigest),
             nodes, []), ct);
         await sp.GetRequiredService<ILogicalJobStore>().InsertAsync(planned.Select(p => new NewLogicalJob(

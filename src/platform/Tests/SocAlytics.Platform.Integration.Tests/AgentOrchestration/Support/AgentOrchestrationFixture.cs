@@ -31,8 +31,10 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 
 	private AgentOrchestrationFixture(
 		IsolatedDatabase db, PlatformApiFactory factory, HttpClient anon, ApiSession admin, ClubHierarchy hierarchy,
-		TestAgentWorkload workload, TestAgentWorkload disabledWorkload)
+		TestAgentWorkload workload, TestAgentWorkload disabledWorkload, string agentWorkStream, string agentWorkConsumer)
 	{
+		AgentWorkStream = agentWorkStream;
+		AgentWorkConsumer = agentWorkConsumer;
 		Db = db;
 		Factory = factory;
 		Anon = anon;
@@ -56,19 +58,29 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 
 	public TestAgentWorkload DisabledWorkload { get; }
 
+	// The per-fixture work queue: the NATS server is shared by the assembly, so a runner must never see another test's notifications.
+	public string AgentWorkStream { get; }
+
+	public string AgentWorkConsumer { get; }
+
 	public DateTimeOffset Now => Factory.Time.GetUtcNow();
 
 	public static async Task<AgentOrchestrationFixture> StartAsync(
-		PostgresContainerFixture postgres, CancellationToken ct, Action<Dictionary<string, string?>>? settings = null)
+		PostgresContainerFixture postgres, CancellationToken ct, Action<Dictionary<string, string?>>? settings = null,
+		Action<IServiceCollection>? configureServices = null)
 	{
 		var db = await postgres.CreateDatabaseAsync(ct);
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
 		var workload = new TestAgentWorkload();
 		var disabled = new TestAgentWorkload(DisabledClientId);
+		var unique = Guid.NewGuid().ToString("N");
+		var agentWorkStream = $"AGENT_WORK_{unique}";
+		var agentWorkConsumer = $"agent-workload-{unique}";
 		var extra = new Dictionary<string, string?>
 		{
-			["AgentOrchestration:Agents:Enabled:0"] = "specialist-tactics",
-			["AgentOrchestration:Agents:Enabled:1"] = "specialist-video-analysis",
+			["Messaging:Nats:AgentWorkStream"] = agentWorkStream,
+			["Messaging:Nats:AgentWorkSubject"] = $"agents.invocations.ready.{unique}",
+			["Messaging:Nats:AgentWorkConsumer"] = agentWorkConsumer,
 			["AgentOrchestration:Execution:LeaseSeconds"] = "2",
 			["AgentOrchestration:Execution:MaxAttemptSeconds"] = "10",
 			["AgentOrchestration:Workloads:TokenLifetime"] = "00:05:00",
@@ -91,22 +103,26 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 				["FirstClubAdmin:AccountName"] = "agent-admin",
 				["FirstClubAdmin:InitialPassword"] = "Initial-Admin-Pass-1234",
 			},
-			configureServices: services => services.Configure<RegistryOptions>(o =>
+			configureServices: services =>
 			{
-				o.SoftwareKeys = SoftwareKeyPolicy.All;
-				o.RateLimits.PairingCreationPerMinute = 10_000;
-				o.RateLimits.StatusPerMinute = 10_000;
-				o.RateLimits.ActivationPerMinute = 10_000;
-				o.RateLimits.CodeSubmissionPerMinute = 10_000;
-				o.RateLimits.TokenPerMinute = 10_000;
-			}),
+				configureServices?.Invoke(services);
+				services.Configure<RegistryOptions>(o =>
+				{
+					o.SoftwareKeys = SoftwareKeyPolicy.All;
+					o.RateLimits.PairingCreationPerMinute = 10_000;
+					o.RateLimits.StatusPerMinute = 10_000;
+					o.RateLimits.ActivationPerMinute = 10_000;
+					o.RateLimits.CodeSubmissionPerMinute = 10_000;
+					o.RateLimits.TokenPerMinute = 10_000;
+				});
+			},
 			extraSettings: extra);
 		factory.Time.Set(DateTimeOffset.UtcNow);
 		await factory.WaitUntilHealthyAsync(ct);
 		await TestMembers.SeedAsync(db, "admin-1", clubRoles: ["club-admin", "registrar"], cancellationToken: ct);
 		var admin = await ApiSession.SignInAsync(factory, "admin-1", TestMembers.DefaultPassword, ct);
 		var hierarchy = await new ClubHierarchyBuilder(factory, admin).CreateAsync(ct);
-		return new AgentOrchestrationFixture(db, factory, factory.CreateApiClient(), admin, hierarchy, workload, disabled);
+		return new AgentOrchestrationFixture(db, factory, factory.CreateApiClient(), admin, hierarchy, workload, disabled, agentWorkStream, agentWorkConsumer);
 	}
 
 	// Disables the configured client in the live options, as a configuration reload would.
@@ -123,8 +139,9 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 		await connection.OpenAsync(ct);
 		await using var command = new NpgsqlCommand(
 			"""
-			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, terminated_at, updated_at, cancelled_by_account_id)
-			VALUES (@run, @team, @match, @set, 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', @state, @at, @at, @terminated, @at,
+			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, terminated_at, updated_at, cancellation_cause, cancelled_by_account_id)
+			VALUES (@run, @team, @match, @set, now(), 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', @state, @at, @at, @terminated, @at,
+			        CASE WHEN @state = 'Cancelled' THEN 'member' END,
 			        CASE WHEN @state = 'Cancelled' THEN (SELECT id FROM socalytics.member_account ORDER BY created_at LIMIT 1) END);
 			INSERT INTO socalytics.analysis_run_snapshots (run_id, snapshot, snapshot_digest) VALUES (@run, '{}'::jsonb, 'sha-256:a');
 			""",

@@ -1,0 +1,115 @@
+name: Spec Kit workflow
+description: >-
+  Runs one of the gha extension's Spec Kit workflows (implement-task, converge, repair, resolve) unattended in the
+  workspace, from the trusted tooling checkout this action is loaded from: its definition, its helper, and the Copilot
+  CLI wrapper that applies the strength level (models.json of the speckit-copilot action), the deny-list, and the
+  AI-credit budget. The run never waits for a person and never outlives the job. The action then collects the run into
+  the result folder: agent-exit.txt (0 completed, 124 time limit, 1 otherwise), agent.jsonl (the agent's output),
+  workflow.json (the outcome with the helper's message), and workflow-run/ (the run folder), and removes the run folder
+  from the workspace. The caller provides Node.js, Python for the Spec Kit helper scripts (set up before the solution's
+  environment, so its toolchain keeps precedence), and the token as COPILOT_GITHUB_TOKEN in the step env. The spec
+  folder of the input folder=<folder> becomes SPECIFY_FEATURE_DIRECTORY for the Spec Kit commands.
+inputs:
+  workflow:
+    description: Id of the workflow under .specify/workflows/ of the tooling checkout
+    required: true
+  inputs:
+    description: The workflow inputs, one name=value per line (mode and tooling are set by the action); empty lines and lines without a value are skipped
+    required: false
+    default: ""
+  level:
+    description: Strength level of the model, a key of the speckit-copilot action's models.json
+    required: true
+  deny-tools:
+    description: Additional tool patterns the agent may not use, one per line
+    required: false
+    default: ""
+  ai-credits:
+    description: Optional AI-credit budget for each Copilot CLI call (--max-ai-credits)
+    required: false
+    default: ""
+  timeout:
+    description: Time limit for the whole run, in the format of the timeout command (for example 60m)
+    required: false
+    default: 60m
+  workspace:
+    description: Absolute path of the workspace the run works on
+    required: true
+  result-dir:
+    description: Absolute path of the folder that receives the collected run
+    required: true
+  cli-version:
+    description: Copilot CLI version to install
+    required: false
+    default: 1.0.96
+  specify-version:
+    description: Spec Kit (specify CLI) version to install
+    required: false
+    default: v1.0.13
+outputs:
+  status:
+    description: completed, failed, paused, or timeout
+    value: ${{ steps.collect.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v6
+
+    - name: Install the specify CLI and the Copilot CLI wrapper
+      shell: bash
+      env:
+        CLI_VERSION: ${{ inputs.cli-version }}
+        SPECIFY_VERSION: ${{ inputs.specify-version }}
+      run: |
+        uv tool install specify-cli --from "git+https://github.com/github/spec-kit.git@${SPECIFY_VERSION}"
+        npm install --global "@github/copilot@${CLI_VERSION}" --no-audit --no-fund --loglevel=error
+        wrapper="$RUNNER_TEMP/speckit-copilot"
+        printf '#!/usr/bin/env bash\nexec node "%s/../../scripts/speckit-copilot.mjs" exec "$@"\n' "$GITHUB_ACTION_PATH" > "$wrapper"
+        chmod +x "$wrapper"
+
+    - name: Run the Spec Kit workflow ${{ inputs.workflow }}
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.workspace }}
+      env:
+        WORKFLOW: ${{ inputs.workflow }}
+        INPUTS: ${{ inputs.inputs }}
+        TIME_LIMIT: ${{ inputs.timeout }}
+        RESULT_DIR: ${{ inputs.result-dir }}
+        SPECKIT_INTEGRATION_COPILOT_EXECUTABLE: ${{ runner.temp }}/speckit-copilot
+        SPECKIT_LEVEL: ${{ inputs.level }}
+        SPECKIT_DENY_TOOLS: ${{ inputs.deny-tools }}
+        SPECKIT_AI_CREDITS: ${{ inputs.ai-credits }}
+        SPECKIT_AGENT_LOG: ${{ inputs.result-dir }}/agent.jsonl
+      run: |
+        set +e -uo pipefail
+        tooling="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
+        definition="$tooling/.specify/workflows/$WORKFLOW/workflow.yml"
+        if [ ! -f "$definition" ]; then echo "::error::The tooling has no Spec Kit workflow $WORKFLOW."; exit 2; fi
+        mkdir -p "$RESULT_DIR"
+        # The Spec Kit commands select the spec folder through SPECIFY_FEATURE_DIRECTORY (archived right before a merge).
+        folder="$(sed -n 's/^folder=//p' <<< "$INPUTS" | head -n 1)"
+        if [ -n "$folder" ] && [ -d "specs/$folder" ]; then export SPECIFY_FEATURE_DIRECTORY="specs/$folder"
+        elif [ -n "$folder" ] && [ -d "specs/archive/$folder" ]; then export SPECIFY_FEATURE_DIRECTORY="specs/archive/$folder"; fi
+        args=(-i mode=unattended -i "tooling=$tooling")
+        while IFS= read -r line; do
+          if [ -n "$line" ] && [ -n "${line#*=}" ]; then args+=(-i "$line"); fi
+        done <<< "$INPUTS"
+        # An empty standard input: a gate would pause the run instead of waiting for a person.
+        timeout --kill-after=60s "$TIME_LIMIT" specify workflow run "$definition" --json "${args[@]}" < /dev/null > "$RESULT_DIR/run.json"
+        echo "exit-code=$?" >> "$GITHUB_OUTPUT"
+        cat "$RESULT_DIR/run.json"
+
+    - name: Collect the run
+      id: collect
+      if: always()
+      shell: bash
+      env:
+        WORKFLOW: ${{ inputs.workflow }}
+        WORKSPACE: ${{ inputs.workspace }}
+        RESULT_DIR: ${{ inputs.result-dir }}
+        EXIT_CODE: ${{ steps.run.outputs.exit-code }}
+      run: >-
+        node "$GITHUB_ACTION_PATH/../../scripts/speckit-workflow-job.mjs" collect --workspace "$WORKSPACE"
+        --result-dir "$RESULT_DIR" --run-json "$RESULT_DIR/run.json" --exit-code "${EXIT_CODE:-1}" --workflow "$WORKFLOW"

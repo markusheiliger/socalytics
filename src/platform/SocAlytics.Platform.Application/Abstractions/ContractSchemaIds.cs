@@ -4,6 +4,8 @@ public static class ContractSchemaIds
 {
     public const string RecordingsFinalizedV1 = "https://socalytics.invalid/contracts/recordings/recordings-finalized/v1/recordings-finalized.schema.json";
     public const string AnalystJobV1 = "https://socalytics.invalid/contracts/analysis/analyst-job/v1/analyst-job.schema.json";
+    public const string SegmentManifestV1 = "https://socalytics.invalid/contracts/segments/segment-manifest/v1/segment-manifest.schema.json";
+    public const string SegmentMediaV1 = "https://socalytics.invalid/contracts/analysis/segment-media/v1/segment-media.schema.json";
     public const string AttemptCompletionV1 = "https://socalytics.invalid/contracts/analysis/attempt-completion/v1/attempt-completion.schema.json";
     public const string ResultGrantsV1 = "https://socalytics.invalid/contracts/analysis/result-grants/v1/result-grants.schema.json";
     public const string ResultManifestV1 = "https://socalytics.invalid/contracts/analysis/result-manifest/v1/result-manifest.schema.json";

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decodedFrames"],
+  "properties": {
+    "decodedFrames": { "type": "integer", "minimum": 0 },
+    "meanLuma": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "mean", "max"],
+      "properties": {
+        "min": { "type": "number", "minimum": 0, "maximum": 255 },
+        "mean": { "type": "number", "minimum": 0, "maximum": 255 },
+        "max": { "type": "number", "minimum": 0, "maximum": 255 }
+      }
+    }
+  }
+}

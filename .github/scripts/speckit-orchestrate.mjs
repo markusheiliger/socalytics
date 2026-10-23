@@ -22,6 +22,7 @@ import {
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment } from './speckit-amend.mjs';
+import { maintainBacklog } from './speckit-backlog.mjs';
 import { maintainFixSpec, startFixAuthoring } from './speckit-fix.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
@@ -32,7 +33,8 @@ import {
   BRANCH_PREFIX,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
-  IMPLEMENT_WORKFLOW_FILE,
+  IMPLEMENT_CHAIN_WORKFLOW_FILES,
+  LEGACY_IMPLEMENT_WORKFLOW_FILES,
   ORCHESTRATE_WORKFLOW_FILE,
   START_COMMENT_MARKER,
   baseBranchOf,
@@ -123,7 +125,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the amendment of #${issue.number}: ${error.message}`);
       }
-      // Prerequisites: a spec authored by `/speckit specify` holds the implementation until the twin depends on it;
+      // Prerequisites: a spec authored by `/speckit author` holds the implementation until the twin depends on it;
       // open dependencies of the twin block it, and once none is open, the implementation retries.
       const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
@@ -182,7 +184,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   return { exitCode: 0, ready, blocked, inconsistent, inProgress, fallback, merged, amendmentActions };
 }
 
-// Maintains what holds an open implementation pull request: the spec `/speckit specify` authored for it (maintainFixSpec)
+// Maintains what holds an open implementation pull request: the spec `/speckit author` authored for it (maintainFixSpec)
 // and the open dependencies of its twin (maintainDependencyBlock). Returns whether it is blocked and by which twins.
 async function maintainBlock(client, env, { implementation, twin }, { now, notes, count }) {
   const report = (line) => notes.push(line);
@@ -288,10 +290,19 @@ function describeDecision(twin) {
   }
 }
 
-// Whether a run of the twin's implementation chain is queued or running.
+// Whether a run of the twin's implementation chain is queued or running, also one of the chain before groups that
+// started before it was replaced (LEGACY_IMPLEMENT_WORKFLOW_FILES).
 async function chainActive(client, twin, since) {
-  return (await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, since))
-    .some((run) => run.status !== 'completed' && isImplementRunOf(run.display_title, twin));
+  for (const file of [...IMPLEMENT_CHAIN_WORKFLOW_FILES, ...LEGACY_IMPLEMENT_WORKFLOW_FILES]) {
+    let runs = [];
+    try {
+      runs = await client.listWorkflowRuns(file, since);
+    } catch {
+      // A removed workflow file may not be listed any more.
+    }
+    if (runs.some((run) => run.status !== 'completed' && isImplementRunOf(run.display_title, twin))) return true;
+  }
+  return false;
 }
 
 // Scheduler: selects flagged twins, starts new implementations while fewer than SPECKIT_MAX_ACTIVE_SPECS are active,
@@ -337,13 +348,20 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     report.line();
     for (const line of flaky.lines) report.line(line);
   }
+  const backlog = await maintainBacklog(client, env, { rootDir, now: now() });
+  if (backlog.lines.length > 0) {
+    report.line();
+    report.line('### Spec backlog');
+    report.line();
+    for (const line of backlog.lines) report.line(line);
+  }
   report.flush();
-  return { exitCode: 0, selection, flaky };
+  return { exitCode: 0, selection, flaky, backlog };
 }
 
 // Flaky-test ledger: a test that passed only on its rerun (the flaky markers of verification comments) in at least
 // SPECKIT_FLAKY_THRESHOLD (default 3) distinct implementation pull requests (the open ones and those merged in the last
-// FLAKY_WINDOW_MS) gets one spec that makes it deterministic. It is started with `/speckit specify`'s authoring entry on
+// FLAKY_WINDOW_MS) gets one spec that makes it deterministic. It is started with `/speckit author`'s authoring entry on
 // the open implementation pull request where the test was flaky most recently, without blocking that implementation
 // (`link: false`), and recorded there with a flaky-spec marker, so the test is never started again while that marker
 // is in the window. Returns the summary lines and the tests it started specs for.

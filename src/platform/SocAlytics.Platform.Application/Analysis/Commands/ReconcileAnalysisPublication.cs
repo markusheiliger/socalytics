@@ -19,12 +19,15 @@ public sealed class AnalysisReconciliationOptions
 public sealed record ReconciliationResult(
     int ReadyJobsRepublished,
     int NotificationsRepublished,
+    int RunsSuperseded,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt);
 
 public sealed class ReconcileAnalysisPublicationHandler(
     IUnitOfWork unitOfWork,
     IAnalysisRunStore runs,
+    IRunSupersessionStore supersessions,
+    RunSupersession supersession,
     IPublicationReconciliationStore store,
     IOptions<AnalysisReconciliationOptions> options,
     TimeProvider time)
@@ -35,6 +38,32 @@ public sealed class ReconcileAnalysisPublicationHandler(
         var batch = Math.Max(1, options.Value.BatchSize);
         var jobs = 0;
         var notifications = 0;
+        var superseded = 0;
+
+        Guid? afterMatch = null;
+        while (true)
+        {
+            IReadOnlyList<Guid> matchIds;
+            await using (var read = await unitOfWork.BeginAsync(cancellationToken))
+            {
+                matchIds = await supersessions.ListMatchesNeedingSupersessionAsync(afterMatch, batch, cancellationToken);
+            }
+
+            if (matchIds.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var matchId in matchIds)
+            {
+                await using var scope = await unitOfWork.BeginAsync(cancellationToken);
+                await runs.LockMatchRunsAsync(matchId, cancellationToken);
+                superseded += await supersession.ApplyAsync(matchId, cancellationToken);
+                await scope.CommitAsync(cancellationToken);
+            }
+
+            afterMatch = matchIds[^1];
+        }
 
         var after = Guid.Empty;
         while (true)
@@ -89,6 +118,6 @@ public sealed class ReconcileAnalysisPublicationHandler(
             after = ids[^1];
         }
 
-        return new ReconciliationResult(jobs, notifications, startedAt, time.GetUtcNow());
+        return new ReconciliationResult(jobs, notifications, superseded, startedAt, time.GetUtcNow());
     }
 }

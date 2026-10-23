@@ -36,8 +36,8 @@ public sealed class AnalysisEndpointTests(PostgresContainerFixture postgres, Rus
 		var node = Guid.NewGuid();
 		await ExecAsync(s,
 			"""
-			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
-			VALUES (@run, @team, @match, @set, 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', 'Running', @at, @at, @at);
+			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
+			VALUES (@run, @team, @match, @set, now(), 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', 'Running', @at, @at, @at);
 			INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
 			VALUES (@node, @run, 'm1', 'cap-a', '1.0.0', 'high-level', 'match', 0, 'Active', @at);
 			INSERT INTO socalytics.analysis_logical_jobs (id, run_id, node_id, execution_scope, state, updated_at)
@@ -119,7 +119,7 @@ public sealed class AnalysisEndpointTests(PostgresContainerFixture postgres, Rus
 		WorkflowNodeRecord Node(Guid id, string key, CapabilityTier tier, ExecutionScope scope, int ordinal) =>
 			new(id, key, $"cap.{key}", "1.0.0", tier, scope, ordinal, WorkflowNodeState.Active, null, default, NodeSnapshot(key));
 		var run = new NewAnalysisRun(
-			s.Hierarchy.TeamId, s.Hierarchy.MatchId, recordingSet, "wf", "1", ["cap.partial"], "all-requested-capabilities",
+			s.Hierarchy.TeamId, s.Hierarchy.MatchId, recordingSet, DateTimeOffset.UtcNow, "wf", "1", ["cap.partial"], "all-requested-capabilities",
 			AnalysisRunState.Running, null,
 			new AnalysisRunSnapshotRecord("""{"segmentationPolicy":{"version":"1","durationSeconds":300,"digest":"x"}}""", DigestA),
 			[
@@ -376,7 +376,7 @@ public sealed class AnalysisEndpointTests(PostgresContainerFixture postgres, Rus
 		(await reader.ReadAsync(ct)).ShouldBeTrue();
 		reader.GetString(0).ShouldBe("club");
 		var details = JsonDocument.Parse(reader.GetString(1)).RootElement;
-		details.EnumerateObject().Select(p => p.Name).Order().ToArray().ShouldBe(["notificationsRepublished", "readyJobsRepublished"]);
+		details.EnumerateObject().Select(p => p.Name).Order().ToArray().ShouldBe(["notificationsRepublished", "readyJobsRepublished", "runsSuperseded"]);
 		(await reader.ReadAsync(ct)).ShouldBeFalse();
 	}
 }

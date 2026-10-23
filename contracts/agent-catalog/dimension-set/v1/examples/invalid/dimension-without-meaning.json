@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "dimension-set",
+  "id": "coach-philosophy-dimensions",
+  "version": "1.0.0",
+  "dimensions": [
+    { "id": "pressing-intensity", "acceptedEvidence": ["find_pressing_phases"] }
+  ]
+}

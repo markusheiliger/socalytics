@@ -1,0 +1,6 @@
+{
+  "per-dimension-bound-4.json": "maximum",
+  "max-positive-movement-11.json": "maximum",
+  "not-budget-neutral.json": "const",
+  "unknown-context-category.json": "enum"
+}

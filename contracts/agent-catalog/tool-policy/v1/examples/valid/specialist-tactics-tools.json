@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "tool-policy",
+  "id": "specialist-tactics-tools",
+  "version": "1.0.0",
+  "tools": ["get_match", "get_formations", "find_pressing_phases", "get_tactical_phases", "find_counter_attacks"]
+}

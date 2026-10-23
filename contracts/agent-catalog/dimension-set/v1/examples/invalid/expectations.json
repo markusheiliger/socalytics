@@ -1,0 +1,5 @@
+{
+  "tool-id-with-parentheses.json": "enum",
+  "dimension-without-meaning.json": "required",
+  "dimension-with-unknown-property.json": "additionalProperties"
+}

@@ -77,22 +77,30 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 			ClientId = f.Workload.ClientId,
 			PrivateKey = f.Workload.PrivateKey,
 			NatsUrl = nats.ConnectionString,
+			Stream = f.AgentWorkStream,
+			Consumer = f.AgentWorkConsumer,
 			FetchExpiry = TimeSpan.FromSeconds(2),
 			RetryDelay = TimeSpan.FromMilliseconds(200),
 		};
 		using var http = f.Factory.CreateApiClient();
-		await using var runner = new SimulatedAgentWorkloadRunner(options, http, f.Factory.Time);
+		var runnerLog = new CapturingLoggerProvider();
+		await using var runner = new SimulatedAgentWorkloadRunner(options, http, f.Factory.Time, runnerLog.CreateLogger("SimulatedAgentWorkload"));
 		using var run = CancellationTokenSource.CreateLinkedTokenSource(ct);
-		run.CancelAfter(TimeSpan.FromSeconds(60));
+		// One limit bounds the wait and the runner, so the runner is never stopped while the wait still runs.
+		var limit = TimeSpan.FromMinutes(3);
+		run.CancelAfter(limit + TimeSpan.FromSeconds(10));
+		using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
+		wait.CancelAfter(limit);
 		var worker = runner.RunAsync(run.Token);
 
 		var expired = false;
 		JsonElement? ended = null;
-		var deadline = DateTime.UtcNow.AddSeconds(60);
-		while (ended is null && DateTime.UtcNow < deadline)
+		JsonElement? lastRead = null;
+		while (ended is null && !wait.IsCancellationRequested)
 		{
 			using var read = await MemberAsync(f, HttpMethod.Get, $"/api/v1/agent-invocations/{invocationId}", null, null, ct);
 			var body = await ReadAsync(read, ct);
+			lastRead = body;
 			if (body.GetProperty("state").GetString() is "succeeded" or "failed")
 			{
 				ended = body;
@@ -106,16 +114,24 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 				expired = true;
 			}
 
-			await Task.Delay(250, ct);
+			try
+			{
+				await Task.Delay(250, wait.Token);
+			}
+			catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+			{
+			}
 		}
 
 		await run.CancelAsync();
 		await worker;
 
-		ended.ShouldNotBeNull("The invocation did not end in time.");
 		var attempts = await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}'", ct);
 		var checkpoints = await f.ScalarAsync(
 			$"SELECT count(*) FROM socalytics.agent_lineage_entries WHERE invocation_id = '{invocationId}' AND kind = 'checkpoint'", ct);
+		ended.ShouldNotBeNull(
+			$"The invocation did not end in time. Last read: {lastRead?.GetRawText() ?? "none"}; attempts: {attempts}; checkpoints: {checkpoints}; "
+			+ $"runner log: {string.Join(" | ", runnerLog.Entries.Select(e => $"{e.Level} {e.Message}{(e.Exception is null ? "" : " " + e.Exception)}"))}");
 		return (ended.Value, attempts, checkpoints);
 	}
 
