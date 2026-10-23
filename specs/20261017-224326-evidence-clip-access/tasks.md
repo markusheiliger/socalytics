@@ -168,7 +168,7 @@ requested from the Segment Service.
 
 **Independent Test**: The spec's US2 independent test.
 
-- [ ] T016 [US2] Extend `src/platform/SocAlytics.Platform.Application/Analysis/Evidence/ResolveEvidenceMedia.cs` with
+- [x] T016 [US2] Extend `src/platform/SocAlytics.Platform.Application/Analysis/Evidence/ResolveEvidenceMedia.cs` with
   the part state mapping of data-model.md: record demand through `RequestSegmentMaterialization` (with the run's
   recording-set version for scope validation) in the resolution's unit of work for missing or `absent` records
   (`materializing`, or `rematerializing` when the record has a purge time), report `materializing` records (or

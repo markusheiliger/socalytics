@@ -315,9 +315,14 @@ public sealed class ResolveEvidenceMediaHandler(
                 matchId, run.TeamId, recordingSetVersionId, member.RecordingVersionId, member.TimelineMappingDigest,
                 policy.Digest.ToString(), part.SegmentNumber, policy.Version, policy.DurationSeconds),
             cancellationToken);
-        return request.IsAccepted
-            ? new SegmentOutcome(Preparing(record), null, null, record, null)
-            : new SegmentOutcome(EvidencePartState.Failed, request.RejectionReason, null, record, null);
+        if (!request.IsAccepted)
+        {
+            return new SegmentOutcome(EvidencePartState.Failed, request.RejectionReason, null, record, null);
+        }
+
+        // A retried failed record is a fresh materialization, whatever its purge history.
+        var state = record?.State == MaterializedSegmentState.Failed ? EvidencePartState.Materializing : Preparing(record);
+        return new SegmentOutcome(state, null, null, record, null);
     }
 
     private static EvidencePartState Preparing(MaterializedSegmentRecord? record) =>
