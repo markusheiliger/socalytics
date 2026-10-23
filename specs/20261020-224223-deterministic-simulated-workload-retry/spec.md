@@ -28,6 +28,7 @@ The path of the test contains several sources of nondeterminism that the impleme
 - the runner's fetch of work notifications expires on a real-time interval, and a notification that is not settled (a transient report failure) is redelivered only after the queue's acknowledgement wait;
 - the test reads the attempt and checkpoint counts right after the runner is cancelled, while the runner may be in the middle of a report whose effect the platform has not yet committed (the code may already order this correctly; T001 rules it in or out);
 - the runner and the platform share one fake clock that other parts of the test also read.
+- the first claim: the hops from submission through the outbox publication and the queue delivery to the runner's first claim can stall under load, so the first attempt starts late or not at all within the test's limits.
 
 The implementation first reproduces the failure and identifies which of these (or another cause) produces it, using evidence such as repeated runs under load and the platform and runner logs, and then removes that cause.
 
@@ -68,7 +69,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 ### Measurable Outcomes
 
-- **SC-001**: `FailOnceSucceedsOnTheSecondAttempt` passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of its class under CPU load.
+- **SC-001**: `FailOnceSucceedsOnTheSecondAttempt` passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of its class together with `SimulatedAgentWorkloadTests` under CPU load; both classes count toward this criterion, because they share the helper and the runner and fail together under load.
 - **SC-002**: A probe that makes the second attempt fail makes the test fail on its assertions within the existing limits; the probe is removed afterward.
 - **SC-003**: The pull request names the evidenced cause and changes only the files that cause lives in plus this spec folder; no assertion is textually removed.
 - **SC-004** (post-merge evidence, observed when #201 retries and not verified by a task of this spec): the merge verification of #201 reports no flaky `SimulatedAgentWorkloadBehaviorTests` test.
