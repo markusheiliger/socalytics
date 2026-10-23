@@ -12,7 +12,7 @@ ARG UV_ROOT=uv-x86_64-unknown-linux-gnu
 ARG FFMPEG_URL=https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1.tar.xz
 ARG FFMPEG_SHA256=dfa863a00ca81f1bdf58a372b18cff4820f0017e55de32778de8ecd8ed92a02e
 ARG FFMPEG_ROOT=ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1
-ARG MANIFEST_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+ARG MANIFEST_SHA256=c5b743f1db233a96acb8e322cbf5e02eaf0c76eb62ee3bba65ce033fba19da5e
 
 ENV UV_PYTHON_DOWNLOADS=never \
     UV_PYTHON=/usr/local/bin/python3.12 \
@@ -44,7 +44,7 @@ RUN /opt/tools/uv sync --locked --all-groups --no-install-local --no-build \
 FROM python:3.12-slim-bookworm@sha256:6a0e06f5ba0b373d051aabd3fffb9b873f27f9a2a3a14bcbe37dee6f0e3bbc70 AS final
 
 LABEL io.socalytics.analyst-manifest.version="1.2.0" \
-      io.socalytics.analyst-manifest.sha256="0000000000000000000000000000000000000000000000000000000000000000" \
+      io.socalytics.analyst-manifest.sha256="c5b743f1db233a96acb8e322cbf5e02eaf0c76eb62ee3bba65ce033fba19da5e" \
       io.socalytics.capability.id="reference-media-probe" \
       io.socalytics.capability.version="1.1.0" \
       io.socalytics.model.digest="sha-256:0000000000000000000000000000000000000000000000000000000000000000"

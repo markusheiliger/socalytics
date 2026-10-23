@@ -235,7 +235,7 @@ unchanged.
 - [x] T032 [P] [US4] Create `src/analysts/capabilities/reference-media-probe/Dockerfile.payload-validated` and
   `Dockerfile.payload-validated.dockerignore` (same code and pins as `Dockerfile`, carrying the new manifest at
   `/opt/socalytics/analyst-manifest.json` and its own manifest label), leaving `Dockerfile` untouched
-- [ ] T033 [US4] Add `src/analysts/capabilities/reference-media-probe/tests/test_payload_validated_manifest.py`:
+- [x] T033 [US4] Add `src/analysts/capabilities/reference-media-probe/tests/test_payload_validated_manifest.py`:
   the 1.1.0 manifest validates against manifest `1.2.0`, its schema equals the schema file, produced facts conform and
   stay deterministic, the Dockerfile variant is consistent with the manifest, and the 1.0.0 files are unchanged
   (FR-016)
