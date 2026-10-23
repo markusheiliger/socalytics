@@ -63,8 +63,12 @@ The Docker Desktop profile (`Runtime:Profile` `docker-desktop`, configured
 through `Runtime:Docker`) is implemented and verified end to end: automated
 verification runs the same Engine API adapter against a Linux Docker engine
 through its local Unix socket, an endpoint the AM accepts only in Development
-and Test configurations. Docker Desktop on Windows itself is verified manually
-and awaits that manual evidence; only manually verified versions enter the
+and Test configurations. That verification includes the SDK-built reference
+Analyst (`reference-media-probe`), run as a restricted container on materialized
+segment media staged by the AM, whose facts are accepted and indexed; it is
+development evidence, not a catalog capability or a production Analyst image.
+Docker Desktop on Windows itself is verified manually and awaits that manual
+evidence; only manually verified versions enter the
 shipped compatibility matrix, so no compatibility entry ships yet. Automated
 verification on Windows runners with Docker Desktop is an open gap: it changes
 the repository's build and verification tooling and is outside the Spec Kit
