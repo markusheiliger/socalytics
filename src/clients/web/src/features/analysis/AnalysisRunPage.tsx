@@ -8,7 +8,7 @@ import { Link, useParams, useSearchParams } from 'react-router';
 import { useConnectivity } from '../../connectivity/useConnectivity';
 import { createAnalysisFactAdapter } from '../../platform/adapters/analysisFactAdapter';
 import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAdapter';
-import type { FactStreamSummary } from '../../platform/models/analysis';
+import { isRunInProgress, isRunTerminal, type FactStreamSummary } from '../../platform/models/analysis';
 import { toPlatformFailure } from '../../platform/failure';
 import { useSession } from '../../session/sessionContext';
 import { NotFoundPage } from '../../shell/NotFoundPage';
@@ -139,6 +139,23 @@ export function AnalysisRunPage() {
       )}
       {!error && !outcome && <Typography>{t('page.loading')}</Typography>}
       {outcome?.kind === 'found' && <RunStatusSection run={outcome.run} />}
+      {outcome?.kind === 'found' && (
+        <section aria-label={t('page.compareTitle')}>
+          {isRunTerminal(outcome.run.state) ? (
+            <Button
+              component={Link}
+              to={`/matches/${matchId}/analysis-comparison?left=${encodeURIComponent(outcome.run.runId)}`}
+              variant="outlined"
+              size="small"
+              sx={{ mt: 2 }}
+            >
+              {t('page.compare')}
+            </Button>
+          ) : (
+            <Typography sx={{ mt: 2 }}>{t(isRunInProgress(outcome.run.state) ? 'page.compareInProgress' : 'page.compareUnknownState')}</Typography>
+          )}
+        </section>
+      )}
       {streamList && <FactStreamList streams={streamList} selectedNodeKey={selectedStream?.nodeKey} onSelect={selectStream} />}
       {streamList && streamKey !== undefined && !selectedStream && <Typography role="alert">{t('states.capabilityNotInRun')}</Typography>}
       {selectedStream && !rangeValid && (

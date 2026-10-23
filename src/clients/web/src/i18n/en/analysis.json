@@ -3,7 +3,11 @@
     "title": "Analysis review",
     "back": "Back to the match",
     "reload": "Reload",
-    "loading": "Loading the analysis…"
+    "loading": "Loading the analysis…",
+    "compareTitle": "Compare with another run",
+    "compare": "Compare this run with another run",
+    "compareInProgress": "This run is still in progress. It can be compared once it has finished.",
+    "compareUnknownState": "This run is in a state this version does not recognize, so it cannot be compared."
   },
   "run": {
     "title": "Run details",
@@ -158,6 +162,7 @@
   },
   "comparison": {
     "title": "Compare analysis runs",
+    "matchEntry": "Compare analysis runs",
     "intro": "Choose two finished analysis runs of this match. Choosing runs does not start, repeat, or cancel any work.",
     "eligibility": "Only runs in a known finished state (completed, partially completed, failed, or cancelled) can be compared. Runs that are still requested or running, or in an unfamiliar state, are not offered.",
     "formLabel": "Choose the two runs to compare",

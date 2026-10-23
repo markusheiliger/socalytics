@@ -4,6 +4,7 @@ import { EmailConfirmPage } from './features/email-confirm/EmailConfirmPage';
 import { LinkAccountPage } from './features/link-account/LinkAccountPage';
 import { SetPasswordPage } from './features/set-password/SetPasswordPage';
 import { PasswordChangePage } from './features/account/PasswordChangePage';
+import { AnalysisComparisonPage } from './features/analysis/AnalysisComparisonPage';
 import { AnalysisRunPage } from './features/analysis/AnalysisRunPage';
 import { ClubPage } from './features/club/ClubPage';
 import { HomePage } from './features/home/HomePage';
@@ -97,6 +98,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/matches/:matchId', element: <MatchPage /> },
           { path: '/matches/:matchId/edit', element: <MatchEditPage /> },
           { path: '/matches/:matchId/finalize', element: <FinalizePage /> },
+          { path: '/matches/:matchId/analysis-comparison', element: <AnalysisComparisonPage /> },
           { path: '/matches/:matchId/analysis-runs/:runId', element: <AnalysisRunPage /> },
           { path: '/matches/:matchId/recordings/:recordingVersionId', element: <RecordingVersionPage /> },
           { path: '/matches/:matchId/triage/:conversationId', element: <ConversationPage /> },

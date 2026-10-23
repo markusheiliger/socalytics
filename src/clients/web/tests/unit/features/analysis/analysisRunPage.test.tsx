@@ -251,4 +251,46 @@ describe('analysis run page', () => {
     expect(await screen.findByText(/not part of this run/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Show facts of detect-1' })).toBeInTheDocument();
   });
+
+  it('offers the comparison from a terminal run and keeps its identity as the left side', async () => {
+    stub(() => json(200, runDto({ state: 'Failed' })));
+    const { router } = renderApp(asRole('Viewer'), path());
+    const link = await screen.findByRole('link', { name: 'Compare this run with another run' });
+    expect(link).toHaveAttribute('href', `/matches/${MATCH}/analysis-comparison?left=${RUN}`);
+    await userEvent.click(link);
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/matches/${MATCH}/analysis-comparison`));
+    expect(router.state.location.search).toBe(`?left=${RUN}`);
+  });
+
+  it.each([
+    ['Requested', 'This run is still in progress. It can be compared once it has finished.'],
+    ['Running', 'This run is still in progress. It can be compared once it has finished.'],
+    ['Paused', 'This run is in a state this version does not recognize, so it cannot be compared.'],
+  ])('explains why a %s run cannot be compared', async (state, text) => {
+    stub(() => json(200, runDto({ state })));
+    renderApp(asRole('Coach'), path());
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Compare this run with another run' })).toBeNull();
+  });
+
+  it('offers no comparison entry without a role on the team', async () => {
+    stub(() => json(200, runDto()));
+    renderApp(asRole(), path());
+    await screen.findByText('You are not permitted to open this page.');
+    expect(screen.queryByRole('link', { name: 'Compare this run with another run' })).toBeNull();
+  });
+
+  it('offers the comparison from the run area of the match to a team member only', async () => {
+    const answer = () =>
+      vi.fn(async (url: string) => {
+        if (url.includes('recording-lineage')) return json(200, { matchId: MATCH, teamId: TEAM, recordingVersions: [], timelineMappings: [], recordingSetVersions: [] });
+        if (url.includes('analysis-runs')) return json(200, { items: [], continuationToken: null });
+        if (url.includes('/matches/')) return json(200, matchDto);
+        return json(200, team);
+      });
+    vi.stubGlobal('fetch', answer());
+    renderApp(asRole('Viewer'), `/matches/${MATCH}`);
+    const link = await screen.findByRole('link', { name: 'Compare analysis runs' });
+    expect(link).toHaveAttribute('href', `/matches/${MATCH}/analysis-comparison`);
+  });
 });
