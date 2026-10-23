@@ -221,7 +221,7 @@ requested from the Segment Service.
   fact requests with 5 seconds of context on each side, "Try again" with `retryFailed` only for failed parts, and one
   re-resolution with resumption at the current match time on expiry or media error; resolutions and links in memory
   only (FR-018–FR-020)
-- [ ] T022 [US3] Create `src/clients/web/src/features/analysis/EvidencePlayerDialog.tsx` (dialog with title, focus
+- [x] T022 [US3] Create `src/clients/web/src/features/analysis/EvidencePlayerDialog.tsx` (dialog with title, focus
   trap, Escape, polite live region, two alternating `<video crossorigin="anonymous" preload="auto" playsinline>`
   elements, inside-fact marker, release of sources on close), add the "Play evidence" button with an accessible name
   including the fact's match-clock range to each fact row in `src/clients/web/src/features/analysis/FactBrowser.tsx`,

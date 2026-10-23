@@ -122,6 +122,8 @@ export interface EvidencePlayback {
   matchMs?: number;
   insideFact: boolean;
   shortened: boolean;
+  /** The window the resolved parts cover, for the shortened notice. */
+  coveredWindow?: { startMs: number; endMs: number };
   finished: boolean;
   automaticAttemptsExhausted: boolean;
   retryAfterSeconds?: number;
@@ -231,6 +233,7 @@ export function useEvidencePlayback(
     matchMs,
     insideFact: matchMs !== undefined && isInsideFact(model.resolution?.fact, matchMs),
     shortened: model.resolution?.shortened ?? false,
+    coveredWindow: ordered.length > 0 ? { startMs: ordered[0].startMs, endMs: Math.max(...ordered.map((p) => p.endMs)) } : undefined,
     finished: model.phase === 'ready' && part === undefined,
     automaticAttemptsExhausted: status === 'preparing' && model.autoAttempts >= MAX_AUTOMATIC_RESOLUTIONS,
     retryAfterSeconds: status === 'rateLimited' ? model.retryAfterSeconds : part?.retryAfterSeconds,
