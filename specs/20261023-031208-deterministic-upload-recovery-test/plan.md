@@ -43,7 +43,7 @@ Post-design re-check: Pass.
 
 ## Design
 
-- **Evidence first** ([research.md](research.md) R1): reproduce with repeated runs and CPU load, and log request timestamps (a temporary `ts` in the recorded request, always removed afterward) to confirm that the failing run records a part 3 request after the reset. If the evidence names another cause, the fix moves to that cause (the spec's other candidates, R3) and this design is amended through the implementation, not guessed.
+- **Evidence first** ([research.md](research.md) R1; the evidence is recorded in `recovery-evidence.md` next to the test, not under `specs/`): reproduce with repeated runs and CPU load, and log request timestamps (a temporary `ts` in the recorded request, always removed afterward) to confirm that the failing run records a part 3 request after the reset. If the evidence names another cause, the fix moves to that cause (the spec's other candidates, R3) and this design is amended through the implementation, not guessed.
 - **Quiesce, then reset** (R2): `startInterrupted` waits for the two stored parts, then for the store to have recorded a part 3 request (so the failing retry cycle is under way), then for an observable sign that the upload journal (IndexedDB) already holds parts 1 and 2 (an `expect` on the upload row of the first page showing the stored-part progress or the retry status of the failing part 3; no sleep), navigates the page to `about:blank` and awaits it (this destroys the match page and terminates its dedicated upload worker, so no retry timer survives), polls until the old page reports no worker (`page.workers()` is empty), and polls the store until `inFlight` is 0. `inFlight` alone covers only requests the server has seen; a request sent just before the navigation and not yet arrived is excluded by the proof that the page and its worker are gone, and the fault stays in place until then. Only then it calls `reset` and `goto`s the match page again (the permitted equivalent of the reload, with the same resulting page state). `reset` therefore clears faults and requests that nothing of the old page can still touch, and the "no requests" assertion counts only what the refusal causes.
 - **Fixed wait removed** (R2): the `waitForTimeout(500)` is deleted; every wait is `expect.poll` on a store condition or a Playwright navigation.
 - **Store counter** (R4, [contracts/fake-store-control.md](contracts/fake-store-control.md)): `GET /__control/state` additionally returns `inFlight`, the number of part (PUT) requests whose handler started, counted before the body is read, and has not yet answered or closed (OPTIONS preflights are not counted). It is not cleared by `reset` (it is a live count), existing fields are unchanged, so other specs are unaffected.
@@ -71,6 +71,7 @@ specs/20261023-031208-deterministic-upload-recovery-test/
 ```text
 src/clients/web/tests/
 ├── e2e/
+│   ├── simulated/recovery-evidence.md       # the evidence of FR-001 (agents cannot change `specs/`)
 │   ├── simulated/recovery.spec.ts           # startInterrupted: observable quiesce instead of the fixed wait
 │   └── support/fakeObjectStorage.mjs        # inFlight counter in the state read (fakeObjectStorage.d.mts changes only if it types the state shape)
 └── unit/support/fakeObjectStorage.test.ts   # covers the counter
