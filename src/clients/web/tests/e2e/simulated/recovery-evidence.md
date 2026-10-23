@@ -106,3 +106,12 @@ Repeated runs after the fix under CPU load (four busy-loop processes, one per co
 | `npx playwright test --project=simulated tests/e2e/simulated/recovery.spec.ts --workers=1 --repeat-each=10` | four busy-loop processes (one per core) for the duration | 60 passed (8.2m): all 10 runs of each of the 6 tests, no failures, no retries |
 
 The same load made 3 of 49 helper starts of the old helper record a part 3 request after the `reset` (T002); with the fixed helper no run failed (SC-001).
+
+## T009
+
+Other users of the unchanged Web UI upload code and helpers still pass unchanged (FR-006, SC-002); neither spec file nor any production file was modified.
+
+| Command | Outcome |
+| --- | --- |
+| `npx playwright test --project=simulated tests/e2e/simulated/uploads.spec.ts tests/e2e/simulated/upload-shell.spec.ts` | 11 passed (1.2m), no failures, no retries |
+| `npm test` | 125 test files and 1267 tests passed (110.8s) |
