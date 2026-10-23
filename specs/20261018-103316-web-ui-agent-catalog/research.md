@@ -121,6 +121,16 @@ and proposes its next patch version; a new identifier proposes `0.1.0` (clarific
 [Adding Or Revising A Coach Agent](../../docs/architecture/intelligence-agent-catalog.md#adding-or-revising-a-coach-agent)
 and Prompt And Advice Governance; prefill avoids retyping long prompts.
 
+**Refined decision (agent version registration)**: `registerAgentVersion` takes the version as the `version` query
+parameter and the `agent-version/v1` document without a `version` property (the Agent Catalog Registry's
+`RegisterAgentVersionAsync(version, document)`; its digest covers both). The adapter signature is
+`registerAgentVersion(version, document)`, the form keeps the version in its own state and never puts it in the
+document, and the simulated API reads the query parameter and refuses a document with a `version` property or a missing
+or non-SemVer version at `/version` like the platform. **Rationale**: the first platform browser run (T045, two
+attempts) was refused with "The agent version is a semantic version." at `/version`, because the form had sent the
+version inside the document, which the simulated API accepted and so hid the defect from every simulated test.
+**Rejected alternative**: a new body field for the version (changes the platform contract, which this feature does not).
+
 ## R8. Form hints and their limits
 
 **Decision**: One module `catalogLimits.ts` holds the enumerations and limits the forms hint at (response contract,

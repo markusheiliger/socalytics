@@ -36,7 +36,7 @@ live only in the in-memory query cache and in open form state. Field meanings an
 | `modifier-policy` | `dimensionSetMajor`, `perDimensionBound`, `maxPositiveMovement`, `contextCategories[]`, `budgetNeutral` |
 | `agent-version` | `agentId`, `group`, `displayName`, `artifacts { promptTemplate, modelSelection, toolPolicy, safetyPolicy, philosophyProfile?, modifierPolicy? }`, `disclosure?` |
 
-Every document also carries `schemaVersion`, `kind`, `id`, and `version`, which the forms set.
+Every artifact document also carries `schemaVersion`, `kind`, `id`, and `version`, which the forms set. An `agent-version` document carries `schemaVersion` and `kind` but no `version` (its schema forbids additional properties): the agent version is supplied beside the document as the `version` query parameter of `registerAgentVersion`, and the platform refuses a missing or non-SemVer value with a violation at `/version`.
 
 Derived view values (never sent): a profile's row order follows its dimension set's order; the weights' total; each
 tool's `withinBaseline` flag for the agent in context.
