@@ -10,7 +10,7 @@ async function control(path: string, body?: unknown) {
   await fetch(`${STORAGE}/__control/${path}`, { method: 'POST', body: JSON.stringify(body ?? {}) });
 }
 
-async function storageState(): Promise<{ parts: { partNumber: number }[]; requests: { partNumber: number }[] }> {
+async function storageState(): Promise<{ parts: { partNumber: number }[]; requests: { partNumber: number }[]; inFlight: number }> {
   return (await fetch(`${STORAGE}/__control/state`)).json();
 }
 
@@ -34,15 +34,39 @@ async function startInterrupted(page: Page, api: { signInAs(role: 'Coach'): void
   await page.getByLabel(`Display name for ${file.name}`).fill('Main camera');
   await page.getByRole('button', { name: 'Add to upload queue' }).click();
   await expect.poll(async () => (await storageState()).parts.length, { timeout: 30_000 }).toBe(2);
-  await page.waitForTimeout(500);
-  const before = await storageState();
-  const resetAt = Date.now();
+  // Evidenced cause (T002): the first page's upload worker keeps retrying the failing part 3 after its retry delay, so a
+  // fixed wait followed by `reset` raced that retry. Wait for observable conditions and prove page and worker are gone first.
+  await expect.poll(async () => (await storageState()).requests.some((r) => r.partNumber === 3), { timeout: 30_000 }).toBe(true);
+  // The upload row shows no retry state for a failing part (the coordinator ignores the worker's part failure), so the
+  // journal write of parts 1 and 2 is read from IndexedDB instead of sleeping.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            new Promise<number[]>((resolve, reject) => {
+              const open = indexedDB.open('socalytics-upload-journal');
+              open.onerror = () => reject(open.error);
+              open.onsuccess = () => {
+                const db = open.result;
+                const request = db.transaction('uploads', 'readonly').objectStore('uploads').getAll();
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                  db.close();
+                  resolve((request.result as { confirmedParts: number[] }[]).flatMap((r) => r.confirmedParts));
+                };
+              };
+            }),
+        ),
+      { timeout: 30_000 },
+    )
+    .toEqual(expect.arrayContaining([1, 2]));
+  await page.goto('about:blank');
+  await expect.poll(() => page.workers().length).toBe(0);
+  // inFlight counts only requests the server has seen; the gone page and worker exclude requests still on their way.
+  await expect.poll(async () => (await storageState()).inFlight, { timeout: 30_000 }).toBe(0);
   await control('reset');
-  console.log(`T002 reset@${resetAt} parts=${before.parts.length} requests=${JSON.stringify((before.requests as { partNumber: number; ts?: number }[]).map((r) => [r.partNumber, r.ts]))}`);
-  await page.reload();
-  await new Promise((r) => setTimeout(r, 1500));
-  const after = await storageState();
-  console.log(`T002 after-reload requests=${JSON.stringify((after.requests as { partNumber: number; ts?: number }[]).map((r) => [r.partNumber, r.ts! - resetAt]))}`);
+  await page.goto(`/matches/${match.id}`);
   return file;
 }
 
