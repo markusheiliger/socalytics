@@ -28,7 +28,7 @@ description: "Task list for Web UI Materialized Segment Management for Club Admi
 
 ### Models and texts
 
-- [ ] T001 [P] Create `src/clients/web/src/platform/models/segments.ts` with `MaterializedSegment`, `SegmentList`, and
+- [x] T001 [P] Create `src/clients/web/src/platform/models/segments.ts` with `MaterializedSegment`, `SegmentList`, and
   `PurgeOutcome` as specified in `specs/20261023-024906-web-ui-segment-management/data-model.md` (`state` is
   `'absent' | 'materializing' | 'available' | 'failed'` with unknown platform values kept as reported text;
   `mediaSizeBytes`, `failureReason`, and `availableAt` are `undefined` when not reported)
