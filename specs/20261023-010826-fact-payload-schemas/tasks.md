@@ -267,18 +267,24 @@ unchanged.
   payload schema validation as development evidence), `README.md`, `contracts/README.md` (manifest `1.2.0`, shared
   payload examples), `src/platform/README.md`, `src/analysts/sdk/README.md`, and
   `src/analysts/capabilities/reference-media-probe/README.md` (the 1.1.0 variant and its build command)
-- [ ] T039 Confirm the OpenAPI snapshot is unchanged with
-  `dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests` (no endpoint change;
-  never refresh it)
-- [ ] T040 Run the validation of [quickstart.md](quickstart.md) (contract, integration, SDK, reference capability, and
-  Docker-backed end-to-end commands) and `node .github/scripts/check-markdown.mjs`; fix findings
+### Verification without tasks
+
+T039 and T040 were verification-only tasks that change no file, and the task automation lands only tasks that
+change files, so they cannot be completed as tasks. Their checks are carried by the phase verification and the
+convergence, which run after T038:
+
+- The OpenAPI snapshot stays unchanged (no endpoint change; never refresh it):
+  `dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests`.
+- The validation of [quickstart.md](quickstart.md) (contract, integration, SDK, reference capability, and
+  Docker-backed end-to-end commands) and `node .github/scripts/check-markdown.mjs` pass; findings are fixed in the
+  owning files.
 
 ## Dependencies and Execution Order
 
 - Phase 1 precedes Phase 2; Phase 2 blocks all stories.
 - US2 (Phase 3) provides the pinned snapshot that US1 (Phase 4) validates against, so US1 follows T013.
 - US3 needs only Phase 2 and may run beside US1 and US2; US4 needs US1, US2, and US3.
-- Phase 7 follows all stories; T037 re-reads the final implementation.
+- Phase 7 follows all stories; T037 re-reads the final implementation, and the checks listed after T038 run in the phase verification and the convergence.
 
 ## Parallel Execution Examples
 
