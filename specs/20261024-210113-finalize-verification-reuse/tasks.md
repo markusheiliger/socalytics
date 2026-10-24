@@ -23,7 +23,7 @@ description: "Task list for Finalize Verification Without Repeated Work"
 
 **Purpose**: Establish the baseline the change must not break
 
-- [ ] T001 Run `node --test .github/actions/environment-verify/analyst-projects.test.mjs .github/actions/environment-setup/toolchain.test.mjs` and `node .github/scripts/check-markdown.mjs` unchanged from the repository root and note that they pass; change no file (baseline for SC-005 and FR-009)
+No task in this phase: the baseline of the existing checks (SC-005, FR-009) is the verification the automation runs for every task and phase, and a task that changes no file cannot succeed there (T001 is retired).
 
 ---
 
@@ -93,7 +93,7 @@ description: "Task list for Finalize Verification Without Repeated Work"
 
 **Independent Test**: The existing Node tests of the action pass unchanged together with the new ones.
 
-- [ ] T014 [US4] Run `node --test .github/actions/environment-verify/analyst-projects.test.mjs .github/actions/environment-setup/toolchain.test.mjs` and confirm that the existing tests (Analyst Python projects check and its stages, rerun of failed tests with flaky output, browser tests retry, task-mode Markdown check, covered paths, check order, inputs and outputs) pass without any edit of an existing test; if one fails, correct `.github/actions/environment-verify/action.yml` rather than the test (FR-009, SC-005)
+No task in this phase (T014 is retired, since a task that changes no file cannot succeed): the existing Node tests of the action run unedited in the verification of every task and phase (FR-009, SC-005); a failure there is corrected in `.github/actions/environment-verify/action.yml`, never in an existing test.
 
 ---
 
@@ -101,23 +101,21 @@ description: "Task list for Finalize Verification Without Repeated Work"
 
 **Purpose**: Documentation and final validation
 
-- [ ] T015 [P] Update `.github/actions/environment-verify/README.md` per FR-012: describe the finalize reuse (what identifies a reusable result: workspace state identity, mode, changed-files content, and scope; where the record lives, `$RUNNER_TEMP/socalytics-environment-verify/finalize-<run id>-<attempt>-<job>.json`, and that it dies with the job, and that the record names no action copy so a self-test of another copy of the action reuses the earlier result), the reduced `environment` scope (the two folders, the two checks that run, the Agent Python projects check skipped, when the full scope runs), what is reported ("Reused result", reduced scope), when reuse is not possible, and that a failed, missing, damaged, or mismatching earlier result is always repeated in full; keep every other statement of the README as it is and state no production-readiness claim
-- [ ] T016 Run `node --test .github/actions/environment-verify/analyst-projects.test.mjs .github/actions/environment-setup/toolchain.test.mjs` and `node .github/scripts/check-markdown.mjs`, and run the confinement check of [quickstart.md](quickstart.md) (section 3), confirming that only `.github/actions/environment-verify/` and the spec's own files changed (FR-010)
-- [ ] T017 Document `docs/architecture/` impact: the plan's Architecture Updates section is `None` (no narrative in `docs/architecture/` describes `environment-verify`); confirm by searching `docs/architecture/` for `environment-verify` and `finalize`, and correct any statement this change makes false, otherwise change nothing; also list in the task's result summary the statements of the root `README.md` that the reuse and the reduced scope make approximate (the finalize mode running every check with all tests) as a follow-up for a documentation spec, without changing any file outside the action folder
+- [ ] T015 [P] Update `.github/actions/environment-verify/README.md` per FR-012: describe the finalize reuse (what identifies a reusable result: workspace state identity, mode, changed-files content, and scope; where the record lives, `$RUNNER_TEMP/socalytics-environment-verify/finalize-<run id>-<attempt>-<job>.json`, and that it dies with the job, and that the record names no action copy so a self-test of another copy of the action reuses the earlier result), the reduced `environment` scope (the two folders, the two checks that run, the Agent Python projects check skipped, when the full scope runs), what is reported ("Reused result", reduced scope), when reuse is not possible, and that a failed, missing, damaged, or mismatching earlier result is always repeated in full; keep every other statement of the README as it is and state no production-readiness claim; in the same change, search `docs/architecture/` for `environment-verify` and `finalize` (the plan's Architecture Updates section is `None`) and, in the task's result summary, list the statements of the root `README.md` that the reuse and the reduced scope make approximate (the finalize mode running every check with all tests) as a follow-up for a documentation spec, without changing any file outside the action folder
 
 ---
 
 ## Dependencies & Execution Order
 
-- Phase 1 (T001) then Phase 2 (T002, T003) block everything; all `action.yml` tasks (T002 to T006, T011, T012) are sequential because they change the same script, and the test tasks (T007 to T010, T013) are sequential because they change the same test file.
-- US1 (T004 to T008) delivers the MVP. US2 (T009, T010) tests the safety of US1 and needs T004 to T006. US3 (T011 to T013) needs T005 and T006 (T012 extends them). US4 (T014) needs all implementation tasks.
-- Polish: T015 (README) needs the final behavior; T016 and T017 come last.
+- Phase 2 (T002, T003) blocks everything; all `action.yml` tasks (T002 to T006, T011, T012) are sequential because they change the same script, and the test tasks (T007 to T010, T013) are sequential because they change the same test file.
+- US1 (T004 to T008) delivers the MVP. US2 (T009, T010) tests the safety of US1 and needs T004 to T006. US3 (T011 to T013) needs T005 and T006 (T012 extends them). US4 is covered by the verification of every task and phase, which runs the existing tests unedited.
+- Polish: T015 (README and architecture check) needs the final behavior and comes last.
 
 ## Parallel Example
 
 ```text
 Every task changes action.yml or the test file, so the phases run sequentially. T015 (README.md) is the only [P] task:
-it is a group of one in Phase 7 and shares no file with its neighbours; T014, T016, and T017 change no file.
+it is a group of one in Phase 7 and shares no file with its neighbours; 
 ```
 
 ## Implementation Strategy
