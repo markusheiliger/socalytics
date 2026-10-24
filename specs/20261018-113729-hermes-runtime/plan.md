@@ -70,7 +70,7 @@ completion checks; two image test classes; documentation.
 | III. API-First Control Plane | Hermes uses only versioned `/api/v1` workload operations and the MCP server; it never touches databases or object storage; it validates against the authoritative JSON Schema contracts; it relays no media bytes. | Pass |
 | IV. Evidence Over Claims | Project, contract, integration, image, and cross-process tests cover FR-029 and FR-030; passing tests are not presented as model quality, deployment support, or production readiness. | Pass |
 | V. Focused, Minimal Changes | One project whose dependencies each serve a requirement; the platform change is one additive contract release and its check; the MCP server change is one optional setting; no AppHost change. | Pass |
-| Technology and Tooling | CPython 3.12.15 and uv 0.13.1 come from the merged Analyst and Media Verification Environment; verification of `src/agents/<name>/` comes from [Agents Python Verification Environment](../20261018-110526-agents-python-environment/spec.md), named as a dependency that must merge first; .NET 10, Docker, and Testcontainers for the platform and image tests are provided by the platform verification. No other tool is needed. | Pass |
+| Technology and Tooling | CPython 3.12.15 and uv 0.13.1 come from the merged Analyst and Media Verification Environment; verification of `src/agents/<name>/` comes from [Agents Python Verification Environment](../archive/20261018-110526-agents-python-environment/spec.md), named as a dependency that must merge first; .NET 10, Docker, and Testcontainers for the platform and image tests are provided by the platform verification. No other tool is needed. | Pass |
 
 Post-design re-check: unchanged, all gates pass. No Complexity Tracking entries.
 
