@@ -246,7 +246,7 @@ unchanged.
   `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ReferenceAnalystEndToEndTests.cs`: register 1.1.0 next to
   1.0.0, run over the synthetic recording, and assert facts read back identical to the written payloads while the
   1.0.0 tests stay unchanged (FR-017)
-- [ ] T036 [US4] Add the rejected path in `ReferenceAnalystEndToEndTests.cs` using a derived image from
+- [x] T036 [US4] Add the rejected path in `ReferenceAnalystEndToEndTests.cs` using a derived image from
   `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/TestAnalystImage.cs` whose registered manifest declares a stricter schema (for example `decodedFrames` maximum 0)
   while the in-container manifest declares none: the attempt ends failed with `result-payload-invalid` and the run
   exposes no fact

@@ -33,6 +33,7 @@ internal static class TestAnalystImage
         var directory = Path.Combine(AppContext.BaseDirectory, "TestAnalyst");
         var capabilityId = CapabilityId;
         string? contextDirectory = null;
+        var manifestVersion = "1.0.0";
         if (mode != "succeed")
         {
             capabilityId = CapabilityFor(mode);
@@ -50,11 +51,27 @@ internal static class TestAnalystImage
             requirements["minMaxAttempts"] = 1;
             requirements["minLeaseSeconds"] = 1;
             requirements["minStaleTimeoutSeconds"] = 1;
-            if (mode == "media")
+            if (mode is "media" or "payload-invalid")
             {
                 manifest["videoAccess"] = "required";
                 manifest["capability"]!["tier"] = "low-level";
                 manifest["capability"]!["executionScope"] = "segment";
+            }
+
+            if (mode == "payload-invalid")
+            {
+                // The registered schema is stricter than the facts the Analyst writes (a media observation has a positive size).
+                manifestVersion = "1.2.0";
+                manifest["manifestVersion"] = manifestVersion;
+                manifest["output"]!["factPayloadSchemas"] = System.Text.Json.Nodes.JsonNode.Parse("""
+                    {
+                      "e2e-media-observation": {
+                        "type": "object",
+                        "required": ["sizeBytes"],
+                        "properties": { "sizeBytes": { "type": "integer", "maximum": 0 } }
+                      }
+                    }
+                    """);
             }
 
             await File.WriteAllTextAsync(Path.Combine(contextDirectory, "analyst-manifest.json"), manifest.ToJsonString(), ct);
@@ -71,6 +88,7 @@ internal static class TestAnalystImage
             .WithBuildArgument("MODE", mode)
             .WithBuildArgument("MANIFEST_SHA256", manifestHash)
             .WithBuildArgument("CAPABILITY_ID", capabilityId)
+            .WithBuildArgument("MANIFEST_VERSION", manifestVersion)
             .WithName(new DockerImage(localName))
             .WithDeleteIfExists(false)
             .Build();

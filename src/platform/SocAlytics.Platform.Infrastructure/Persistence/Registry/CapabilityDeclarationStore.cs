@@ -109,7 +109,24 @@ internal sealed class CapabilityDeclarationStore(IDbSession session) : ICapabili
                 requirements["minMaxAttempts"]!.GetValue<int>(),
                 requirements["minLeaseSeconds"]!.GetValue<int>(),
                 requirements["minStaleTimeoutSeconds"]!.GetValue<int>(),
-                requirements["minExecutionTimeoutSeconds"]!.GetValue<int>()));
+                requirements["minExecutionTimeoutSeconds"]!.GetValue<int>()))
+        {
+            FactPayloadSchemas = PayloadSchemas(root["output"]),
+        };
+    }
+
+    private static Dictionary<string, JsonElement> PayloadSchemas(JsonNode? output)
+    {
+        var schemas = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        if (output?["factPayloadSchemas"] is JsonObject declared)
+        {
+            foreach (var (kind, schema) in declared)
+            {
+                schemas[kind] = JsonSerializer.Deserialize<JsonElement>(schema!.ToJsonString());
+            }
+        }
+
+        return schemas;
     }
 
     private static List<string> Strings(JsonNode? node) =>

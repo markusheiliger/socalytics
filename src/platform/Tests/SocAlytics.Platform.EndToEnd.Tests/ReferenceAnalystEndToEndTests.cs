@@ -34,6 +34,91 @@ public sealed class ReferenceAnalystEndToEndTests
     public Task The_payload_validated_reference_Analyst_facts_read_back_identical_to_the_written_payloads() =>
         RunAsync(ReferenceAnalystImage.PayloadValidated);
 
+    [Fact]
+    public async Task Facts_violating_a_stricter_registered_payload_schema_fail_the_attempt_and_no_fact_is_readable()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
+        var ct = cts.Token;
+
+        var registry = new OciRegistryContainerFixture();
+        await registry.InitializeAsync();
+        PushedAnalystImage? image = null;
+        string? compatibilityPath = null;
+        try
+        {
+            var settings = new Dictionary<string, string?>
+            {
+                ["Segments:Toolchain:FfmpegPath"] = SyntheticMedia.FfmpegPath,
+                ["Segments:Toolchain:FfprobePath"] = Path.Combine(Path.GetDirectoryName(SyntheticMedia.FfmpegPath) ?? string.Empty, "ffprobe"),
+                ["Registry:Images:RegistryHost"] = registry.RegistryHost,
+                ["Registry:Images:RepositoryPrefix"] = Prefix,
+                ["Registry:Images:UseHttp"] = "true",
+            };
+            var started = await EndToEndHarness.StartAsync(ct, settings);
+            if (started is null)
+            {
+                Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
+                return;
+            }
+
+            await using var harness = started;
+            image = await TestAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct, "payload-invalid");
+            await DockerRuntimeEndToEndTests.DefineDefaultWorkflowAsync(
+                harness, image.Reference(registry.RegistryHost), ct, "payload-invalid", maxAttempts: 1, videoPolicy: "required", segmentationSeconds: PolicySeconds);
+
+            using var docker = new DockerEngine();
+            compatibilityPath = await DockerRuntimeEndToEndTests.WriteCompatibilityListAsync(docker, ct);
+            await harness.StartManagerAsync(ct, dockerCompatibilityListPath: compatibilityPath);
+
+            var runId = await SegmentMediaEndToEndTests.FinalizeAndStartRunAsync(harness, ct);
+            try
+            {
+                await EndToEndHarness.WaitAsync(
+                    async () => await ScalarAsync(harness, runId,
+                        "SELECT count(*) FROM socalytics.analysis_completion_outcomes o JOIN socalytics.analysis_logical_jobs j ON j.id = o.logical_job_id " +
+                        "WHERE j.run_id = @runId AND o.outcome = 'failed' AND o.reason LIKE 'result-payload-invalid%'", ct) > 0,
+                    TimeSpan.FromMinutes(3), "No attempt was failed with result-payload-invalid.", ct);
+            }
+            catch (TimeoutException e)
+            {
+                throw new TimeoutException(e.Message + "\n" + await WorkExecutionEndToEndTests.DiagnosticsAsync(harness, runId, ct));
+            }
+
+            (await ScalarAsync(harness, runId, "SELECT count(*) FROM socalytics.analysis_accepted_results WHERE run_id = @runId", ct)).ShouldBe(0);
+            (await ScalarAsync(harness, runId, "SELECT count(*) FROM socalytics.analysis_indexed_facts WHERE run_id = @runId", ct))
+                .ShouldBe(0, "No fact of a rejected result is readable.");
+
+            using var coach = await ApiSession.SignInAsync(harness.Platform, "coach-e2e", TestMembers.DefaultPassword, ct);
+            using var streams = await coach.Client.GetAsync($"/api/v1/analysis/runs/{runId}/fact-streams", ct);
+            streams.StatusCode.ShouldBe(HttpStatusCode.OK, await streams.Content.ReadAsStringAsync(ct));
+            (await streams.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("items").EnumerateArray()
+                .ShouldAllBe(s => s.GetProperty("factCount").GetInt64() == 0, "A stream may be listed, but it exposes no fact.");
+        }
+        finally
+        {
+            if (image is not null)
+            {
+                await TestAnalystImage.RemoveAsync(image);
+            }
+
+            if (compatibilityPath is not null)
+            {
+                File.Delete(compatibilityPath);
+            }
+
+            await registry.DisposeAsync();
+        }
+    }
+
+    private static async Task<long> ScalarAsync(EndToEndHarness harness, Guid runId, string query, CancellationToken ct)
+    {
+        await using var sql = new NpgsqlConnection(harness.Database.MigratorConnectionString);
+        await sql.OpenAsync(ct);
+        await using var command = new NpgsqlCommand(query, sql);
+        command.Parameters.AddWithValue("runId", runId);
+        return (long)(await command.ExecuteScalarAsync(ct))!;
+    }
+
     private static async Task RunAsync(ReferenceAnalystVariant variant)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(12));

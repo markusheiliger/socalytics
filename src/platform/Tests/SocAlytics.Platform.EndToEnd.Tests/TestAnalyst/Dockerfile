@@ -3,10 +3,11 @@ FROM python:3-alpine@sha256:618e7b661a89d05565fb402a5e1eab8b1b4e5df1f5ea3dc49499
 ARG MODE=succeed
 ARG MANIFEST_SHA256
 ARG CAPABILITY_ID=e2e-docker-analyst
+ARG MANIFEST_VERSION=1.0.0
 
 ENV PYTHONDONTWRITEBYTECODE=1
 
-LABEL io.socalytics.analyst-manifest.version="1.0.0" \
+LABEL io.socalytics.analyst-manifest.version="${MANIFEST_VERSION}" \
       io.socalytics.analyst-manifest.sha256="${MANIFEST_SHA256}" \
       io.socalytics.capability.id="${CAPABILITY_ID}" \
       io.socalytics.capability.version="1.0.0" \
