@@ -4,7 +4,11 @@ using SocAlytics.Platform.Application.IdentityAccess;
 
 namespace SocAlytics.Platform.Application.AgentOrchestration.Conversations;
 
-public sealed record ListAgentConversationsQuery(Guid MatchId);
+public sealed record ListAgentConversationsQuery(Guid MatchId, string State = ListAgentConversationsQuery.ActiveState)
+{
+    public const string ActiveState = "active";
+    public const string ArchivedState = "archived";
+}
 
 public sealed class ListAgentConversationsHandler(
     IUnitOfWork unitOfWork,
@@ -19,6 +23,11 @@ public sealed class ListAgentConversationsHandler(
     {
         ArgumentNullException.ThrowIfNull(query);
 
+        if (query.State is not (ListAgentConversationsQuery.ActiveState or ListAgentConversationsQuery.ArchivedState))
+        {
+            return OperationFailure.Validation(new FieldViolation("state", "invalid-value"));
+        }
+
         if (requestContext.MemberAccountId is not { } ownerId)
         {
             return OperationFailure.NotFound();
@@ -31,7 +40,7 @@ public sealed class ListAgentConversationsHandler(
             return OperationFailure.NotFound();
         }
 
-        var page = await conversations.ListByOwnerAndMatchAsync(ownerId, query.MatchId, null, MaxConversations, "active", cancellationToken);
+        var page = await conversations.ListByOwnerAndMatchAsync(ownerId, query.MatchId, null, MaxConversations, query.State, cancellationToken);
         var currentByRun = new Dictionary<Guid, bool>();
         var items = new List<AgentConversationView>(page.Items.Count);
         foreach (var conversation in page.Items)

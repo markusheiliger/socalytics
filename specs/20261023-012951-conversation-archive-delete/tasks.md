@@ -53,7 +53,7 @@ description: "Task list for Match Conversation Archive and Delete"
 
 ### Conversation views
 
-- [ ] T009 [US1] Expose `State` (`active` or `archived`) on the conversation views in `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Conversations/AgentConversationViews.cs`, pass the `state` filter through `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Conversations/ListAgentConversations.cs`, and keep `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Conversations/GetAgentConversation.cs` returning the state
+- [x] T009 [US1] Expose `State` (`active` or `archived`) on the conversation views in `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Conversations/AgentConversationViews.cs`, pass the `state` filter through `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Conversations/ListAgentConversations.cs`, and keep `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Conversations/GetAgentConversation.cs` returning the state
 
 ### Archive handlers and refusal
 
