@@ -27,6 +27,7 @@ public sealed record AgentInvocationLineageView(
 
 public sealed class GetAgentInvocationLineageHandler(
     IUnitOfWork unitOfWork,
+    IAgentConversationStore conversations,
     IAgentInvocationStore invocations,
     IAgentAttemptStore attempts,
     IAgentInvocationPinStore pins,
@@ -55,6 +56,12 @@ public sealed class GetAgentInvocationLineageHandler(
 
         var invocation = await invocations.FindAsync(query.InvocationId, cancellationToken);
         if (invocation is null || invocation.OwnerMemberId != ownerId)
+        {
+            return OperationFailure.NotFound();
+        }
+
+        var conversation = await conversations.LockByIdAsync(invocation.ConversationId, cancellationToken);
+        if (conversation is null || conversation.State == AgentPersistedNames.ToPersistedName(AgentConversationState.Deleted))
         {
             return OperationFailure.NotFound();
         }

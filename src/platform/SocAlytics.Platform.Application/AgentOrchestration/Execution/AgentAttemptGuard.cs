@@ -8,6 +8,12 @@ internal static class AgentAttemptGuard
     public static AgentStaleDisposition? StaleDisposition(
         AgentInvocationRecord invocation, AgentAttemptRecord attempt, string presentedToken, DateTimeOffset now)
     {
+        // Deleting a conversation suppresses its nonterminal invocations, so late workload operations end here.
+        if (invocation.State == AgentInvocationState.LifecycleSuppressed)
+        {
+            return AgentStaleDisposition.InvocationEnded;
+        }
+
         if (AgentStateTransitions.IsTerminal(invocation.State))
         {
             return invocation.FailureReason == AgentFailureReason.ScopeLost
