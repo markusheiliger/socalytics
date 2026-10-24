@@ -50,6 +50,8 @@ public sealed class RecordingOptionsValidationTests
 		["Analysis:Evidence:ResolutionsPerMinute"] = "60",
 		["Analysis:Evidence:MaxDuration"] = "00:10:00",
 		["Analysis:Evidence:MaxContext"] = "00:00:10",
+		["AgentOrchestration:Tools:MaxCallsPerAttempt"] = "50",
+		["AgentOrchestration:Tools:MaxClipResolutionsPerAttempt"] = "10",
 	};
 
 	private static ServiceProvider Build(Dictionary<string, string?> settings)
