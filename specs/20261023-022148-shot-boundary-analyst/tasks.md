@@ -176,7 +176,7 @@ dependency set; a dependency without a record or with a disallowed license fails
 
 ### Final verification
 
-- [ ] T041 Run the full verification of [quickstart.md](quickstart.md): the locked Python sequence and `uv run --no-sync pytest` in `<cap>/`, the same in `src/analysts/capabilities/reference-media-probe` (unchanged and passing), `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ShotBoundary"` and `--filter "FullyQualifiedName~ReferenceAnalyst"` on a Linux engine, and `node .github/scripts/check-markdown.mjs`; fix every finding caused by this feature, and record the outcome by creating `<cap>/VERIFICATION.md` (one line per command run with its result, such as the test counts; it must not be under `specs/`, `.github/`, or `.specify/`, because the land job rejects an agent change to those protected paths), because a task whose agent changes no file fails
+- [x] T041 Run the full verification of [quickstart.md](quickstart.md): the locked Python sequence and `uv run --no-sync pytest` in `<cap>/`, the same in `src/analysts/capabilities/reference-media-probe` (unchanged and passing), `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ShotBoundary"` and `--filter "FullyQualifiedName~ReferenceAnalyst"` on a Linux engine, and `node .github/scripts/check-markdown.mjs`; fix every finding caused by this feature, and record the outcome by creating `<cap>/VERIFICATION.md` (one line per command run with its result, such as the test counts; it must not be under `specs/`, `.github/`, or `.specify/`, because the land job rejects an agent change to those protected paths), because a task whose agent changes no file fails
 
 ---
 
