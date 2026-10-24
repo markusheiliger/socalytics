@@ -46,6 +46,8 @@ public sealed record FactCoverageJobRecord(Guid NodeId, int? SegmentNumber, stri
 public sealed record FactCoverageInputs(
     IReadOnlyList<FactCoverageJobRecord> Jobs, long SegmentDurationMs, long? RecordingCoverageEndMs);
 
+public sealed record FactTimeRange(long StartMs, long EndMs);
+
 public interface IFactQueries
 {
     Task<FactRunRecord?> GetRunAsync(Guid runId, CancellationToken cancellationToken);
@@ -61,6 +63,9 @@ public interface IFactQueries
     Task<IReadOnlyList<FactNodeRecord>> ListNodesAsync(Guid runId, CancellationToken cancellationToken);
 
     Task<FactPageResult> QueryPageAsync(FactPageQuery query, CancellationToken cancellationToken);
+
+    /// <summary>Match-time range of one indexed fact of the run, or null when the run has no such fact.</summary>
+    Task<FactTimeRange?> GetRunFactAsync(Guid runId, Guid acceptedResultId, int ordinal, CancellationToken cancellationToken);
 
     Task<IReadOnlyDictionary<Guid, long>> CountFactsByNodeAsync(Guid runId, CancellationToken cancellationToken);
 

@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useConnectivity } from '../../connectivity/useConnectivity';
+import { createAnalysisEvidenceAdapter } from '../../platform/adapters/analysisEvidenceAdapter';
 import { createAnalysisFactAdapter } from '../../platform/adapters/analysisFactAdapter';
 import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAdapter';
 import type { FactStreamSummary } from '../../platform/models/analysis';
@@ -54,6 +55,7 @@ export function AnalysisRunPage() {
   const { platform } = useSession();
   const adapter = useMemo(() => createAnalysisRunAdapter(platform), [platform]);
   const factAdapter = useMemo(() => createAnalysisFactAdapter(platform), [platform]);
+  const evidenceAdapter = useMemo(() => createAnalysisEvidenceAdapter(platform), [platform]);
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { isUnreachable } = useConnectivity();
@@ -158,7 +160,7 @@ export function AnalysisRunPage() {
         </Button>
       )}
       {selectedStream && rangeValid && (
-        <FactBrowser key={reloads} adapter={factAdapter} selection={{ runId, stream: selectedStream, range }} onRangeChange={changeRange} />
+        <FactBrowser key={reloads} adapter={factAdapter} evidenceAdapter={evidenceAdapter} selection={{ runId, stream: selectedStream, range }} onRangeChange={changeRange} />
       )}
       <Button component={Link} to={`/matches/${matchId}`} variant="outlined" sx={{ mt: 2 }}>
         {t('page.back')}

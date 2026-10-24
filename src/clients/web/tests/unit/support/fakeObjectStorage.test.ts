@@ -84,6 +84,97 @@ describe('fake object storage', () => {
     expect(await response.text()).toContain('AccessDenied');
   });
 
+  describe('seeded objects', () => {
+    const bytes = Buffer.from('0123456789');
+    const seed = (key = 'bucket/clip.mp4') =>
+      control('objects', { key, contentBase64: bytes.toString('base64'), contentType: 'video/mp4' });
+    const get = (query = '', headers: Record<string, string> = {}, method = 'GET') =>
+      fetch(`${store.origin}/bucket/clip.mp4${query}`, { method, headers: { origin: ORIGIN, ...headers } });
+
+    it('serves a seeded object with its type and Accept-Ranges', async () => {
+      await seed();
+      const response = await get();
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toBe('video/mp4');
+      expect(response.headers.get('accept-ranges')).toBe('bytes');
+      expect(response.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+      expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+    });
+
+    it('answers a range with 206 and Content-Range', async () => {
+      await seed();
+      const response = await get('', { range: 'bytes=2-5' });
+      expect(response.status).toBe(206);
+      expect(response.headers.get('content-range')).toBe('bytes 2-5/10');
+      expect(await response.text()).toBe('2345');
+      const open = await get('', { range: 'bytes=7-' });
+      expect(open.headers.get('content-range')).toBe('bytes 7-9/10');
+      const suffix = await get('', { range: 'bytes=-3' });
+      expect(await suffix.text()).toBe('789');
+    });
+
+    it('refuses an unsatisfiable range with 416', async () => {
+      await seed();
+      const response = await get('', { range: 'bytes=20-30' });
+      expect(response.status).toBe(416);
+      expect(response.headers.get('content-range')).toBe('bytes */10');
+    });
+
+    it('answers HEAD with the headers and no body', async () => {
+      await seed();
+      const response = await get('', { range: 'bytes=0-3' }, 'HEAD');
+      expect(response.status).toBe(206);
+      expect(response.headers.get('content-length')).toBe('4');
+      expect(response.headers.get('content-range')).toBe('bytes 0-3/10');
+      expect(await response.text()).toBe('');
+    });
+
+    it('refuses with 403 after the query expiry and serves before it', async () => {
+      await seed();
+      const past = Math.floor(Date.now() / 1000) - 60;
+      const future = Math.floor(Date.now() / 1000) + 600;
+      const expired = await get(`?Expires=${past}`);
+      expect(expired.status).toBe(403);
+      expect(await expired.text()).toContain('AccessDenied');
+      expect((await get(`?Expires=${future}`)).status).toBe(200);
+      const stamp = new Date(Date.now() - 120_000).toISOString().replace(/[-:]|\.\d{3}/g, '');
+      expect((await get(`?X-Amz-Date=${stamp}&X-Amz-Expires=60`)).status).toBe(403);
+      expect((await get(`?X-Amz-Date=${stamp}&X-Amz-Expires=3600`)).status).toBe(200);
+    });
+
+    it('answers 404 for an unknown key', async () => {
+      expect((await get()).status).toBe(404);
+    });
+
+    it('adds CORS headers only for the configured origin', async () => {
+      await seed();
+      const other = await get('', { origin: 'http://evil.example' });
+      expect(other.status).toBe(200);
+      expect(other.headers.get('access-control-allow-origin')).toBeNull();
+      const none = await fetch(`${store.origin}/bucket/clip.mp4`);
+      expect(none.headers.get('access-control-allow-origin')).toBeNull();
+    });
+
+    it('answers a Range preflight for the allowed origin only', async () => {
+      const preflight = (origin: string) =>
+        fetch(`${store.origin}/bucket/clip.mp4`, {
+          method: 'OPTIONS',
+          headers: { origin, 'access-control-request-method': 'GET', 'access-control-request-headers': 'range' },
+        });
+      const allowed = await preflight(ORIGIN);
+      expect(allowed.status).toBe(204);
+      expect(allowed.headers.get('access-control-allow-methods')).toBe('GET, HEAD');
+      expect((await preflight('http://evil.example')).status).toBe(403);
+    });
+
+    it('seeds in process and reset removes the objects', async () => {
+      store.seedObject('bucket/clip.mp4', bytes, 'video/mp4');
+      expect((await get()).status).toBe(200);
+      await control('reset');
+      expect((await get()).status).toBe(404);
+    });
+  });
+
   it('delays responses', async () => {
     await control('faults', { delayMs: 150 });
     const started = Date.now();

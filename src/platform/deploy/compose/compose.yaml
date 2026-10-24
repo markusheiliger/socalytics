@@ -147,6 +147,11 @@ services:
       Analysis__Facts__MaxPageSize: "500"
       Analysis__Reads__GrantLifetime: "00:10:00"
       Analysis__Reads__MaxPageSize: "100"
+      Analysis__Evidence__GrantLifetime: "00:05:00"
+      Analysis__Evidence__RetryAfter: "00:00:05"
+      Analysis__Evidence__ResolutionsPerMinute: "60"
+      Analysis__Evidence__MaxDuration: "00:10:00"
+      Analysis__Evidence__MaxContext: "00:00:10"
     depends_on:
       migrator:
         condition: service_completed_successfully

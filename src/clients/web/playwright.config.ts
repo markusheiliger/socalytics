@@ -95,11 +95,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
+      name: 'platform-evidence',
+      testDir: './tests/e2e/platform',
+      testMatch: /evidence-playback\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-analysis'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
       name: 'platform-cancellation',
       testDir: './tests/e2e/platform',
       testMatch: /run-cancellation\.spec\.ts$/,
       fullyParallel: false,
-      dependencies: ['platform-analysis'],
+      dependencies: ['platform-evidence'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {

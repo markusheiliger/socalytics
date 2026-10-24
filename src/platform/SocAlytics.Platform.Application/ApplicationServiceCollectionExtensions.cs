@@ -64,6 +64,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListMatchAnalysisRunsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.ListRunFactsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.ListRunFactStreamsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Evidence.ResolveEvidenceMediaHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisOperationalSummaryHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListNotificationReceiptsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.RunAnalysisReconciliationHandler>();
@@ -170,6 +171,13 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<
             IValidateOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptions>,
             SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptionsValidator>());
+
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.Evidence.EvidenceOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.Evidence.EvidenceOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Analysis.Evidence.EvidenceOptions>,
+            SocAlytics.Platform.Application.Analysis.Evidence.EvidenceOptionsValidator>());
 
         services.AddOptions<SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions.SectionName)
