@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-orchestration/purge-event/v1/purge-event.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent conversation purge event v1",
+  "description": "Content-free event that asks the platform to purge the derived copies of one deleted Agent Conversation (outbox message type agent-conversation-purge). It carries only the conversation identifier and the request time. Additional properties are refused, so no content (question, advice, history, scope, credentials, or URLs) can be added.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "conversationId",
+    "requestedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "conversationId": { "type": "string", "format": "uuid" },
+    "requestedAt": { "type": "string", "format": "date-time" }
+  }
+}
