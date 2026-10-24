@@ -271,7 +271,7 @@ requested from the Segment Service.
 
 ### Documentation
 
-- [ ] T028 [P] Make `docs/architecture/` describe the merged state: re-read the narratives and every status statement
+- [x] T028 [P] Make `docs/architecture/` describe the merged state: re-read the narratives and every status statement
   listed in the plan's Architecture Updates (Capability-Scoped Result Access, the `get_video_clip()` sentence of the
   Analyst Capability Catalog, MCP Tools, Client Applications Web UI, the Segment Service paragraph of the Segment
   Contract, section 4 of Terminology and Principles, Audit Events, and the Web UI security baseline) and correct every

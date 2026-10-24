@@ -84,8 +84,9 @@ The React Web UI supports connected platform and club workflows, including:
   superseded without a member (implemented)
 - team and match review, analytics, and agent conversations for coaches (the
   connected analysis review and the match triage conversations with Specialist
-  Agents are implemented, see below; run comparison is decided but not yet
-  implemented as described below; visualizations, the Coach Agent
+  Agents are implemented, see below, as is evidence playback in the review;
+  run comparison is decided but not yet implemented as described below;
+  visualizations, the Coach Agent
   conversations and consultations are not implemented yet)
 
 What a user sees is decided by their roles and team authorization, online and
@@ -127,8 +128,8 @@ reconciliation, run controls, media changes, visualizations, export, sharing,
 agent or MCP operations. Equal reported metadata never proves equal full
 input snapshots.
 
-Evidence playback in the analysis review is decided as follows and not yet
-implemented (see
+Evidence playback in the analysis review is implemented as development
+evidence as follows (see
 [Evidence Clip Access](../../specs/20261017-224326-evidence-clip-access/spec.md)).
 Each fact offers "Play evidence": the Web UI resolves the fact with five
 seconds of context on each side through the member evidence-media operation of

@@ -379,8 +379,8 @@ capability-and-scope alignment is only a presentation aid; contract, input
 coverage and provenance differences stay explicit, and neither matching
 counts nor metadata establish equal full inputs, equivalent outputs or quality.
 
-The evidence of those facts is decided, but not yet implemented, to be
-resolvable to video by the same members (see
+The evidence of those facts is resolvable to video by the same members, as
+development evidence (see
 [Evidence Clip Access](../../specs/20261017-224326-evidence-clip-access/spec.md)):
 a member-facing `/api/v1` operation resolves one indexed fact of a run (with
 optional, bounded context before and after it) or an explicit, bounded
@@ -398,7 +398,8 @@ checksum; it never reads media bytes, never stores or logs links, re-evaluates
 team authorization on every request, rate-limits resolutions per member, and
 records each resolution that issues links as an artifact-authorization audit
 event without the links. This is the API side of `get_video_clip()`; the MCP
-tool remains future work.
+tool remains future work. Production link lifetimes, rate limits, content
+delivery, and the production storage origin remain unresolved.
 
 ---
 

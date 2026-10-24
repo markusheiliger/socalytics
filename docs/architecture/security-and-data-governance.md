@@ -241,8 +241,8 @@ audit evidence and every export or redaction of it MUST itself be audited.
 
 At minimum, authentication and authorization decisions, role changes, Manager
 registration and revocation, credential lifecycle, artifact authorization
-(including member evidence-media links, recorded without the links; decided,
-not yet implemented),
+(including member evidence-media links, recorded without the links;
+development evidence),
 attempt rejection and acceptance, policy changes, data export, deletion,
 retention expiry, hold lifecycle, restore suppression, vulnerability decisions,
 email address and notification-preference changes (with masked addresses),
@@ -961,11 +961,11 @@ it can already read everything that user sees online.
 The implemented online-only Web UI foundation applies this baseline as
 development evidence. Preview mode and production-shaped builds send
 `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
-img-src 'self' data:; font-src 'self'; manifest-src 'self'; media-src blob:;
-connect-src 'self' <object-storage-origin>; worker-src 'self'; object-src
-'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self';
-require-trusted-types-for 'script'; trusted-types default react-dom
-upload-worker service-worker`, together
+img-src 'self' data:; font-src 'self'; manifest-src 'self'; media-src blob:
+<object-storage-origin>; connect-src 'self' <object-storage-origin>;
+worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none';
+form-action 'self'; require-trusted-types-for 'script'; trusted-types default
+react-dom upload-worker service-worker`, together
 with `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a
 `Permissions-Policy` that disables camera, microphone, and geolocation. Trusted
 Types is enforced for script sinks with only the `default`, `react-dom`,
@@ -975,11 +975,10 @@ script URL `/sw.js` of the service worker. `manifest-src 'self'` lets the
 browser read the web app manifest. `<object-storage-origin>` is the object-storage origin
 from `SOCALYTICS_OBJECT_STORAGE_ORIGIN` (the local store in development);
 without it `connect-src` stays `'self'`. Part transfers go directly to object
-storage, `media-src blob:` only lets a detached video element read a local
-file's duration, and `worker-src 'self'` is explicit for the bundled worker.
-For evidence playback, `media-src` is decided, but not yet implemented, to
-become `blob: <object-storage-origin>`, and the video elements load media in
-CORS mode, so only the Web UI origin on the object store's cross-origin
+storage, `media-src blob:` lets a detached video element read a local file's
+duration, and `worker-src 'self'` is explicit for the bundled worker. For
+evidence playback, `media-src` also lists `<object-storage-origin>` (without
+the origin it stays `blob:`), and the video elements load media in CORS mode, so only the Web UI origin on the object store's cross-origin
 allow-list can play it (see
 [Client Applications](client-applications.md#web-ui)).
 Every emitted script and stylesheet in the build carries a SHA-384
