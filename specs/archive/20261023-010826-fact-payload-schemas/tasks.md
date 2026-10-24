@@ -5,7 +5,7 @@ description: "Task list for Capability Fact Payload Schemas"
 
 # Tasks: Capability Fact Payload Schemas
 
-**Input**: Design documents from `/specs/20261023-010826-fact-payload-schemas/`
+**Input**: Design documents from `/specs/archive/20261023-010826-fact-payload-schemas/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/payload-schema-subset.md](contracts/payload-schema-subset.md), [quickstart.md](quickstart.md)

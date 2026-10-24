@@ -2,7 +2,7 @@
 
 **Branch**: `20261023-010826-fact-payload-schemas` | **Date**: 2026-10-23 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261023-010826-fact-payload-schemas/spec.md`
+**Input**: Feature specification from `/specs/archive/20261023-010826-fact-payload-schemas/spec.md`
 
 ## Summary
 
@@ -59,7 +59,7 @@ No violations; Complexity Tracking is empty.
 ### Documentation (this feature)
 
 ```text
-specs/20261023-010826-fact-payload-schemas/
+specs/archive/20261023-010826-fact-payload-schemas/
 ├── plan.md
 ├── research.md
 ├── data-model.md
@@ -103,10 +103,10 @@ Application port, Infrastructure implementation); `functional areas` stay folder
 
 ## Architecture Updates
 
-- **Narratives**: [Analysts, Models, and Hardware](../../docs/architecture/analysts-models-and-hardware.md) (packaging
+- **Narratives**: [Analysts, Models, and Hardware](../../../docs/architecture/analysts-models-and-hardware.md) (packaging
   convention, result validation, and fact indexing paragraphs),
-  [Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md) (capability declaration carried in
-  the manifest), and [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md) (contract
+  [Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md) (capability declaration carried in
+  the manifest), and [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md) (contract
   release history).
 - **Design updates**: applied now to `analysts-models-and-hardware.md`, worded as decided but not implemented (the
   implementation turns it into present tense): the manifest declares fact payload schemas per kind as a restricted,
