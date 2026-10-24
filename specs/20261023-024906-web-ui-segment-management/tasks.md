@@ -139,7 +139,7 @@ reports zero purged.
   or the browser is offline, a list re-read after the purge ends, on success and on failure, and the area note that
   purged segments are rematerialized on demand; extend
   `src/clients/web/tests/unit/features/segments/SegmentsSection.test.tsx` for these cases
-- [ ] T012 [US2] Extend `src/clients/web/tests/e2e/simulated/segments.spec.ts` with the purge scenarios (confirmation
+- [x] T012 [US2] Extend `src/clients/web/tests/e2e/simulated/segments.spec.ts` with the purge scenarios (confirmation
   text, cancel sends nothing, confirm sends one request, counts and re-read list with purged segments absent and in-use
   segments unchanged, repeat reports zero purged, no purge when nothing is purgeable, in-flight controls disabled,
   refusal and `503` with retry, offline, navigating away from the match page during a pending purge (the result is

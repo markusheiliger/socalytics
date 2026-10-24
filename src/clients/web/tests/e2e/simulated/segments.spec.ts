@@ -159,3 +159,164 @@ test.describe('Accessibility and keyboard', () => {
     await expect(rows(page)).toHaveCount(before);
   });
 });
+
+test.describe('Purge', () => {
+  test.beforeEach(({ api }) => api.signInAs('ClubAdmin'));
+
+  const purgeButton = (page: Page) => area(page).getByRole('button', { name: 'Purge unused segments' });
+  const dialogOf = (page: Page) => page.getByRole('dialog', { name: 'Purge the unused segments of this match?' });
+  const openDialog = async (page: Page) => {
+    await page.goto(`/matches/${match.id}`);
+    await expect(rows(page)).toHaveCount(5);
+    await purgeButton(page).click();
+    const dialog = dialogOf(page);
+    await expect(dialog).toBeVisible();
+    return dialog;
+  };
+
+  test('the confirmation states the match and the outcome, and cancelling sends nothing and returns focus', async ({ page, api }) => {
+    const dialog = await openDialog(page);
+    await expect(dialog).toContainText('Rivals FC');
+    await expect(dialog).toContainText('deleted and become absent');
+    await expect(dialog).toContainText('kept and reported');
+    await expect(dialog).toContainText('rematerialized on demand');
+    await expectNoAxeViolations(page);
+
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(purgeButton(page)).toBeFocused();
+    expect(api.segmentRequests.purgeMaterializedSegments).toBe(0);
+    expect(api.segmentRequests.listMaterializedSegments).toBe(1);
+  });
+
+  test('confirming sends one request, shows the counts, and re-reads the list with purged segments absent', async ({ page, api }) => {
+    const dialog = await openDialog(page);
+    await dialog.getByRole('button', { name: 'Purge', exact: true }).click();
+    await expect(dialog.getByRole('status')).toContainText('2 segments purged, 2 kept because they are in use.');
+    await expect(dialog).toContainText('rematerialized on demand');
+    await expectNoAxeViolations(page);
+    expect(api.segmentRequests.purgeMaterializedSegments).toBe(1);
+
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(() => api.segmentRequests.listMaterializedSegments).toBe(2);
+    await expect(rows(page).nth(0)).toContainText('Absent');
+    await expect(rows(page).nth(1)).toContainText('Available');
+    await expect(rows(page).nth(1)).toContainText('In use');
+    await expect(rows(page).nth(2)).toContainText('Absent');
+    await expect(rows(page).nth(3)).toContainText('Materializing');
+    await expect(purgeButton(page)).toHaveCount(0);
+    await expect(area(page).getByText('Nothing to purge')).toBeVisible();
+    expect(api.segmentRequests.purgeMaterializedSegments).toBe(1);
+  });
+
+  test('a purge that deletes nothing reports zero purged as a normal outcome', async ({ page, api }) => {
+    api.segmentPurgeScript.push({ kind: 'outcome', purged: 0, inUse: 2 });
+    const dialog = await openDialog(page);
+    await dialog.getByRole('button', { name: 'Purge', exact: true }).click();
+    await expect(dialog.getByRole('status')).toContainText('0 segments purged, 2 kept because they are in use.');
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('without purgeable segments no purge is offered and no purge request is sent', async ({ page, api }) => {
+    const only = segmentFixtures().filter((s) => s.inUse || s.state === 'absent');
+    api.segments.set(matchId, only);
+    await page.goto(`/matches/${match.id}`);
+    await expect(rows(page)).toHaveCount(only.length);
+    await expect(purgeButton(page)).toHaveCount(0);
+    await expect(area(page).getByText('Nothing to purge: every segment is in use or already absent.')).toBeVisible();
+    expect(api.segmentRequests.purgeMaterializedSegments).toBe(0);
+  });
+
+  test('while the purge is pending both dialog actions and the area controls are disabled', async ({ page, api }) => {
+    api.segmentPurgeDelayMs = 1200;
+    const dialog = await openDialog(page);
+    await dialog.getByRole('button', { name: 'Purge', exact: true }).click();
+    await expect(dialog.getByRole('status')).toContainText('Purging the unused segments…');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Purge', exact: true })).toBeDisabled();
+    // The modal hides the area from the accessibility tree, so these controls are found by CSS.
+    const areaControls = page.locator('section[aria-labelledby="segments-heading"]');
+    await expect(areaControls.locator('button', { hasText: 'Refresh' })).toBeDisabled();
+    await expect(areaControls.locator('button', { hasText: 'Purge unused segments' })).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeVisible();
+    expect(api.segmentRequests.purgeMaterializedSegments).toBe(1);
+
+    await expect(dialog.getByRole('status')).toContainText('2 segments purged');
+    expect(api.segmentRequests.purgeMaterializedSegments).toBe(1);
+  });
+
+  for (const status of [403, 503] as const) {
+    test(`a ${status} refusal shows the failure, the list is read again, and a retry works`, async ({ page, api }) => {
+      api.segmentPurgeScript.push({ kind: 'refusal', status });
+      const dialog = await openDialog(page);
+      await dialog.getByRole('button', { name: 'Purge', exact: true }).click();
+      await expect(dialog.getByRole('alert')).toBeVisible();
+      await expect.poll(() => api.segmentRequests.listMaterializedSegments).toBe(2);
+      expect(api.segmentRequests.purgeMaterializedSegments).toBe(1);
+
+      if (status === 503) {
+        await expect(dialog.getByRole('alert')).toContainText('The segments could not be purged. Segments already purged by the call stay purged.');
+        await expectNoAxeViolations(page);
+        await dialog.getByRole('button', { name: 'Try the purge again' }).click();
+        await expect(dialog.getByRole('status')).toContainText('2 segments purged, 2 kept because they are in use.');
+        expect(api.segmentRequests.purgeMaterializedSegments).toBe(2);
+      } else {
+        await expect(dialog.getByRole('button', { name: 'Try the purge again' })).toHaveCount(0);
+      }
+      await dialog.getByRole('button', { name: 'Close' }).click();
+      await expect(dialog).toHaveCount(0);
+    });
+  }
+
+  test('offline, the confirmation and the area controls are disabled and nothing is sent', async ({ page, api, context }) => {
+    const dialog = await openDialog(page);
+    await context.setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await expect(dialog.getByText(/A connection is required/)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Purge', exact: true })).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(purgeButton(page)).toBeDisabled();
+    await expect(area(page).getByRole('button', { name: 'Refresh' })).toBeDisabled();
+    expect(api.segmentRequests.purgeMaterializedSegments).toBe(0);
+    await context.setOffline(false);
+  });
+
+  test('navigating away during a pending purge discards the result and the purge still completes', async ({ page, api }) => {
+    api.segmentPurgeDelayMs = 1000;
+    const dialog = await openDialog(page);
+    await dialog.getByRole('button', { name: 'Purge', exact: true }).click();
+    await expect(dialog.getByRole('status')).toContainText('Purging the unused segments…');
+
+    await page.evaluate(() => {
+      window.history.pushState({}, '', '/teams');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await expect(page).toHaveURL(/\/teams$/);
+    await expect(dialogOf(page)).toHaveCount(0);
+
+    await expect.poll(() => api.segments.get(matchId)?.[0].state).toBe('absent');
+    expect(api.segmentRequests.purgeMaterializedSegments).toBe(1);
+    await expect(page.getByText(/segments purged/)).toHaveCount(0);
+  });
+
+  test('a re-read list shows a purged segment as materializing and then available', async ({ page, api }) => {
+    const dialog = await openDialog(page);
+    await dialog.getByRole('button', { name: 'Purge', exact: true }).click();
+    await expect(dialog.getByRole('status')).toContainText('2 segments purged');
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(rows(page).nth(0)).toContainText('Absent');
+
+    const later = segmentFixtures();
+    later[0] = { ...later[0], state: 'materializing', mediaSizeBytes: null, availableAt: null };
+    api.segments.set(matchId, later);
+    await area(page).getByRole('button', { name: 'Refresh' }).click();
+    await expect(rows(page).nth(0)).toContainText('Materializing');
+
+    api.segments.set(matchId, segmentFixtures());
+    await area(page).getByRole('button', { name: 'Refresh' }).click();
+    await expect(rows(page).nth(0)).toContainText('Available');
+  });
+});
