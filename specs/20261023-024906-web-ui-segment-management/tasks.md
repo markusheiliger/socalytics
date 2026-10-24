@@ -53,7 +53,7 @@ description: "Task list for Web UI Materialized Segment Management for Club Admi
   in `specs/20261023-024906-web-ui-segment-management/contracts/segment-adapter.md`, with the unit test
   `src/clients/web/tests/unit/platform/adapters/segmentAdapter.test.ts` (mapping, nullable fields, unknown state,
   `401`, `403`, `404`, `503` refusals, single request per call)
-- [ ] T004 [P] Create `src/clients/web/src/features/segments/segmentSummary.ts` (`total`, per-state counts, `other`,
+- [x] T004 [P] Create `src/clients/web/src/features/segments/segmentSummary.ts` (`total`, per-state counts, `other`,
   `inUse`, and `purgeable` = segments with `inUse === false` and `state` in (`available`, `failed`), as in `data-model.md`) and
   `src/clients/web/src/features/segments/segmentKeys.ts` (query key `['matches','segments',matchId]`), with the unit
   test `src/clients/web/tests/unit/features/segments/segmentSummary.test.ts` (including cases for an unknown state and
