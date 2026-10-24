@@ -5,7 +5,7 @@ Changes to the interfaces of [Agent Orchestration API](../../archive/20261017-20
 [Coach Agent Interfaces](../../20261018-115720-coach-agent-conversations/contracts/coach-agent-interfaces.md), the
 [Hermes Runtime Interface](../../20261018-113729-hermes-runtime/contracts/hermes-runtime.md), and the Web UI adapters of
 [Web UI Match Triage Conversations](../../archive/20261017-210231-web-ui-triage-conversations/contracts/agent-conversation-adapter.md)
-and [Web UI Agent Catalog Administration](../../20261018-103316-web-ui-agent-catalog/contracts/agent-catalog-adapter.md).
+and [Web UI Agent Catalog Administration](../../archive/20261018-103316-web-ui-agent-catalog/contracts/agent-catalog-adapter.md).
 Everything not listed here is unchanged. The OpenAPI document and its committed snapshot are refreshed.
 
 ## Machine-readable contracts

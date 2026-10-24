@@ -24,8 +24,9 @@ implemented as development evidence, with a Development and Test seed of the
 two direct Specialist Agents. The catalog entries, prompt drafts, profile
 values, and model choices in this document remain Provisional design inputs;
 model execution, MCP evidence tools, the Hermes orchestration runtime, and the
-remaining user experiences (including the Web UI's catalog administration) are
-design inputs rather than deployed behavior.
+remaining user experiences are design inputs rather than deployed behavior.
+The Web UI's catalog administration for Club Admins is implemented as
+development evidence.
 
 ## Catalog Rules
 
@@ -99,8 +100,8 @@ consultations (decided, not yet implemented; see
 enabled agent version and every artifact
 digest into its invocation, so later catalog changes never alter running or
 historical invocations. Club Admins operate the catalog through the `/api/v1`
-agent catalog operations; they will operate it from the Web UI's
-Agent Catalog area (decided, not yet implemented; see
+agent catalog operations and from the Web UI's Agent Catalog area (implemented
+as development evidence; see
 [Client Applications → Web UI](client-applications.md#web-ui)). See
 `specs/archive/20261018-101517-agent-catalog-registry`.
 
