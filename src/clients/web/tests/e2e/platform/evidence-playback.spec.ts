@@ -119,9 +119,18 @@ test('plays the evidence of a fact of an uploaded synthetic recording to the fac
   // The recording starts at match time 0:00, so media time equals match time within one frame.
   const position = await page.evaluate(() => {
     const playing = Array.from(document.querySelectorAll('video')).find((v) => v.currentSrc && !v.paused);
-    return playing ? playing.currentTime - (playing.seekable.length > 0 ? playing.seekable.start(0) : 0) : undefined;
+    return playing
+      ? { time: playing.currentTime - (playing.seekable.length > 0 ? playing.seekable.start(0) : 0), src: playing.currentSrc }
+      : undefined;
   });
   expect(position, 'a playing video element').toBeDefined();
-  expect(position!).toBeGreaterThanOrEqual(factStart - FRAME_SECONDS);
-  expect(position!).toBeLessThanOrEqual(factEnd + FRAME_SECONDS);
+  expect(position!.time).toBeGreaterThanOrEqual(factStart - FRAME_SECONDS);
+  expect(position!.time).toBeLessThanOrEqual(factEnd + FRAME_SECONDS);
+
+  // FR-022: the development object store grants no cross-origin access to the played media to another origin.
+  for (const origin of ['https://other-origin.example', 'null']) {
+    const response = await page.request.get(position!.src, { headers: { Origin: origin, Range: 'bytes=0-0' } });
+    expect(response.status(), `media request with Origin ${origin}`).toBeLessThan(500);
+    expect(response.headers()['access-control-allow-origin'], `Access-Control-Allow-Origin for Origin ${origin}`).toBeUndefined();
+  }
 });

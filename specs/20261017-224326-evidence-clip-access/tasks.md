@@ -261,7 +261,7 @@ requested from the Segment Service.
   playback, the offline browser shows the connection-required state on "Play evidence", and after a playback session
   service-worker caches, `localStorage`, `sessionStorage`, and IndexedDB contain no media, link, or resolution
   (SC-006; FR-022, FR-023)
-- [ ] T027 [P] [US4] Extend `src/clients/web/tests/e2e/platform/evidence-playback.spec.ts`: a request for the played
+- [x] T027 [P] [US4] Extend `src/clients/web/tests/e2e/platform/evidence-playback.spec.ts`: a request for the played
   media with another `Origin` receives no `Access-Control-Allow-Origin` for it from the development object store
   (FR-022)
 
