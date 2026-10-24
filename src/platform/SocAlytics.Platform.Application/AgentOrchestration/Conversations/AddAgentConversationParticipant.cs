@@ -1,6 +1,7 @@
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.AgentOrchestration.Catalog;
+using SocAlytics.Platform.Application.AgentOrchestration.Invocations;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Domain.AgentOrchestration;
 
@@ -51,6 +52,11 @@ public sealed class AddAgentConversationParticipantHandler(
         if (string.IsNullOrWhiteSpace(command.AgentId))
         {
             return OperationFailure.Validation(new FieldViolation("agentId", "required"));
+        }
+
+        if (conversation.State == AgentPersistedNames.ToPersistedName(AgentConversationState.Archived))
+        {
+            return OperationFailure.Conflict(AgentSubmissionCodes.ConversationArchived);
         }
 
         var agentId = command.AgentId;

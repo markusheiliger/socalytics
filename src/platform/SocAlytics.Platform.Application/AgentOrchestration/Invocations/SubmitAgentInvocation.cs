@@ -19,6 +19,7 @@ public sealed record SubmitAgentInvocationCommand(Guid ConversationId, string? I
 public static class AgentSubmissionCodes
 {
     public const string IdempotencyKeyReused = "idempotency-key-reused";
+    public const string ConversationArchived = "conversation-archived";
     public const string AgentNotParticipant = "agent-not-participant";
     public const string AgentNotAvailable = "agent-not-available";
     public const string TooManyUnfinishedInvocations = "too-many-unfinished-invocations";
@@ -117,6 +118,13 @@ public sealed class SubmitAgentInvocationHandler(
         }
 
         var agentId = command.AgentId!;
+        if (conversation.State == AgentPersistedNames.ToPersistedName(AgentConversationState.Archived))
+        {
+            return await RefuseAsync(
+                scope, conversation, agentId, OperationFailure.Conflict(AgentSubmissionCodes.ConversationArchived),
+                AgentSubmissionCodes.ConversationArchived, cancellationToken);
+        }
+
         if (!conversation.Participants.Any(p => string.Equals(p.AgentId, agentId, StringComparison.Ordinal)))
         {
             return await RefuseAsync(
