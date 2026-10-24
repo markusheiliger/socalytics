@@ -56,7 +56,7 @@ One fact per detected boundary, in `startMs` order, byte-identical for identical
 The payload is described by [schemas/shot-boundary.payload.schema.json](schemas/shot-boundary.payload.schema.json),
 which the project's tests validate with `jsonschema`. The `1.0.0` manifest (`analyst-manifest.json`) declares no
 payload schema. The full contract is in the
-[shot-boundary fact contract](../../../../specs/20261023-022148-shot-boundary-analyst/contracts/shot-boundary-fact.md).
+[shot-boundary fact contract](../../../../specs/archive/20261023-022148-shot-boundary-analyst/contracts/shot-boundary-fact.md).
 
 ## Failure reasons
 
@@ -74,7 +74,7 @@ Every other failure category comes from the SDK.
 ## Tests
 
 The tests need CPython 3.12, `uv`, and the pinned `ffmpeg` and `ffprobe` on `PATH`. From this directory (see
-[quickstart.md](../../../../specs/20261023-022148-shot-boundary-analyst/quickstart.md)):
+[quickstart.md](../../../../specs/archive/20261023-022148-shot-boundary-analyst/quickstart.md)):
 
 ```text
 UV_PYTHON_DOWNLOADS=never

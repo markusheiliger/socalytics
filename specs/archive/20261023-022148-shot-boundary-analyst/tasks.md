@@ -1,6 +1,6 @@
 # Tasks: Shot-Boundary Media Context Analyst (Baseline)
 
-**Input**: Design documents from `/specs/20261023-022148-shot-boundary-analyst/`
+**Input**: Design documents from `/specs/archive/20261023-022148-shot-boundary-analyst/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/shot-boundary-fact.md](contracts/shot-boundary-fact.md), [quickstart.md](quickstart.md)

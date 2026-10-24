@@ -263,7 +263,7 @@ silently pass.
   extension points this feature extends.
 - [Reference Analyst](../archive/20261018-095952-reference-analyst/spec.md) (#170) is implemented and provides the first
   project under `src/analysts/capabilities/`, whose verification this feature must preserve.
-- [Shot-Boundary Media Context Analyst](../20261023-022148-shot-boundary-analyst/spec.md) (#243) and every later
+- [Shot-Boundary Media Context Analyst](../archive/20261023-022148-shot-boundary-analyst/spec.md) (#243) and every later
   learned-detector capability depend on this feature when OpenCV is not otherwise available.
 
 ### Architecture Alignment
