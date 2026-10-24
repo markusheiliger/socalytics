@@ -163,5 +163,73 @@
     "message": "Leave this conversation? Your unsent question will be lost.",
     "stay": "Stay",
     "leave": "Leave"
+  },
+  "lifecycle": {
+    "filter": {
+      "label": "Show conversations",
+      "active": "Active",
+      "archived": "Archived"
+    },
+    "state": {
+      "active": "Active",
+      "archived": "Archived",
+      "unknown": "{{state}}"
+    },
+    "empty": {
+      "active": "You have no active triage conversations for this match.",
+      "archived": "You have no archived triage conversations for this match."
+    },
+    "archivedNotice": "This conversation is archived. You can read it, but you cannot ask questions or add agents until you unarchive it.",
+    "actions": {
+      "label": "Conversation actions",
+      "archive": "Archive",
+      "unarchive": "Unarchive",
+      "delete": "Delete"
+    },
+    "confirm": {
+      "archive": {
+        "title": "Archive this conversation?",
+        "message": "The conversation leaves your active list and stays readable under Archived, with its questions, advice, and lineage unchanged. Nobody can ask questions or add agents until you unarchive it. Questions that are still being answered finish normally.",
+        "confirm": "Archive conversation"
+      },
+      "unarchive": {
+        "title": "Unarchive this conversation?",
+        "message": "The conversation returns to your active list and accepts new questions and agents again.",
+        "confirm": "Unarchive conversation"
+      },
+      "delete": {
+        "title": "Delete this conversation permanently?",
+        "message": "Deleting is permanent and cannot be undone. All questions and advice of this conversation are removed, questions that are still being answered are stopped, and nobody can open the conversation afterwards.",
+        "confirm": "Delete permanently"
+      },
+      "cancel": "Cancel",
+      "working": {
+        "archive": "Archiving…",
+        "unarchive": "Unarchiving…",
+        "delete": "Deleting…"
+      }
+    },
+    "success": {
+      "archive": "The conversation was archived.",
+      "unarchive": "The conversation was unarchived.",
+      "delete": "The conversation was deleted."
+    },
+    "refusal": {
+      "notPermitted": "Only Club Admins and Coaches of the team can archive, unarchive, or delete conversations.",
+      "notFound": "This conversation was not found.",
+      "failed": "The conversation could not be changed. Try again."
+    },
+    "conflict": {
+      "message": "The conversation changed in the meantime, so nothing was changed. Reload it to see its current state.",
+      "reload": "Reload conversation"
+    },
+    "unavailable": {
+      "title": "Conversation unavailable",
+      "message": "This conversation is not available. It may have been deleted, or it is not one of your conversations.",
+      "retry": "Try again",
+      "service": "The conversation could not be changed because the platform is unavailable. Nothing was changed. Try again later."
+    },
+    "offline": "Managing conversations needs a connection. Reconnect to continue.",
+    "unknownOutcome": "We could not confirm the result. Reload the conversation to see its current state."
   }
 }
