@@ -10,8 +10,12 @@ dotnet build src/platform/SocAlytics.Platform.slnx --no-restore
 
 ## 1. Establish the cause (before changing anything)
 
-Run the flaky test repeatedly, alone and with the whole project under processor load, and record the
-failures and the elapsed times (see [research.md](research.md) for the hypotheses):
+Run the flaky test 20 consecutive times alone and the whole project 5 consecutive times under processor
+load (`stress-ng --cpu $(nproc)`, or `$(nproc)` busy-loop processes as the fallback), each driven by one shell
+loop that stops at the first failure, and record the failures and the elapsed times (see
+[research.md](research.md) for the hypotheses). Also examine the failed verification logs of #201, #225, and #275,
+or record that `gh` or the logs were unavailable. Only after these runs and logs may a hypothesis be
+recorded as "not reproducible":
 
 ```bash
 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --no-build --filter "FullyQualifiedName~OpenApiDocumentContainsAllAnalystRegistryOperationIds"

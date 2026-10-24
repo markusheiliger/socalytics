@@ -30,15 +30,18 @@ design that follows from each outcome.
 Every hypothesis gets a recorded verdict (proved, ruled out, not reproducible) with the evidence in the
 task's final summary. If no hypothesis reproduces, the shared stamp with serialized classes is still
 adopted only if the logs of the failed verifications show a failure mode it removes; otherwise the
-implementation records "not reproducible" and keeps looking before changing anything.
+implementation records "not reproducible" with the evidence as the terminal outcome of T001, changes nothing,
+and marks the remaining implementation tasks (T002 to T014) not applicable; only the final summary (T015) runs.
+Reading the failed logs with `gh` is best effort; the busy-loop fallback is a sufficient load generator.
 
 ## Decision 1: One shared started stamp in a collection fixture
 
 - **Decision**: Add one xUnit collection (`Stamp`) with an `ICollectionFixture<StampFixture>`. The fixture
   builds and starts the AppHost with the options all OpenAPI tests already pass
   (`--SocAlytics:LocalDatabase:Persistent=false`, `--SocAlytics:ApiHttpsEndpoint=false`), waits for `api`
-  healthy under a bounded token, and exposes the `DistributedApplication` and an HTTP client factory. All
-  classes that start a stamp join the collection, so they run one after another and never concurrently.
+  healthy under a bounded token, and exposes only `CreateApiClient()` (an `HttpClient` for `api`, as in `contracts/stamp-fixture.md`). All
+  classes that start a stamp join the collection, so their tests run one after another and never concurrently
+  (a `PlatformHostTests` stamp may coexist with the shared stamp, so at most two stamps exist at once).
 - **Rationale**: A collection fixture is the xUnit mechanism that is isolated from other collections'
   concurrency, starts once, and surfaces a failed start to every test that uses it. It also removes the
   contention (H1, H3) rather than hiding it.

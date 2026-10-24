@@ -13,7 +13,7 @@ classes in parallel, so up to nine stamps start at once on one runner. The plan 
 cause with evidence first (repeated runs alone and under load, the logs of the failed verifications
 of #201, #225, and #275), then remove it in shared Host test support: one started stamp per test
 project, shared by all tests that only read the running stamp or its OpenAPI document, held by an
-xUnit collection fixture so that stamp-starting classes never run concurrently. Tests that need other
+xUnit collection fixture so that tests of stamp-starting classes never run concurrently (at most two stamps exist at once). Tests that need other
 options or mutate the stamp keep their own AppHost, in the same collection so they stay serialized.
 No assertion changes, no retries, sleeps, or longer limits; production code and the AppHost
 composition are changed only if the evidence shows the cause lives there.
