@@ -3,6 +3,7 @@ using System.Text;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.IdentityAccess;
+using SocAlytics.Platform.Domain.AgentOrchestration;
 
 namespace SocAlytics.Platform.Application.AgentOrchestration.Invocations;
 
@@ -37,7 +38,9 @@ public sealed class ListAgentConversationTurnsHandler(
         }
 
         var conversation = await conversations.LockByIdAsync(query.ConversationId, cancellationToken);
-        if (conversation is null || conversation.OwnerMemberId != ownerId)
+        if (conversation is null
+            || conversation.OwnerMemberId != ownerId
+            || conversation.State == AgentPersistedNames.ToPersistedName(AgentConversationState.Deleted))
         {
             return OperationFailure.NotFound();
         }

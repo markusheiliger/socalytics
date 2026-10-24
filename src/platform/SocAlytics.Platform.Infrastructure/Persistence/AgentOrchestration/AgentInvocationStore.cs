@@ -350,6 +350,20 @@ internal sealed class AgentInvocationStore(IDbSession session) : IAgentInvocatio
         return rows.Select(ToTurn).ToList();
     }
 
+    public async Task<int> SuppressNonterminalAsync(Guid conversationId, DateTimeOffset endedAt, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE socalytics.agent_invocations
+            SET state = 'lifecycle-suppressed', failure_reason = NULL, current_attempt_id = NULL, ended_at = @endedAt,
+                progress_version = progress_version + 1
+            WHERE conversation_id = @conversationId AND state IN ('queued', 'running')
+            """,
+            new { conversationId, endedAt }, transaction, cancellationToken: cancellationToken));
+    }
+
     public async Task<AgentInvocationLineage> ReadLineageAsync(Guid invocationId, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);

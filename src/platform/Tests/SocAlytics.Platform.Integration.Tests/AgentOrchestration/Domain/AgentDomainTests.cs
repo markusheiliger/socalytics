@@ -17,6 +17,8 @@ public sealed class AgentDomainTests
 			(AgentInvocationState.Running, AgentInvocationState.Succeeded),
 			(AgentInvocationState.Running, AgentInvocationState.Queued),
 			(AgentInvocationState.Running, AgentInvocationState.Failed),
+			(AgentInvocationState.Queued, AgentInvocationState.LifecycleSuppressed),
+			(AgentInvocationState.Running, AgentInvocationState.LifecycleSuppressed),
 		};
 
 		foreach (var from in states)
@@ -26,6 +28,76 @@ public sealed class AgentDomainTests
 				AgentStateTransitions.IsAllowed(from, to).ShouldBe(allowed.Contains((from, to)), $"{from} -> {to}");
 			}
 		}
+	}
+
+	[Theory]
+	[InlineData(AgentInvocationState.Queued)]
+	[InlineData(AgentInvocationState.Running)]
+	public void Unfinished_invocations_can_be_suppressed(AgentInvocationState from)
+	{
+		AgentStateTransitions.IsAllowed(from, AgentInvocationState.LifecycleSuppressed).ShouldBeTrue();
+		AgentStateTransitions.IsTerminal(from).ShouldBeFalse();
+	}
+
+	[Theory]
+	[InlineData(AgentInvocationState.Succeeded)]
+	[InlineData(AgentInvocationState.Failed)]
+	[InlineData(AgentInvocationState.LifecycleSuppressed)]
+	public void Terminal_invocations_cannot_be_suppressed_or_left(AgentInvocationState terminal)
+	{
+		AgentStateTransitions.IsTerminal(terminal).ShouldBeTrue();
+		AgentStateTransitions.IsAllowed(terminal, AgentInvocationState.LifecycleSuppressed).ShouldBeFalse();
+
+		foreach (var to in Enum.GetValues<AgentInvocationState>())
+		{
+			AgentStateTransitions.IsAllowed(terminal, to).ShouldBeFalse($"{terminal} -> {to}");
+		}
+	}
+
+	[Fact]
+	public void Suppression_is_not_a_retry_or_a_failure()
+	{
+		AgentStateTransitions.IsAllowed(AgentInvocationState.LifecycleSuppressed, AgentInvocationState.Queued).ShouldBeFalse();
+		AgentStateTransitions.IsAllowed(AgentInvocationState.LifecycleSuppressed, AgentInvocationState.Failed).ShouldBeFalse();
+		AgentStateTransitions.IsAllowed(AgentInvocationState.LifecycleSuppressed, AgentInvocationState.Running).ShouldBeFalse();
+		AgentStateTransitions.IsAllowed(AgentInvocationState.LifecycleSuppressed, AgentInvocationState.Succeeded).ShouldBeFalse();
+		AgentStateTransitions.IsAllowed(AgentInvocationState.Succeeded, AgentInvocationState.Queued).ShouldBeFalse();
+	}
+
+	[Fact]
+	public void Conversation_states_have_distinct_persisted_names()
+	{
+		Enum.GetValues<AgentConversationState>().ShouldBe(
+			[AgentConversationState.Active, AgentConversationState.Archived, AgentConversationState.Deleted],
+			ignoreOrder: true);
+		Enum.GetValues<AgentConversationState>()
+			.Select(AgentPersistedNames.ToPersistedName)
+			.ShouldBe(["active", "archived", "deleted"], ignoreOrder: true);
+		AgentPersistedNames.ToPersistedName(AgentConversationState.Active).ShouldBe("active");
+		AgentPersistedNames.ToPersistedName(AgentConversationState.Deleted).ShouldBe("deleted");
+		AgentPersistedNames.TryParseConversationState(null, out _).ShouldBeFalse();
+		AgentPersistedNames.TryParseConversationState("Archived", out _).ShouldBeFalse();
+	}
+
+	[Fact]
+	public void Invocation_states_do_not_accept_names_of_other_state_sets()
+	{
+		AgentPersistedNames.TryParseInvocationState("archived", out _).ShouldBeFalse();
+		AgentPersistedNames.TryParseInvocationState("suppressed", out _).ShouldBeFalse();
+		AgentPersistedNames.TryParseInvocationState("lifecycle-suppressed", out var state).ShouldBeTrue();
+		state.ShouldBe(AgentInvocationState.LifecycleSuppressed);
+	}
+
+	[Fact]
+	public void Purge_names_are_the_persisted_values()
+	{
+		AgentPersistedNames.PurgeCopyPrimary.ShouldBe("primary");
+		AgentPersistedNames.PurgeCopyIndex.ShouldBe("index");
+		AgentPersistedNames.PurgeStatePending.ShouldBe("pending");
+		AgentPersistedNames.PurgeStateCompleted.ShouldBe("completed");
+		AgentPersistedNames.PurgeStateUnresolved.ShouldBe("unresolved");
+		AgentPersistedNames.PurgeOutcomePurged.ShouldBe("purged");
+		AgentPersistedNames.PurgeOutcomeNotPresent.ShouldBe("not-present");
 	}
 
 	[Fact]
@@ -65,6 +137,18 @@ public sealed class AgentDomainTests
 			parsed.ShouldBe(reason);
 		}
 
+		foreach (var state in Enum.GetValues<AgentConversationState>())
+		{
+			AgentPersistedNames.TryParseConversationState(AgentPersistedNames.ToPersistedName(state), out var parsed).ShouldBeTrue();
+			parsed.ShouldBe(state);
+		}
+
+		AgentPersistedNames.ToPersistedName(AgentConversationState.Archived).ShouldBe("archived");
+		AgentPersistedNames.ToPersistedName(AgentInvocationState.LifecycleSuppressed).ShouldBe("lifecycle-suppressed");
+		AgentPersistedNames.ToWireName(AgentInvocationState.LifecycleSuppressed).ShouldBe("lifecycle-suppressed");
+		AgentStateTransitions.IsTerminal(AgentInvocationState.LifecycleSuppressed).ShouldBeTrue();
+		AgentPersistedNames.AttemptEndReasonLifecycleSuppressed.ShouldBe("lifecycle-suppressed");
+		AgentPersistedNames.TryParseConversationState("restored", out _).ShouldBeFalse();
 		AgentPersistedNames.ToWireName(AgentInvocationState.Queued).ShouldBe("accepted/queued");
 		AgentPersistedNames.ToWireName(AgentInvocationState.Running).ShouldBe("claimed/running");
 		AgentPersistedNames.ToPersistedName(AgentStaleDisposition.AttemptNotCurrent).ShouldBe("attempt-not-current");

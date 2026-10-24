@@ -98,6 +98,67 @@ public sealed class MonitorAndReconciliationTests(PostgresContainerFixture postg
 	private static Task<long> ReadyMessagesAsync(AgentOrchestrationFixture f, CancellationToken ct) =>
 		f.ScalarAsync("SELECT count(*) FROM socalytics.outbox_messages WHERE message_type = 'agent-invocation-ready'", ct);
 
+	// Writes a tombstone without the delete's side effects, as an interrupted or faulty delete would leave it.
+	private static Task<long> InsertBareTombstoneAsync(AgentOrchestrationFixture f, Guid invocationId, CancellationToken ct) =>
+		f.ScalarAsync(
+			$"""
+			WITH t AS (
+			    INSERT INTO socalytics.agent_conversation_tombstones
+			        (conversation_id, team_id, deleted_by_member_id, deleted_at, invocations_suppressed)
+			    SELECT conversation_id, team_id, (SELECT id FROM socalytics.member_account WHERE account_name = 'admin-1'), now(), 0
+			    FROM socalytics.agent_invocations WHERE id = '{invocationId}'
+			    RETURNING 1)
+			SELECT count(*) FROM t
+			""", ct);
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task ReconciliationRestoresSuppressionOfAnInconsistentTombstonedConversation(bool claimed)
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var f = await StartAsync(postgres, workers: false, ct);
+		var token = await f.Workload.AccessTokenAsync(f.Anon, f.Now, ct);
+		var invocationId = await SubmitAsync(f, ct);
+		JsonElement? envelope = claimed ? await ClaimAsync(f, token, invocationId, ct) : null;
+		var attemptsUsed = await f.ScalarAsync($"SELECT attempts_used FROM socalytics.agent_invocations WHERE id = '{invocationId}'", ct);
+		var conversationId = Guid.Parse((await ReadAsync(
+			await f.Admin.Client.GetAsync($"/api/v1/agent-invocations/{invocationId}", ct), ct)).GetProperty("conversationId").GetString()!);
+
+		(await InsertBareTombstoneAsync(f, invocationId, ct)).ShouldBe(1);
+		(await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_conversations WHERE id = '{conversationId}' AND state <> 'deleted'", ct)).ShouldBe(1);
+
+		await ReconcileAsync(f, ct);
+
+		(await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_conversations WHERE id = '{conversationId}' AND state = 'deleted'", ct)).ShouldBe(1);
+		(await f.ScalarAsync(
+			$"SELECT count(*) FROM socalytics.agent_invocations WHERE conversation_id = '{conversationId}' AND state IN ('queued', 'running')", ct)).ShouldBe(0);
+		(await f.ScalarAsync(
+			$"SELECT count(*) FROM socalytics.agent_invocations WHERE id = '{invocationId}' AND state = 'lifecycle-suppressed' AND attempts_used = {attemptsUsed}", ct))
+			.ShouldBe(1);
+		(await f.ScalarAsync("SELECT count(*) FROM socalytics.agent_attempts WHERE state IN ('claimed', 'active')", ct)).ShouldBe(0);
+		(await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_conversation_purges WHERE conversation_id = '{conversationId}'", ct)).ShouldBe(2);
+
+		// The conversation is neither readable nor executable.
+		using var conversation = await f.Admin.Client.GetAsync($"/api/v1/agent-conversations/{conversationId}", ct);
+		conversation.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+		using var invocation = await f.Admin.Client.GetAsync($"/api/v1/agent-invocations/{invocationId}", ct);
+		invocation.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+		using var claim = await f.Workload.ClaimAsync(f.Anon, f.Now, token, invocationId, "claim-after-reconcile", ct);
+		claim.StatusCode.ShouldNotBe(HttpStatusCode.Created);
+		if (envelope is { } active)
+		{
+			using var late = await CompleteAsync(f, token, active, ct);
+			late.IsSuccessStatusCode.ShouldBeFalse();
+			(await f.ScalarAsync("SELECT count(*) FROM socalytics.agent_accepted_advice", ct)).ShouldBe(0);
+		}
+
+		// A repeated pass finds nothing inconsistent and changes nothing.
+		await ReconcileAsync(f, ct);
+		(await f.ScalarAsync($"SELECT attempts_used FROM socalytics.agent_invocations WHERE id = '{invocationId}'", ct)).ShouldBe(attemptsUsed);
+		(await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_conversation_purges WHERE conversation_id = '{conversationId}'", ct)).ShouldBe(2);
+	}
+
 	[Fact]
 	public async Task AttemptWithoutRenewalsExpiresAndANewAttemptCompletesTheInvocation()
 	{

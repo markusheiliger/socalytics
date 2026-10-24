@@ -12,6 +12,7 @@ public sealed record GetAgentInvocationQuery(Guid InvocationId);
 
 public sealed class GetAgentInvocationHandler(
     IUnitOfWork unitOfWork,
+    IAgentConversationStore conversations,
     IAgentInvocationStore invocations,
     IAgentInvocationPinStore pins,
     IAccessAuthorizer authorizer,
@@ -38,6 +39,12 @@ public sealed class GetAgentInvocationHandler(
 
         var invocation = await invocations.FindAsync(query.InvocationId, cancellationToken);
         if (invocation is null || invocation.OwnerMemberId != ownerId)
+        {
+            return OperationFailure.NotFound();
+        }
+
+        var conversation = await conversations.LockByIdAsync(invocation.ConversationId, cancellationToken);
+        if (conversation is null || conversation.State == AgentPersistedNames.ToPersistedName(AgentConversationState.Deleted))
         {
             return OperationFailure.NotFound();
         }

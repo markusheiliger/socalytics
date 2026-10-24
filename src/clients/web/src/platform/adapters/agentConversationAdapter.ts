@@ -32,6 +32,7 @@ import {
   toTurnState,
   type Advice,
   type Conditional,
+  type ConversationStateFilter,
   type ConversationSummary,
   type EnabledAgent,
   type ExecutionReferences,
@@ -59,23 +60,33 @@ export class TriageFailure extends Error {
 
 export interface AgentConversationAdapter {
   listAgents(): Promise<EnabledAgent[]>;
-  listConversations(matchId: string): Promise<ConversationSummary[]>;
+  listConversations(matchId: string, state?: ConversationStateFilter): Promise<ConversationSummary[]>;
   createConversation(matchId: string, analysisRunId: string, key: string): Promise<TriageConversation>;
   getConversation(conversationId: string, etag?: string): Promise<Conditional<TriageConversation>>;
   addParticipant(conversationId: string, agentId: string, version: number): Promise<TriageConversation>;
+  archiveConversation(conversationId: string, version: number): Promise<TriageConversation>;
+  unarchiveConversation(conversationId: string, version: number): Promise<TriageConversation>;
+  deleteConversation(conversationId: string, version: number): Promise<void>;
   submitQuestion(conversationId: string, agentId: string, question: string, key: string): Promise<SubmissionAccepted>;
   listTurns(conversationId: string, cursor?: string, etag?: string): Promise<Conditional<TurnPage>>;
   getInvocationStatus(invocationId: string, etag?: string): Promise<Conditional<InvocationStatus>>;
   getLineage(invocationId: string, etag?: string): Promise<Conditional<InvocationLineage>>;
 }
 
-const STATE_CHANGING = new Set(['createConversation', 'submitQuestion']);
+const STATE_CHANGING = new Set([
+  'createConversation',
+  'submitQuestion',
+  'archiveConversation',
+  'unarchiveConversation',
+  'deleteConversation',
+]);
 
 const CONFLICT_OUTCOMES: Record<string, TriageOutcome['kind']> = {
   'agent-not-available': 'agentNotAvailable',
   'agent-not-participant': 'agentNotParticipant',
   'participant-exists': 'participantExists',
   'analysis-run-not-eligible': 'runNotEligible',
+  'conversation-archived': 'conversationArchived',
 };
 
 /** Translates the shared failure into a triage outcome; the shared mapping itself stays unchanged. */
@@ -315,8 +326,10 @@ export function createAgentConversationAdapter(api: PlatformApi): AgentConversat
         })),
       );
     },
-    listConversations: async (matchId) => {
-      const info = v1.matches.byMatchId(matchId as Guid).agentConversations.toGetRequestInformation();
+    listConversations: async (matchId, state) => {
+      const info = v1.matches
+        .byMatchId(matchId as Guid)
+        .agentConversations.toGetRequestInformation({ queryParameters: state ? { state } : {} });
       const { value } = await body('listConversations', info, createAgentConversationListDtoFromDiscriminatorValue as ParsableFactory<AgentConversationListDto>);
       return mapped(() => (value.conversations ?? []).map(toConversation));
     },
@@ -335,6 +348,20 @@ export function createAgentConversationAdapter(api: PlatformApi): AgentConversat
       const info = withIfMatch(conversation(conversationId).participants.toPostRequestInformation({ agentId }), version);
       const result = await body('addParticipant', info, createAgentConversationDtoFromDiscriminatorValue as ParsableFactory<AgentConversationDto>);
       return mapped(() => withEtag(result.value, result.etag));
+    },
+    archiveConversation: async (conversationId, version) => {
+      const info = withIfMatch(conversation(conversationId).archive.toPostRequestInformation(), version);
+      const result = await body('archiveConversation', info, createAgentConversationDtoFromDiscriminatorValue as ParsableFactory<AgentConversationDto>);
+      return mapped(() => withEtag(result.value, result.etag));
+    },
+    unarchiveConversation: async (conversationId, version) => {
+      const info = withIfMatch(conversation(conversationId).unarchive.toPostRequestInformation(), version);
+      const result = await body('unarchiveConversation', info, createAgentConversationDtoFromDiscriminatorValue as ParsableFactory<AgentConversationDto>);
+      return mapped(() => withEtag(result.value, result.etag));
+    },
+    deleteConversation: async (conversationId, version) => {
+      const info = withIfMatch(conversation(conversationId).toDeleteRequestInformation(), version);
+      await send('deleteConversation', info, createAgentConversationDtoFromDiscriminatorValue as ParsableFactory<AgentConversationDto>);
     },
     submitQuestion: async (conversationId, agentId, question, key) => {
       const info = withIdempotencyKey(conversation(conversationId).invocations.toPostRequestInformation({ agentId, question }), key);

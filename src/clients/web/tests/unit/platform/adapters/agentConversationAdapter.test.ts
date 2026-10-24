@@ -58,6 +58,55 @@ describe('agentConversationAdapter', () => {
     expect(list[0]).toMatchObject({ analysisRunIsCurrent: true, version: 3, participants: [{ agentId: 'specialist-tactics' }] });
   });
 
+  it('filters the conversations by state', async () => {
+    const { api, calls } = setup(() => ok(200, { conversations: [{ ...conversation, state: 'archived' }] }));
+    const list = await createAgentConversationAdapter(api).listConversations(ids.match, 'archived');
+    expect(calls[0].url).toContain('state=archived');
+    expect(list[0].state).toBe('archived');
+  });
+
+  it('archives and unarchives with the version', async () => {
+    const { api, calls } = setup((call) =>
+      withHeaders(200, { ...conversation, state: call.url.endsWith('/unarchive') ? 'active' : 'archived', version: 4 }, { ETag: '"4"' }),
+    );
+    const adapter = createAgentConversationAdapter(api);
+    const archived = await adapter.archiveConversation(conversationId, 3);
+    expect(calls[0].url).toContain(`/agent-conversations/${conversationId}/archive`);
+    expect(header(calls[0], 'If-Match')).toBe('"3"');
+    expect(archived).toMatchObject({ state: 'archived', etag: '"4"' });
+    const active = await adapter.unarchiveConversation(conversationId, 4);
+    expect(calls[1].url).toContain('/unarchive');
+    expect(active.state).toBe('active');
+  });
+
+  it('deletes with the version and accepts no content', async () => {
+    const { api, calls } = setup(() => new Response(null, { status: 204 }));
+    await createAgentConversationAdapter(api).deleteConversation(conversationId, 3);
+    expect(calls[0].init.method).toBe('DELETE');
+    expect(header(calls[0], 'If-Match')).toBe('"3"');
+  });
+
+  it('maps lifecycle refusals to triage outcomes', async () => {
+    const cases: [Response, unknown][] = [
+      [problem(404, 'not-found'), { kind: 'notFound' }],
+      [problem(412, 'precondition-failed'), { kind: 'staleVersion' }],
+      [problem(403, 'forbidden'), { kind: 'notPermitted' }],
+      [problem(428, 'precondition-required'), { kind: 'platform', failureKind: 'programmingError' }],
+      [problem(409, 'conversation-archived'), { kind: 'conversationArchived' }],
+    ];
+    for (const [response, expected] of cases) {
+      const { api } = setup(() => response);
+      expect(await outcomeOf(createAgentConversationAdapter(api).deleteConversation(conversationId, 3))).toEqual(expected);
+    }
+  });
+
+  it('reports an unreachable platform during a lifecycle change as an unknown outcome', async () => {
+    const { api } = setup(() => {
+      throw new TypeError('offline');
+    });
+    expect(await outcomeOf(createAgentConversationAdapter(api).archiveConversation(conversationId, 3))).toEqual({ kind: 'unknownOutcome' });
+  });
+
   it('creates a conversation with the caller key', async () => {
     const { api, calls } = setup(() => withHeaders(201, conversation, { ETag: '"3"' }));
     const result = await createAgentConversationAdapter(api).createConversation(ids.match, ids.run, 'key-1');

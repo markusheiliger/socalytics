@@ -14,6 +14,11 @@ public static class AgentOrchestrationAuditEvents
     public const string AttemptExpiredEvent = "agent.attempt.expired";
     public const string InvocationExhaustedEvent = "agent.invocation.exhausted";
     public const string AttemptScopeLostEvent = "agent.attempt.scope-lost";
+    public const string ConversationArchivedEvent = "agent.conversation.archived";
+    public const string ConversationUnarchivedEvent = "agent.conversation.unarchived";
+    public const string ConversationDeletedEvent = "agent.conversation.deleted";
+    public const string ConversationPurgeCompletedEvent = "agent.conversation.purge-completed";
+    public const string ConversationPurgeUnresolvedEvent = "agent.conversation.purge-unresolved";
 
     public const string CredentialIssuedEvent = "agent-workload.credential-issued";
     public const string CredentialRefusedEvent = "agent-workload.credential-refused";
@@ -30,6 +35,10 @@ public static class AgentOrchestrationAuditEvents
     public const string WorkloadClientIdDetail = "workloadClientId";
     public const string DispositionDetail = "disposition";
     public const string ReasonCodeDetail = "reasonCode";
+    public const string TeamIdDetail = "teamId";
+    public const string InvocationCountDetail = "invocationCount";
+    public const string TombstoneIdDetail = "tombstoneId";
+    public const string CopyDetail = "copy";
 
     public static AuditEvent ConversationCreated(Guid conversationId, Guid teamId) =>
         Build(ConversationCreatedEvent, "create-conversation", AuditOutcome.Succeeded, ConversationResourceType, conversationId, teamId, null,
@@ -78,6 +87,44 @@ public static class AgentOrchestrationAuditEvents
         Build(AttemptScopeLostEvent, "refuse-claim", AuditOutcome.Refused, InvocationResourceType, invocationId, teamId, "scope-lost",
             Pairs((InvocationIdDetail, invocationId.ToString()), (AgentIdDetail, agentId), (WorkloadClientIdDetail, clientId), (DispositionDetail, "scope-lost")),
             WorkloadActor);
+
+    public static AuditEvent ConversationArchived(Guid conversationId, Guid teamId) =>
+        Build(ConversationArchivedEvent, "archive-conversation", AuditOutcome.Succeeded, ConversationResourceType, conversationId, teamId, null,
+            [(ConversationIdDetail, conversationId.ToString()), (TeamIdDetail, teamId.ToString())]);
+
+    public static AuditEvent ConversationUnarchived(Guid conversationId, Guid teamId) =>
+        Build(ConversationUnarchivedEvent, "unarchive-conversation", AuditOutcome.Succeeded, ConversationResourceType, conversationId, teamId, null,
+            [(ConversationIdDetail, conversationId.ToString()), (TeamIdDetail, teamId.ToString())]);
+
+    public static AuditEvent ConversationDeleted(Guid conversationId, Guid teamId, Guid tombstoneId, int invocationCount) =>
+        Build(ConversationDeletedEvent, "delete-conversation", AuditOutcome.Succeeded, ConversationResourceType, conversationId, teamId, null,
+            [
+                (ConversationIdDetail, conversationId.ToString()),
+                (TeamIdDetail, teamId.ToString()),
+                (TombstoneIdDetail, tombstoneId.ToString()),
+                (InvocationCountDetail, invocationCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            ]);
+
+    public static AuditEvent ConversationPurgeCompleted(Guid conversationId, Guid teamId, Guid tombstoneId, string copy) =>
+        Build(ConversationPurgeCompletedEvent, "purge-conversation", AuditOutcome.Succeeded, ConversationResourceType, conversationId, teamId, null,
+            [
+                (ConversationIdDetail, conversationId.ToString()),
+                (TeamIdDetail, teamId.ToString()),
+                (TombstoneIdDetail, tombstoneId.ToString()),
+                (CopyDetail, copy),
+            ],
+            SystemActor);
+
+    public static AuditEvent ConversationPurgeUnresolved(Guid conversationId, Guid teamId, Guid tombstoneId, string copy, string reason) =>
+        Build(ConversationPurgeUnresolvedEvent, "purge-conversation", AuditOutcome.Failed, ConversationResourceType, conversationId, teamId, reason,
+            [
+                (ConversationIdDetail, conversationId.ToString()),
+                (TeamIdDetail, teamId.ToString()),
+                (TombstoneIdDetail, tombstoneId.ToString()),
+                (CopyDetail, copy),
+                (ReasonCodeDetail, reason),
+            ],
+            SystemActor);
 
     public static AuditEvent WorkloadCredentialIssued(string clientId) =>
         Build(CredentialIssuedEvent, "issue-credential", AuditOutcome.Succeeded, WorkloadResourceType, clientId, null, null,

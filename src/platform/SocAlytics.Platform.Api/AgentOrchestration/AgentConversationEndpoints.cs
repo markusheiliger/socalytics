@@ -112,7 +112,35 @@ internal static class AgentConversationEndpoints
 			.WithName("listAgentConversations")
 			.WithTags("Agent conversations")
 			.Produces<AgentConversationListDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
 			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapPost("/agent-conversations/{conversationId:guid}/archive", ArchiveAsync)
+			.WithName("archiveAgentConversation")
+			.WithTags("Agent conversations")
+			.Produces<AgentConversationDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
+		members.MapPost("/agent-conversations/{conversationId:guid}/unarchive", UnarchiveAsync)
+			.WithName("unarchiveAgentConversation")
+			.WithTags("Agent conversations")
+			.Produces<AgentConversationDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
+		members.MapDelete("/agent-conversations/{conversationId:guid}", DeleteAsync)
+			.WithName("deleteAgentConversation")
+			.WithTags("Agent conversations")
+			.Produces(StatusCodes.Status204NoContent)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		members.MapGet("/agent-conversations/{conversationId:guid}", GetConversationAsync)
 			.WithName("getAgentConversation")
 			.WithTags("Agent conversations")
@@ -192,12 +220,64 @@ internal static class AgentConversationEndpoints
 			: Results.Created($"/api/v1/agent-conversations/{dto.ConversationId}", dto);
 	}
 
-	private static async Task<IResult> ListConversationsAsync(Guid matchId, ListAgentConversationsHandler handler, CancellationToken cancellationToken)
+	private static async Task<IResult> ListConversationsAsync(
+		Guid matchId, string? state, ListAgentConversationsHandler handler, CancellationToken cancellationToken)
 	{
-		var result = await handler.HandleAsync(new ListAgentConversationsQuery(matchId), cancellationToken);
+		var result = await handler.HandleAsync(
+			new ListAgentConversationsQuery(matchId, state ?? ListAgentConversationsQuery.ActiveState), cancellationToken);
 		return result.IsSuccess
 			? Results.Ok(new AgentConversationListDto([.. result.Value.Items.Select(AgentConversationDto.From)]))
 			: ProblemResults.From(result.Failure);
+	}
+
+	private static async Task<IResult> ArchiveAsync(
+		Guid conversationId, HttpContext http, ArchiveAgentConversationHandler handler, CancellationToken cancellationToken)
+	{
+		var expected = IfMatchHeader.Parse(http.Request);
+		if (!expected.IsSuccess)
+		{
+			return ProblemResults.From(expected.Failure);
+		}
+
+		var result = await handler.HandleAsync(new ArchiveAgentConversationCommand(conversationId, expected.Value), cancellationToken);
+		return LifecycleResult(http, result);
+	}
+
+	private static async Task<IResult> UnarchiveAsync(
+		Guid conversationId, HttpContext http, UnarchiveAgentConversationHandler handler, CancellationToken cancellationToken)
+	{
+		var expected = IfMatchHeader.Parse(http.Request);
+		if (!expected.IsSuccess)
+		{
+			return ProblemResults.From(expected.Failure);
+		}
+
+		var result = await handler.HandleAsync(new UnarchiveAgentConversationCommand(conversationId, expected.Value), cancellationToken);
+		return LifecycleResult(http, result);
+	}
+
+	private static async Task<IResult> DeleteAsync(
+		Guid conversationId, HttpContext http, DeleteAgentConversationHandler handler, CancellationToken cancellationToken)
+	{
+		var expected = IfMatchHeader.Parse(http.Request);
+		if (!expected.IsSuccess)
+		{
+			return ProblemResults.From(expected.Failure);
+		}
+
+		var result = await handler.HandleAsync(new DeleteAgentConversationCommand(conversationId, expected.Value), cancellationToken);
+		return result.IsSuccess ? Results.NoContent() : ProblemResults.From(result.Failure);
+	}
+
+	private static IResult LifecycleResult(HttpContext http, OperationResult<AgentConversationView> result)
+	{
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = IfMatchHeader.Format(result.Value.Conversation.Version);
+		return Results.Ok(AgentConversationDto.From(result.Value));
 	}
 
 	private static async Task<IResult> GetConversationAsync(

@@ -13,15 +13,19 @@ public sealed class AgentOrchestrationOptions
 
     public MonitorOptions Monitor { get; set; } = new();
 
+    public PurgeOptions Purge { get; set; } = new();
+
     public static bool IsValid(AgentOrchestrationOptions options)
     {
         var execution = options.Execution;
         var workloads = options.Workloads;
         var monitor = options.Monitor;
+        var purge = options.Purge;
 
         if (execution is null
             || workloads?.Clients is null
-            || monitor is null)
+            || monitor is null
+            || purge is null)
         {
             return false;
         }
@@ -46,6 +50,14 @@ public sealed class AgentOrchestrationOptions
 
         if (workloads.Clients.Any(c => c is null || string.IsNullOrWhiteSpace(c.ClientId) || (c.Enabled && string.IsNullOrWhiteSpace(c.PublicJwk)))
             || workloads.Clients.Select(c => c.ClientId).Distinct(StringComparer.Ordinal).Count() != workloads.Clients.Count)
+        {
+            return false;
+        }
+
+        if (purge.PollInterval <= TimeSpan.Zero
+            || purge.BatchSize <= 0
+            || purge.MaxAttempts <= 0
+            || purge.RetryDelay <= TimeSpan.Zero)
         {
             return false;
         }
@@ -110,5 +122,16 @@ public sealed class AgentOrchestrationOptions
         public TimeSpan ReconciliationInterval { get; set; } = TimeSpan.FromSeconds(30);
 
         public TimeSpan RepublishBound { get; set; } = TimeSpan.FromSeconds(60);
+    }
+
+    public sealed class PurgeOptions
+    {
+        public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
+
+        public int BatchSize { get; set; } = 20;
+
+        public int MaxAttempts { get; set; } = 5;
+
+        public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(10);
     }
 }

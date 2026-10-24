@@ -149,6 +149,10 @@ public interface IAgentInvocationStore
         Guid conversationId, DateTimeOffset submittedBefore, int limit, CancellationToken cancellationToken);
 
     Task<AgentInvocationLineage> ReadLineageAsync(Guid invocationId, CancellationToken cancellationToken);
+
+    // Moves every queued or running invocation of the conversation to lifecycle-suppressed (no failure reason, no current
+    // attempt) and increments progress_version; attempts_used and ready_occurrence stay unchanged. Returns the count moved.
+    Task<int> SuppressNonterminalAsync(Guid conversationId, DateTimeOffset endedAt, CancellationToken cancellationToken);
 }
 
 public sealed record AgentAttemptRecord(
@@ -201,4 +205,8 @@ public interface IAgentAttemptStore
     Task<IReadOnlyList<AgentExpiredAttemptRef>> ListExpiredAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<AgentActiveAttemptRef>> ListActiveForScopeCheckAsync(CancellationToken cancellationToken);
+
+    // Ends every claimed or active attempt of the conversation's invocations as fenced with end reason
+    // lifecycle-suppressed. Returns the count fenced.
+    Task<int> FenceOpenForConversationAsync(Guid conversationId, DateTimeOffset endedAt, CancellationToken cancellationToken);
 }

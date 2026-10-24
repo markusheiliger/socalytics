@@ -24,6 +24,7 @@ import { loadAllRuns, RUNS_KEY } from '../lineage/AnalysisRunStates';
 import { formatKickoff } from '../matches/MatchForm';
 import { useMatchContext } from '../matches/useMatchContext';
 import { FailureAlert } from '../shared/FailureAlert';
+import { ConversationLifecycleDialog, type LifecycleAction, type LifecycleFailure } from './ConversationLifecycleDialog';
 import { ParticipantsPanel } from './ParticipantsPanel';
 import { QuestionComposer } from './QuestionComposer';
 import { TurnList, type PendingTurn } from './TurnList';
@@ -46,6 +47,10 @@ export function ConversationPage() {
   const [gone, setGone] = useState(false);
   const [unsent, setUnsent] = useState(false);
   const { isUnreachable } = useConnectivity();
+  const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction | undefined>(undefined);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const [lifecycleFailure, setLifecycleFailure] = useState<LifecycleFailure>('none');
+  const [lifecycleDone, setLifecycleDone] = useState<LifecycleAction | undefined>(undefined);
   const guardLeave = unsent && !gone;
   useLeaveGuard(guardLeave);
   const blocker = useBlocker(({ currentLocation, nextLocation }) => guardLeave && currentLocation.pathname !== nextLocation.pathname);
@@ -87,6 +92,63 @@ export function ConversationPage() {
   const reload = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: triageKeys.conversation(conversationId) });
   }, [queryClient, conversationId]);
+  const closeLifecycle = () => {
+    setLifecycleAction(undefined);
+    setLifecycleFailure('none');
+  };
+  const reloadAfterLifecycleFailure = () => {
+    closeLifecycle();
+    reload();
+  };
+  // No optimistic change: the shown state changes only after the platform confirmed and the queries were invalidated.
+  const confirmLifecycle = async () => {
+    const current = conversation.data;
+    if (!lifecycleAction || !current || lifecycleBusy) return;
+    const action = lifecycleAction;
+    setLifecycleBusy(true);
+    setLifecycleFailure('none');
+    try {
+      if (action === 'archive') await adapter.archiveConversation(conversationId, current.version);
+      else if (action === 'unarchive') await adapter.unarchiveConversation(conversationId, current.version);
+      else await adapter.deleteConversation(conversationId, current.version);
+      setLifecycleAction(undefined);
+      setLifecycleDone(action);
+      void queryClient.invalidateQueries({ queryKey: triageKeys.conversations(matchId) });
+      if (action === 'delete') {
+        queryClient.removeQueries({ queryKey: triageKeys.conversation(conversationId) });
+        queryClient.removeQueries({ queryKey: triageKeys.turns(conversationId) });
+      } else {
+        await queryClient.invalidateQueries({ queryKey: triageKeys.conversation(conversationId) });
+      }
+    } catch (error) {
+      if (!(error instanceof TriageFailure)) {
+        setLifecycleFailure('failed');
+      } else {
+        switch (error.outcome.kind) {
+          case 'notFound':
+            setLifecycleAction(undefined);
+            setGone(true);
+            break;
+          case 'notPermitted':
+            setLifecycleFailure('notPermitted');
+            break;
+          case 'staleVersion':
+            setLifecycleFailure('conflict');
+            break;
+          case 'unknownOutcome':
+            setLifecycleFailure('unknownOutcome');
+            break;
+          case 'platform':
+            setLifecycleFailure(error.outcome.failureKind === 'unexpected' || error.outcome.failureKind === 'unreachable' ? 'unavailable' : 'failed');
+            break;
+          default:
+            setLifecycleFailure('failed');
+        }
+      }
+    } finally {
+      setLifecycleBusy(false);
+    }
+  };
   const onNotFound = useCallback(() => setGone(true), []);
   const onOutcome = useCallback((outcome: TriageOutcome) => {
     if (outcome.kind === 'notPermitted') setLostSubmitRight(true);
@@ -108,11 +170,13 @@ export function ConversationPage() {
     </>
   );
 
-  if (notFound) {
+  if (lifecycleDone === 'delete') {
     return (
       <Container component="main" maxWidth="sm" sx={{ py: 4 }}>
         <Typography variant="h1">{tc('app.name')}</Typography>
-        <Typography variant="h2">{ts('notFound')}</Typography>
+        <Alert severity="success" role="status">
+          {t('lifecycle.success.delete')}
+        </Alert>
         <Button component={Link} to={`/matches/${matchId}`} variant="outlined" sx={{ mt: 2 }}>
           {t('conversation.backToMatch')}
         </Button>
@@ -120,7 +184,22 @@ export function ConversationPage() {
     );
   }
 
-  const canAsk = editor && !lostSubmitRight;
+  if (notFound) {
+    return (
+      <Container component="main" maxWidth="sm" sx={{ py: 4 }}>
+        <Typography variant="h1">{tc('app.name')}</Typography>
+        <Typography variant="h2">{ts('notFound')}</Typography>
+        <Typography>{t('lifecycle.unavailable.message')}</Typography>
+        <Button component={Link} to={`/matches/${matchId}`} variant="outlined" sx={{ mt: 2 }}>
+          {t('conversation.backToMatch')}
+        </Button>
+      </Container>
+    );
+  }
+
+  const archivedState = data?.state === 'archived';
+  const canManage = editor && permitted;
+  const canAsk = editor && !lostSubmitRight && !archivedState;
   const runTime = data ? runs.data?.find((run) => run.runId === data.analysisRunId)?.createdAt : undefined;
   const failureMessage = conversationFailure instanceof TriageFailure ? triageMessage(conversationFailure.outcome) : undefined;
 
@@ -155,7 +234,36 @@ export function ConversationPage() {
             <Link to={`/matches/${matchId}/analysis-runs/${data.analysisRunId}`}>{t('conversation.reviewLink')}</Link>
             {!data.analysisRunIsCurrent && <Alert severity="info" sx={{ mt: 1 }}>{t('conversation.supersededNotice')}</Alert>}
           </section>
-          {!canAsk && <Typography>{t('conversation.readOnlyNote')}</Typography>}
+          {lifecycleDone && (
+            <Alert severity="success" role="status">
+              {t(`lifecycle.success.${lifecycleDone}`)}
+            </Alert>
+          )}
+          {archivedState && <Alert severity="info">{t('lifecycle.archivedNotice')}</Alert>}
+          {canManage && (data.state === 'active' || archivedState) && (
+            <Stack direction="row" spacing={1} role="group" aria-label={t('lifecycle.actions.label')}>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  setLifecycleDone(undefined);
+                  setLifecycleAction(archivedState ? 'unarchive' : 'archive');
+                }}
+              >
+                {t(archivedState ? 'lifecycle.actions.unarchive' : 'lifecycle.actions.archive')}
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={() => {
+                  setLifecycleDone(undefined);
+                  setLifecycleAction('delete');
+                }}
+              >
+                {t('lifecycle.actions.delete')}
+              </Button>
+            </Stack>
+          )}
+          {!canAsk && !archivedState && <Typography>{t('conversation.readOnlyNote')}</Typography>}
           <ParticipantsPanel
             adapter={adapter}
             conversation={data}
@@ -167,6 +275,15 @@ export function ConversationPage() {
           {canAsk && <QuestionComposer adapter={adapter} conversation={data} onAccepted={onAccepted} onOutcome={onOutcome} onUnsentChange={setUnsent} />}
         </Stack>
       )}
+      <ConversationLifecycleDialog
+        action={lifecycleAction}
+        busy={lifecycleBusy}
+        failure={lifecycleFailure}
+        offline={isUnreachable}
+        onConfirm={() => void confirmLifecycle()}
+        onClose={closeLifecycle}
+        onReload={reloadAfterLifecycleFailure}
+      />
       <Dialog open={blocker.state === 'blocked'} onClose={() => blocker.reset?.()} aria-labelledby="leave-title">
         <DialogTitle id="leave-title">{t('leave.title')}</DialogTitle>
         <DialogContent>

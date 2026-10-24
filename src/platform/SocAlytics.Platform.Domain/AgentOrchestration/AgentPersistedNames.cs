@@ -2,12 +2,54 @@ namespace SocAlytics.Platform.Domain.AgentOrchestration;
 
 public static class AgentPersistedNames
 {
+	// Attempts of a suppressed invocation end Fenced with this end reason.
+	public const string AttemptEndReasonLifecycleSuppressed = "lifecycle-suppressed";
+
+	// The purge copies of a deleted conversation's content.
+	public const string PurgeCopyPrimary = "primary";
+	public const string PurgeCopyIndex = "index";
+
+	public const string PurgeStatePending = "pending";
+	public const string PurgeStateCompleted = "completed";
+	public const string PurgeStateUnresolved = "unresolved";
+
+	public const string PurgeOutcomePurged = "purged";
+	public const string PurgeOutcomeNotPresent = "not-present";
+
+	public static string ToPersistedName(AgentConversationState state) => state switch
+	{
+		AgentConversationState.Active => "active",
+		AgentConversationState.Archived => "archived",
+		AgentConversationState.Deleted => "deleted",
+		_ => throw new ArgumentOutOfRangeException(nameof(state)),
+	};
+
+	public static bool TryParseConversationState(string? value, out AgentConversationState state)
+	{
+		switch (value)
+		{
+			case "active":
+				state = AgentConversationState.Active;
+				return true;
+			case "archived":
+				state = AgentConversationState.Archived;
+				return true;
+			case "deleted":
+				state = AgentConversationState.Deleted;
+				return true;
+			default:
+				state = default;
+				return false;
+		}
+	}
+
 	public static string ToPersistedName(AgentInvocationState state) => state switch
 	{
 		AgentInvocationState.Queued => "queued",
 		AgentInvocationState.Running => "running",
 		AgentInvocationState.Succeeded => "succeeded",
 		AgentInvocationState.Failed => "failed",
+		AgentInvocationState.LifecycleSuppressed => "lifecycle-suppressed",
 		_ => throw new ArgumentOutOfRangeException(nameof(state)),
 	};
 
@@ -18,6 +60,7 @@ public static class AgentPersistedNames
 		AgentInvocationState.Running => "claimed/running",
 		AgentInvocationState.Succeeded => "succeeded",
 		AgentInvocationState.Failed => "failed",
+		AgentInvocationState.LifecycleSuppressed => "lifecycle-suppressed",
 		_ => throw new ArgumentOutOfRangeException(nameof(state)),
 	};
 
@@ -36,6 +79,9 @@ public static class AgentPersistedNames
 				return true;
 			case "failed":
 				state = AgentInvocationState.Failed;
+				return true;
+			case "lifecycle-suppressed":
+				state = AgentInvocationState.LifecycleSuppressed;
 				return true;
 			default:
 				state = default;

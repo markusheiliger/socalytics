@@ -201,6 +201,9 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAgentConversationsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.GetAgentConversationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.AddAgentConversationParticipantHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ArchiveAgentConversationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.UnarchiveAgentConversationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.DeleteAgentConversationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.SubmitAgentInvocationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.GetAgentInvocationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.ListAgentConversationTurnsHandler>();
@@ -213,6 +216,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.FailAgentAttemptHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.MonitorAgentAttemptsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.ReconcileAgentWorkHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.PurgeAgentConversationHandler>();
 
         services.AddOptions<SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions.SectionName)

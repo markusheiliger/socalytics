@@ -130,6 +130,22 @@ internal sealed class AgentAttemptStore(IDbSession session) : IAgentAttemptStore
         return rows.AsList();
     }
 
+    public async Task<int> FenceOpenForConversationAsync(Guid conversationId, DateTimeOffset endedAt, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE socalytics.agent_attempts a
+            SET state = 'fenced', end_reason = @endReason, ended_at = @endedAt
+            FROM socalytics.agent_invocations i
+            WHERE i.id = a.invocation_id AND i.conversation_id = @conversationId AND a.state IN ('claimed', 'active')
+            """,
+            new { conversationId, endedAt, endReason = AgentPersistedNames.AttemptEndReasonLifecycleSuppressed },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
     public async Task<IReadOnlyList<AgentActiveAttemptRef>> ListActiveForScopeCheckAsync(CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);

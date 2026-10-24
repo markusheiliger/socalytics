@@ -31,7 +31,7 @@ test.describe('Who may start and who may read', () => {
     api.seedEligibleRun();
     await page.goto(`/matches/${match.id}`);
     const section = page.getByRole('region', { name: 'Triage conversations' });
-    await expect(section.getByText('You have no triage conversations for this match yet.')).toBeVisible();
+    await expect(section.getByText('You have no active triage conversations for this match.')).toBeVisible();
     await expect(section.getByRole('button', { name: 'Start triage conversation' })).toHaveCount(0);
   });
 
@@ -63,7 +63,7 @@ test.describe('Accessibility of the triage states', () => {
     api.seedEligibleRun();
     await page.goto(`/matches/${match.id}`);
     const section = page.getByRole('region', { name: 'Triage conversations' });
-    await expect(section.getByText('You have no triage conversations for this match yet.')).toBeVisible();
+    await expect(section.getByText('You have no active triage conversations for this match.')).toBeVisible();
     await expectNoAxeViolations(page);
 
     const conversation = api.seedAgentConversation({ participants: ['specialist-tactics'] });

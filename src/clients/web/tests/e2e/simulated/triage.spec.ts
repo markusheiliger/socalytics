@@ -26,7 +26,7 @@ test.describe('Ask and answer', () => {
 
     await page.goto(`/matches/${match.id}`);
     const section = page.getByRole('region', { name: 'Triage conversations' });
-    await expect(section.getByText('You have no triage conversations for this match yet.')).toBeVisible();
+    await expect(section.getByText('You have no active triage conversations for this match.')).toBeVisible();
     await section.getByRole('button', { name: 'Start triage conversation' }).click();
     const dialog = page.getByRole('dialog', { name: 'Start triage conversation' });
     await expectNoAxeViolations(page);
