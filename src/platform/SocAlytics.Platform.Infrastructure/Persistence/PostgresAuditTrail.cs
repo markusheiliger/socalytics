@@ -86,6 +86,8 @@ internal sealed class PostgresAuditTrail(
         "violationCodes",
         "purgedCount",
         "inUseCount",
+        "recordingSetVersionId",
+        "outcome",
     };
 
     private const string InsertSql =

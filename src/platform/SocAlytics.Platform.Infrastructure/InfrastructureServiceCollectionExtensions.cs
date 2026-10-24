@@ -53,6 +53,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IIndexedFactStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.IndexedFactStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.IUpstreamResultReader, SocAlytics.Platform.Infrastructure.Persistence.Analysis.UpstreamResultReader>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.INotificationReceiptStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.NotificationReceiptStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IAnalysisRunRequestStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunRequestStore>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Abstractions.IRegistrySecretGenerator, SocAlytics.Platform.Infrastructure.Registry.RegistrySecretGenerator>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IRegistrationStore, SocAlytics.Platform.Infrastructure.Registry.DapperRegistrationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IProofReplayStore, SocAlytics.Platform.Infrastructure.Registry.DapperProofReplayStore>();

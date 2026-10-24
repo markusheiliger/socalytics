@@ -70,11 +70,48 @@ internal sealed record AnalysisRunStatusDto(
 
 internal sealed record AnalysisRunSummaryPageDto(IReadOnlyList<AnalysisRunSummaryDto> Items, string? ContinuationToken);
 
+internal sealed record AnalysisRunRequestAcceptedDto(
+	Guid RunId, bool Created, string State, Guid? CurrentRunId, Guid RecordingSetVersionId, string WorkflowId, string WorkflowVersion,
+	string StatusLink)
+{
+	public static AnalysisRunRequestAcceptedDto From(RequestAnalysisRunResult r) => new(
+		r.RunId, r.Created, r.State.ToString(), r.CurrentRunId, r.RecordingSetVersionId, r.WorkflowId, r.WorkflowVersion,
+		AnalysisRunEndpoints.StatusLinkOf(r.RunId));
+}
+
 internal static class AnalysisRunEndpoints
 {
+	internal static string StatusLinkOf(Guid runId) => $"/api/v1/analysis/runs/{runId}";
+
+	private static TBuilder WithIdempotencyKeyParameter<TBuilder>(this TBuilder builder)
+		where TBuilder : IEndpointConventionBuilder =>
+		builder.AddOpenApiOperationTransformer((operation, _, _) =>
+		{
+			operation.Parameters ??= [];
+			operation.Parameters.Add(new Microsoft.OpenApi.OpenApiParameter
+			{
+				Name = "Idempotency-Key",
+				In = Microsoft.OpenApi.ParameterLocation.Header,
+				Required = true,
+				Schema = new Microsoft.OpenApi.OpenApiSchema { Type = Microsoft.OpenApi.JsonSchemaType.String, MinLength = 1, MaxLength = 255 },
+			});
+			return Task.CompletedTask;
+		});
+
 	public static IEndpointRouteBuilder MapAnalysisRunEndpoints(this IEndpointRouteBuilder routes)
 	{
 		var members = routes.MapMemberApi();
+		members.MapPost("/matches/{matchId:guid}/analysis-runs", RequestRunAsync)
+			.WithName("requestAnalysisRun")
+			.WithTags("Analysis runs")
+			.WithIdempotencyKeyParameter()
+			.Produces<AnalysisRunRequestAcceptedDto>(StatusCodes.Status202Accepted)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 		members.MapGet("/analysis/runs/{runId:guid}", GetRunAsync)
 			.WithName("getAnalysisRun")
 			.WithTags("Analysis runs")
@@ -102,6 +139,22 @@ internal static class AnalysisRunEndpoints
 			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
 			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		return routes;
+	}
+
+	private static async Task<IResult> RequestRunAsync(Guid matchId, HttpContext http, RequestAnalysisRunHandler handler, CancellationToken cancellationToken)
+	{
+		var keyHeader = http.Request.Headers["Idempotency-Key"];
+		var result = await handler.HandleAsync(
+			new RequestAnalysisRunCommand(matchId, keyHeader.Count == 1 ? keyHeader[0] : null), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		var location = StatusLinkOf(result.Value.RunId);
+		http.Response.Headers.Location = location;
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Json(AnalysisRunRequestAcceptedDto.From(result.Value), statusCode: StatusCodes.Status202Accepted);
 	}
 
 	private static async Task<IResult> CancelRunAsync(Guid runId, HttpContext http, CancelAnalysisRunHandler handler, CancellationToken cancellationToken)

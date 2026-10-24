@@ -79,6 +79,9 @@ public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsCo
 
 		public Task<RecordingSetLineage?> GetAsync(Guid id, CancellationToken ct) =>
 			flag.Throw ? throw new InvalidOperationException("unavailable") : inner.GetAsync(id, ct);
+
+		public Task<RecordingSetLineage?> GetCurrentForMatchAsync(Guid matchId, CancellationToken ct) =>
+			flag.Throw ? throw new InvalidOperationException("unavailable") : inner.GetCurrentForMatchAsync(matchId, ct);
 	}
 
 	private static Dictionary<string, string?> DevWorkflow()
