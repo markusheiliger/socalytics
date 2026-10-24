@@ -146,6 +146,10 @@ if (e2eMode)
     // Finalizing an uploaded recording set requests segments only for nodes whose pinned video policy is not none.
     api.WithEnvironment("Analysis__DefaultWorkflow__Nodes__0__VideoPolicy", "optional");
 
+    // A short retry delay lets the browser test reach a segment that failed for good without long waits.
+    api.WithEnvironment("Segments__Materialization__PollInterval", "00:00:01")
+        .WithEnvironment("Segments__Materialization__RetryDelay", "00:00:02");
+
     // The test OpenID Connect provider issues an ID token for a fixed subject without an interactive login. It listens on a
     // fixed port so the issuer is the same for the browser and the API.
     var testProvider = builder.AddContainer("oidc-provider", "ghcr.io/navikt/mock-oauth2-server")

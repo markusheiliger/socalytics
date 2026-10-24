@@ -148,7 +148,7 @@ reports zero purged.
 
 ### Platform browser evidence
 
-- [ ] T013 [US2] Create `src/clients/web/tests/e2e/platform/segments.spec.ts` (real `failed` segment from an uploaded
+- [x] T013 [US2] Create `src/clients/web/tests/e2e/platform/segments.spec.ts` (real `failed` segment from an uploaded
   file that is not decodable media with the platform-reported reason, real `available` segment from a tiny MP4 generated
   with the pinned `ffmpeg` lavfi source in the test's temporary folder, confirmed purge returning unused segments to
   `absent` with the reported counts and the re-read list, repeat purge reporting zero, and a non-admin member seeing no
