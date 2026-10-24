@@ -3,13 +3,46 @@
 // are not reliably routed by `page.route`.
 //
 // Part uploads:   PUT /<anything>/<n>?partNumber=<n>   (the part number is the query value or the last path segment)
+// Reads:          GET|HEAD /<key> for seeded objects, with `Range` (206), and a 403 once the query's expiry has passed
+//                 (`Expires` in epoch seconds, or `X-Amz-Date` plus `X-Amz-Expires`)
 // Control:        GET /__control/health | GET /__control/state | POST /__control/reset | POST /__control/faults
+//                 | POST /__control/objects {key, contentBase64, contentType}
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 const CONTROL = '/__control/';
 const ALLOWED_REQUEST_HEADERS = new Set(['x-amz-checksum-sha256', 'content-type', 'content-length']);
+
+const READ_METHODS = new Set(['GET', 'HEAD']);
+const READ_REQUEST_HEADERS = new Set(['range', 'if-range']);
+
+function expiryOf(url) {
+  const expires = url.searchParams.get('Expires');
+  if (expires !== null) return Number(expires) * 1000;
+  const date = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(url.searchParams.get('X-Amz-Date') ?? '');
+  const lifetime = url.searchParams.get('X-Amz-Expires');
+  if (!date || lifetime === null) return null;
+  return Date.UTC(+date[1], +date[2] - 1, +date[3], +date[4], +date[5], +date[6]) + Number(lifetime) * 1000;
+}
+
+// Returns {start, end} (inclusive), 'unsatisfiable', or null when the header is absent or not a single byte range.
+function parseRange(header, size) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(header ?? '').trim());
+  if (!match || (match[1] === '' && match[2] === '')) return null;
+  let start;
+  let end;
+  if (match[1] === '') {
+    const suffix = Number(match[2]);
+    if (suffix === 0) return 'unsatisfiable';
+    start = Math.max(size - suffix, 0);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] === '' ? size - 1 : Math.min(Number(match[2]), size - 1);
+  }
+  return start >= size || start > end ? 'unsatisfiable' : { start, end };
+}
 
 function emptyFaults() {
   return { failParts: [], delayMs: 0, expireGrants: false };
@@ -27,13 +60,22 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
   /** @type {{ key: string, partNumber: number, size: number, sha256: string }[]} */
   let parts = [];
   let requests = [];
+  /** @type {Map<string, { bytes: Buffer, contentType: string }>} */
+  let objects = new Map();
   let faults = emptyFaults();
 
   const allowedOrigins = new Set(allowedOrigin.split(',').map((o) => o.trim()));
   const cors = (origin) =>
     origin && allowedOrigins.has(origin)
-      ? { 'access-control-allow-origin': origin, 'access-control-expose-headers': 'ETag', vary: 'Origin' }
+      ? {
+          'access-control-allow-origin': origin,
+          'access-control-expose-headers': 'ETag, Content-Range, Content-Length, Accept-Ranges',
+          vary: 'Origin',
+        }
       : {};
+
+  const seedObject = (key, bytes, contentType = 'application/octet-stream') =>
+    objects.set(key.replace(/^\/+/, ''), { bytes: Buffer.from(bytes), contentType });
 
   const send = (res, status, headers = {}, body = '') => {
     res.writeHead(status, headers);
@@ -54,12 +96,28 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
   async function control(req, res, url) {
     const action = url.pathname.slice(CONTROL.length);
     if (req.method === 'GET' && action === 'health') return sendJson(res, 200, { status: 'ok' });
-    if (req.method === 'GET' && action === 'state') return sendJson(res, 200, { parts, requests, faults });
+    if (req.method === 'GET' && action === 'state') {
+      return sendJson(res, 200, {
+        parts,
+        requests,
+        faults,
+        objects: [...objects].map(([key, o]) => ({ key, size: o.bytes.length, contentType: o.contentType })),
+      });
+    }
     if (req.method === 'POST' && action === 'reset') {
       parts = [];
       requests = [];
+      objects = new Map();
       faults = emptyFaults();
       return sendJson(res, 200, { status: 'reset' });
+    }
+    if (req.method === 'POST' && action === 'objects') {
+      const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
+      if (typeof body.key !== 'string' || typeof body.contentBase64 !== 'string') {
+        return sendJson(res, 400, { error: 'key and contentBase64 are required' });
+      }
+      seedObject(body.key, Buffer.from(body.contentBase64, 'base64'), body.contentType);
+      return sendJson(res, 200, { status: 'seeded', key: body.key });
     }
     if (req.method === 'POST' && action === 'faults') {
       const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
@@ -78,6 +136,39 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
     return sendJson(res, 404, { error: 'unknown control action' });
   }
 
+  async function read(req, res, url) {
+    const origin = req.headers.origin;
+    const key = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    const range = req.headers.range ?? null;
+    requests.push({ method: req.method, path: url.pathname, range, origin: origin ?? null });
+
+    const expiry = expiryOf(url);
+    if (expiry !== null && Date.now() > expiry) {
+      return send(res, 403, { ...cors(origin), 'content-type': 'application/xml' }, xmlError('AccessDenied', 'Request has expired'));
+    }
+    const object = objects.get(key);
+    if (!object) {
+      return send(res, 404, { ...cors(origin), 'content-type': 'application/xml' }, xmlError('NoSuchKey', 'The object does not exist'));
+    }
+
+    const size = object.bytes.length;
+    const headers = {
+      ...cors(origin),
+      'accept-ranges': 'bytes',
+      'content-type': object.contentType,
+      etag: `"${createHash('sha256').update(object.bytes).digest('hex')}"`,
+    };
+    const requested = parseRange(range, size);
+    if (requested === 'unsatisfiable') {
+      return send(res, 416, { ...headers, 'content-type': 'application/xml', 'content-range': `bytes */${size}` }, xmlError('InvalidRange', 'The requested range is not satisfiable'));
+    }
+    const slice = requested ? object.bytes.subarray(requested.start, requested.end + 1) : object.bytes;
+    if (requested) headers['content-range'] = `bytes ${requested.start}-${requested.end}/${size}`;
+    headers['content-length'] = String(slice.length);
+    res.writeHead(requested ? 206 : 200, headers);
+    res.end(req.method === 'HEAD' ? undefined : slice);
+  }
+
   async function storage(req, res, url) {
     const origin = req.headers.origin;
 
@@ -88,16 +179,20 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
         .split(',')
         .map((h) => h.trim().toLowerCase())
         .filter(Boolean);
-      if (method !== 'PUT' || requested.some((h) => !ALLOWED_REQUEST_HEADERS.has(h))) {
+      const isRead = READ_METHODS.has(method);
+      const allowedHeaders = isRead ? READ_REQUEST_HEADERS : ALLOWED_REQUEST_HEADERS;
+      if ((method !== 'PUT' && !isRead) || requested.some((h) => !allowedHeaders.has(h))) {
         return send(res, 403, {}, xmlError('AccessForbidden', 'CORS request refused'));
       }
       return send(res, 204, {
         ...cors(origin),
-        'access-control-allow-methods': 'PUT',
+        'access-control-allow-methods': isRead ? 'GET, HEAD' : 'PUT',
         'access-control-allow-headers': requested.join(', '),
         'access-control-max-age': '600',
       });
     }
+
+    if (READ_METHODS.has(req.method)) return read(req, res, url);
 
     if (req.method !== 'PUT') return send(res, 405, cors(origin), xmlError('MethodNotAllowed', 'Only PUT is accepted'));
 
@@ -144,6 +239,7 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
   return {
     server,
     port: actualPort,
+    seedObject,
     origin: `http://${host}:${actualPort}`,
     close: () => new Promise((resolve) => (server.close(() => resolve()), server.closeAllConnections())),
   };

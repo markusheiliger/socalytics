@@ -237,9 +237,9 @@ rejected. The manual purge is a Club Admin operation per match that deletes
 the objects of every materialized segment not pinned by a waiting, ready, or
 claimed job and returns it to `absent`. A member's evidence resolution (see
 [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access))
-is decided, not yet implemented, to request the materialization of `absent`
-segments it needs as another requester, without pinning them against the
-purge; a purged segment is then rematerialized on demand. Storage cost,
+requests the materialization of `absent` segments it needs as another
+requester, without pinning them against the purge; a purged segment is then
+rematerialized on demand (development evidence). Storage cost,
 policy-version migration at scale, the production cache and deletion policy
 (`POL-004`), and the production toolchain and storage values remain unresolved.
 

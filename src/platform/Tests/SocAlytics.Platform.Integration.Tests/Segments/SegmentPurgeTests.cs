@@ -330,7 +330,7 @@ internal class DelegatingStorage(IObjectStorage inner) : IObjectStorage
     public ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt) =>
         inner.PresignGetObject(objectKey, expiresAt);
 
-    public Task<ObjectChecksum?> GetObjectChecksumAsync(string objectKey, CancellationToken cancellationToken) =>
+    public virtual Task<ObjectChecksum?> GetObjectChecksumAsync(string objectKey, CancellationToken cancellationToken) =>
         inner.GetObjectChecksumAsync(objectKey, cancellationToken);
 
     public Task<ObjectReadResult?> ReadObjectAsync(string objectKey, long maxBytes, CancellationToken cancellationToken) =>

@@ -159,7 +159,7 @@ must still support team-level analysis.
 There is no `evidence-clips` AC. Every concept carries evidence time ranges and
 segment identifiers. The API and MCP `get_video_clip()` operation resolve those
 references to short-lived, team-authorized match media access. The API side is
-decided, but not yet implemented, as the member evidence-media operation of
+implemented, as development evidence, as the member evidence-media operation of
 [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access);
 the MCP tool remains future work.
 
