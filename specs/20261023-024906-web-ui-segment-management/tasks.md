@@ -47,7 +47,7 @@ description: "Task list for Web UI Materialized Segment Management for Club Admi
 
 ### Adapter and derived values
 
-- [ ] T003 [P] Create `src/clients/web/src/platform/adapters/segmentAdapter.ts` (`list` over `listMaterializedSegments`
+- [x] T003 [P] Create `src/clients/web/src/platform/adapters/segmentAdapter.ts` (`list` over `listMaterializedSegments`
   and `purge` over `purgeMaterializedSegments` through the shared Kiota client and `toPlatformFailure`; nullable DTO
   fields become `undefined`; an unknown `state` is kept verbatim; no headers, no retry, no snapshot change) as specified
   in `specs/20261023-024906-web-ui-segment-management/contracts/segment-adapter.md`, with the unit test
