@@ -28,6 +28,10 @@
     "availableAt": "Available since",
     "inUse": "Use"
   },
+  "digests": {
+    "timelineMapping": "Timeline mapping digest",
+    "segmentationPolicy": "Segmentation policy digest"
+  },
   "state": {
     "absent": "Absent",
     "materializing": "Materializing",

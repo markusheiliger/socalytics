@@ -72,7 +72,7 @@ neither the area nor causes any request.
 
 ### Segments area and scripted segment API
 
-- [ ] T005 [P] [US1] Create `src/clients/web/src/features/segments/SegmentsSection.tsx`: the list query (`retry: false`,
+- [x] T005 [P] [US1] Create `src/clients/web/src/features/segments/SegmentsSection.tsx`: the list query (`retry: false`,
   `refetchOnWindowFocus: false`, no `refetchInterval`, `gcTime: 0`, enabled only for the Club Admin) with explicit
   loading, empty, and list states; a `role="status"` summary from `segmentSummary`; a semantic table with caption and
   column headers in platform order (shortened recording version with the full value and the digests available in a
