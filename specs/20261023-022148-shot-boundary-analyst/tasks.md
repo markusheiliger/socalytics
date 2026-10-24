@@ -71,7 +71,7 @@ yields an accepted empty result, and repeated runs are byte-identical.
 
 ### Hard-cut detector and entry point
 
-- [ ] T012 [US1] Create `<cap>/src/media_context_classification/detector.py`: streaming detector with a bounded context window over frames from `frames.py` and `measure.py`; apply the nominal-window and requested-interval rules (lead-in frames only as predecessor of the first in-window frame; a pair is scored only when its second frame is in window), the hard-cut rule `measure >= HARD_THRESHOLD`, one boundary per pair, the `previous_frame_ms` rule, and fewer than two frames yielding no boundary (research.md R-04, R-05)
+- [x] T012 [US1] Create `<cap>/src/media_context_classification/detector.py`: streaming detector with a bounded context window over frames from `frames.py` and `measure.py`; apply the nominal-window and requested-interval rules (lead-in frames only as predecessor of the first in-window frame; a pair is scored only when its second frame is in window), the hard-cut rule `measure >= HARD_THRESHOLD`, one boundary per pair, the `previous_frame_ms` rule, and fewer than two frames yielding no boundary (research.md R-04, R-05)
 - [ ] T013 [US1] Create `<cap>/src/media_context_classification/__main__.py`: SDK entry point that reads only the job document and staged segment media (no network, credentials, upstream results, or randomness), fails with `segment-media-required` when the job has no media, runs the detector, writes the `foundational-facts` result `1.0.0` with facts in match-time order, and writes no result on failure (FR-003, FR-009, FR-011)
 
 ### Tests for User Story 1
