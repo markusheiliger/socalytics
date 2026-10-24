@@ -39,6 +39,10 @@ const COMMAND_NAMES = PR_COMMANDS.map((command) => command.name);
 // Parses a pull request comment in the form `/speckit <command> [flags] [guidance]`, like
 // "/speckit retry --force use the existing helper". The command must be the first word; the rest of the comment (first
 // line and following lines) is its argument, split into the flags and the guidance (parseCommandArguments).
+// Commands that were renamed: their old name is answered with the new one instead of being run, so a stale
+// recommendation never starts work under a name the help no longer lists.
+export const RENAMED_COMMANDS = { specify: 'author', fix: 'author' };
+
 export function parseCommand(body) {
   const text = String(body ?? '').replace(/^\s+/, '');
   const match = text.match(/^\/speckit(?:[ \t]+([A-Za-z-]+))?(?=\s|$)([\s\S]*)$/);
@@ -47,6 +51,20 @@ export function parseCommand(body) {
   const known = COMMAND_NAMES.includes(name) ? name : 'unknown';
   const argument = match[2].trim();
   return { name: known, given: match[1] ?? '', argument, ...parseCommandArguments(known, argument) };
+}
+
+function unknownCommandLine(command) {
+  const given = neutralizeMarkers(command.given);
+  const renamed = RENAMED_COMMANDS[String(command.given).toLowerCase()];
+  if (!renamed) return `Unknown command \`/speckit ${given}\`.`;
+  const guidance = command.argument ? ` ${neutralizeMarkers(command.argument)}` : '';
+  return [
+    `**\`/speckit ${given}\` was renamed to \`/speckit ${renamed}\`** and was not run. Comment this instead (people with write access):`,
+    '',
+    '```text',
+    `/speckit ${renamed}${guidance}`,
+    '```',
+  ].join('\n');
 }
 
 const describeFlags = (command) => {
@@ -70,7 +88,7 @@ export function renderHelp() {
     '',
     renderCommandTable(),
     '',
-    'An amendment pull request (`speckit-amend/<folder>`) or a spec pull request authored by `/speckit specify` (`speckit-spec/<folder>`, earlier `speckit-fix/<folder>`) needs no commands: merge it to apply it, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
+    'An amendment pull request (`speckit-amend/<folder>`) or a spec pull request authored by `/speckit author` (`speckit-spec/<folder>`, earlier `speckit-fix/<folder>`) needs no commands: merge it to apply it, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
     '',
     'These are comment commands, not skills. To walk through a stop locally in VS Code, use the skill `/speckit-gha-diagnose`.',
   ].join('\n');
@@ -175,7 +193,7 @@ export async function runCommand({ client, env, log, now = Date.now, rootDir = e
   }
   if (command.name === 'help' || command.name === 'unknown') {
     await reply(client, number, [
-      ...(command.name === 'unknown' ? [`Unknown command \`/speckit ${neutralizeMarkers(command.given)}\`.`, ''] : []),
+      ...(command.name === 'unknown' ? [unknownCommandLine(command), ''] : []),
       renderHelp(),
     ]);
     return { exitCode: 0, handled: true, command: command.name };
@@ -260,7 +278,7 @@ async function refuseUnchangedRestart(client, { name, number, implementation, fo
     '',
     '<details><summary>Other options</summary>',
     '',
-    `- If the diagnosis locates the cause on \`${base}\`, post \`/speckit specify\` with its concrete findings to author a new spec for it.`,
+    `- If the diagnosis locates the cause on \`${base}\`, post \`/speckit author\` with its concrete findings to author a new spec for it.`,
     `- Only if the cause has already cleared (for example an outage has ended), insist with \`/speckit ${name} ${RESTART_FORCE_FLAG}\`; add the evidence after the command as guidance.`,
     '',
     '</details>',
@@ -268,10 +286,10 @@ async function refuseUnchangedRestart(client, { name, number, implementation, fo
   return true;
 }
 
-async function handleSpecify({ client, env, actor, number, guidance, now, implementation, twin }) {
+async function handleAuthor({ client, env, actor, number, guidance, now, implementation, twin }) {
   const started = await startFixAuthoring(client, env, { twin, implementation, guidance, actor, now: now() });
   if (!started.started) {
-    await reply(client, number, `\`/speckit specify\` cannot start: ${neutralizeMarkers(started.reason)}.`);
+    await reply(client, number, `\`/speckit author\` cannot start: ${neutralizeMarkers(started.reason)}.`);
     return { outcome: 'refused' };
   }
   if (number !== implementation.number) await reply(client, number, `A new spec is being authored; its progress is reported on #${implementation.number}.`);
@@ -281,14 +299,14 @@ async function handleSpecify({ client, env, actor, number, guidance, now, implem
 const HANDLERS = {
   retry: handleRetry,
   sync: handleSync,
-  specify: handleSpecify,
+  author: handleAuthor,
 };
 
 // The one next step for a twin whose implementation cannot be requested yet.
 function implementNextStep(folder, computedStage, openChecklistItems) {
   if (['specified', 'planned'].includes(computedStage)) {
     return [
-      `**Recommended next step**: Complete the spec with \`/speckit-gha-author ${folder}\` in Copilot Chat (plan, tasks, checks), merge it to the default branch, and comment \`/speckit implement\` here again.`,
+      `**Recommended next step**: Complete the spec with \`/speckit-gha-author ${folder}\` in Copilot Chat (plan, tasks, analysis, and the publish checks; it pushes the spec at the end), then comment \`/speckit implement\` here again.`,
       '',
       '- **Why**: Implementation can only be requested for a spec with its task list (`tasked`).',
     ];

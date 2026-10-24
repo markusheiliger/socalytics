@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/segment-media/v1/segment-media.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analysis segment media v1",
+  "description": "Response of GET /api/v1/analysis/attempts/{attemptId}/segment-media (operation getAnalysisSegmentMedia). The segment manifest of the attempt's materialized segment, its checksum, and exactly two single-object presigned GET grants, one for segment-manifest.json and one for segment.mp4. The response carries no credentials other than the grant URLs, which are never logged or audited.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "attemptId", "logicalJobId", "manifestChecksum", "manifest", "grants"],
+  "properties": {
+    "contractVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1" },
+    "attemptId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "logicalJobId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "manifestChecksum": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+    "manifest": { "$ref": "../../../segments/segment-manifest/v1/segment-manifest.schema.json" },
+    "grants": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "url", "expiresAt"],
+        "properties": {
+          "name": { "enum": ["segment-manifest.json", "segment.mp4"] },
+          "url": { "type": "string", "format": "uri", "minLength": 1, "maxLength": 4096 },
+          "expiresAt": { "$ref": "../../../common/v1/common.schema.json#/$defs/timestamp" }
+        }
+      }
+    }
+  }
+}

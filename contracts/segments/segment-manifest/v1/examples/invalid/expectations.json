@@ -1,0 +1,7 @@
+{
+  "missing-media-digest.json": "required",
+  "plain-digest-form.json": "pattern",
+  "zero-segment-number.json": "minimum",
+  "unknown-property.json": "additionalProperties",
+  "audio-media-type.json": "const"
+}

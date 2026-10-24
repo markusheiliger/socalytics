@@ -69,7 +69,7 @@ evidence references.
 | DAT-004 | Materialized segments and media caches | Sensitive | Segment Service and object storage | Stamp object storage and bounded processing caches; approved replicas and backups only when policy requires | POL-004 |
 | DAT-005 | Foundational facts, soccer concepts, results, and manifests | Sensitive | API-owned accepted indexes and immutable object results | Stamp database, object storage, authorized indexes, replicas, and backups | POL-005 |
 | DAT-006 | Job, attempt, lease, outbox, and queue state | Internal | Job Registry and platform database state; NATS is transport only | Stamp database, stamp messaging, operational caches, replicas, and backups | POL-006 |
-| DAT-007 | Analyst images, models, packages, signatures, and provenance, and agent catalog records (agent versions and their prompt, model-selection, tool-policy, safety-policy, and philosophy artifacts; decided, not yet implemented; and consultation-policy artifacts; decided, not yet implemented) | Restricted | Model/Capability Registry and approved artifact registry | Registry, stamp metadata, build evidence, approved mirrors and backups | POL-007 |
+| DAT-007 | Analyst images, models, packages, signatures, and provenance, and agent catalog records (agent versions and their prompt, model-selection, tool-policy, safety-policy, and philosophy artifacts; development evidence; and consultation-policy artifacts; decided, not yet implemented) | Restricted | Model/Capability Registry and approved artifact registry | Registry, stamp metadata, build evidence, approved mirrors and backups | POL-007 |
 | DAT-008 | Agent conversations, invocations, evidence references, and advice lineage | Sensitive | Agent Orchestration functional area in stamp PostgreSQL; API/MCP authorization remains authoritative | Stamp PostgreSQL Primary, bounded JetStream Transport, active Hermes Cache, authorized indexes, telemetry, replicas, and backups | POL-008 |
 | DAT-009 | Security, authorization, lifecycle, and administrative audit events | Restricted | Security audit authority; accountable owner unresolved | Append-protected audit store, approved indexes, replicas, and backups | POL-009 |
 | DAT-010 | Application logs, traces, metrics, and diagnostic captures | Internal; Sensitive when correlated or payload-bearing | Emitting component and telemetry authority | Approved telemetry pipeline, bounded diagnostic stores, replicas, and backups | POL-010 |
@@ -253,7 +253,7 @@ completions, failures, lease expiries, and scope-loss outcomes (identifiers
 only, never question or advice text; development evidence),
 agent catalog registration, approval, retirement, and enablement changes
 (identifiers and digests only, never prompt, rationale, or provenance text;
-decided, not yet implemented),
+development evidence),
 agent evidence tool refusals, scope-loss denials, and evidence-media grants to
 the agent workload (identifiers and digests only, never links or fact payloads;
 decided, not yet implemented),
@@ -598,7 +598,7 @@ Telemetry, Replica, Backup, and Audit copies; backup justification and expiry;
 owner; approvals; and evidence. Backup is permitted only with explicit approved
 need, and an indefinite cache or unsupported backup remains blocking. During
 initial private development, the only purge is the manual Club Admin purge of a
-match's unused materialized segments (decided, not yet implemented; see
+match's unused materialized segments (implemented as development evidence; see
 [On-Demand Video Segmentation](match-data-pipeline.md#on-demand-video-segmentation)),
 which does not resolve this policy.
 

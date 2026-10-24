@@ -85,6 +85,16 @@ public static class ManagerServiceCollectionExtensions
                 sp.GetRequiredService<TimeProvider>(), staging, loopbackHttp,
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<Work.UpstreamStager>());
         });
+        services.AddSingleton(sp =>
+        {
+            var environment = sp.GetService<IHostEnvironment>();
+            var loopbackHttp = environment is not null && (environment.IsDevelopment() || environment.IsEnvironment("Test"));
+            return new Work.SegmentMediaStager(
+                sp.GetRequiredService<PlatformClient>(),
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient(Work.ResultPublisher.StorageClientName),
+                sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IOptions<Work.StagingOptions>>().Value, loopbackHttp,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<Work.SegmentMediaStager>());
+        });
         services.AddSingleton<Registration.MinimumVersionState>();
         services.AddSingleton<Operating.AdmissionGate>();
         services.AddSingleton<Work.AttemptRegistry>();

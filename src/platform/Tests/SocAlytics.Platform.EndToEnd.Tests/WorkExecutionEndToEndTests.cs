@@ -140,7 +140,7 @@ public sealed class WorkExecutionEndToEndTests
         var sp = scope.ServiceProvider;
         await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
         var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
-            teamId ?? Guid.NewGuid(), matchId ?? Guid.NewGuid(), Guid.NewGuid(), "development-default", "1", [EndToEndHarness.MatchCapability], "all-requested-capabilities",
+            teamId ?? Guid.NewGuid(), matchId ?? Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, "development-default", "1", [EndToEndHarness.MatchCapability], "all-requested-capabilities",
             AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord("{}", Digest), [node], []), ct);
         await sp.GetRequiredService<ILogicalJobStore>().InsertAsync(
         [

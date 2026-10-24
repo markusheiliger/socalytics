@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "prompt-template",
+  "id": "coach-without-major",
+  "version": "1.0.0",
+  "group": "coach",
+  "responseContract": "agent-response/1",
+  "text": "You are {{display_name}}. {{philosophy_profile}}",
+  "slots": ["display_name", "philosophy_profile"]
+}

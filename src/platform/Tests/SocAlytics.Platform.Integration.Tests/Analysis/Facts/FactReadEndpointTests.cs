@@ -34,7 +34,7 @@ public sealed class FactReadEndpointTests(PostgresContainerFixture postgres, Rus
 	{
 		var detect = Guid.CreateVersion7();
 		var run = new NewAnalysisRun(
-			s.Hierarchy.TeamId, s.Hierarchy.MatchId, Guid.NewGuid(), "wf", "1", ["cap.detect"], "all-requested-capabilities",
+			s.Hierarchy.TeamId, s.Hierarchy.MatchId, Guid.NewGuid(), DateTimeOffset.UtcNow, "wf", "1", ["cap.detect"], "all-requested-capabilities",
 			AnalysisRunState.Running, null,
 			new AnalysisRunSnapshotRecord("""{"segmentationPolicy":{"version":"1","durationSeconds":300,"digest":"x"}}""", DigestA),
 			[

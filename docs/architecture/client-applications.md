@@ -67,9 +67,9 @@ The React Web UI supports connected platform and club workflows, including:
   development evidence; see
   [Email Notifications](email-notifications.md#member-invitations))
 - platform configuration and administration: the Analyst Registry
-  administration for Club Admins is implemented (connected workflow; see
-  below); the workflow operations area and the agent catalog administration
-  for Club Admins are decided, not yet implemented
+  administration and the workflow operations area for Club Admins are
+  implemented (connected workflows; see below); the agent catalog
+  administration for Club Admins is decided, not yet implemented
 - Analyst Manager pairing for Registrars and the fleet view for Club Admins
   (implemented): registration approval, rejection, and revocation, and each
   Manager's connectivity, operating state, and activity (see
@@ -79,14 +79,14 @@ The React Web UI supports connected platform and club workflows, including:
   Admins and Coaches of the owning team a confirmed cancel action with an
   optional reason for requested and running runs, and shows cancelled runs
   with who cancelled them, when, and why (implemented); the
-  run list will also mark the match's current run and each superseded run
-  with the run that superseded it, and shows a run cancelled because it was
-  superseded without a member (decided, not yet implemented)
+  run list also marks the match's current run and each superseded run with
+  the run that superseded it, and shows a run cancelled because it was
+  superseded without a member (implemented)
 - team and match review, analytics, and agent conversations for coaches (the
   connected analysis review and the match triage conversations with Specialist
-  Agents are implemented, see below; analytics beyond the review, such as
-  visualizations and comparison, and the Coach Agent conversations and
-  consultations are not implemented yet)
+  Agents are implemented, see below; run comparison is decided but not yet
+  implemented as described below; visualizations, the Coach Agent
+  conversations and consultations are not implemented yet)
 
 What a user sees is decided by their roles and team authorization, online and
 offline alike.
@@ -102,9 +102,30 @@ order through the member fact reads of
 filter them by a match-time range, page forward and back, and see coverage
 windows and run-pinned provenance, with explicit messages for missing,
 incomplete, empty, and unavailable analysis instead of empty lists. The review
-is online only and keeps analysis data in memory only; it offers no run
-controls, visualizations, cross-run comparison, or export, and plays no video
-other than the evidence playback below.
+is online only and keeps analysis data in memory only; the current
+implementation offers no run controls, visualizations, cross-run comparison,
+or export, and plays no video other than the evidence playback below.
+
+Connected analysis run comparison is decided and not yet implemented. Club
+Admins and Coaches and Viewers authorized for the owning team will reach a
+read-only comparison from the match or a terminal run review, selecting
+exactly two distinct runs of that match in `Completed`, `PartiallyCompleted`,
+`Failed`, or `Cancelled` state. Current and superseded runs remain selectable
+history; their execution states and accepted results do not change. Each side
+will retain its review link, recording-set finalization context, workflow,
+stream contracts and counts, output and reported input coverage, and pinned
+Analyst provenance through existing member reads. Streams align only for a
+unique capability identity and execution scope on both sides; ambiguous and
+absent counterparts remain unmatched, with contract and provenance changes
+explicit and no semantic equivalence or quality claim. Missing results,
+skipped or incomplete coverage, and accepted complete zero-fact results stay
+distinct. Entry, refresh, return and reconnection require fresh authorized
+reads of both sides before displaying results; offline or detected access
+loss removes their details and reusable comparison data. The view will be
+online only and memory-only, with no new comparison endpoint, payload
+reconciliation, run controls, media changes, visualizations, export, sharing,
+agent or MCP operations. Equal reported metadata never proves equal full
+input snapshots.
 
 Evidence playback in the analysis review is decided as follows and not yet
 implemented (see
@@ -164,11 +185,11 @@ applies only to analysis runs created afterwards. The platform decides every
 rule and the Web UI explains its refusals; the area is online only and offers
 no deletion, image building, signing, or graphical workflow editing.
 
-The workflow operations area is decided as follows and not yet implemented.
+The workflow operations area is implemented as a connected workflow as follows.
 Club Admins, who use the operational workflow operations until a stamp-operator
 role exists (see
-[API And Identity](platform-implementation.md#api-and-identity)), open an
-Operations area with the analysis operational summary as the platform reports
+[API And Identity](platform-implementation.md#api-and-identity)), open the
+Operations area under `/operations` with the analysis operational summary as the platform reports
 it, with its observation time and a manual refresh; the outgoing messages of
 the transactional outbox filtered by state and message type, paged, with a
 detail view of everything the platform returns about a message but never its

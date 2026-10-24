@@ -7,3 +7,7 @@ feature.json
 
 # Per-machine extension config overrides.
 extensions/*/local-config.yml
+
+# Workflow runs (state, logs, and the files their agent steps write) and the install lock of `specify workflow`.
+workflows/runs/
+.workflow-install.lock

@@ -20,6 +20,11 @@ public static class AnalysisMetrics
     private static readonly Counter<long> PartialBarriersReadyCounter = Meter.CreateCounter<long>("socalytics.analysis.partial_barriers_ready");
     private static readonly Counter<long> PartialBarriersBlockedCounter = Meter.CreateCounter<long>("socalytics.analysis.partial_barriers_blocked");
 
+    private static readonly Counter<long> SupersededRuns = Meter.CreateCounter<long>("socalytics.analysis.runs_superseded");
+
+    /// <summary>previous is "active" for a Requested or Running run that was cancelled, otherwise "ended".</summary>
+    public static void RunSuperseded(string previous) => SupersededRuns.Add(1, Tag("previous", previous));
+
     /// <summary>coverage is "complete" when every unit was accepted, otherwise "partial".</summary>
     public static void PartialBarrierReady(string coverage) => PartialBarriersReadyCounter.Add(1, Tag("coverage", coverage));
 

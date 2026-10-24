@@ -74,6 +74,8 @@ public sealed class SimulatedAgentWorkloadTests(PostgresContainerFixture postgre
 			ClientId = f.Workload.ClientId,
 			PrivateKey = f.Workload.PrivateKey,
 			NatsUrl = nats.ConnectionString,
+			Stream = f.AgentWorkStream,
+			Consumer = f.AgentWorkConsumer,
 			FetchExpiry = TimeSpan.FromSeconds(2),
 			RetryDelay = TimeSpan.FromMilliseconds(200),
 		};

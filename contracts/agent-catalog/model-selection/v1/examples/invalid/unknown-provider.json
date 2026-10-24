@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "model-selection",
+  "id": "unknown-provider",
+  "version": "1.0.0",
+  "provider": "other-vendor",
+  "model": "gpt-4.1",
+  "deployment": "specialist-default"
+}

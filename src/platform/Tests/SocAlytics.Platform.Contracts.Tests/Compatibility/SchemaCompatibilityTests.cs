@@ -17,7 +17,7 @@ public class SchemaCompatibilityTests
 
     private static readonly (string Schema, string Version)[] ReleasedAtLaterVersion =
     [
-        ("contracts/analysis/analyst-job/v1/analyst-job.schema.json", "1.1.0"),
+        ("contracts/analysis/analyst-job/v1/analyst-job.schema.json", "1.2.0"),
     ];
 
     public static TheoryData<string> BreakingRevisions() =>

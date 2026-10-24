@@ -16,7 +16,7 @@ public static class ContractCatalog
     private static readonly string Root = Path.Combine(AppContext.BaseDirectory, "contracts");
 
     public static IReadOnlyList<string> AnalysisExampleContracts { get; } =
-        ["analyst-job", "analyst-attempt", "attempt-completion", "run-state-changed", "result-manifest", "result-grants", "upstream-results", "fact-artifact"];
+        ["analyst-job", "analyst-attempt", "attempt-completion", "run-state-changed", "result-manifest", "result-grants", "upstream-results", "fact-artifact", "segment-media"];
 
     public static IReadOnlyList<ContractSchema> Schemas
     {

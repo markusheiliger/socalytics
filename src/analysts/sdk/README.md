@@ -20,6 +20,7 @@ Analyst: no network, no environment variables, no credentials.
 | `/socalytics/job.json` | read-only | The Logical Job (`analysis/analyst-job`) |
 | `/socalytics/attempt.json` | read-only | The attempt context (`analysis/analyst-attempt`) |
 | `/socalytics/inputs/` | read-only | Staged upstream results with `coverage.json` (`analysis/upstream-results`), digest-verified against their manifests on load |
+| `/socalytics/media/` | read-only | Present only when the job carries `segmentMedia`: `segment-manifest.json` (`segments/segment-manifest`) and `segment.mp4`, verified on load and exposed as `context.media` (`manifest`, `path`, `to_match_ms`) |
 | `/socalytics/result/` | read-write | `facts.json` and `manifest.json`, plus supporting artifacts (top-level files only) |
 | `/socalytics/scratch/` | read-write | Working space, available as `context.scratch` |
 
@@ -49,10 +50,40 @@ if __name__ == "__main__":
 ```
 
 `run(analyst, *, output_type, root=Path("/socalytics"))` loads and verifies the inputs, calls the function with an
-`AnalystContext` (`job`, `attempt`, `inputs`, `result`, `scratch`), finalizes the result, prints one summary line, and
+`AnalystContext` (`job`, `attempt`, `inputs`, `media`, `result`, `scratch`), finalizes the result, prints one summary line, and
 exits. `output_type` is `foundational-facts` or `soccer-concepts`. `root` exists for tests only. The author calls
 `context.result.add_fact`, `add_artifact`, `set_validity_window`, `set_confidence`, and `add_evidence_reference`;
 `finalize` belongs to `run`. When at least one fact is added, `set_confidence` is required.
+
+## Media access
+
+`context.media` is `None` unless the job carries `segmentMedia`, which the platform sets only for nodes whose pinned
+video policy provides media and whose segment was materialized. The Analyst Manager has already verified and staged the
+files, and the SDK verifies them again on load against the job's `segmentMedia` and the segment manifest. `media.path`
+is the read-only `segment.mp4` (the primary video stream, stream-copied, so it contains no audio), `media.manifest` is the typed
+`segments/segment-manifest`, and `media.to_match_ms(media_ms)` maps a media time to match time through the manifest's
+timeline spans (half-open; `None` outside every span). A job with an `optional` policy can run without media, so check
+for `None`:
+
+```python
+from socalytics_analyst import AnalystContext, Fact, run
+
+
+def analyse(context: AnalystContext) -> None:
+    media = context.media
+    if media is None:
+        return
+    match_ms = media.to_match_ms(0)
+    if match_ms is not None:
+        context.result.add_fact(Fact(kind="media-start", start_ms=match_ms, end_ms=match_ms + 1, confidence=1.0, payload={}))
+        context.result.set_confidence(1.0)
+    with media.path.open("rb") as video:
+        video.read(16)
+
+
+if __name__ == "__main__":
+    run(analyse, output_type="foundational-facts")
+```
 
 ## Exit statuses and error categories
 
@@ -60,7 +91,7 @@ exits. `output_type` is `foundational-facts` or `soccer-concepts`. `root` exists
 | --- | --- |
 | `0` | The result was finalized; standard output carries `socalytics-analyst: finalized facts=<n> artifacts=<n>` |
 | `1` | The Analyst's own code failed, or a fact, artifact, or result value was refused |
-| `2` | The inputs are missing, invalid, unsupported, or unverifiable |
+| `2` | The inputs or segment media are missing, invalid, unsupported, or unverifiable (`segment-media-missing`, `segment-media-unexpected`, `segment-manifest-mismatch`, `segment-media-digest-mismatch`, `segment-manifest-invalid`, `unsupported-version`) |
 
 On failure the SDK removes everything it placed in the result mount and writes one line
 `socalytics-analyst: failed <category>` to standard error. Messages never carry payloads, file contents, or job fields

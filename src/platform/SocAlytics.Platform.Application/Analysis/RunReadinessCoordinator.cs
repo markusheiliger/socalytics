@@ -3,8 +3,11 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Analysis.Stores;
+using SocAlytics.Platform.Application.Segments;
 using SocAlytics.Platform.Domain.Analysis;
 using SocAlytics.Platform.Domain.Recordings;
+using SocAlytics.Platform.Domain.Registry;
+using SocAlytics.Platform.Domain.Segments;
 
 namespace SocAlytics.Platform.Application.Analysis;
 
@@ -24,11 +27,16 @@ public sealed class RunReadinessCoordinator(
     IAcceptedResultStore results,
     IOutbox outbox,
     IContractValidator validator,
+    ISegmentStore segments,
     TimeProvider time,
     ILogger<RunReadinessCoordinator>? logger = null)
 {
     private const string ContractVersion = "1.0.0";
     private const string JobContractVersion = "1.1.0";
+    private const string MediaJobContractVersion = "1.2.0";
+    private const string SegmentUnavailableReason = "segment-unavailable";
+
+    private static string JobVersion(SegmentMediaPin? pin) => pin is null ? JobContractVersion : MediaJobContractVersion;
 
     public async Task<ReadinessApplication> ApplyAsync(Guid runId, CancellationToken cancellationToken)
     {
@@ -56,11 +64,13 @@ public sealed class RunReadinessCoordinator(
         }
 
         var jobRecords = await jobs.LoadByRunAsync(runId, cancellationToken);
+        jobRecords = await FailUnavailableSegmentJobsAsync(jobRecords, hierarchy.Nodes.ToDictionary(n => n.Id), cancellationToken);
         var accepted = await results.ListByRunAsync(runId, cancellationToken);
         var acceptedById = accepted.ToDictionary(a => a.Id);
         var nodesByKey = hierarchy.Nodes.ToDictionary(n => n.NodeKey, StringComparer.Ordinal);
         var nodesById = hierarchy.Nodes.ToDictionary(n => n.Id);
         var jobsById = jobRecords.ToDictionary(j => j.Id);
+        var media = await EvaluateSegmentMediaAsync(jobRecords, nodesById, cancellationToken);
 
         var state = new RunGraphState(
             run.State,
@@ -80,7 +90,8 @@ public sealed class RunReadinessCoordinator(
                 ToSegment(j),
                 j.State,
                 j.State != LogicalJobState.Waiting,
-                accepted.Where(a => a.LogicalJobId == j.Id).Select(a => a.Id).ToList())).ToList());
+                accepted.Where(a => a.LogicalJobId == j.Id).Select(a => a.Id).ToList(),
+                media.TryGetValue(j.Id, out var m) && m.Awaiting)).ToList());
 
         var evaluation = ReadinessEvaluator.Evaluate(state);
 
@@ -125,7 +136,8 @@ public sealed class RunReadinessCoordinator(
             }
 
             var inputs = readyJob.Snapshot ?? [];
-            if (await jobs.TryInsertInputSnapshotAsync(job.Id, inputs, cancellationToken))
+            var pin = media.TryGetValue(job.Id, out var pinned) ? pinned.Pin : null;
+            if (await jobs.TryInsertInputSnapshotAsync(job.Id, inputs, pin, cancellationToken))
             {
                 foreach (var barrier in inputs.Where(i => i.CoverageMode == CoverageMode.Partial))
                 {
@@ -147,10 +159,10 @@ public sealed class RunReadinessCoordinator(
             var snapshot = await jobs.LoadSnapshotAsync(job.Id, cancellationToken)
                 ?? throw new InvalidOperationException("The logical job snapshot is missing.");
             var messageId = Guid.CreateVersion7();
-            var payload = BuildJobPayload(run, hierarchy.Snapshot.SnapshotJson, node, job, snapshot, occurrenceId, sequence, messageId, inputs, nodesByKey, acceptedById);
+            var payload = BuildJobPayload(run, hierarchy.Snapshot.SnapshotJson, node, job, snapshot, occurrenceId, sequence, messageId, inputs, nodesByKey, acceptedById, pin);
             Validate(ContractSchemaIds.AnalystJobV1, payload);
             await outbox.EnqueueAsync(new OutboxMessageDraft(
-                messageId, OutboxMessageTypes.AnalysisReadyWork, JobContractVersion,
+                messageId, OutboxMessageTypes.AnalysisReadyWork, JobVersion(pin),
                 $"analysis.jobs.ready.{node.CapabilityId}", payload, occurrenceId, run.Id, job.Id, node.CapabilityId), cancellationToken);
             ready++;
         }
@@ -200,6 +212,7 @@ public sealed class RunReadinessCoordinator(
         var accepted = (await results.ListByRunAsync(job.RunId, cancellationToken)).ToDictionary(a => a.Id);
 
         var inputs = await jobs.LoadInputSnapshotAsync(job.Id, cancellationToken);
+        var pin = await jobs.LoadSegmentMediaAsync(job.Id, cancellationToken);
 
         var persisted = cause switch
         {
@@ -216,10 +229,10 @@ public sealed class RunReadinessCoordinator(
         }
 
         var messageId = Guid.CreateVersion7();
-        var payload = BuildJobPayload(hierarchy.Run, hierarchy.Snapshot.SnapshotJson, node, job, snapshot, occurrenceId, sequence, messageId, inputs, nodesByKey, accepted);
+        var payload = BuildJobPayload(hierarchy.Run, hierarchy.Snapshot.SnapshotJson, node, job, snapshot, occurrenceId, sequence, messageId, inputs, nodesByKey, accepted, pin);
         Validate(ContractSchemaIds.AnalystJobV1, payload);
         await outbox.EnqueueAsync(new OutboxMessageDraft(
-            messageId, OutboxMessageTypes.AnalysisReadyWork, JobContractVersion,
+            messageId, OutboxMessageTypes.AnalysisReadyWork, JobVersion(pin),
             $"analysis.jobs.ready.{node.CapabilityId}", payload, occurrenceId, hierarchy.Run.Id, job.Id, node.CapabilityId), cancellationToken);
     }
 
@@ -275,7 +288,8 @@ public sealed class RunReadinessCoordinator(
     private JsonElement BuildJobPayload(
         AnalysisRunRecord run, string runSnapshotJson, WorkflowNodeRecord node, LogicalJobRecord job, LogicalJobSnapshotRecord snapshot,
         Guid occurrenceId, int sequence, Guid messageId, IReadOnlyList<InputSnapshotEntry> inputs,
-        Dictionary<string, WorkflowNodeRecord> nodesByKey, Dictionary<Guid, AcceptedResultRecord> acceptedById)
+        Dictionary<string, WorkflowNodeRecord> nodesByKey, Dictionary<Guid, AcceptedResultRecord> acceptedById,
+        SegmentMediaPin? segmentMedia)
     {
         using var nodeDoc = JsonDocument.Parse(node.SnapshotJson);
         var profileId = nodeDoc.RootElement.GetProperty("analystProfileId").GetString();
@@ -287,7 +301,7 @@ public sealed class RunReadinessCoordinator(
 
         var payload = new Dictionary<string, object?>
         {
-            ["contractVersion"] = JobContractVersion,
+            ["contractVersion"] = JobVersion(segmentMedia),
             ["messageId"] = messageId,
             ["readinessOccurrenceId"] = occurrenceId,
             ["readinessSequence"] = sequence,
@@ -369,7 +383,96 @@ public sealed class RunReadinessCoordinator(
             };
         }
 
+        if (segmentMedia is not null)
+        {
+            payload["segmentMedia"] = new { videoPolicy = segmentMedia.VideoPolicy, manifestChecksum = segmentMedia.ManifestChecksum };
+        }
+
         return JsonSerializer.SerializeToElement(payload);
+    }
+
+    // A waiting required job whose segment ended failed, or whose materialization request was rejected, fails with
+    // segment-unavailable; dependents then follow the normal blocking and coverage rules.
+    private async Task<IReadOnlyList<LogicalJobRecord>> FailUnavailableSegmentJobsAsync(
+        IReadOnlyList<LogicalJobRecord> jobRecords, Dictionary<Guid, WorkflowNodeRecord> nodesById, CancellationToken ct)
+    {
+        List<LogicalJobRecord>? updated = null;
+        for (var i = 0; i < jobRecords.Count; i++)
+        {
+            var j = jobRecords[i];
+            if (j.State != LogicalJobState.Waiting || ToSegment(j) is not { } segment
+                || nodesById[j.NodeId].State is not (WorkflowNodeState.Waiting or WorkflowNodeState.Active)
+                || VideoPolicyOf(nodesById[j.NodeId]) != VideoPolicies.Required)
+            {
+                continue;
+            }
+
+            if (j.SegmentRejectionReason is null)
+            {
+                var identity = new MaterializedSegmentIdentity(
+                    segment.RecordingVersionId, segment.TimelineMappingDigest, segment.SegmentationPolicyDigest, segment.SegmentNumber);
+                if (await segments.FindAsync(identity, ct) is not { State: MaterializedSegmentState.Failed })
+                {
+                    continue;
+                }
+            }
+
+            if (await jobs.TryTransitionAsync(j.Id, LogicalJobState.Waiting, LogicalJobState.Failed, SegmentUnavailableReason, null, ct))
+            {
+                logger?.LogWarning("Analysis job {LogicalJobId} of run {RunId} failed: {Reason}.", j.Id, j.RunId, SegmentUnavailableReason);
+                updated ??= [.. jobRecords];
+                updated[i] = j with { State = LogicalJobState.Failed, FailureReason = SegmentUnavailableReason };
+            }
+        }
+
+        return updated ?? jobRecords;
+    }
+
+    private sealed record MediaState(bool Awaiting, SegmentMediaPin? Pin);
+
+    // Waiting segment jobs whose node asks for video wait while the segment is absent (demanded) or materializing, and are
+    // pinned to the association once it is available. Without a row, or when the segment failed or its request was
+    // rejected, an optional job proceeds without media; a required job keeps waiting.
+    private async Task<Dictionary<Guid, MediaState>> EvaluateSegmentMediaAsync(
+        IReadOnlyList<LogicalJobRecord> jobRecords, Dictionary<Guid, WorkflowNodeRecord> nodesById, CancellationToken ct)
+    {
+        var result = new Dictionary<Guid, MediaState>();
+        foreach (var j in jobRecords)
+        {
+            if (j.State != LogicalJobState.Waiting || ToSegment(j) is not { } segment)
+            {
+                continue;
+            }
+
+            var policy = VideoPolicyOf(nodesById[j.NodeId]);
+            if (policy is not (VideoPolicies.Required or VideoPolicies.Optional))
+            {
+                continue;
+            }
+
+            var identity = new MaterializedSegmentIdentity(
+                segment.RecordingVersionId, segment.TimelineMappingDigest, segment.SegmentationPolicyDigest, segment.SegmentNumber);
+            var row = j.SegmentRejectionReason is null ? await segments.FindAsync(identity, ct) : null;
+            if (row is { State: MaterializedSegmentState.Available, Association: { } a })
+            {
+                result[j.Id] = new MediaState(false, new SegmentMediaPin(policy, a.ManifestChecksum, a.ManifestObjectKey, a.MediaDigest, a.MediaSizeBytes));
+                continue;
+            }
+
+            var inFlight = row is { State: MaterializedSegmentState.Materializing }
+                or { State: MaterializedSegmentState.Absent, Demanded: true };
+            result[j.Id] = new MediaState(inFlight || policy == VideoPolicies.Required, null);
+        }
+
+        return result;
+    }
+
+    private static string VideoPolicyOf(WorkflowNodeRecord node)
+    {
+        using var doc = JsonDocument.Parse(node.SnapshotJson);
+        return doc.RootElement.TryGetProperty("videoPolicy", out var p) && p.ValueKind == JsonValueKind.String
+            ? p.GetString()!
+            : VideoPolicies.Forbidden;
     }
 
     // Pads short versions such as "1" or "1.2" to the semantic-version form the contracts require.

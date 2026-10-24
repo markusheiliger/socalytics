@@ -1,0 +1,180 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "catalog-baseline",
+  "version": "1.0.0",
+  "toolAllowlist": [
+    "get_match",
+    "get_player_stats",
+    "find_counter_attacks",
+    "find_turnovers",
+    "get_heatmap",
+    "find_ball_actions",
+    "find_set_plays",
+    "get_formations",
+    "find_pressing_phases",
+    "get_tactical_phases",
+    "get_video_clip"
+  ],
+  "agents": [
+    {
+      "agentId": "coach-jurgen-klopp",
+      "group": "coach",
+      "domain": "Publicly documented Jürgen Klopp-inspired coaching philosophy",
+      "displayName": "Jürgen Klopp-inspired Coach",
+      "permittedTools": [
+        "get_match",
+        "get_player_stats",
+        "find_counter_attacks",
+        "find_turnovers",
+        "get_heatmap",
+        "find_ball_actions",
+        "find_set_plays",
+        "get_formations",
+        "find_pressing_phases",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    },
+    {
+      "agentId": "coach-pep-guardiola",
+      "group": "coach",
+      "domain": "Publicly documented Pep Guardiola-inspired coaching philosophy",
+      "displayName": "Pep Guardiola-inspired Coach",
+      "permittedTools": [
+        "get_match",
+        "get_player_stats",
+        "find_counter_attacks",
+        "find_turnovers",
+        "get_heatmap",
+        "find_ball_actions",
+        "find_set_plays",
+        "get_formations",
+        "find_pressing_phases",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    },
+    {
+      "agentId": "coach-jose-mourinho",
+      "group": "coach",
+      "domain": "Publicly documented José Mourinho-inspired coaching philosophy",
+      "displayName": "José Mourinho-inspired Coach",
+      "permittedTools": [
+        "get_match",
+        "get_player_stats",
+        "find_counter_attacks",
+        "find_turnovers",
+        "get_heatmap",
+        "find_ball_actions",
+        "find_set_plays",
+        "get_formations",
+        "find_pressing_phases",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    },
+    {
+      "agentId": "specialist-fitness",
+      "group": "specialist",
+      "domain": "Football workload, fatigue, recovery, and conditioning",
+      "displayName": "Fitness Specialist",
+      "permittedTools": [
+        "get_match",
+        "get_player_stats",
+        "find_counter_attacks",
+        "find_turnovers",
+        "find_pressing_phases",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    },
+    {
+      "agentId": "specialist-goalkeeping",
+      "group": "specialist",
+      "domain": "Goalkeeper positioning, shot context, distribution, sweeping, crosses, and set plays",
+      "displayName": "Goalkeeping Specialist",
+      "permittedTools": [
+        "get_match",
+        "get_player_stats",
+        "find_ball_actions",
+        "find_set_plays",
+        "get_formations",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    },
+    {
+      "agentId": "specialist-tactics",
+      "domain": "Team phases, possession, pressing, transitions, formations, spacing, and set plays",
+      "displayName": "Tactics Specialist",
+      "permittedTools": [
+        "get_match",
+        "get_player_stats",
+        "find_counter_attacks",
+        "find_turnovers",
+        "get_heatmap",
+        "find_ball_actions",
+        "find_set_plays",
+        "get_formations",
+        "find_pressing_phases",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    },
+    {
+      "agentId": "specialist-video-analysis",
+      "group": "specialist",
+      "domain": "Evidence retrieval, sequence comparison, and clip curation",
+      "displayName": "Video Analysis Specialist",
+      "permittedTools": [
+        "get_match",
+        "find_counter_attacks",
+        "find_turnovers",
+        "get_heatmap",
+        "find_ball_actions",
+        "find_set_plays",
+        "get_formations",
+        "find_pressing_phases",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    },
+    {
+      "agentId": "specialist-scouting",
+      "group": "specialist",
+      "domain": "Role fit, opponent tendencies, and repeated observable behavior",
+      "displayName": "Scouting Specialist",
+      "permittedTools": [
+        "get_match",
+        "get_player_stats",
+        "find_counter_attacks",
+        "find_turnovers",
+        "get_heatmap",
+        "find_ball_actions",
+        "find_set_plays",
+        "get_formations",
+        "find_pressing_phases",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    },
+    {
+      "agentId": "specialist-player-development",
+      "group": "specialist",
+      "domain": "Individual learning objectives, exercises, progression, and review",
+      "displayName": "Player Development Specialist",
+      "permittedTools": [
+        "get_match",
+        "get_player_stats",
+        "find_counter_attacks",
+        "find_turnovers",
+        "get_heatmap",
+        "find_ball_actions",
+        "get_formations",
+        "find_pressing_phases",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    }
+  ]
+}

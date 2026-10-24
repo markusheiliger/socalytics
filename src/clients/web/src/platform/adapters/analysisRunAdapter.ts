@@ -91,6 +91,17 @@ export function toAnalysisRun(dto: AnalysisRunSummaryDto | AnalysisRunStatusDto 
         ? { memberId: dto.cancelledBy.memberId.toString(), accountName: dto.cancelledBy.accountName }
         : undefined,
     cancellationReason: dto.cancellationReason ?? undefined,
+    isCurrent: dto.isCurrent === true,
+    supersededBy:
+      dto.supersededBy?.runId && dto.supersededBy.recordingSetVersionId && dto.supersededBy.recordingSetFinalizedAt
+        ? {
+            runId: dto.supersededBy.runId.toString(),
+            recordingSetVersionId: dto.supersededBy.recordingSetVersionId.toString(),
+            recordingSetFinalizedAt: dto.supersededBy.recordingSetFinalizedAt,
+          }
+        : undefined,
+    supersededAt: dto.supersededAt ?? undefined,
+    cancellationCause: dto.cancellationCause === 'member' || dto.cancellationCause === 'superseded' ? dto.cancellationCause : undefined,
   };
 }
 

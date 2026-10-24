@@ -180,8 +180,7 @@ and evolve additively within their major version.
 
 For each analysis run, the Scheduler:
 
-1. Materializes required logical segments on demand. Decided, not yet
-    implemented: at run creation the Scheduler requests the materialized
+1. Materializes required logical segments on demand. At run creation the Scheduler requests the materialized
     identity of every segment-scoped job whose run-pinned Analyst profile's
     video policy is `required` or `optional`, never for `forbidden`. Such a job
     stays waiting until its segment is `available`, and its input snapshot and
@@ -291,8 +290,9 @@ accepted before the cancellation remain immutable, readable history. A
 cancelled run never transitions again, cancelling another terminal run is
 refused, and repeating a cancellation is idempotent.
 
-Automatic supersession of older runs is decided as follows and not yet
-implemented. When the run of a newer finalized recording-set version of a
+Automatic supersession of older runs is implemented as follows (migration
+`0027_analysis_run_supersession.sql`). When the run of a newer finalized
+recording-set version of a
 match is created, every older run of that match that has not been superseded
 is superseded by the match's current run in the same transaction. Recording-set
 versions are ordered by finalization time with the version identity as
@@ -309,6 +309,15 @@ never crosses matches. Supersession is serialized per match, idempotent under
 duplicate or reordered notifications and concurrent member cancellation, and
 re-applied by the analysis reconciliation. Run reads state whether a run is
 the match's current run and which run superseded it.
+
+The Web UI's read-only comparison of two terminal runs of the same match is
+decided but not yet implemented (see
+[Web UI](client-applications.md#web-ui)). It consumes `Completed`,
+`PartiallyCompleted`, `Failed`, and `Cancelled` history, including accepted
+results from before failure or cancellation, without changing execution state
+or supersession. Current and superseded are independently reported lineage
+attributes, not terminal states or quality rankings; runs of the same
+recording-set version remain eligible without inventing a supersession link.
 
 The immutable logical-job snapshot owns `max_attempts` and the effective lease,
 stale-timeout, and execution-timeout values copied from its capability's

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "modifier-policy",
+  "id": "coach-modifier-policy",
+  "version": "1.0.0",
+  "dimensionSetMajor": 1,
+  "perDimensionBound": 4,
+  "maxPositiveMovement": 10,
+  "contextCategories": ["score-state"],
+  "budgetNeutral": true
+}

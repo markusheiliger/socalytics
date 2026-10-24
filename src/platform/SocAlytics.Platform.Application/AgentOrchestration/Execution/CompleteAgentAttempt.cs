@@ -2,9 +2,11 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.AgentOrchestration.Catalog;
 using SocAlytics.Platform.Application.AgentOrchestration.Workloads;
 using SocAlytics.Platform.Application.Telemetry;
 using SocAlytics.Platform.Domain.AgentOrchestration;
+using SocAlytics.Platform.Domain.AgentOrchestration.Catalog;
 
 namespace SocAlytics.Platform.Application.AgentOrchestration.Execution;
 
@@ -16,6 +18,7 @@ public sealed class CompleteAgentAttemptHandler(
     IUnitOfWork unitOfWork,
     IAgentInvocationStore invocations,
     IAgentAttemptStore attempts,
+    IAgentInvocationPinStore pins,
     IAgentWorkloadOperationStore operations,
     IContractValidator validator,
     ICanonicalJson canonicalJson,
@@ -95,8 +98,15 @@ public sealed class CompleteAgentAttemptHandler(
             return AgentExecutionSupport.Stale(AgentStaleDisposition.ScopeLost);
         }
 
+        var pinnedReferences = await PinnedReferencesAsync(invocation, references, cancellationToken);
+        if (pinnedReferences is null)
+        {
+            AgentOrchestrationMetrics.CompletionRecorded("references-mismatch");
+            return OperationFailure.Conflict(AgentExecutionCodes.ExecutionReferencesMismatch);
+        }
+
         await invocations.InsertAdviceAsync(
-            new NewAgentAcceptedAdvice(invocation.Id, attempt.Id, advice, references.GetRawText(), now), cancellationToken);
+            new NewAgentAcceptedAdvice(invocation.Id, attempt.Id, advice, pinnedReferences, now), cancellationToken);
         if (!await attempts.TryTransitionAsync(attempt.Id, AgentAttemptState.Active, AgentAttemptState.Completed, "completed", now, cancellationToken))
         {
             return AgentExecutionSupport.Stale(AgentStaleDisposition.AttemptNotCurrent);
@@ -111,7 +121,7 @@ public sealed class CompleteAgentAttemptHandler(
 
         await invocations.SetCurrentAttemptAsync(invocation.Id, null, invocation.AttemptsUsed, cancellationToken);
         await invocations.AppendLineageAsync(
-            new NewAgentLineageEntry(invocation.Id, "completed", attempt.Id, references.GetRawText(), now), cancellationToken);
+            new NewAgentLineageEntry(invocation.Id, "completed", attempt.Id, pinnedReferences, now), cancellationToken);
         var result = new AgentCompletionResult(
             attempt.Id, invocation.Id, AgentPersistedNames.ToPersistedName(AgentInvocationState.Succeeded), false);
         await operations.InsertAsync(
@@ -126,5 +136,30 @@ public sealed class CompleteAgentAttemptHandler(
         await scope.CommitAsync(cancellationToken);
         AgentOrchestrationMetrics.CompletionRecorded("accepted");
         return result;
+    }
+
+    // The declared prompt, tool policy, and safety policy references must equal the pinned digests; null on a mismatch.
+    private async Task<string?> PinnedReferencesAsync(
+        AgentInvocationRecord invocation, JsonElement references, CancellationToken cancellationToken)
+    {
+        var pinned = await pins.ListAsync(invocation.Id, cancellationToken);
+        foreach (var (property, kind) in new[]
+        {
+            ("promptRef", AgentCatalogRecordKind.PromptTemplate),
+            ("toolPolicyRef", AgentCatalogRecordKind.ToolPolicy),
+            ("safetyPolicyRef", AgentCatalogRecordKind.SafetyPolicy),
+        })
+        {
+            var pin = pinned.FirstOrDefault(p => p.Kind == kind);
+            if (pin is null
+                || !references.TryGetProperty(property, out var declared)
+                || declared.ValueKind != JsonValueKind.String
+                || !string.Equals(declared.GetString(), pin.Digest, StringComparison.Ordinal))
+            {
+                return null;
+            }
+        }
+
+        return references.GetRawText();
     }
 }

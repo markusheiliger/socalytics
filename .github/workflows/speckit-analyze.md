@@ -1,15 +1,15 @@
 ---
 name: Spec Kit analyze
 description: >-
-  Checks an amendment of Spec Kit artifacts, or a new spec authored by `/speckit specify`, for consistency with an
+  Checks an amendment of Spec Kit artifacts, or a new spec authored by `/speckit author`, for consistency with an
   independent, read-only /speckit-analyze of the whole spec folder. Started by the amendment and new spec lifecycles
-  (Spec Kit diagnose, Spec Kit specify, and Spec Kit commands); its record job starts a correction round or a rework
+  (Spec Kit diagnose, Spec Kit author, and Spec Kit commands); its record job starts a correction round or a rework
   with pending feedback, merges a consistent new spec automatically, or hands the pull request to a person for review.
 on:
   workflow_dispatch:
     inputs:
-      twin:
-        description: Spec twin issue number (of the implementation the pull request belongs to)
+      issue:
+        description: Spec twin issue number (labelled speckit:spec) of the implementation the pull request belongs to
         required: true
         type: string
       pull:
@@ -48,18 +48,18 @@ on:
         required: true
         type: string
       kind:
-        description: amend (an amendment on speckit-amend/<folder>), spec (a new spec authored by /speckit specify on speckit-spec/<folder>), or fix (one on the earlier speckit-fix/<folder>)
+        description: amend (an amendment on speckit-amend/<folder>), spec (a new spec authored by /speckit author on speckit-spec/<folder>), or fix (one on the earlier speckit-fix/<folder>)
         required: false
         type: string
         default: amend
   # Only the Spec Kit workflows dispatch this workflow, with the repository's token; dispatching already requires
   # write access.
   roles: all
-run-name: "Spec Kit analyze spec #${{ inputs.twin }} · ${{ inputs.mode == 'check' && format('Check the {0} for consistency after a manual push', (inputs.kind == 'fix' || inputs.kind == 'spec') && 'new spec' || 'amendment') || inputs.round != '0' && inputs.round != '' && format('Check the {0} for consistency after round {1}', (inputs.kind == 'fix' || inputs.kind == 'spec') && 'new spec' || 'amendment', inputs.round) || format('Check the {0} for consistency', (inputs.kind == 'fix' || inputs.kind == 'spec') && 'new spec' || 'amendment') }}"
+run-name: "Spec Kit analyze spec #${{ inputs.issue }} · ${{ inputs.mode == 'check' && format('Check the {0} for consistency after a manual push', (inputs.kind == 'fix' || inputs.kind == 'spec') && 'new spec' || 'amendment') || inputs.round != '0' && inputs.round != '' && format('Check the {0} for consistency after round {1}', (inputs.kind == 'fix' || inputs.kind == 'spec') && 'new spec' || 'amendment', inputs.round) || format('Check the {0} for consistency', (inputs.kind == 'fix' || inputs.kind == 'spec') && 'new spec' || 'amendment') }}"
 concurrency:
-  group: speckit-analyze-${{ inputs.twin }}
+  group: speckit-analyze-${{ inputs.issue }}
   cancel-in-progress: false
-  job-discriminator: ${{ inputs.twin }}
+  job-discriminator: ${{ inputs.issue }}
 permissions:
   actions: read
   checks: read
@@ -90,9 +90,15 @@ steps:
   - name: Check out the Spec Kit tooling
     uses: actions/checkout@v5
     with:
-      ref: ${{ github.event.repository.default_branch }}
+      ref: ${{ github.sha }}
       path: .speckit-tooling
       persist-credentials: false
+  - name: Check the spec issue
+    id: issue
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      SPECKIT_ISSUE: ${{ inputs.issue }}
+    run: node .speckit-tooling/.github/scripts/speckit-issue.mjs check
   # The findings the last correction round fixed, so the analysis can say which of them are resolved.
   - name: Write the findings of the previous round
     env:
@@ -138,7 +144,7 @@ safe-outputs:
         - name: Check out the Spec Kit tooling
           uses: actions/checkout@v5
           with:
-            ref: ${{ github.event.repository.default_branch }}
+            ref: ${{ github.sha }}
             persist-credentials: false
         - name: Set up Node.js
           uses: actions/setup-node@v5
@@ -166,7 +172,7 @@ safe-outputs:
 # Check an amendment of Spec Kit artifacts, or a new spec, for consistency
 
 Pull request #${{ inputs.amendment }} is of kind **${{ inputs.kind }}**. Kind `amend` amends the Spec Kit artifacts of an
-existing spec folder; kinds `spec` and `fix` add a new spec authored by `/speckit specify`, an ordinary spec for a
+existing spec folder; kinds `spec` and `fix` add a new spec authored by `/speckit author`, an ordinary spec for a
 cause outside the stopped spec of pull request #${{ inputs.pull }}, which depends on it. The spec folder is named in `.speckit-analysis/spec-dir`. For an amendment it is
 `specs/${{ inputs.folder }}/` until the implementation archives it right before its merge, and
 `specs/archive/${{ inputs.folder }}/` after that.

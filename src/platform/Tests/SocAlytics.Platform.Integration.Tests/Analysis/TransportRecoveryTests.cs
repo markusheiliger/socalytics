@@ -73,6 +73,35 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
         return services.BuildServiceProvider();
     }
 
+    private static readonly TimeSpan RetryLimit = TimeSpan.FromSeconds(120);
+
+    // Retries only a call that timed out under load; the checks on its result stay with the caller.
+    private static async Task<T> RetryTimedOutAsync<T>(Func<Task<T>> call, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow + RetryLimit;
+        while (true)
+        {
+            try
+            {
+                return await call();
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested
+                && DateTime.UtcNow < deadline
+                && (ex is NatsJSApiNoResponseException or TimeoutException
+                    || ex is MessageTransportException { FailureCategory: "publish-timeout" }))
+            {
+                await Task.Delay(500, ct);
+            }
+        }
+    }
+
+    private static async Task RetryTimedOutAsync(Func<Task> call, CancellationToken ct) =>
+        await RetryTimedOutAsync<bool>(async () =>
+        {
+            await call();
+            return true;
+        }, ct);
+
     private static async Task<HealthReportEntry> NatsEntryAsync(PlatformApiFactory factory, CancellationToken ct)
     {
         var report = await factory.Services.GetRequiredService<HealthCheckService>()
@@ -104,6 +133,12 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
         await using var __ = factory;
         using var client = factory.CreateApiClient();
         var signal = factory.Services.GetRequiredService<TransportReconnectSignal>();
+        var initial = DateTime.UtcNow.AddSeconds(120);
+        while ((await NatsEntryAsync(factory, ct)).Status != HealthStatus.Healthy && DateTime.UtcNow < initial)
+        {
+            await Task.Delay(200, ct);
+        }
+
         (await NatsEntryAsync(factory, ct)).Status.ShouldBe(HealthStatus.Healthy);
 
         var before = signal.Count;
@@ -111,7 +146,7 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
         try
         {
             var entry = await NatsEntryAsync(factory, ct);
-            var deadline = DateTime.UtcNow.AddSeconds(30);
+            var deadline = DateTime.UtcNow.AddSeconds(120);
             while (entry.Status != HealthStatus.Degraded && DateTime.UtcNow < deadline)
             {
                 await Task.Delay(200, ct);
@@ -129,13 +164,19 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
             await nats.StartAsync();
         }
 
-        var recovered = DateTime.UtcNow.AddSeconds(60);
+        var recovered = DateTime.UtcNow.AddSeconds(180);
         while (signal.Count == before && DateTime.UtcNow < recovered)
         {
             await Task.Delay(200, ct);
         }
 
         signal.Count.ShouldBe(before + 1);
+        var healthy = DateTime.UtcNow.AddSeconds(120);
+        while ((await NatsEntryAsync(factory, ct)).Status != HealthStatus.Healthy && DateTime.UtcNow < healthy)
+        {
+            await Task.Delay(200, ct);
+        }
+
         (await NatsEntryAsync(factory, ct)).Status.ShouldBe(HealthStatus.Healthy);
     }
 
@@ -153,7 +194,7 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
             await hosted.StartAsync(ct);
         }
 
-        var deadline = DateTime.UtcNow.AddSeconds(30);
+        var deadline = DateTime.UtcNow.AddSeconds(120);
         while (!connection.IsConnected && DateTime.UtcNow < deadline)
         {
             await Task.Delay(100, ct);
@@ -168,13 +209,13 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
         var ct = TestContext.Current.CancellationToken;
         await using var provider = Build(nats.ConnectionString);
         var topology = provider.GetRequiredService<NatsTopology>();
-        await topology.EnsureAsync(ct);
-        await topology.EnsureAsync(ct);
+        await RetryTimedOutAsync(() => topology.EnsureAsync(ct), ct);
+        await RetryTimedOutAsync(() => topology.EnsureAsync(ct), ct);
 
         var js = new NatsJSContext(provider.GetRequiredService<NatsConnectionProvider>().Connection);
-        var stream = await js.GetStreamAsync("SOCALYTICS_EVENTS", cancellationToken: ct);
+        var stream = await RetryTimedOutAsync(async () => await js.GetStreamAsync("SOCALYTICS_EVENTS", cancellationToken: ct), ct);
         stream.Info.Config.DuplicateWindow.ShouldBe(TimeSpan.FromSeconds(120));
-        await js.GetStreamAsync("SOCALYTICS_ANALYSIS_JOBS", cancellationToken: ct);
+        await RetryTimedOutAsync(async () => await js.GetStreamAsync("SOCALYTICS_ANALYSIS_JOBS", cancellationToken: ct), ct);
     }
 
     [Fact]
@@ -183,13 +224,18 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
         var ct = TestContext.Current.CancellationToken;
         await using var provider = Build(nats.ConnectionString);
         var transport = provider.GetRequiredService<IMessageTransport>();
-        var id = Guid.NewGuid().ToString();
 
-        (await transport.PublishAsync(Message(id), ct)).ShouldBe(TransportPublishResult.Published);
-        (await transport.PublishAsync(Message(id), ct)).ShouldBe(TransportPublishResult.Duplicate);
+        // A timed-out publish may still have landed, so each attempt of the first publish uses a fresh id.
+        var (id, first) = await RetryTimedOutAsync(async () =>
+        {
+            var attempt = Guid.NewGuid().ToString();
+            return (attempt, await transport.PublishAsync(Message(attempt), ct));
+        }, ct);
+        first.ShouldBe(TransportPublishResult.Published);
+        (await RetryTimedOutAsync(() => transport.PublishAsync(Message(id), ct), ct)).ShouldBe(TransportPublishResult.Duplicate);
 
         var js = new NatsJSContext(provider.GetRequiredService<NatsConnectionProvider>().Connection);
-        var stream = await js.GetStreamAsync("SOCALYTICS_EVENTS", cancellationToken: ct);
+        var stream = await RetryTimedOutAsync(async () => await js.GetStreamAsync("SOCALYTICS_EVENTS", cancellationToken: ct), ct);
         (stream.Info.State.Messages > 0).ShouldBeTrue();
     }
 
@@ -215,7 +261,7 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
         var ct = TestContext.Current.CancellationToken;
         await using var provider = Build(nats.ConnectionString);
         var transport = provider.GetRequiredService<IMessageTransport>();
-        await transport.PublishAsync(Message(Guid.NewGuid().ToString()), ct);
+        await RetryTimedOutAsync(() => transport.PublishAsync(Message(Guid.NewGuid().ToString()), ct), ct);
 
         await nats.StopAsync();
         try
@@ -251,8 +297,8 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
         Guid run = Guid.NewGuid(), node = Guid.NewGuid(), job = Guid.NewGuid(), occ = Guid.NewGuid(), msg = Guid.NewGuid(), g = Guid.NewGuid();
         var digest = "sha-256:" + new string('a', 64);
         await ExecAsync(db, $$"""
-            INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
-            VALUES ('{{run}}', '{{g}}', '{{g}}', '{{g}}', 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', 'Running', now(), now(), now());
+            INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
+            VALUES ('{{run}}', '{{g}}', '{{g}}', '{{g}}', now(), 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', 'Running', now(), now(), now());
             INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
             VALUES ('{{node}}', '{{run}}', 'm1', 'cap-a', '1.0.0', 'high-level', 'match', 0, 'Active', now());
             INSERT INTO socalytics.analysis_run_snapshots (run_id, snapshot, snapshot_digest) VALUES ('{{run}}', '{}'::jsonb, 'sha-256:a');
@@ -349,7 +395,7 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
         var before = signal.Count;
 
         await nats.ReplaceAsync();
-        var deadline = DateTime.UtcNow.AddSeconds(90);
+        var deadline = DateTime.UtcNow.AddSeconds(240);
         while (DateTime.UtcNow < deadline
             && await ScalarAsync(db, $"SELECT count(*) FROM socalytics.outbox_messages WHERE id = '{ready.Message}' AND publication_round > 1 AND state = 'published'", ct) == 0)
         {

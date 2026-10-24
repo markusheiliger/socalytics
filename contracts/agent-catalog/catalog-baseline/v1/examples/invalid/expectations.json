@@ -1,0 +1,5 @@
+{
+  "tool-id-with-parentheses.json": "enum",
+  "agent-without-group.json": "required",
+  "unknown-property.json": "additionalProperties"
+}

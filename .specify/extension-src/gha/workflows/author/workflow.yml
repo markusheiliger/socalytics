@@ -1,0 +1,658 @@
+schema_version: "1.0"
+workflow:
+  id: "author"
+  name: "Author a ready-to-implement spec"
+  version: "1.5.0"
+  author: "socalytics"
+  description: >-
+    Authors one spec through specify, clarify, plan, tasks, and analyze until it is ready to implement, then commits
+    and pushes the spec folder so the GitHub automation takes over. Every decision comes from
+    .github/scripts/speckit-author-flow.mjs; agent steps only run Spec Kit commands and write the files it checks.
+
+# Layout rules (see AGENTS.md):
+# - Every gate is a top-level step or alone (with what follows it) in a top-level `if`: resuming a paused nested step
+#   reruns its parent's whole body, which must never repeat an agent step. Loops are therefore unrolled.
+# - Every gate names its verdict input after its id (`publish-verdict` → `publish_verdict`), so a run without a terminal
+#   pauses at the gate and `specify workflow resume <run> -i <input>=<choice>` answers it (the /speckit-gha-author skill);
+#   in a terminal the gate asks directly. The first option of a gate is its recommended one.
+
+requires:
+  speckit_version: ">=1.0.13"
+  integrations:
+    any:
+      - "copilot"
+
+inputs:
+  feature:
+    type: string
+    default: ""
+    prompt: "Feature description, a spec folder to continue, or empty for the next logical spec from docs/architecture"
+  mode:
+    type: string
+    default: "interactive"
+    prompt: "interactive (gates ask) or unattended (every decision takes the recommended choice)"
+  feedback:
+    type: string
+    default: ""
+    prompt: "What should change in the spec folder given as feature; the run reworks the stage before its next step, or the one given as stage"
+  stage:
+    type: string
+    default: ""
+    prompt: "Restart an existing spec folder at clarify, plan, tasks, or analyze (with feedback: the stage it reworks)"
+  stamp:
+    type: string
+    default: ""
+    prompt: "UTC time stamp YYYYMMDD-HHMMSS for a new spec folder (default: the current time)"
+  publish:
+    type: string
+    default: "ask"
+    prompt: "Unattended runs: push, commit, or none (ask means none)"
+  tooling:
+    type: string
+    default: "."
+    prompt: "Folder with the trusted .github/scripts helpers (GitHub passes its tooling checkout; locally the repository)"
+  integration:
+    type: string
+    default: "auto"
+    prompt: "Integration to use ('auto' uses the project's initialized integration)"
+  # Gate verdicts, given when a run without a terminal is resumed.
+  continue_active: {type: string, default: ""}
+  candidate: {type: string, default: ""}
+  answer_1_1: {type: string, default: ""}
+  answer_1_2: {type: string, default: ""}
+  answer_1_3: {type: string, default: ""}
+  answer_1_4: {type: string, default: ""}
+  answer_1_5: {type: string, default: ""}
+  answer_2_1: {type: string, default: ""}
+  answer_2_2: {type: string, default: ""}
+  answer_2_3: {type: string, default: ""}
+  answer_2_4: {type: string, default: ""}
+  answer_2_5: {type: string, default: ""}
+  answer_3_1: {type: string, default: ""}
+  answer_3_2: {type: string, default: ""}
+  answer_3_3: {type: string, default: ""}
+  answer_3_4: {type: string, default: ""}
+  answer_3_5: {type: string, default: ""}
+  environment_verdict: {type: string, default: ""}
+  fix_2_1: {type: string, default: ""}
+  fix_2_2: {type: string, default: ""}
+  fix_2_3: {type: string, default: ""}
+  fix_2_4: {type: string, default: ""}
+  fix_2_5: {type: string, default: ""}
+  fix_3_1: {type: string, default: ""}
+  fix_3_2: {type: string, default: ""}
+  fix_3_3: {type: string, default: ""}
+  fix_3_4: {type: string, default: ""}
+  fix_3_5: {type: string, default: ""}
+  publish_verdict: {type: string, default: ""}
+
+steps:
+  # ── Start: a new feature, the next logical spec, or an existing folder at its next step ─────────────────────────
+  - id: start
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" start --run {{ context.run_id }}'
+    output_format: json
+
+  - id: active-feature
+    type: if
+    condition: "{{ steps.start.output.data.active and inputs.mode == 'interactive' }}"
+    then:
+      - id: continue-active
+        type: gate
+        message: "specs/{{ steps.start.output.data.folder }} is not published yet. Continue it, or propose the next logical spec instead?"
+        options: ["continue", "propose", "abort"]
+        on_reject: abort
+        verdict_input: continue_active
+
+  - id: begin
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" begin --run {{ context.run_id }} --choice {{ steps.continue-active.output.choice }}'
+    output_format: json
+
+  - id: discovery
+    type: if
+    condition: "{{ steps.begin.output.data.discover }}"
+    then:
+      - id: propose
+        type: prompt
+        integration: "{{ inputs.integration }}"
+        timeout: 1800
+        prompt: >-
+          Propose the next logical spec for this repository. Read AGENTS.md (Current State),
+          docs/architecture/README.md and the architecture documents, every spec.md under specs/ and specs/archive/,
+          and .specify/workflows/runs/{{ context.run_id }}/twins.json if it exists (every spec twin issue with its
+          number, title, state, stage, and folder, including specs that exist only on other branches or pull
+          requests); the remote was just fetched, so compare with the remote default branch where the local checkout
+          may be stale. Check src/ where a claim matters. List the behavior the architecture describes that no spec
+          covers and the code does not implement; skip anything the architecture marks as unresolved, deferred, or
+          awaiting evidence. Rank the gaps: dependencies already implemented first, then value for the first release,
+          then the smallest independently testable slice (constitution), then risk; a gap that needs new frameworks,
+          SDKs, or tools ranks its environment spec directly before it. Write the top 1 to 3 to
+          .specify/workflows/runs/{{ context.run_id }}/proposal.json as
+          {"candidates": [{"title": "...", "description": "...", "architecture": ["docs/architecture/FILE.md#ANCHOR"], "why": "..."}]},
+          best first. "description" is the feature description for /speckit-specify: the user value, the scope and
+          what stays out, the specs it depends on, and the architecture sections it implements. Create or change no
+          other file.
+      - id: proposal
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" proposal --run {{ context.run_id }}'
+        output_format: json
+
+  - id: choose-candidate
+    type: if
+    condition: "{{ steps.begin.output.data.discover and inputs.mode == 'interactive' }}"
+    then:
+      - id: candidate
+        type: gate
+        message: "Which spec should be authored next?"
+        show_file: "{{ steps.proposal.output.data.file }}"
+        options: ["1", "2", "3", "abort"]
+        on_reject: abort
+        verdict_input: candidate
+
+  # ── Define: specify ───────────────────────────────────────────────────────────────────────────────────────────────
+  - id: define
+    type: if
+    condition: "{{ steps.begin.output.data.specify }}"
+    then:
+      - id: pick
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" pick --run {{ context.run_id }} --choice {{ steps.candidate.output.choice }}'
+        output_format: json
+      - id: specify
+        command: speckit.specify
+        integration: "{{ inputs.integration }}"
+        input:
+          args: "{{ steps.pick.output.data.feature }}"
+      - id: created
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" created --run {{ context.run_id }}'
+        output_format: json
+
+  # ── Define: clarify, at most three rounds, one gate per question ──────────────────────────────────────────────────
+  - id: clarify-stage
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" stage --run {{ context.run_id }} --name clarify'
+    output_format: json
+
+  - id: spec-feedback
+    type: if
+    condition: "{{ steps.clarify-stage.output.data.revise }}"
+    then:
+      - id: apply-spec-feedback
+        command: speckit.clarify
+        integration: "{{ inputs.integration }}"
+        input:
+          args: >-
+            Do not ask any question. The spec author asks for these changes to
+            specs/{{ steps.clarify-stage.output.data.folder }}/spec.md; record them as this session's clarifications,
+            as the skill prescribes: {{ steps.clarify-stage.output.data.feedback }}
+
+  # Round 1
+  - id: clarify-round-1
+    type: if
+    condition: "{{ steps.clarify-stage.output.data.run }}"
+    then:
+      - id: ask-1
+        type: prompt
+        integration: "{{ inputs.integration }}"
+        timeout: 1800
+        prompt: &ask >-
+          Load .github/skills/speckit-clarify/SKILL.md and run its ambiguity scan for
+          specs/{{ steps.clarify-stage.output.data.folder }}/spec.md exactly as it prescribes, but do not ask the user
+          and do not change any file. Write the questions it would ask, in its order and within its limit of 5, to
+          .specify/workflows/runs/{{ context.run_id }}/questions.json as a JSON list of
+          {"question": "...", "options": [{"key": "A", "text": "..."}], "recommended": "KEY", "reason": "..."}.
+          Give every question 2 to 5 options with the keys A, B, C, D, E in order; turn a short-answer question into
+          options, with the suggested answer among them. Write [] when the scan finds no critical ambiguity.
+      - id: questions-1
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" questions --run {{ context.run_id }}'
+        output_format: json
+  - id: ask-1-1
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-1.output.data.has_q1 }}"
+    then:
+      - {id: answer-1-1, type: gate, message: "{{ steps.questions-1.output.data.q1 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_1_1}
+  - id: ask-1-2
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-1.output.data.has_q2 }}"
+    then:
+      - {id: answer-1-2, type: gate, message: "{{ steps.questions-1.output.data.q2 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_1_2}
+  - id: ask-1-3
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-1.output.data.has_q3 }}"
+    then:
+      - {id: answer-1-3, type: gate, message: "{{ steps.questions-1.output.data.q3 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_1_3}
+  - id: ask-1-4
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-1.output.data.has_q4 }}"
+    then:
+      - {id: answer-1-4, type: gate, message: "{{ steps.questions-1.output.data.q4 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_1_4}
+  - id: ask-1-5
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-1.output.data.has_q5 }}"
+    then:
+      - {id: answer-1-5, type: gate, message: "{{ steps.questions-1.output.data.q5 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_1_5}
+  - id: record-1
+    type: if
+    condition: "{{ steps.questions-1.output.data.has }}"
+    then:
+      - id: answers-1
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" answers --run {{ context.run_id }} --choices {{ steps.answer-1-1.output.choice }},{{ steps.answer-1-2.output.choice }},{{ steps.answer-1-3.output.choice }},{{ steps.answer-1-4.output.choice }},{{ steps.answer-1-5.output.choice }}'
+        output_format: json
+      - id: apply-answers-1
+        command: speckit.clarify
+        integration: "{{ inputs.integration }}"
+        input:
+          args: >-
+            Do not ask any question: the spec author already answered this session's questions. Record exactly these
+            answers in specs/{{ steps.clarify-stage.output.data.folder }}/spec.md as the skill prescribes:
+            {{ steps.answers-1.output.data.text }}
+
+  # Round 2: only after a round that asked questions, because the answers may raise new ones
+  - id: clarify-round-2
+    type: if
+    condition: "{{ steps.questions-1.output.data.has }}"
+    then:
+      - {id: ask-2, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *ask}
+      - id: questions-2
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" questions --run {{ context.run_id }}'
+        output_format: json
+  - id: ask-2-1
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-2.output.data.has_q1 }}"
+    then:
+      - {id: answer-2-1, type: gate, message: "{{ steps.questions-2.output.data.q1 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_2_1}
+  - id: ask-2-2
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-2.output.data.has_q2 }}"
+    then:
+      - {id: answer-2-2, type: gate, message: "{{ steps.questions-2.output.data.q2 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_2_2}
+  - id: ask-2-3
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-2.output.data.has_q3 }}"
+    then:
+      - {id: answer-2-3, type: gate, message: "{{ steps.questions-2.output.data.q3 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_2_3}
+  - id: ask-2-4
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-2.output.data.has_q4 }}"
+    then:
+      - {id: answer-2-4, type: gate, message: "{{ steps.questions-2.output.data.q4 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_2_4}
+  - id: ask-2-5
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-2.output.data.has_q5 }}"
+    then:
+      - {id: answer-2-5, type: gate, message: "{{ steps.questions-2.output.data.q5 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_2_5}
+  - id: record-2
+    type: if
+    condition: "{{ steps.questions-2.output.data.has }}"
+    then:
+      - id: answers-2
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" answers --run {{ context.run_id }} --choices {{ steps.answer-2-1.output.choice }},{{ steps.answer-2-2.output.choice }},{{ steps.answer-2-3.output.choice }},{{ steps.answer-2-4.output.choice }},{{ steps.answer-2-5.output.choice }}'
+        output_format: json
+      - id: apply-answers-2
+        command: speckit.clarify
+        integration: "{{ inputs.integration }}"
+        input:
+          args: >-
+            Do not ask any question: the spec author already answered this session's questions. Record exactly these
+            answers in specs/{{ steps.clarify-stage.output.data.folder }}/spec.md as the skill prescribes:
+            {{ steps.answers-2.output.data.text }}
+
+  # Round 3, the last one
+  - id: clarify-round-3
+    type: if
+    condition: "{{ steps.questions-2.output.data.has }}"
+    then:
+      - {id: ask-3, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *ask}
+      - id: questions-3
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" questions --run {{ context.run_id }}'
+        output_format: json
+  - id: ask-3-1
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-3.output.data.has_q1 }}"
+    then:
+      - {id: answer-3-1, type: gate, message: "{{ steps.questions-3.output.data.q1 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_3_1}
+  - id: ask-3-2
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-3.output.data.has_q2 }}"
+    then:
+      - {id: answer-3-2, type: gate, message: "{{ steps.questions-3.output.data.q2 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_3_2}
+  - id: ask-3-3
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-3.output.data.has_q3 }}"
+    then:
+      - {id: answer-3-3, type: gate, message: "{{ steps.questions-3.output.data.q3 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_3_3}
+  - id: ask-3-4
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-3.output.data.has_q4 }}"
+    then:
+      - {id: answer-3-4, type: gate, message: "{{ steps.questions-3.output.data.q4 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_3_4}
+  - id: ask-3-5
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.questions-3.output.data.has_q5 }}"
+    then:
+      - {id: answer-3-5, type: gate, message: "{{ steps.questions-3.output.data.q5 }}", options: ["recommended", "A", "B", "C", "D", "E"], on_reject: skip, verdict_input: answer_3_5}
+  - id: record-3
+    type: if
+    condition: "{{ steps.questions-3.output.data.has }}"
+    then:
+      - id: answers-3
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" answers --run {{ context.run_id }} --choices {{ steps.answer-3-1.output.choice }},{{ steps.answer-3-2.output.choice }},{{ steps.answer-3-3.output.choice }},{{ steps.answer-3-4.output.choice }},{{ steps.answer-3-5.output.choice }}'
+        output_format: json
+      - id: apply-answers-3
+        command: speckit.clarify
+        integration: "{{ inputs.integration }}"
+        input:
+          args: >-
+            Do not ask any question: the spec author already answered this session's questions. Record exactly these
+            answers in specs/{{ steps.clarify-stage.output.data.folder }}/spec.md as the skill prescribes:
+            {{ steps.answers-3.output.data.text }}
+
+  # After the last round, one more scan: questions it still finds stop the run (the spec is not clear yet).
+  - id: clarify-limit
+    type: if
+    condition: "{{ steps.questions-3.output.data.has }}"
+    then:
+      - {id: ask-final, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *ask}
+      - id: questions-final
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" questions --run {{ context.run_id }} --final'
+        output_format: json
+
+  # ── Design: plan, with its mandatory Architecture Updates and the environment check ──────────────────────────────
+  - id: plan-stage
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" stage --run {{ context.run_id }} --name plan'
+    output_format: json
+
+  - id: design-plan
+    type: if
+    condition: "{{ steps.plan-stage.output.data.run }}"
+    then:
+      - id: plan
+        command: speckit.plan
+        integration: "{{ inputs.integration }}"
+        input:
+          args: "{{ steps.plan-stage.output.data.feedback }}"
+      - id: plan-check
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after plan'
+        output_format: json
+      - id: plan-repair
+        type: if
+        condition: "{{ steps.plan-check.output.data.repair }}"
+        then:
+          - id: architecture
+            command: speckit.gha.architecture
+            integration: "{{ inputs.integration }}"
+            input:
+              args: "{{ steps.plan-stage.output.data.folder }}"
+          - id: plan-recheck
+            type: shell
+            run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after plan --strict'
+            output_format: json
+      - id: environment-scan
+        type: prompt
+        integration: "{{ inputs.integration }}"
+        timeout: 1800
+        prompt: >-
+          Compare the frameworks, SDKs, tools, and services that specs/{{ steps.plan-stage.output.data.folder }}/plan.md
+          needs to build and test the feature with what .github/actions/environment-setup and
+          .github/actions/environment-verify provide and with the commands in AGENTS.md. Count an environment spec under
+          specs/ that is not merged yet as providing what it specifies. Write
+          .specify/workflows/runs/{{ context.run_id }}/environment.json as {"needed": true or false, "what": "what is
+          missing, empty when nothing is", "environment_spec": true when this spec itself changes only
+          .github/actions/environment-setup and .github/actions/environment-verify, otherwise false}. Create or change
+          no other file.
+      - id: environment
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" environment --run {{ context.run_id }}'
+        output_format: json
+
+  - id: environment-decision
+    type: if
+    condition: "{{ steps.environment.output.data.needed }}"
+    then:
+      - id: environment-verdict
+        type: gate
+        message: "The plan needs tooling the environment actions lack: {{ steps.environment.output.data.what }}. Abort (recommended) and author the environment spec first, or continue anyway."
+        options: ["abort", "continue"]
+        on_reject: abort
+        verdict_input: environment_verdict
+
+  # ── Design: tasks, with the mandatory refinement of the [P] groups ───────────────────────────────────────────────
+  - id: tasks-stage
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" stage --run {{ context.run_id }} --name tasks'
+    output_format: json
+
+  - id: design-tasks
+    type: if
+    condition: "{{ steps.tasks-stage.output.data.run }}"
+    then:
+      - id: tasks
+        command: speckit.tasks
+        integration: "{{ inputs.integration }}"
+        input:
+          args: "{{ steps.tasks-stage.output.data.feedback }}"
+      - id: tasks-check
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after tasks'
+        output_format: json
+      # A plan with Architecture Updates needs its documentation task; /speckit-tasks writes it on a second pass.
+      - id: docs-task-repair
+        type: if
+        condition: "{{ steps.tasks-check.output.data.docs_task }}"
+        then:
+          - id: docs-task
+            command: speckit.tasks
+            integration: "{{ inputs.integration }}"
+            input:
+              args: >-
+                plan.md lists Architecture Updates, but tasks.md has no task that references docs/architecture/. Add
+                the outcome-based documentation task the plan's Architecture Updates section requires.
+      - id: tasks-groups
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after tasks'
+        output_format: json
+      - id: tasks-repair
+        type: if
+        condition: "{{ steps.tasks-groups.output.data.refine }}"
+        then:
+          - id: refine
+            command: speckit.gha.refine
+            integration: "{{ inputs.integration }}"
+            input:
+              args: "{{ steps.tasks-stage.output.data.folder }}"
+      - id: tasks-final
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" check --run {{ context.run_id }} --after tasks --strict'
+        output_format: json
+
+  # ── Gate: analyze; while it proposes fixes, remediate (after approval) and analyze again, at most three analyses ──
+  - id: analyze-stage
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" stage --run {{ context.run_id }} --name analyze'
+    output_format: json
+
+  - id: analysis-1
+    type: if
+    condition: "{{ steps.analyze-stage.output.data.run }}"
+    then:
+      - id: analyze-1
+        type: prompt
+        integration: "{{ inputs.integration }}"
+        timeout: 1800
+        prompt: &analyze >-
+          Load .github/skills/speckit-analyze/SKILL.md and run it for specs/{{ steps.analyze-stage.output.data.folder }}
+          exactly as it prescribes; it is read-only. Then write its findings to
+          .specify/workflows/runs/{{ context.run_id }}/findings.json as
+          {"findings": [{"id": "...", "severity": "one of CRITICAL, HIGH, MEDIUM, LOW", "summary": "...", "fix": "..."}]},
+          where "fix" is the concrete remediation edit it proposes, or null when it proposes none. Create or change no
+          other file.
+      - id: findings-1
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" findings --run {{ context.run_id }}'
+        output_format: json
+
+  # Each remediation round asks about up to five fixable findings, the most severe first (unattended: applies all),
+  # remediates the approved ones, and analyzes again.
+  - id: ask-fix-2-1
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.findings-1.output.data.has_f1 }}"
+    then:
+      - {id: fix-2-1, type: gate, message: "{{ steps.findings-1.output.data.f1 }}", options: ["apply", "skip", "abort"], on_reject: abort, verdict_input: fix_2_1}
+  - id: ask-fix-2-2
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.findings-1.output.data.has_f2 }}"
+    then:
+      - {id: fix-2-2, type: gate, message: "{{ steps.findings-1.output.data.f2 }}", options: ["apply", "skip", "abort"], on_reject: abort, verdict_input: fix_2_2}
+  - id: ask-fix-2-3
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.findings-1.output.data.has_f3 }}"
+    then:
+      - {id: fix-2-3, type: gate, message: "{{ steps.findings-1.output.data.f3 }}", options: ["apply", "skip", "abort"], on_reject: abort, verdict_input: fix_2_3}
+  - id: ask-fix-2-4
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.findings-1.output.data.has_f4 }}"
+    then:
+      - {id: fix-2-4, type: gate, message: "{{ steps.findings-1.output.data.f4 }}", options: ["apply", "skip", "abort"], on_reject: abort, verdict_input: fix_2_4}
+  - id: ask-fix-2-5
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.findings-1.output.data.has_f5 }}"
+    then:
+      - {id: fix-2-5, type: gate, message: "{{ steps.findings-1.output.data.f5 }}", options: ["apply", "skip", "abort"], on_reject: abort, verdict_input: fix_2_5}
+  - id: remediation-2
+    type: if
+    condition: "{{ steps.findings-1.output.data.fixable }}"
+    then:
+      - id: approve-2
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" approve --run {{ context.run_id }} --choices {{ steps.fix-2-1.output.choice }},{{ steps.fix-2-2.output.choice }},{{ steps.fix-2-3.output.choice }},{{ steps.fix-2-4.output.choice }},{{ steps.fix-2-5.output.choice }}'
+        output_format: json
+  - id: analysis-2
+    type: if
+    condition: "{{ steps.approve-2.output.data.any }}"
+    then:
+      - id: remediate-2
+        type: prompt
+        integration: "{{ inputs.integration }}"
+        timeout: 1800
+        prompt: &remediate >-
+          Apply the remediation in .specify/workflows/runs/{{ context.run_id }}/remediation.json to
+          specs/{{ steps.analyze-stage.output.data.folder }}: for each finding in it, make exactly the proposed edit,
+          or run the Spec Kit step it names (/speckit-clarify, /speckit-plan, or /speckit-tasks) through its skill
+          under .github/skills/. Fix no other finding, change nothing else, and never tick a checklist item.
+      - {id: analyze-2, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *analyze}
+      - id: findings-2
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" findings --run {{ context.run_id }}'
+        output_format: json
+
+  - id: ask-fix-3-1
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.findings-2.output.data.has_f1 }}"
+    then:
+      - {id: fix-3-1, type: gate, message: "{{ steps.findings-2.output.data.f1 }}", options: ["apply", "skip", "abort"], on_reject: abort, verdict_input: fix_3_1}
+  - id: ask-fix-3-2
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.findings-2.output.data.has_f2 }}"
+    then:
+      - {id: fix-3-2, type: gate, message: "{{ steps.findings-2.output.data.f2 }}", options: ["apply", "skip", "abort"], on_reject: abort, verdict_input: fix_3_2}
+  - id: ask-fix-3-3
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.findings-2.output.data.has_f3 }}"
+    then:
+      - {id: fix-3-3, type: gate, message: "{{ steps.findings-2.output.data.f3 }}", options: ["apply", "skip", "abort"], on_reject: abort, verdict_input: fix_3_3}
+  - id: ask-fix-3-4
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.findings-2.output.data.has_f4 }}"
+    then:
+      - {id: fix-3-4, type: gate, message: "{{ steps.findings-2.output.data.f4 }}", options: ["apply", "skip", "abort"], on_reject: abort, verdict_input: fix_3_4}
+  - id: ask-fix-3-5
+    type: if
+    condition: "{{ inputs.mode == 'interactive' and steps.findings-2.output.data.has_f5 }}"
+    then:
+      - {id: fix-3-5, type: gate, message: "{{ steps.findings-2.output.data.f5 }}", options: ["apply", "skip", "abort"], on_reject: abort, verdict_input: fix_3_5}
+  - id: remediation-3
+    type: if
+    condition: "{{ steps.findings-2.output.data.fixable }}"
+    then:
+      - id: approve-3
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" approve --run {{ context.run_id }} --choices {{ steps.fix-3-1.output.choice }},{{ steps.fix-3-2.output.choice }},{{ steps.fix-3-3.output.choice }},{{ steps.fix-3-4.output.choice }},{{ steps.fix-3-5.output.choice }}'
+        output_format: json
+  - id: analysis-3
+    type: if
+    condition: "{{ steps.approve-3.output.data.any }}"
+    then:
+      - {id: remediate-3, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *remediate}
+      - {id: analyze-3, type: prompt, integration: "{{ inputs.integration }}", timeout: 1800, prompt: *analyze}
+      - id: findings-3
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" findings --run {{ context.run_id }}'
+        output_format: json
+
+  # ── Handover: the publish checks, then commit and push the spec folder ───────────────────────────────────────────
+  # Markdown findings are formatting: one agent step fixes them before the publish checks run the check again.
+  - id: markdown
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" markdown --run {{ context.run_id }}'
+    output_format: json
+
+  - id: markdown-repair
+    type: if
+    condition: "{{ not steps.markdown.output.data.clean }}"
+    then:
+      - id: format
+        type: prompt
+        integration: "{{ inputs.integration }}"
+        timeout: 1800
+        prompt: >-
+          The repository's Markdown check (node .github/scripts/check-markdown.mjs) reports the findings in
+          .specify/workflows/runs/{{ context.run_id }}/markdown.md for specs/{{ steps.markdown.output.data.folder }} and
+          the changed files under docs/architecture/. Fix exactly these findings by changing formatting only (line
+          breaks, lists, headings, code fences, link targets); never change wording, requirements, or tasks, and change
+          no other file.
+
+  - id: ready
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" ready --run {{ context.run_id }}'
+    output_format: json
+
+  - id: handover-interactive
+    type: if
+    condition: "{{ inputs.mode == 'interactive' }}"
+    then:
+      - id: publish-verdict
+        type: gate
+        message: "{{ steps.ready.output.data.summary }} Push it (recommended; the GitHub automation takes over), commit only, or leave it uncommitted?"
+        options: ["push", "commit", "none"]
+        on_reject: skip
+        verdict_input: publish_verdict
+      - id: publish-chosen
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" publish --run {{ context.run_id }} --choice {{ steps.publish-verdict.output.choice }}'
+        output_format: json
+
+  - id: handover-unattended
+    type: if
+    condition: "{{ inputs.mode == 'unattended' }}"
+    then:
+      - id: publish-input
+        type: shell
+        run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" publish --run {{ context.run_id }} --choice {{ inputs.publish }}'
+        output_format: json
+
+  # ── Result: result.json in the common shape of the gha workflows (speckit-flow.mjs) ──────────────────────────────
+  - id: result
+    type: shell
+    run: 'node "{{ inputs.tooling }}/.github/scripts/speckit-author-flow.mjs" result --run {{ context.run_id }}'
+    output_format: json

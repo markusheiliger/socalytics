@@ -32,8 +32,10 @@ SocAlytics uses one `src` root with these first-level ownership areas:
   integration code
 - `src/analysts` owns the Analyst Manager, whose first desktop slice is
   executable under `src/analysts/manager`, and the Analyst SDK, executable
-  under `src/analysts/sdk`; Analyst capability implementations across their
-  required runtimes remain future
+  under `src/analysts/sdk`; the development reference capability
+  `reference-media-probe` exists under `src/analysts/capabilities/reference-media-probe`,
+  and the catalog's Analyst capability implementations across their required
+  runtimes remain future
 
 The executable platform projects are peers under `src/platform`, except for the
 test projects grouped under `src/platform/Tests`:
@@ -96,7 +98,8 @@ The platform API and control-plane baseline is ASP.NET Core on .NET 10 LTS; the
 initial host implements that runtime choice. The Python ecosystem tooling is
 future until its owning source area gains executable projects.
 The platform API, the Migrator, and the Web UI are cloud-neutral OCI images;
-the Analyst images and Hermes keep their own status and are not yet built.
+the development reference Analyst image is built as development evidence, and
+the production Analyst images and Hermes are not yet built.
 .NET Aspire owns local
 development composition, service discovery, health checks, OpenTelemetry
 defaults, and developer dependencies. Aspire is not the production
@@ -248,8 +251,8 @@ queryable Analyst manifest cache keyed by immutable image digest. Analysis data
 covers durable runs, DAG state, logical jobs, attempts, accepted-result
 references, and the indexed facts of accepted results (immutable rows written in
 the acceptance transaction). Segment materialization runs on demand within the control-plane
-deployment unless measured scaling later justifies extraction; it is decided,
-not yet implemented, as a background worker of the API host that needs the
+deployment unless measured scaling later justifies extraction; it is implemented as
+development evidence as a background worker of the API host that needs the
 pinned FFmpeg and ffprobe toolchain on the host (see
 [On-Demand Video Segmentation](match-data-pipeline.md#on-demand-video-segmentation)).
 
@@ -533,8 +536,8 @@ Orchestration functional area (development evidence; see
 
 Until a dedicated stamp-operator role is defined, operational workflow
 inspection and reconciliation operations under `/api/v1/operations` are
-restricted to Club Admins and audited when they change state. Club Admins will
-use them from the Web UI's Operations area (decided, not yet implemented; see
+restricted to Club Admins and audited when they change state. Club Admins use
+them from the Web UI's Operations area (implemented as a connected workflow; see
 [Client Applications → Web UI](client-applications.md#web-ui)).
 
 ### Agent Runtime
@@ -563,8 +566,11 @@ Hermes directly. The complete persistence, transport, authorization, fencing,
 and recovery contract is defined by
 [Intelligence and Agents](intelligence-and-agents.md#agent-orchestration-authority).
 The Web UI's direct Specialist Agent triage conversations exist as development
-evidence. MCP tools, prompt/profile resolution, model execution, and the Web
-UI's Coach Agent and consultation workflows remain future implementation work.
+evidence. The agent catalog registry, pinning at submission, and the
+attempt-scoped artifact read exist as development evidence (see below); prompt
+and profile rendering, MCP tools, model execution, the Web UI's catalog
+administration, and the Web UI's Coach Agent and consultation workflows remain
+future implementation work.
 
 The first slice is implemented as development evidence: an `AgentOrchestration`
 folder in each platform layer stores conversations, participants, invocations,
@@ -579,7 +585,7 @@ Test and is started by the AppHost, executes direct specialist invocations with
 deterministic simulated advice in place of Hermes. See
 [Intelligence and Agents](intelligence-and-agents.md#client-transport-and-runtime-protocol).
 
-The agent catalog registry is decided and not yet implemented: a `Catalog`
+The agent catalog registry is implemented as development evidence: a `Catalog`
 folder inside the Agent Orchestration functional area of each layer stores
 immutable agent catalog artifacts (`agent_catalog_artifacts`), agent versions
 with their draft, approved, and retired lifecycle (`agent_versions`), one
@@ -587,11 +593,12 @@ enablement row per catalog agent identifier (`agent_enablements`), and the
 references pinned into each invocation at submission (`agent_invocation_pins`).
 Records are validated at runtime against the embedded `contracts/agent-catalog/`
 schemas and addressed by the SHA-256 digest of their canonical JSON. The
-catalog enablement replaces the configured list of enabled specialists, and in
+catalog enablement replaces the former configured list of enabled specialists, and in
 Development and Test a seed registers and enables `specialist-tactics` and
 `specialist-video-analysis` from the catalog's first-draft prompts with a
-simulated model provider. Club Admins will operate the catalog from the Web
-UI's Agent Catalog area (decided, not yet implemented; see
+simulated model provider. Club Admins operate the catalog through the `/api/v1`
+agent catalog operations and will operate it from the Web UI's Agent Catalog
+area (decided, not yet implemented; see
 [Client Applications → Web UI](client-applications.md#web-ui)). See
 [Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance).
 
@@ -807,7 +814,10 @@ current and non-current migration states; and
   immutable recording lineage, and S3 conformance against RustFS; Analyst
   Manager pairing, approval, activation, revocation, and DPoP authentication;
   and analysis run creation, readiness, claims, fenced completion, run
-  cancellation with fencing of queued and active work,
+  cancellation with fencing of queued and active work, run supersession on
+  recording-set revision (cancellation with cause `superseded` of active
+  older runs, immutable supersession records, current-run reads, late and
+  duplicate notifications, concurrent finalization, and reconciliation),
   state-plus-outbox atomicity, outbox publication and retention, and recovery
   from NATS outage, restart, and duplicate notifications; and
 - integration, host, and browser tests cover member email addresses and their
@@ -816,7 +826,9 @@ current and non-current migration states; and
   notification, self-service password recovery, and member invitations, using the Mailpit mail catcher; and
 - end-to-end tests cover run cancellation during an active simulated attempt:
   the attempt is closed without consuming budget, its later calls are refused
-  as obsolete, and the Analyst Manager cleans up; and
+  as obsolete, and the Analyst Manager cleans up, and run supersession
+  during an active simulated attempt when a newer recording set is finalized;
+  and
 - integration and end-to-end tests cover per-object result write grants and
   validated result acceptance (eleven ordered manifest checks, storage-attested
   checksums, rejected manifests ending the attempt as failed, and immutable
@@ -827,7 +839,9 @@ current and non-current migration states; and
   local socket: success with one accepted result, failing, missing-manifest,
   and out-of-memory Analysts, revocation during a hanging Analyst, and Manager
   restart with reconciliation that spares unlabelled containers, leaving
-  nothing on the host; and
+  nothing on the host, and run the SDK-built reference Analyst image on
+  materialized segment media, with accepted, indexed facts that team members
+  read; and
 - integration and end-to-end tests cover the Manager-mediated upstream read
   (current-attempt and input-snapshot scoping, refusals without disclosure,
   per-object read grants, coverage), digest-verified staging with cleanup in the
@@ -848,7 +862,8 @@ current and non-current migration states; and
   view, and the fleet view with revocation, and the match workflow and
   recording upload (match creation and editing, direct multipart upload with
   resume, timeline mapping, finalization, run cancellation from the match
-  page, and the development CORS access to RustFS) and the analysis review
+  page, the current and superseded run markers, and the development CORS
+  access to RustFS) and the analysis review
   (run status, fact streams, range filtering, paging, coverage, provenance,
   explicit empty, incomplete, and unavailable states, access by role,
   accessibility checks, and the online-only rule): the `simulated` project
@@ -863,8 +878,16 @@ current and non-current migration states; and
   registering images; creating, approving, and retiring profile versions;
   defining workflow versions; and changing the default workflow, with
   confirmations and refusals) in the `simulated` and `platform` projects; and
+  the workflow operations area for Club Admins (the summary with its
+  observation time, filtered and paged outgoing messages and receipts, message
+  detail without payload, and confirmed reconciliation with its outcome) in
+  the `simulated` and `platform` projects; and
 - a Host test verifies that every Registry operation carries OpenAPI schemas
-  from which the Web UI client is generated (`AnalystRegistryOpenApiTests`); and
+  from which the Web UI client is generated (`AnalystRegistryOpenApiTests`);
+  and
+- a Host test verifies that the workflow operations under `/api/v1/operations`
+  carry typed OpenAPI schemas from which the Web UI client is generated
+  (`WorkflowOperationsOpenApiTests`); and
 - a Host test verifies the development CORS allow-list and the storage origin
   the AppHost passes to the Web UI; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
@@ -895,8 +918,9 @@ choice or reveals a material operational tradeoff:
 - **Consequences and operational tradeoffs understood — partially met.**
   Layer dependency rules, host composition with PostgreSQL, NATS, RustFS, and
   the Migrator, local transaction boundaries, local database and broker
-  unavailability, duplicate delivery, analysis restart recovery, and run cancellation
-  are exercised. Production database access control, backup/restore, lifecycle
+  unavailability, duplicate delivery, analysis restart recovery, run cancellation, and run
+  supersession are exercised. Production database access control,
+  backup/restore, lifecycle
   controls, service objectives, and capacity remain unevidenced; workflow
   failure behavior with real Analyst execution is evidenced on the Docker
   Desktop profile against a Linux engine only.
@@ -913,7 +937,8 @@ choice or reveals a material operational tradeoff:
   fact reads are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views,
-  the Analyst Registry administration views, the match workflow with recording
+  the Analyst Registry administration views, the workflow operations area for
+  Club Admins, the match workflow with recording
   upload and finalization, the connected analysis review of a run's status and
   indexed facts, and the match
   triage conversations with Specialist Agents. External
@@ -924,8 +949,8 @@ choice or reveals a material operational tradeoff:
   production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
   updates through its service worker as development evidence on Chromium), the other
   Web UI client workflows (the Coach Agent and consultation conversations),
-  cross-runtime schema agreement, reproducible Analyst
-  images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
+  cross-runtime schema agreement, byte-identical reproducible Analyst
+  image rebuilds and production Analyst images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
   profile on a Linux engine (Windows automation, Podman, and the other
   profiles) remain unsupported by implementation evidence. The headless server profile adds automated
   evidence (an executable without Avalonia, the lingering check, the generated
@@ -959,8 +984,12 @@ implementation-proven, evidence must demonstrate:
 - JSON Schema validation agrees at .NET and Python boundaries (the platform
   and the Analyst Manager agree on result manifests at the .NET boundary, and
   the Analyst SDK's conformance tests evidence the Python boundary over the
-  same examples; real Analyst images remain open)
-- locked Analyst images rebuild reproducibly and emit valid manifests
+  same examples, and the reference Analyst image evidences the Python boundary
+  in a real container; production Analyst images remain open)
+- locked Analyst images rebuild reproducibly and emit valid manifests (the
+  reference image evidences locked, pinned-input builds whose manifest the
+  Registry accepts; byte-identical rebuilds and production Analyst images remain
+  unevidenced)
 - Avalonia and OCI-runtime spikes satisfy the platform matrix in the
   [Analyst Manager architecture](analyst-manager.md)
 

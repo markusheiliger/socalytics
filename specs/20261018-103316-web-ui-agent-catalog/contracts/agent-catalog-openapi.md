@@ -1,7 +1,7 @@
 # Contract: Agent Catalog OpenAPI Description
 
 The operations, paths, statuses, bodies, and rules are those of
-[Agent Catalog Registry → Agent Catalog API](../../20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md)
+[Agent Catalog Registry → Agent Catalog API](../../archive/20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md)
 and do not change. This feature only ensures that the committed OpenAPI snapshot
 `src/platform/SocAlytics.Platform.Api/openapi/v1.json` describes every body the Web UI uses, so Kiota generates models
 for them (FR-019, [research R1](../research.md#r1-openapi-schemas-for-the-catalog-operations-and-their-record-documents)).

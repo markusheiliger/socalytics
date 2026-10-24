@@ -109,7 +109,7 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 				null)).ToList();
 			var runs = sp.GetRequiredService<IAnalysisRunStore>();
 			runId = await runs.InsertAsync(new NewAnalysisRun(
-				lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, definition.WorkflowId, definition.WorkflowVersion,
+				lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, lineage.FinalizedAt, definition.WorkflowId, definition.WorkflowVersion,
 				definition.RequestedCapabilities, definition.CompletionPolicy, AnalysisRunState.Requested, null,
 				new AnalysisRunSnapshotRecord(mapped.RunSnapshotJson, mapped.RunSnapshotDigest), nodes, edges), ct);
 			await sp.GetRequiredService<ILogicalJobStore>().InsertAsync(planned.Select(p => new NewLogicalJob(
@@ -280,7 +280,7 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 		var sp = scope.ServiceProvider;
 		await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
 		var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
-			Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "wf", "1.0.0", nodes.Select(n => "cap-" + n.Key).ToList(), "all-requested-capabilities",
+			Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, "wf", "1.0.0", nodes.Select(n => "cap-" + n.Key).ToList(), "all-requested-capabilities",
 			AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord(runSnapshot, Digest), records, edges), ct);
 		var jobs = new List<NewLogicalJob>();
 		foreach (var record in records)

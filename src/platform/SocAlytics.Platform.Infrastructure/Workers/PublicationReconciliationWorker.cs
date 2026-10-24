@@ -66,8 +66,8 @@ internal sealed class PublicationReconciliationWorker(
                 var result = await scope.ServiceProvider.GetRequiredService<ReconcileAnalysisPublicationHandler>()
                     .HandleAsync(ct).ConfigureAwait(false);
                 logger.LogInformation(
-                    "Publication reconciliation republished {Jobs} ready jobs and {Notifications} notifications",
-                    result.ReadyJobsRepublished, result.NotificationsRepublished);
+                    "Publication reconciliation republished {Jobs} ready jobs and {Notifications} notifications and superseded {Superseded} runs",
+                    result.ReadyJobsRepublished, result.NotificationsRepublished, result.RunsSuperseded);
                 startupPending = false;
                 handled = current;
             }, stoppingToken).ConfigureAwait(false);

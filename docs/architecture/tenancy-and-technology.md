@@ -208,7 +208,7 @@ Agent its dimension-set, philosophy-profile, and modifier-policy artifacts
 and any consultation-policy artifact (decided, not yet implemented), under the
 authenticated user's team and resource authorization; they are the artifacts
 Agent Orchestration pinned from the platform's agent catalog at submission
-(catalog pinning decided, not yet implemented). Workloads claim durable
+(catalog pinning implemented as development evidence). Workloads claim durable
 work through versioned Agent Orchestration API operations (implemented for
 direct specialist invocations as development evidence; Hermes itself is not
 implemented). PostgreSQL remains

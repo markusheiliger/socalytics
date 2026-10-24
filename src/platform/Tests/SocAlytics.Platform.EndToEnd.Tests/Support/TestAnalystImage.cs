@@ -50,6 +50,13 @@ internal static class TestAnalystImage
             requirements["minMaxAttempts"] = 1;
             requirements["minLeaseSeconds"] = 1;
             requirements["minStaleTimeoutSeconds"] = 1;
+            if (mode == "media")
+            {
+                manifest["videoAccess"] = "required";
+                manifest["capability"]!["tier"] = "low-level";
+                manifest["capability"]!["executionScope"] = "segment";
+            }
+
             await File.WriteAllTextAsync(Path.Combine(contextDirectory, "analyst-manifest.json"), manifest.ToJsonString(), ct);
             directory = contextDirectory;
         }

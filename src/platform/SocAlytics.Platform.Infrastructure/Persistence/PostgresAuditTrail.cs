@@ -58,6 +58,7 @@ internal sealed class PostgresAuditTrail(
         "previousWorkflowVersion",
         "readyJobsRepublished",
         "notificationsRepublished",
+        "runsSuperseded",
         "maskedAddress",
         "teamCount",
         "memberId",
@@ -66,6 +67,7 @@ internal sealed class PostgresAuditTrail(
         "logicalJobId",
         "runId",
         "previousState",
+        "supersedingRunId",
         "provider",
         "cause",
         "conversationId",
@@ -76,6 +78,16 @@ internal sealed class PostgresAuditTrail(
         "workloadClientId",
         "disposition",
         "reasonCode",
+        "kind",
+        "artifactId",
+        "artifactVersion",
+        "digest",
+        "previousVersion",
+        "newVersion",
+        "differentiationAcknowledged",
+        "violationCodes",
+        "purgedCount",
+        "inUseCount",
     };
 
     private const string InsertSql =

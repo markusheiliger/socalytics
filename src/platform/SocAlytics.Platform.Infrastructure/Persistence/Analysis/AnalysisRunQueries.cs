@@ -12,15 +12,25 @@ internal sealed class AnalysisRunQueries(IDbSession session) : IAnalysisRunQueri
                r.workflow_id AS WorkflowId, r.workflow_version AS WorkflowVersion, r.state AS State, r.failure_reason AS FailureReason,
                r.created_at AS CreatedAt, r.running_at AS RunningAt, r.terminated_at AS TerminatedAt, r.version AS Version,
                r.cancelled_by_account_id AS CancelledByMemberId, a.account_name AS CancelledByAccountName,
-               r.cancellation_reason AS CancellationReason
+               r.cancellation_reason AS CancellationReason, r.cancellation_cause AS CancellationCause,
+               NOT EXISTS (
+                   SELECT 1 FROM socalytics.analysis_runs o
+                   WHERE o.match_id = r.match_id
+                     AND (o.recording_set_finalized_at, o.recording_set_version_id, o.created_at, o.id)
+                       > (r.recording_set_finalized_at, r.recording_set_version_id, r.created_at, r.id)) AS IsCurrent,
+               s.superseding_run_id AS SupersedingRunId, sr.recording_set_version_id AS SupersedingVersionId,
+               sr.recording_set_finalized_at AS SupersedingFinalizedAt, s.superseded_at AS SupersededAt
         FROM socalytics.analysis_runs r
         LEFT JOIN socalytics.member_account a ON a.id = r.cancelled_by_account_id
+        LEFT JOIN socalytics.analysis_run_supersessions s ON s.run_id = r.id
+        LEFT JOIN socalytics.analysis_runs sr ON sr.id = s.superseding_run_id
         """;
 
     private sealed record SummaryRow(
         Guid RunId, Guid TeamId, Guid MatchId, Guid RecordingSetVersionId, string WorkflowId, string WorkflowVersion,
         string State, string? FailureReason, DateTime CreatedAt, DateTime? RunningAt, DateTime? TerminatedAt, long Version,
-        Guid? CancelledByMemberId, string? CancelledByAccountName, string? CancellationReason);
+        Guid? CancelledByMemberId, string? CancelledByAccountName, string? CancellationReason, string? CancellationCause,
+        bool IsCurrent, Guid? SupersedingRunId, Guid? SupersedingVersionId, DateTime? SupersedingFinalizedAt, DateTime? SupersededAt);
 
     private sealed record NodeRow(
         Guid NodeId, string NodeKey, string CapabilityId, string CapabilityVersion, string Tier, string ExecutionScope,
@@ -44,7 +54,13 @@ internal sealed class AnalysisRunQueries(IDbSession session) : IAnalysisRunQueri
         r.RunId, r.TeamId, r.MatchId, r.RecordingSetVersionId, r.WorkflowId, r.WorkflowVersion, r.State, r.FailureReason,
         Utc(r.CreatedAt), Utc(r.RunningAt), Utc(r.TerminatedAt), r.Version,
         r.CancelledByMemberId is { } memberId ? new AnalysisRunCancelledByView(memberId, r.CancelledByAccountName ?? string.Empty) : null,
-        r.CancellationReason);
+        r.CancellationReason,
+        r.IsCurrent,
+        r.SupersedingRunId is { } supersedingRunId
+            ? new AnalysisRunSupersededByView(supersedingRunId, r.SupersedingVersionId!.Value, Utc(r.SupersedingFinalizedAt!.Value))
+            : null,
+        Utc(r.SupersededAt),
+        r.CancellationCause);
 
     public async Task<AnalysisRunStatusView?> GetStatusAsync(Guid runId, CancellationToken cancellationToken)
     {

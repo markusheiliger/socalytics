@@ -12,7 +12,7 @@ using SocAlytics.Platform.Domain.AgentOrchestration;
 
 namespace SocAlytics.Platform.Api.AgentOrchestration;
 
-internal sealed record AvailableAgentDto(string AgentId, string Group, string Domain);
+internal sealed record AvailableAgentDto(string AgentId, string Group, string Domain, string DisplayName, string EnabledVersion);
 
 internal sealed record AvailableAgentsDto(IReadOnlyList<AvailableAgentDto> Agents);
 
@@ -47,9 +47,13 @@ internal sealed record AgentTurnDto(
 
 internal sealed record AgentTurnPageDto(IReadOnlyList<AgentTurnDto> Turns, string? NextCursor);
 
+internal sealed record AgentPinArtifactDto(string Kind, string Id, string Version, string Digest);
+
+internal sealed record AgentPinDto(string Version, string Digest, IReadOnlyList<AgentPinArtifactDto> Artifacts);
+
 internal sealed record AgentInvocationDto(
 	Guid InvocationId, Guid ConversationId, string AgentId, string Route, string State, int AttemptCount, string? FailureReason,
-	string? Advice, DateTimeOffset SubmittedAt, DateTimeOffset? EndedAt, int? RetryAfterSeconds);
+	string? Advice, DateTimeOffset SubmittedAt, DateTimeOffset? EndedAt, int? RetryAfterSeconds, AgentPinDto? Agent);
 
 internal sealed record AgentLineageEntryDto(
 	int Sequence, string Kind, Guid? AttemptId, int? AttemptNumber, DateTimeOffset RecordedAt,
@@ -59,7 +63,7 @@ internal sealed record AgentLineageAdviceDto(
 	Guid AttemptId, string Advice, JsonElement ExecutionReferences, DateTimeOffset AcceptedAt);
 
 internal sealed record AgentInvocationLineageDto(
-	Guid InvocationId, string PolicyVersion, IReadOnlyList<AgentLineageEntryDto> Entries, AgentLineageAdviceDto? Advice);
+	Guid InvocationId, string PolicyVersion, IReadOnlyList<AgentLineageEntryDto> Entries, AgentLineageAdviceDto? Advice, AgentPinDto? Agent);
 
 internal static class AgentConversationEndpoints
 {
@@ -164,7 +168,7 @@ internal static class AgentConversationEndpoints
 	{
 		var result = await handler.HandleAsync(cancellationToken);
 		return result.IsSuccess
-			? Results.Ok(new AvailableAgentsDto([.. result.Value.Select(a => new AvailableAgentDto(a.AgentId, a.Group, a.Domain))]))
+			? Results.Ok(new AvailableAgentsDto([.. result.Value.Select(a => new AvailableAgentDto(a.AgentId, a.Group, a.Domain, a.DisplayName, a.EnabledVersion))]))
 			: ProblemResults.From(result.Failure);
 	}
 
@@ -298,7 +302,7 @@ internal static class AgentConversationEndpoints
 
 		return Conditional(http, StrongEtag($"{i.ProgressVersion}:{i.Version}"), () => new AgentInvocationDto(
 			i.Id, i.ConversationId, i.AgentId, AgentPersistedNames.ToPersistedName(i.Route), AgentPersistedNames.ToWireName(i.State),
-			i.AttemptsUsed, FailureName(i.FailureReason), view.Advice?.Advice, i.SubmittedAt, i.EndedAt, view.RetryAfterSeconds));
+			i.AttemptsUsed, FailureName(i.FailureReason), view.Advice?.Advice, i.SubmittedAt, i.EndedAt, view.RetryAfterSeconds, ToPinDto(view.Agent)));
 	}
 
 	private static async Task<IResult> GetInvocationLineageAsync(
@@ -318,8 +322,17 @@ internal static class AgentConversationEndpoints
 			[.. view.Entries.Select(e => new AgentLineageEntryDto(e.Sequence, e.Kind, e.AttemptId, e.AttemptNumber, e.RecordedAt, e.Details))],
 			view.Advice is { } a
 				? new AgentLineageAdviceDto(a.AttemptId, a.Advice, JsonDocument.Parse(a.ExecutionReferencesJson).RootElement.Clone(), a.AcceptedAt)
-				: null));
+				: null,
+			ToPinDto(view.Agent)));
 	}
+
+	private static AgentPinDto? ToPinDto(AgentPinView? agent) =>
+		agent is null
+			? null
+			: new AgentPinDto(
+				agent.Version, agent.Digest,
+				[.. agent.Artifacts.Select(a => new AgentPinArtifactDto(
+					SocAlytics.Platform.Domain.AgentOrchestration.Catalog.AgentCatalogRecordKinds.ToName(a.Kind), a.ArtifactId, a.ArtifactVersion, a.Digest))]);
 
 	private static string? FailureName(AgentFailureReason? reason) =>
 		reason is { } r ? AgentPersistedNames.ToPersistedName(r) : null;

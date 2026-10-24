@@ -16,15 +16,11 @@ public sealed class CancelAnalysisRunHandler(
     IAccessAuthorizer authorizer,
     IRequestContext requestContext,
     IAnalysisRunStore runs,
-    ILogicalJobStore jobs,
-    IExecutionAttemptStore attempts,
-    IOutbox outbox,
     IAnalysisRunQueries queries,
-    RunReadinessCoordinator coordinator,
+    RunCancellationEffects effects,
     IAuditTrail audit)
 {
     public const string RunTerminalCode = "analysis-run-terminal";
-    private const string AttemptCloseReason = "run-cancelled";
 
     public async Task<OperationResult<AnalysisRunStatusView>> HandleAsync(CancelAnalysisRunCommand command, CancellationToken cancellationToken)
     {
@@ -64,27 +60,8 @@ public sealed class CancelAnalysisRunHandler(
         }
 
         var actor = requestContext.MemberAccountId!.Value;
-        if (!await runs.TryCancelAsync(run.Id, run.State, actor, reason, cancellationToken))
-        {
-            throw new InvalidOperationException("The locked run changed state concurrently.");
-        }
-
-        await runs.CancelUnfinishedNodesAsync(run.Id, cancellationToken);
-        var cancelledJobIds = await jobs.CancelUnfinishedByRunAsync(run.Id, cancellationToken);
-        var fenced = await attempts.CancelActiveForRunAsync(run.Id, cancellationToken);
-        foreach (var jobId in cancelledJobIds)
-        {
-            await outbox.DiscardUnpublishedReadyWorkAsync(jobId, cancellationToken);
-        }
-
-        foreach (var attempt in fenced)
-        {
-            AnalysisMetrics.AttemptFenced(AttemptCloseReason);
-            AnalysisMetrics.TagActivity(run.Id, attempt.LogicalJobId, attempt.AttemptId);
-        }
-
+        await effects.ApplyAsync(run, CancellationCause.Member, actor, reason, cancellationToken);
         await audit.RecordAsync(AnalysisAuditEvents.RunCancelled(run.Id, run.MatchId, run.TeamId, run.State.ToString()), cancellationToken);
-        await coordinator.EnqueueRunStateAsync(run, run.State, AnalysisRunState.Cancelled, null, cancellationToken);
 
         var status = await ReadAsync(run.Id, cancellationToken);
         await scope.CommitAsync(cancellationToken);

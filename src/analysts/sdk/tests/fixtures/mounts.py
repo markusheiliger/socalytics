@@ -129,6 +129,15 @@ class Mount:
             (folder / name).write_bytes(data)
         return manifest_path
 
+    def stage_media(self, manifest_bytes: bytes, media_bytes: bytes | None = b"") -> Path:
+        """Write `media/segment-manifest.json` and, unless `media_bytes` is `None`, `media/segment.mp4`."""
+        folder = self.root / "media"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "segment-manifest.json").write_bytes(manifest_bytes)
+        if media_bytes is not None:
+            (folder / "segment.mp4").write_bytes(media_bytes)
+        return folder
+
     def result_entries(self) -> list[str]:
         """Sorted names directly under `result/`, including a leftover staging directory."""
         return sorted(entry.name for entry in self.result.iterdir()) if self.result.exists() else []

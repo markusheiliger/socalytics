@@ -21,6 +21,7 @@
 
 	<ItemGroup>
 		<EmbeddedResource Include="Persistence/Migrations/*.sql" />
+		<EmbeddedResource Include="AgentOrchestration/Catalog/Seed/*.json" LogicalName="AgentCatalogSeed/%(Filename)%(Extension)" />
 		<EmbeddedResource Include="Email/Messages.en.json" WithCulture="false" LogicalName="Email/Messages.en.json" />
 		<EmbeddedResource Include="..\..\..\contracts\**\*.schema.json" Exclude="..\..\..\contracts\**\releases\**;..\..\..\contracts\**\examples\**" LogicalName="contracts/%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>

@@ -30,7 +30,7 @@ import {
   openPrerequisites,
   phaseNotStarted,
   decideNext,
-  dependencyBlock,
+  explainDependencyBlock,
   describeParallelGroups,
   diagnosisRunsUrl,
   dispatchImplementation,
@@ -42,7 +42,6 @@ import {
   listTasks,
   markerTimes,
   neutralizeMarkers,
-  appendWriterGuidance,
   normalizeWriterGuidance,
   parseAttemptCheckId,
   parseAttempts,
@@ -50,15 +49,13 @@ import {
   phaseSubject,
   readSpecTasks,
   renderAttemptMarker,
-  renderConvergePrompt,
+  renderRunSubject,
   renderFlakyLines,
   renderImplementRunName,
   renderImplementTitle,
   renderNextSteps,
   renderRepairMarker,
-  renderRepairPrompt,
   renderSyncSkippedMarker,
-  renderTaskPrompt,
   setAttention,
   setBlocked,
   specTitleOfPull,
@@ -68,12 +65,16 @@ import {
   taskJobName,
   taskSubject,
   unresolvedRepair,
+  WORK_VERBS,
+  implementWorkflowFor,
+  IMPLEMENT_WORKFLOW_FILE,
+  MAX_PARALLEL_TASKS,
 } from './speckit-implement-core.mjs';
 
-// The implementation chain of one spec (workflow Spec Kit implement spec): every run decides what comes next from the
-// state on GitHub (job "decide"), runs it (a phase, a guided repair, the convergence, a conflict resolution, or the
-// merge), and starts the next run (job "continue"), until the
-// implementation is merged, waits for review, or needs a person.
+// The implementation chain of one spec (the Spec Kit implement workflows): every run decides one unit of work from the state
+// on GitHub (job "decide"), runs it (a sequential or parallel group of tasks, the verification of a finished phase, a
+// guided repair, the convergence, a conflict resolution, or the merge), and starts the next run (job "continue"),
+// until the implementation is merged, waits for review, or needs a person.
 
 export class SpecUsageError extends Error {}
 
@@ -88,13 +89,14 @@ export function contextFromEnv(env) {
 
 // Reads the state of an open implementation pull request and decides how to continue it (decideNext). It also renders
 // the task list of the pull request body from the branch's tasks.md, because amendments and convergence change tasks.
-export async function decideForPull(client, { twin, folder, pullNumber, now = Date.now(), context }) {
+// With `dryRun` it changes nothing on GitHub (no task list update, no release of a sync barrier), for naming the next run.
+export async function decideForPull(client, { twin, folder, pullNumber, now = Date.now(), context, dryRun = false }) {
   const pull = await client.getPullRequest(pullNumber);
   // The branch archives the spec folder right before the merge, so it may be in either place.
   const { tasksMarkdown, archived } = await readSpecTasks(client, folder, pull.head.sha);
   if (tasksMarkdown === null) return { action: 'missing-tasks', pull };
   const body = syncPullRequestTaskList(pull.body, { twinNumber: twin, folder, tasksMarkdown, context: { ...context, branch: baseBranchOf(pull), archived } });
-  if (body !== String(pull.body ?? '')) {
+  if (!dryRun && body !== String(pull.body ?? '')) {
     try {
       await client.updatePullRequest(pullNumber, { body });
     } catch {
@@ -167,6 +169,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
         // An unavailable comparison cannot release a required barrier.
       }
     }
+    if (current && dryRun) return { action: 'tasks', kind: 'resolve', requiredSync: barrier, order: [[{ task: null, attempt: 1 }]], ...state };
     if (current) {
       if (repair && completion.repair?.id === repair.id && completion.repair.covered === true &&
           JSON.stringify(completion.repair.snapshot) === JSON.stringify(repair)) {
@@ -206,7 +209,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
       }
       return {
         action: 'tasks', kind: 'resolve', requiredSync: barrier, repair,
-        order: [[{ task: null, attempt: list.length + 1 }]], phaseEnd: false, lastIsParallel: false,
+        order: [[{ task: null, attempt: list.length + 1 }]],
         ...state,
       };
     }
@@ -220,7 +223,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
 
 // Whether a decision needs a run of the chain: work to do, a stop to report, or a diagnosis to start.
 export function needsRun(decision, env) {
-  if (['tasks', 'repair', 'merge', 'limit'].includes(decision.action)) return true;
+  if (['tasks', 'verify', 'repair', 'merge', 'limit'].includes(decision.action)) return true;
   if (decision.action !== 'failed' || decision.diagnosis?.state === 'reported') return false;
   return true;
 }
@@ -323,27 +326,27 @@ function readSpecInputs(env) {
   return { twin, pull };
 }
 
-// The matrix entries of each entry of a decision's task order (decideNext, action "tasks"): prompts, verify modes, and
-// task summaries. Guidance from a retry applies to the stopped task, convergence, or conflict resolution, which is always the first entry. Every task is
-// verified on its own (mode `task`); the phase gets its full verification in its own job after its last task, so a
+// The work items of each entry of a decision's task order (decideNext, action "tasks"), the input `entry` of Spec Kit
+// implement work: the task, attempt, guidance, and task summary, and for a conflict resolution that completes a
+// /speckit sync request `required_sync` and `sync_repair`; the agents' prompts live in the gha Spec Kit workflows the
+// work jobs run. Guidance from a retry
+// applies to the stopped task, convergence, or conflict resolution, which is always the first entry. Every task is
+// verified on its own (mode `task`, a conflict resolution with mode `finalize`); the phase gets its full verification in its own job after its last task, so a
 // failure there is never charged to the task that happens to come last.
-function prepareOrder(decision, folder) {
+function prepareOrder(decision) {
   const guidance = normalizeWriterGuidance(
     decision.requiredSync?.completion?.guidanceConsumed ? '' : decision.requiredSync?.guidance || currentGuidance(decision),
   );
   const texts = new Map(listTasks(decision.tasksMarkdown).map((task) => [task.id, task.text]));
   return decision.order.map((entry, index) => ({
     include: entry.map(({ task, attempt }) => {
-      const prompt = decision.kind === 'task' ? renderTaskPrompt(task, folder, { archived: decision.archived }) : decision.kind === 'converge' ? renderConvergePrompt() : '';
       const activeGuidance = index === 0 ? guidance : '';
       return {
         task: task ?? '',
         attempt,
-        prompt: prompt ? appendWriterGuidance(prompt, activeGuidance) : prompt,
-        ...(decision.kind === 'resolve' && activeGuidance ? { guidance: activeGuidance } : {}),
+        guidance: activeGuidance,
         ...(decision.requiredSync ? { required_sync: decision.requiredSync.request } : {}),
-        ...(decision.requiredSync && decision.repair ? { sync_repair: JSON.stringify(decision.repair) } : {}),
-        verify_mode: decision.kind === 'resolve' ? 'finalize' : 'task',
+        ...(decision.requiredSync && decision.repair ? { sync_repair: decision.repair } : {}),
         summary: task ? neutralizeMarkers(summarizeTask(texts.get(task) ?? '')).slice(0, 300) : '',
       };
     }),
@@ -449,18 +452,19 @@ async function reportSyncGivenUp(client, { decision, report }) {
   report.line(`Gave up merging \`${base}\`; the implementation continues on its current base.`);
 }
 
-// Spec Kit implement spec, job "decide" (write access to check runs, issues, and pull requests; never runs agent
-// code): validates the twin and its pull request, reports orphaned attempts, decides what comes next, reports stops
-// (attempt limit, diagnosis), and prepares it: the phase to run (Spec Kit implement phase plans its tasks), a
-// writer-approved repair, the convergence or a conflict resolution with its check run, or the merge check run. The outputs drive
-// the jobs of the run; `continue` tells whether the run starts its successor.
+// Spec Kit implement prepare, job "decide" (write access to check runs, issues, and pull requests; never runs agent code):
+// validates the twin and its pull request, reports orphaned attempts, decides what comes next, reports stops (attempt
+// limit, diagnosis), and prepares it with its check runs: a group of tasks (`mode` sequential or parallel, `entries`
+// the matrix of the group's jobs), the verification of a finished phase, a writer-approved repair, the convergence or
+// a conflict resolution (a sequential group of one), or the merge. The outputs drive the jobs of the run; `continue`
+// tells whether the run starts its successor.
 export async function runDecide({ client, env, log, now = Date.now }) {
   const report = createReporter(env, log);
   const { twin, pull: pullNumber } = readSpecInputs(env);
   const finish = (action, outputs = {}) => {
     report.flush();
     setOutput(env, 'action', action);
-    setOutput(env, 'continue', String(['implement', 'repair', 'converge', 'resolve', 'merge'].includes(action)));
+    setOutput(env, 'continue', String(['group', 'verify', 'repair', 'merge', 'handover'].includes(action)));
     for (const [name, value] of Object.entries(outputs)) setOutput(env, name, value);
     return { exitCode: 0, action, ...outputs };
   };
@@ -486,7 +490,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   // the scheduler retries the implementation once the prerequisites are implemented (maintainDependencyBlock).
   const prerequisites = await openPrerequisites(client, twin);
   if (prerequisites.length > 0) {
-    await setBlocked(client, pullNumber, true, { explain: dependencyBlock(prerequisites) });
+    await setBlocked(client, pullNumber, true, { explain: await explainDependencyBlock(client, prerequisites) });
     report.line(`Blocked: waits for the prerequisite(s) ${prerequisites.map((blocker) => `#${blocker.number}`).join(', ')}.`);
     return finish('none');
   }
@@ -497,6 +501,13 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     await client.updateCheckRun(stale.id, { status: 'completed', conclusion: 'failure', output: { title: 'Merge attempt abandoned', summary: 'The merge did not finish within 2 hours.' } });
   }
   const common = { folder, head: pull.head.sha, base_branch: baseBranchOf(pull) };
+  // Work of another kind than this workflow's (SPECKIT_WORKFLOW): the state changed after the run was started. The run
+  // hands over to the right workflow before it starts any attempt check, so no attempt is charged to it.
+  const workflow = implementWorkflowFor(decision.action);
+  if (env.SPECKIT_WORKFLOW && workflow !== IMPLEMENT_WORKFLOW_FILE && workflow !== env.SPECKIT_WORKFLOW) {
+    report.line(`Handover: the next work, ${renderRunSubject(decision, { summaries: taskSummaries(decision.tasksMarkdown) })}, runs in \`${workflow}\`.`);
+    return finish('handover', common);
+  }
   if (decision.action !== 'done') await ensureImplementationDraft(client, pull);
   // A stop waits for a person unless a diagnosis runs for it; a reported diagnosis was labeled when it was recorded
   // (an amendment it created gets the label instead). Everything else is work in progress or ready for review.
@@ -517,7 +528,9 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     report.line(decision.diagnosis?.state === 'reported' ? 'Stopped; the diagnosis waits for a person\'s decision.' : 'Stopped and waiting for a person.');
     return finish('stop', common);
   }
-  if (['tasks', 'merge', 'wait', 'diagnosing', 'done'].includes(decision.action)) await setAttention(client, pull.number, decision.action === 'done');
+  if (['tasks', 'verify', 'merge', 'wait', 'diagnosing', 'done'].includes(decision.action)) await setAttention(client, pull.number, decision.action === 'done');
+  report.line(`Run: ${renderRunSubject(decision, { summaries: taskSummaries(decision.tasksMarkdown) })}.`);
+  report.line();
   if (decision.action === 'merge') {
     const checkRun = await startMerge(client, { pull, attempt: decision.attempt });
     report.line(`Merging into \`${common.base_branch}\`, attempt ${decision.attempt}.`);
@@ -528,16 +541,43 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     if (decision.syncGivenUp) await reportSyncGivenUp(client, { decision, report });
     const entry = { task: null, attempt: decision.attempt, summary: `Repair the failed ${decision.repair.scope} verification.` };
     const checkRun = (await startAttemptChecks(client, { head: common.head, kind: 'repair', entries: [entry] })).repair;
-    const prompt = renderRepairPrompt({ repair: decision.repair, guidance: decision.guidance, folder });
+    // The repair's work item, the single entry of the stage "implement" (Spec Kit implement task).
+    const item = {
+      index: 0,
+      name: `Failed ${decision.repair.scope} verification`,
+      task: '',
+      attempt: decision.attempt,
+      guidance: normalizeWriterGuidance(decision.guidance),
+      repair: decision.repair,
+    };
     report.line(`Repairing the failed ${decision.repair.scope} verification, attempt ${decision.attempt}.`);
     return finish('repair', {
       ...common,
       attempt: String(decision.attempt),
       check_run: String(checkRun),
       repair: JSON.stringify(decision.repair),
-      prompt,
+      // The order Spec Kit implement task lands the repair from: one entry without a task; and the work item.
+      order: JSON.stringify([{ include: [{ task: null, attempt: decision.attempt }] }]),
+      entry: JSON.stringify(item),
+      kind: WORK_VERBS.repair,
+      mode: 'sequential',
+      max_parallel: '1',
+      entries: JSON.stringify([item]),
       verify_only: String(decision.verifyOnly),
-      job_name: `Repair ${decision.repair.scope} verification`,
+      job_name: item.name,
+    });
+  }
+  if (decision.action === 'verify') {
+    const entry = { task: null, attempt: decision.attempt, summary: `Verify ${phaseSubject(decision.phase)} after its last task.` };
+    const checkRun = (await startAttemptChecks(client, { head: common.head, kind: 'verify', entries: [entry] })).verify;
+    report.line(`Verifying ${phaseSubject(decision.phase)}, attempt ${decision.attempt}.`);
+    return finish('verify', {
+      ...common,
+      phase: decision.phase ?? '',
+      tasks: JSON.stringify(decision.tasks),
+      attempt: String(decision.attempt),
+      check_run: String(checkRun),
+      job_name: `Verify ${phaseSubject(decision.phase)}`,
     });
   }
   if (decision.action !== 'tasks') {
@@ -550,17 +590,51 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     return finish(decision.action === 'done' ? 'done' : 'none', common);
   }
   if (decision.syncGivenUp) await reportSyncGivenUp(client, { decision, report });
-  if (decision.kind === 'task') {
-    report.line(`Next: ${renderImplementTitle('phase', twin, phaseSubject(decision.phase))}.`);
-    return finish('implement', { ...common, phase: decision.phase ?? '', job_name: phaseSubject(decision.phase) });
-  }
 
-  const order = prepareOrder(decision, folder);
+  // A group of tasks, or the convergence or a conflict resolution as a sequential group of one. A sequential group runs
+  // one matrix job per entry of its order, one at a time; a parallel group one matrix job per task of its single entry.
+  const order = prepareOrder(decision);
   await startAttemptChecks(client, { head: common.head, kind: decision.kind, entries: order[0].include });
-  const subject = decision.requiredSync ? 'Required base synchronization' : taskSubject(decision.kind, order[0].include);
-  report.line(`Next: ${renderImplementTitle('task', twin, subject)}.`);
+  const mode = decision.kind === 'task' ? decision.mode : 'sequential';
+  const entries = mode === 'parallel'
+    ? order[0].include.map((entry) => ({ ...entry, index: 0, name: entry.task, defer_progress: true }))
+    : order.map((entry, index) => ({ ...entry.include[0], index, name: entry.include[0].task || taskSubject(decision.kind, entry.include) }));
+  const subject = renderRunSubject(decision, { summaries: taskSummaries(decision.tasksMarkdown) });
   reportOrder(report, decision.kind, order);
-  return finish(decision.kind, { ...common, order: JSON.stringify(order), job_name: subject });
+  if (decision.kind === 'task' && decision.completesPhase) report.line(`- Then ${phaseSubject(decision.phase)} is verified in the next run.`);
+  return finish('group', {
+    ...common,
+    kind: WORK_VERBS[decision.kind],
+    mode,
+    max_parallel: String(mode === 'parallel' ? MAX_PARALLEL_TASKS : 1),
+    order: JSON.stringify(order),
+    entries: JSON.stringify(entries),
+    phase: decision.phase ?? '',
+    job_name: subject,
+  });
+}
+
+// The summarized text of every task (summarizeTask), for run names.
+function taskSummaries(tasksMarkdown) {
+  return new Map(listTasks(tasksMarkdown ?? '').map((task) => [task.id, neutralizeMarkers(summarizeTask(task.text))]));
+}
+
+// What the next run of a twin's chain will work on, decided without changing anything: its subject for the run name
+// (renderRunSubject) and the workflow of its kind (implementWorkflowFor); Spec Kit implement decide when it cannot be told.
+export async function predictNextRun(client, env, { twin, pull }) {
+  try {
+    const folder = resolveTwins([await client.getIssue(Number(twin))]).byFolder.keys().next().value;
+    if (!folder) return { subject: '', workflow: IMPLEMENT_WORKFLOW_FILE };
+    const decision = await decideForPull(client, { twin: Number(twin), folder, pullNumber: Number(pull), context: contextFromEnv(env), dryRun: true });
+    return { subject: renderRunSubject(decision, { summaries: taskSummaries(decision.tasksMarkdown) }), workflow: implementWorkflowFor(decision.action) };
+  } catch {
+    return { subject: '', workflow: IMPLEMENT_WORKFLOW_FILE };
+  }
+}
+
+// The subject of the next run (predictNextRun).
+export async function predictRunSubject(client, env, options) {
+  return (await predictNextRun(client, env, options)).subject;
 }
 
 // Spec Kit implement spec, job "sync" ("Merge the base branch"; write access to contents, check runs, and pull
@@ -590,100 +664,82 @@ export async function runSync({ client, env, log, now = Date.now }) {
   return finish(result);
 }
 
-// Spec Kit implement phase, job "plan" (write access to check runs and pull requests; never runs agent code): decides
-// again from the state on GitHub and, while the phase still comes next, plans the order of its tasks: each
-// entry is a task, or consecutive `[P]` tasks in parallel, with their prompts, verify modes, and summaries; the matrix
-// of the tasks job, one entry each with the job name it runs under; and the check runs of the first entry. It plans
-// nothing when the state changed since the spec run decided. `phase_check` tells whether this run finishes the phase,
-// whose result then gets the phase's full verification in the phase workflow's verify job.
-export async function runPlanPhase({ client, env, log, now = Date.now }) {
+// Spec Kit implement verify, job "Record the phase verification" (write access to check runs and pull requests; never runs
+// agent code): records the verification of a finished phase (SPECKIT_VERIFY_RESULT is the verify job's result). A pass
+// is recorded as a successful verify attempt of the phase, so the chain moves on; a failure stops the implementation
+// for a person with a pending repair of the phase (or of its only task), like a failed task verification.
+export async function runVerifyReport({ client, env, log }) {
   const report = createReporter(env, log);
   const { twin, pull: pullNumber } = readSpecInputs(env);
   const folder = String(env.SPECKIT_FOLDER ?? '');
-  if (!folder) throw new SpecUsageError('Expected SPECKIT_FOLDER.');
   const phase = String(env.SPECKIT_PHASE ?? '');
-  report.line(`## ${renderImplementTitle('phase', twin, phaseSubject(phase))}`);
-  report.line();
-  const finish = (outputs) => {
-    report.flush();
-    for (const [name, value] of Object.entries(outputs)) setOutput(env, name, value);
-    return { exitCode: 0, ...outputs };
-  };
-
-  const decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env) });
-  const head = decision.pull.head.sha;
-  if (decision.action !== 'tasks' || decision.kind !== 'task' || (decision.phase ?? '') !== phase) {
-    report.line('Nothing to plan: the phase no longer comes next.');
-    return finish({ count: '0', head, order: '[]', task_matrix: JSON.stringify({ include: [] }), phase_check: 'false' });
+  const attempt = Number(env.SPECKIT_ATTEMPT);
+  const checkRun = Number(env.SPECKIT_CHECK_RUN);
+  if (!Number.isInteger(attempt) || attempt <= 0 || !Number.isInteger(checkRun) || checkRun <= 0) throw new SpecUsageError('Expected SPECKIT_ATTEMPT and SPECKIT_CHECK_RUN as positive integers.');
+  let tasks = [];
+  try {
+    tasks = JSON.parse(String(env.SPECKIT_TASKS || '[]')).filter((task) => /^T\d{3,}$/.test(task));
+  } catch {
+    // The repair still records the failed phase when its tasks are unavailable.
   }
-  const order = prepareOrder(decision, folder);
-  await startAttemptChecks(client, { head, kind: 'task', entries: order[0].include });
-  const phaseCheck = decision.phaseEnd;
-  reportOrder(report, 'task', order);
-  if (phaseCheck) report.line('- Then the full verification of the phase.');
-  else report.line('- The rest of the phase continues in the next run.');
-  return finish({
-    count: String(order.length),
-    head,
-    order: JSON.stringify(order),
-    // The matrix of the tasks job: one job per entry of the order, run one at a time.
-    task_matrix: JSON.stringify({ include: order.map((entry, index) => ({ index, name: taskJobName(entry.include) })) }),
-    phase_check: String(phaseCheck),
+  const pull = await client.getPullRequest(pullNumber);
+  const head = String(env.SPECKIT_HEAD || pull.head.sha);
+  const subject = phaseSubject(phase);
+  const flaky = renderFlakyLines(env.SPECKIT_VERIFY_FLAKY);
+  const result = String(env.SPECKIT_VERIFY_RESULT ?? '');
+  if (result === 'success') {
+    await client.updateCheckRun(checkRun, { status: 'completed', conclusion: 'success', output: { title: `${subject} verified`, summary: `The full verification of ${subject} passed on ${head}.` } });
+    await client.createComment(pullNumber, [
+      renderAttemptMarker({ kind: 'verify', attempt, outcome: 'success', phase: phase || null }),
+      `**The phase verification passed** for ${neutralizeMarkers(subject)} on \`${head}\`.`,
+      ...(flaky.length > 0 ? ['', ...flaky] : []),
+    ].join('\n'));
+    report.line(`${subject} verified.`);
+    report.flush();
+    return { exitCode: 0, verified: true };
+  }
+  const requester = (await resolveImplementRequester(client, twin))?.login ?? null;
+  const run = env.GITHUB_RUN_ID ? `${contextFromEnv(env).serverUrl}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
+  const scope = tasks.length === 1 ? 'task' : 'phase';
+  await client.updateCheckRun(checkRun, {
+    status: 'completed',
+    conclusion: 'failure',
+    external_id: CHECK_LIMIT,
+    output: { title: 'The phase verification failed', summary: `The full verification of ${subject} ${result === 'failure' ? 'failed' : `did not finish (${result || 'unknown'})`}, although each task passed its own verification.` },
   });
+  await client.createComment(pullNumber, [
+    renderAttemptMarker({ kind: 'verify', attempt, outcome: 'failure', phase: phase || null }),
+    renderRepairMarker({
+      id: `phase:${env.GITHUB_RUN_ID || 'run'}:${head}`,
+      state: 'pending',
+      scope,
+      phase,
+      tasks,
+      head,
+      run: String(env.GITHUB_RUN_ID || ''),
+      artifact: 'speckit-phase-verification',
+      at: new Date().toISOString(),
+    }),
+    `**Implementation needs attention**${requester ? ` @${requester}` : ''}: the full verification of ${neutralizeMarkers(subject)} failed${run ? ` (see the [run](${run}))` : ''}. Each task passed its own verification, which covers only the tests it touched, so a change of the phase breaks tests elsewhere, or the tasks break something together.`,
+    ...(flaky.length > 0 ? ['', ...flaky] : []),
+    '',
+    ...renderNextSteps({
+      diagnosisUrl: diagnosisRunsUrl(env),
+      ...(await nextStepContext(client, pull, folder || null)),
+      continuation: { repair: { scope } },
+    }),
+  ].join('\n'));
+  report.line(`The verification of ${subject} failed; the implementation stops for a person.`);
+  report.flush();
+  return { exitCode: 0, verified: false };
 }
 
-// Spec Kit implement spec, job "continue": reports a failed phase verification as a stop (the next run then diagnoses
-// it) and starts the next run of the chain.
+// Every workflow of the chain, job "Start the next run": dispatches the next run of the chain, in the workflow of its
+// kind.
 export async function runContinue({ client, env, log }) {
   const report = createReporter(env, log);
   const { twin, pull: pullNumber } = readSpecInputs(env);
-  const folder = String(env.SPECKIT_FOLDER ?? '');
   const pull = await client.getPullRequest(pullNumber);
-  const flaky = renderFlakyLines(env.SPECKIT_VERIFY_FLAKY);
-  if (String(env.SPECKIT_PHASE_CHECK ?? '') === 'success' && flaky.length > 0) {
-    const phase = String(env.SPECKIT_PHASE ?? '').trim();
-    await client.createComment(pullNumber, [`**The phase verification passed**${phase ? ` for ${neutralizeMarkers(phase)}` : ''} on \`${pull.head.sha}\`.`, '', ...flaky].join('\n'));
-  }
-  if (String(env.SPECKIT_PHASE_CHECK ?? '') === 'failure') {
-    let repairTasks = [];
-    try {
-      repairTasks = JSON.parse(String(env.SPECKIT_ORDER ?? '[]')).flatMap((entry) => entry.include ?? []).map((entry) => entry.task).filter(Boolean);
-    } catch {
-      // The repair still records the failed phase when its task context is unavailable.
-    }
-    const requester = (await resolveImplementRequester(client, twin))?.login ?? null;
-    const run = env.GITHUB_RUN_ID ? `${contextFromEnv(env).serverUrl}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
-    await client.createCheckRun({
-      name: CHECK_RUN_NAME,
-      head_sha: pull.head.sha,
-      status: 'completed',
-      conclusion: 'failure',
-      external_id: CHECK_LIMIT,
-      output: { title: 'The phase verification failed', summary: 'The full verification at the end of the phase failed, although each task passed its own verification.' },
-    });
-    await client.createComment(pullNumber, [
-      renderRepairMarker({
-        id: `phase:${env.GITHUB_RUN_ID || 'run'}:${pull.head.sha}`,
-        state: 'pending',
-        scope: repairTasks.length === 1 ? 'task' : 'phase',
-        phase: String(env.SPECKIT_PHASE ?? ''),
-        tasks: repairTasks,
-        head: pull.head.sha,
-        run: String(env.GITHUB_RUN_ID || ''),
-        artifact: 'speckit-phase-verification',
-        at: new Date().toISOString(),
-      }),
-      `**Implementation needs attention**${requester ? ` @${requester}` : ''}: the full verification at the end of the phase failed${run ? ` (see the [run](${run}))` : ''}. Each task passed its own verification, which covers only the tests it touched, so a change of the phase breaks tests elsewhere, or the tasks break something together.`,
-      ...(flaky.length > 0 ? ['', ...flaky] : []),
-      '',
-      ...renderNextSteps({
-        diagnosisUrl: diagnosisRunsUrl(env),
-        ...(await nextStepContext(client, pull, folder || null)),
-        continuation: { repair: { scope: repairTasks.length === 1 ? 'task' : 'phase' } },
-      }),
-    ].join('\n'));
-    report.line('The phase verification failed; the implementation stops for a person.');
-  }
   const title = specTitleOfPull(pull);
   await dispatchImplementation(client, env, { twin, pull: pullNumber, title });
   report.line(`Started the next run: ${renderImplementRunName(twin, title)}.`);
@@ -693,8 +749,8 @@ export async function runContinue({ client, env, log }) {
 
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command] = argv;
-  const handlers = { decide: runDecide, sync: runSync, 'plan-phase': runPlanPhase, continue: runContinue };
-  if (!handlers[command]) throw new SpecUsageError('Usage: speckit-spec.mjs <decide | sync | plan-phase | continue> (inputs come from SPECKIT_* environment variables)');
+  const handlers = { decide: runDecide, sync: runSync, 'verify-report': runVerifyReport, continue: runContinue };
+  if (!handlers[command]) throw new SpecUsageError('Usage: speckit-spec.mjs <decide | sync | verify-report | continue> (inputs come from SPECKIT_* environment variables)');
   return (await handlers[command]({ client: client ?? createGitHubClient(env), env, log })).exitCode;
 }
 
