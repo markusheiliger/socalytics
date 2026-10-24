@@ -27,8 +27,8 @@ FR-016, SC-001 to SC-006).
 
 **Purpose**: Create the locked Python project.
 
-- [ ] T001 Create `<cap>/pyproject.toml` (Python `>=3.12,<3.13`, hatchling build backend, `socalytics-analyst-sdk` as the path source `../../sdk`, runtime dependencies `opencv-python-headless` and `numpy`, dev group `pytest` and `jsonschema`, wheels only), `<cap>/.gitignore`, and `<cap>/src/media_context_classification/__init__.py` exporting `CAPABILITY_ID` (`media-context-classification`), `CAPABILITY_VERSION` (`1.0.0`), and `FACT_KIND` (`shot-boundary`), following `reference-media-probe`
-- [ ] T002 Run `UV_PYTHON_DOWNLOADS=never uv lock` in `<cap>/` to create the hash-locked `<cap>/uv.lock`, then run the locked sequence from [quickstart.md](quickstart.md) section 1 (`uv sync --locked --all-groups --no-install-local --no-build`, `uv sync --locked --all-groups --no-build-isolation`, `uv build --wheel --no-build-isolation --python .venv/bin/python`); if a locked wheel cannot be installed by this sequence, stop and report that a standalone environment spec must land first (research.md R-02)
+- [ ] T001 Create `<cap>/pyproject.toml` (Python `>=3.12,<3.13`, hatchling build backend, `socalytics-analyst-sdk` as the path source `../../sdk`, runtime dependencies `opencv-python-headless` and `numpy`, dev group `pytest` and `jsonschema`, wheels only), `<cap>/.gitignore`, the hash-locked `<cap>/uv.lock` created by `UV_PYTHON_DOWNLOADS=never uv lock` in `<cap>/` (the project verification of every task requires a committed `uv.lock` beside each `pyproject.toml`, so the lock is part of this task), and `<cap>/src/media_context_classification/__init__.py` exporting `CAPABILITY_ID` (`media-context-classification`), `CAPABILITY_VERSION` (`1.0.0`), and `FACT_KIND` (`shot-boundary`), following `reference-media-probe`
+- [ ] T002 Run, with the `<cap>/uv.lock` that T001 committed, the locked sequence from [quickstart.md](quickstart.md) section 1 (`uv sync --locked --all-groups --no-install-local --no-build`, `uv sync --locked --all-groups --no-build-isolation`, `uv build --wheel --no-build-isolation --python .venv/bin/python`); if a locked wheel cannot be installed by this sequence, stop and report that a standalone environment spec must land first (research.md R-02)
 
 ---
 
@@ -182,7 +182,7 @@ dependency set; a dependency without a record or with a disallowed license fails
 
 ## Dependencies & Execution Order
 
-- Phase 1 then Phase 2 then the stories. T002 needs T001; T008 needs T004 to T006; T009 needs T007.
+- Phase 1 then Phase 2 then the stories. T002 needs T001 (T001 creates `uv.lock` because the project verification of each task fails on a `pyproject.toml` without a committed lock); T008 needs T004 to T006; T009 needs T007.
 - US1 (T010 to T019) needs Phase 2; T012 needs T003, T006, and T007; T013 needs T011 and T012; the tests T014 to T019 need T010 and T013.
 - US2 (T020 to T022) needs US1, because T020 extends `detector.py`; its tests T021 and T022 need T020.
 - US3 needs US1 and US2 for a complete capability: T026 needs T023 and T024; T027 needs T026; T031 needs T026, T029, and T030; T028 may start after T023.
