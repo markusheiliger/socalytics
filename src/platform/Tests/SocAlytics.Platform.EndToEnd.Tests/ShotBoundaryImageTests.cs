@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -5,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Shouldly;
 using SocAlytics.Platform.EndToEnd.Tests.Support;
+using SocAlytics.Platform.Integration.Tests;
 using SocAlytics.Platform.Integration.Tests.Registry.Support;
 using Xunit;
 
@@ -19,6 +21,20 @@ public sealed class ShotBoundaryImageTests
 {
     private const string Prefix = "analysts/";
     private const string UnknownUser = "54321:54321";
+    private const long MemoryLimitBytes = 2L * 1024 * 1024 * 1024;
+    private const int ManifestExecutionTimeoutSeconds = 300;
+    private const int EvidenceSegmentSeconds = 30;
+    private const int LongClipSeconds = 60;
+    private const string PeakMarker = "peak-memory-bytes=";
+
+    // Runs the image's entry point and reports the container cgroup's peak memory (cgroup v2, then v1) on stderr.
+    private const string RunWithPeakMemory = """
+        /opt/media-context-classification/venv/bin/python -m media_context_classification
+        code=$?
+        peak=$(cat /sys/fs/cgroup/memory.peak 2>/dev/null || cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes 2>/dev/null)
+        echo "peak-memory-bytes=$peak" >&2
+        exit $code
+        """;
     private const string AuditPath = "src/analysts/capabilities/media-context-classification/audit/dependency-audit.json";
 
     private const string ListDistributions = """
@@ -59,6 +75,7 @@ public sealed class ShotBoundaryImageTests
             await AssertNoModelWeightsAsync(runner, image.LocalName, ct);
             await AssertInstalledDistributionsAsync(runner, image.LocalName, audit, ct);
             await AssertJobCompletesAsync(runner, image.LocalName, ct);
+            await AssertOneMinuteClipStaysWithinResourcesAsync(runner, image.LocalName, ct);
         }
         finally
         {
@@ -123,10 +140,12 @@ public sealed class ShotBoundaryImageTests
         var mount = Path.Combine(Path.GetTempPath(), $"socalytics-e2e-shot-boundary-mount-{Guid.NewGuid():N}");
         try
         {
-            WriteMount(mount, media);
+            WriteMount(mount, media.ReadBytes(), CutMedia.DurationSeconds);
 
             var result = await runner.RunAsync(image, UnknownUser, null, null, mount, ct);
             result.ExitCode.ShouldBe(0, result.Stderr);
+            result.Elapsed.TotalSeconds.ShouldBeLessThanOrEqualTo(
+                EvidenceSegmentSeconds, "The few-second evidence segment took longer than the segment budget.");
             result.Changes.Where(p => p != "/socalytics").ShouldBeEmpty("The container wrote outside its mounts.");
 
             var facts = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(mount, "result", "facts.json"), ct))
@@ -147,9 +166,85 @@ public sealed class ShotBoundaryImageTests
         }
     }
 
-    private static void WriteMount(string mount, CutMedia media)
+    private static async Task AssertOneMinuteClipStaysWithinResourcesAsync(ContainerRunner runner, string image, CancellationToken ct)
     {
-        const long DurationMs = CutMedia.DurationSeconds * 1000L;
+        var clipDirectory = Path.Combine(Path.GetTempPath(), $"socalytics-e2e-shot-boundary-clip-{Guid.NewGuid():N}");
+        var mount = Path.Combine(Path.GetTempPath(), $"socalytics-e2e-shot-boundary-long-mount-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(clipDirectory);
+            var clip = Path.Combine(clipDirectory, "clip.mp4");
+            await GenerateLongClipAsync(clip, ct);
+            WriteMount(mount, await File.ReadAllBytesAsync(clip, ct), LongClipSeconds);
+
+            var result = await runner.RunAsync(image, UnknownUser, ["/bin/sh", "-c"], [RunWithPeakMemory], mount, ct);
+            result.ExitCode.ShouldBe(0, result.Stderr);
+            result.Elapsed.TotalSeconds.ShouldBeLessThanOrEqualTo(
+                ManifestExecutionTimeoutSeconds, "The one-minute 1080p clip exceeded the manifest's minimum execution timeout.");
+
+            var peakLine = result.Stderr.Split('\n').LastOrDefault(l => l.StartsWith(PeakMarker, StringComparison.Ordinal));
+            peakLine.ShouldNotBeNull($"The container's cgroup peak memory could not be read. stderr: {result.Stderr}");
+            long.TryParse(peakLine[PeakMarker.Length..].Trim(), out var peak).ShouldBeTrue($"Unreadable peak memory: {peakLine}");
+            peak.ShouldBeGreaterThan(0);
+            peak.ShouldBeLessThanOrEqualTo(MemoryLimitBytes, "The one-minute 1080p clip used more than 2 GiB of memory.");
+        }
+        finally
+        {
+            foreach (var directory in new[] { clipDirectory, mount })
+            {
+                try
+                {
+                    Directory.Delete(directory, true);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+        }
+    }
+
+    private static async Task GenerateLongClipAsync(string filePath, CancellationToken ct)
+    {
+        var startInfo = new ProcessStartInfo(SyntheticMedia.FfmpegPath)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var argument in new[]
+        {
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", $"testsrc2=size=1920x1080:rate=25:duration={LongClipSeconds}",
+            "-pix_fmt", "yuv420p", "-c:v", "libopenh264", "-b:v", "4M", "-g", "25", "-an", "-movflags", "+faststart",
+            filePath,
+        })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException($"The media toolchain failed to start: '{SyntheticMedia.FfmpegPath}'.");
+        var error = process.StandardError.ReadToEndAsync(ct);
+        var output = process.StandardOutput.ReadToEndAsync(ct);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromMinutes(3));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            process.Kill(entireProcessTree: true);
+            throw;
+        }
+
+        await output;
+        process.ExitCode.ShouldBe(0, $"ffmpeg failed to generate the one-minute clip: {await error}");
+    }
+
+    private static void WriteMount(string mount, byte[] mediaBytes, int durationSeconds)
+    {
+        var durationMs = durationSeconds * 1000L;
         const UnixFileMode Open = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
             | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
             | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
@@ -160,7 +255,6 @@ public sealed class ShotBoundaryImageTests
             File.SetUnixFileMode(directory, Open);
         }
 
-        var mediaBytes = media.ReadBytes();
         File.WriteAllBytes(Path.Combine(mount, "media", "segment.mp4"), mediaBytes);
 
         var manifest = new JsonObject
@@ -173,11 +267,11 @@ public sealed class ShotBoundaryImageTests
                 ["segmentationPolicyDigest"] = Digest("2"),
                 ["segmentNumber"] = 1,
             },
-            ["segmentationPolicy"] = new JsonObject { ["version"] = 1, ["durationSeconds"] = CutMedia.DurationSeconds },
+            ["segmentationPolicy"] = new JsonObject { ["version"] = 1, ["durationSeconds"] = durationSeconds },
             ["nominalWindow"] = Interval(),
             ["requestedSourceInterval"] = Interval(),
             ["encodedInterval"] = Interval(),
-            ["timelineSpans"] = new JsonArray(new JsonObject { ["mediaStartMs"] = 0, ["mediaEndMs"] = DurationMs, ["matchStartMs"] = 0 }),
+            ["timelineSpans"] = new JsonArray(new JsonObject { ["mediaStartMs"] = 0, ["mediaEndMs"] = durationMs, ["matchStartMs"] = 0 }),
             ["media"] = new JsonObject
             {
                 ["artifactReference"] = "segment.mp4",
@@ -220,7 +314,7 @@ public sealed class ShotBoundaryImageTests
                 ["segmentationPolicyDigest"] = Digest("2"),
                 ["segmentNumber"] = 1,
             },
-            ["segmentWindow"] = new JsonObject { ["segmentId"] = "seg-0001", ["startMs"] = 0, ["endMs"] = DurationMs },
+            ["segmentWindow"] = new JsonObject { ["segmentId"] = "seg-0001", ["startMs"] = 0, ["endMs"] = durationMs },
             ["workflow"] = new JsonObject { ["id"] = "shot-boundary-workflow", ["version"] = "1.0.0" },
             ["inputs"] = new JsonArray(),
             ["pinned"] = new JsonObject
@@ -247,7 +341,7 @@ public sealed class ShotBoundaryImageTests
             Path.Combine(mount, "attempt.json"),
             new JsonObject { ["contractVersion"] = "1.0.0", ["attemptId"] = "attempt-0001", ["attemptNumber"] = 1 }.ToJsonString());
 
-        static JsonObject Interval() => new() { ["startMs"] = 0, ["endMs"] = DurationMs };
+        JsonObject Interval() => new() { ["startMs"] = 0, ["endMs"] = durationMs };
         static string Digest(string last) => "sha-256:" + new string('0', 63) + last;
     }
 
@@ -267,7 +361,7 @@ public sealed class ShotBoundaryImageTests
         })
         {
             BaseAddress = new Uri("http://docker"),
-            Timeout = TimeSpan.FromMinutes(5),
+            Timeout = TimeSpan.FromMinutes(10),
         };
 
         /// <summary>Runs the image; without an entrypoint the image's own entry point runs against the bind-mounted <paramref name="mount"/>.</summary>
@@ -294,10 +388,12 @@ public sealed class ShotBoundaryImageTests
             var id = JsonDocument.Parse(await created.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("Id").GetString()!;
             try
             {
+                var stopwatch = Stopwatch.StartNew();
                 using var started = await _http.PostAsync($"/containers/{id}/start", null, ct);
                 started.EnsureSuccessStatusCode();
                 using var waited = await _http.PostAsync($"/containers/{id}/wait", null, ct);
                 waited.EnsureSuccessStatusCode();
+                var elapsed = stopwatch.Elapsed;
                 var exitCode = JsonDocument.Parse(await waited.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("StatusCode").GetInt32();
 
                 using var logs = await _http.GetAsync($"/containers/{id}/logs?stdout=1&stderr=1", ct);
@@ -309,7 +405,7 @@ public sealed class ShotBoundaryImageTests
                 var paths = changes.ValueKind == JsonValueKind.Array
                     ? changes.EnumerateArray().Select(c => c.GetProperty("Path").GetString()!).ToList()
                     : [];
-                return new RunResult(exitCode, stdout, stderr, paths);
+                return new RunResult(exitCode, stdout, stderr, paths, elapsed);
             }
             finally
             {
@@ -337,5 +433,5 @@ public sealed class ShotBoundaryImageTests
         }
     }
 
-    private sealed record RunResult(int ExitCode, string Stdout, string Stderr, IReadOnlyList<string> Changes);
+    private sealed record RunResult(int ExitCode, string Stdout, string Stderr, IReadOnlyList<string> Changes, TimeSpan Elapsed);
 }
