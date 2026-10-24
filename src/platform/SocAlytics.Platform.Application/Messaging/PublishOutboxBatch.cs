@@ -26,7 +26,9 @@ public sealed class PublishOutboxBatch(
         {
             var baseId = row.MessageType == AgentInvocationReadyMessageType && TryGetAgentMessageId(row.Payload, out var agentId)
                 ? agentId
-                : row.Id.ToString();
+                : row.MessageType == OutboxMessageTypes.AgentConversationPurge && TryGetPurgeMessageId(row.Payload, out var purgeId)
+                    ? purgeId
+                    : row.Id.ToString();
             var messageId = row.PublicationRound <= 1 ? baseId : $"{baseId}.r{row.PublicationRound}";
             try
             {
@@ -54,6 +56,28 @@ public sealed class PublishOutboxBatch(
         MessagingMetrics.SetBacklog(await store.GetBacklogAsync(timeProvider.GetUtcNow(), cancellationToken));
         await scope.CommitAsync(cancellationToken);
         return rows.Count;
+    }
+
+    // The broker deduplicates purge events by the identifier of the deleted conversation.
+    private static bool TryGetPurgeMessageId(string payload, out string messageId)
+    {
+        messageId = string.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            if (document.RootElement.TryGetProperty("conversationId", out var conversation)
+                && conversation.ValueKind == JsonValueKind.String
+                && Guid.TryParse(conversation.GetString(), out var id))
+            {
+                messageId = $"purge:{id}";
+                return true;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return false;
     }
 
     // The broker deduplicates agent notifications by <invocationId>:<readyOccurrence>.

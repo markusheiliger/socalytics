@@ -8,7 +8,7 @@ internal sealed class NatsOptions
 
     public string EventsStream { get; set; } = "SOCALYTICS_EVENTS";
 
-    public string[] EventsSubjects { get; set; } = ["matches.>", "analysis.events.>"];
+    public string[] EventsSubjects { get; set; } = ["matches.>", "analysis.events.>", "agents.conversations.purge"];
 
     public string JobsStream { get; set; } = "SOCALYTICS_ANALYSIS_JOBS";
 
