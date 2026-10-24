@@ -3,7 +3,7 @@
 The Web UI stores nothing durable. These are the application-owned client models in
 `src/clients/web/src/platform/models/agentCatalog.ts` that `agentCatalogAdapter` maps from the generated client; they
 live only in the in-memory query cache and in open form state. Field meanings and limits are defined by
-[Agent Catalog Registry](../archive/20261018-101517-agent-catalog-registry/data-model.md) and the contracts under
+[Agent Catalog Registry](../20261018-101517-agent-catalog-registry/data-model.md) and the contracts under
 `contracts/agent-catalog/`; unknown enumeration values are kept as raw strings (FR-022).
 
 ## Read models
@@ -36,7 +36,7 @@ live only in the in-memory query cache and in open form state. Field meanings an
 | `modifier-policy` | `dimensionSetMajor`, `perDimensionBound`, `maxPositiveMovement`, `contextCategories[]`, `budgetNeutral` |
 | `agent-version` | `agentId`, `group`, `displayName`, `artifacts { promptTemplate, modelSelection, toolPolicy, safetyPolicy, philosophyProfile?, modifierPolicy? }`, `disclosure?` |
 
-Every document also carries `schemaVersion`, `kind`, `id`, and `version`, which the forms set.
+Every artifact document also carries `schemaVersion`, `kind`, `id`, and `version`, which the forms set. An `agent-version` document carries `schemaVersion` and `kind` but no `version` (its schema forbids additional properties): the agent version is supplied beside the document as the `version` query parameter of `registerAgentVersion`, and the platform refuses a missing or non-SemVer value with a violation at `/version`.
 
 Derived view values (never sent): a profile's row order follows its dimension set's order; the weights' total; each
 tool's `withinBaseline` flag for the agent in context.

@@ -13,7 +13,7 @@ Models and outcomes are defined in [data-model.md](../data-model.md); refusal ha
 | `setEnablement(agentId, version \| null, etag)` | `setAgentEnablement` (`If-Match`) | `Enablement` or `enablementRefused` \| `changed` |
 | `listAgentVersions({ agentId?, state? })` | `listAgentVersions` | `AgentVersionSummary[]` |
 | `getAgentVersion(agentId, version)` | `getAgentVersion` | `AgentVersion` (with `etag`) |
-| `registerAgentVersion(document)` | `registerAgentVersion` | `created` \| `replayed` \| `validationFailed` \| `versionExists` |
+| `registerAgentVersion(version, document)` | `registerAgentVersion` (`version` query parameter; the document has no `version` property) | `created` \| `replayed` \| `validationFailed` \| `versionExists` |
 | `approveAgentVersion(agentId, version, etag, { differentiationReviewAcknowledged? })` | `approveAgentVersion` (`If-Match`) | `AgentVersion` or `transitionRefused` \| `changed` |
 | `retireAgentVersion(agentId, version, etag)` | `retireAgentVersion` (`If-Match`) | `AgentVersion` or `transitionRefused` \| `changed` |
 | `listArtifacts(kind, { id? })` | `listAgentCatalogArtifacts` | `ArtifactSummary[]` |

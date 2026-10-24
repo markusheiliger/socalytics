@@ -30,7 +30,7 @@
             ]
           },
           "document": {
-            "$ref": "#/components/schemas/JsonElement"
+            "$ref": "#/components/schemas/AgentCatalogRecordDocument"
           },
           "id": {
             "type": "string"
@@ -99,6 +99,481 @@
           "digest",
           "registeredBy",
           "registeredAt"
+        ],
+        "type": "object"
+      },
+      "AgentCatalogRecordDocument": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/AgentCatalogRecordDocumentDimensionSetDocument"
+          },
+          {
+            "$ref": "#/components/schemas/AgentCatalogRecordDocumentPhilosophyProfileDocument"
+          },
+          {
+            "$ref": "#/components/schemas/AgentCatalogRecordDocumentPromptTemplateDocument"
+          },
+          {
+            "$ref": "#/components/schemas/AgentCatalogRecordDocumentToolPolicyDocument"
+          },
+          {
+            "$ref": "#/components/schemas/AgentCatalogRecordDocumentSafetyPolicyDocument"
+          },
+          {
+            "$ref": "#/components/schemas/AgentCatalogRecordDocumentModelSelectionDocument"
+          },
+          {
+            "$ref": "#/components/schemas/AgentCatalogRecordDocumentModifierPolicyDocument"
+          }
+        ],
+        "discriminator": {
+          "mapping": {
+            "dimension-set": "#/components/schemas/AgentCatalogRecordDocumentDimensionSetDocument",
+            "model-selection": "#/components/schemas/AgentCatalogRecordDocumentModelSelectionDocument",
+            "modifier-policy": "#/components/schemas/AgentCatalogRecordDocumentModifierPolicyDocument",
+            "philosophy-profile": "#/components/schemas/AgentCatalogRecordDocumentPhilosophyProfileDocument",
+            "prompt-template": "#/components/schemas/AgentCatalogRecordDocumentPromptTemplateDocument",
+            "safety-policy": "#/components/schemas/AgentCatalogRecordDocumentSafetyPolicyDocument",
+            "tool-policy": "#/components/schemas/AgentCatalogRecordDocumentToolPolicyDocument"
+          },
+          "propertyName": "kind"
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "AgentCatalogRecordDocumentDimensionSetDocument": {
+        "properties": {
+          "dimensions": {
+            "items": {
+              "$ref": "#/components/schemas/DimensionDocument"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "dimension-set"
+            ],
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "id",
+          "version",
+          "dimensions"
+        ]
+      },
+      "AgentCatalogRecordDocumentModelSelectionDocument": {
+        "properties": {
+          "deployment": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "model-selection"
+            ],
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "parameters": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ModelParametersDocument"
+              }
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "id",
+          "version",
+          "provider",
+          "model",
+          "deployment"
+        ]
+      },
+      "AgentCatalogRecordDocumentModifierPolicyDocument": {
+        "properties": {
+          "budgetNeutral": {
+            "type": "boolean"
+          },
+          "contextCategories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "dimensionSetMajor": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "modifier-policy"
+            ],
+            "type": "string"
+          },
+          "maxPositiveMovement": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "perDimensionBound": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "schemaVersion": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "id",
+          "version",
+          "dimensionSetMajor",
+          "perDimensionBound",
+          "maxPositiveMovement",
+          "contextCategories",
+          "budgetNeutral"
+        ]
+      },
+      "AgentCatalogRecordDocumentPhilosophyProfileDocument": {
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "dimensionSet": {
+            "$ref": "#/components/schemas/DimensionSetReferenceDocument"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "philosophy-profile"
+            ],
+            "type": "string"
+          },
+          "reviewers": {
+            "$ref": "#/components/schemas/ProfileReviewersDocument"
+          },
+          "schemaVersion": {
+            "type": "string"
+          },
+          "supersedes": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProfileSupersedesDocument"
+              }
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "weights": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ProfileWeightDocument"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "id",
+          "version",
+          "dimensionSet",
+          "weights",
+          "author",
+          "reviewers"
+        ]
+      },
+      "AgentCatalogRecordDocumentPromptTemplateDocument": {
+        "properties": {
+          "dimensionSetMajor": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          },
+          "group": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "prompt-template"
+            ],
+            "type": "string"
+          },
+          "responseContract": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "text": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "id",
+          "version",
+          "group",
+          "responseContract",
+          "text",
+          "slots"
+        ]
+      },
+      "AgentCatalogRecordDocumentSafetyPolicyDocument": {
+        "properties": {
+          "escalationCategories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "group": {
+            "type": "string"
+          },
+          "hardBoundaries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "safety-policy"
+            ],
+            "type": "string"
+          },
+          "refusalCategories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "routes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "schemaVersion": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "id",
+          "version",
+          "group",
+          "routes",
+          "hardBoundaries",
+          "escalationCategories",
+          "refusalCategories",
+          "rules"
+        ]
+      },
+      "AgentCatalogRecordDocumentToolPolicyDocument": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "tool-policy"
+            ],
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "id",
+          "version",
+          "tools"
+        ]
+      },
+      "AgentCatalogRefusalProblemDto": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "correlationId"
+        ],
+        "type": "object"
+      },
+      "AgentCatalogValidationProblemDto": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "status": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/AgentCatalogViolationDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "correlationId",
+          "violations"
+        ],
+        "type": "object"
+      },
+      "AgentCatalogViolationDto": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "pointer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "pointer",
+          "detail"
         ],
         "type": "object"
       },
@@ -688,6 +1163,86 @@
         ],
         "type": "object"
       },
+      "AgentVersionArtifactsDocument": {
+        "properties": {
+          "modelSelection": {
+            "$ref": "#/components/schemas/ArtifactReferenceDocument"
+          },
+          "modifierPolicy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactReferenceDocument"
+              }
+            ]
+          },
+          "philosophyProfile": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ArtifactReferenceDocument"
+              }
+            ]
+          },
+          "promptTemplate": {
+            "$ref": "#/components/schemas/ArtifactReferenceDocument"
+          },
+          "safetyPolicy": {
+            "$ref": "#/components/schemas/ArtifactReferenceDocument"
+          },
+          "toolPolicy": {
+            "$ref": "#/components/schemas/ArtifactReferenceDocument"
+          }
+        },
+        "required": [
+          "promptTemplate",
+          "modelSelection",
+          "toolPolicy",
+          "safetyPolicy"
+        ],
+        "type": "object"
+      },
+      "AgentVersionDocument": {
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "artifacts": {
+            "$ref": "#/components/schemas/AgentVersionArtifactsDocument"
+          },
+          "disclosure": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "kind",
+          "agentId",
+          "group",
+          "displayName",
+          "artifacts"
+        ],
+        "type": "object"
+      },
       "AgentVersionDto": {
         "properties": {
           "agentId": {
@@ -725,7 +1280,7 @@
             ]
           },
           "document": {
-            "$ref": "#/components/schemas/JsonElement"
+            "$ref": "#/components/schemas/AgentVersionDocument"
           },
           "enabled": {
             "type": "boolean"
@@ -2228,6 +2783,25 @@
         ],
         "type": "object"
       },
+      "ArtifactReferenceDocument": {
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "type": "object"
+      },
       "AvailableAgentDto": {
         "properties": {
           "agentId": {
@@ -2709,6 +3283,43 @@
           "segmentationPolicy",
           "nodes",
           "edges"
+        ],
+        "type": "object"
+      },
+      "DimensionDocument": {
+        "properties": {
+          "acceptedEvidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "meaning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "meaning",
+          "acceptedEvidence"
+        ],
+        "type": "object"
+      },
+      "DimensionSetReferenceDocument": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version"
         ],
         "type": "object"
       },
@@ -3724,6 +4335,44 @@
         ],
         "type": "object"
       },
+      "ModelParametersDocument": {
+        "properties": {
+          "maxOutputTokens": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          },
+          "reasoningEffort": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "temperature": {
+            "format": "double",
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ]
+          },
+          "topP": {
+            "format": "double",
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "NotificationPreferenceDto": {
         "properties": {
           "accountMessage": {
@@ -4192,6 +4841,62 @@
           "profileVersion",
           "distance",
           "reviewRequired"
+        ],
+        "type": "object"
+      },
+      "ProfileReviewersDocument": {
+        "properties": {
+          "architecture": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "footballDomain": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "architecture",
+          "footballDomain"
+        ],
+        "type": "object"
+      },
+      "ProfileSupersedesDocument": {
+        "properties": {
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "ProfileWeightDocument": {
+        "properties": {
+          "provenance": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "weight": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "weight",
+          "rationale",
+          "provenance"
         ],
         "type": "object"
       },
@@ -5676,7 +6381,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JsonElement"
+                "$ref": "#/components/schemas/AgentVersionDocument"
               }
             }
           },
@@ -5707,7 +6412,7 @@
             "content": {
               "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/AgentCatalogValidationProblemDto"
                 }
               }
             },
@@ -6126,7 +6831,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JsonElement"
+                "$ref": "#/components/schemas/AgentCatalogRecordDocument"
               }
             }
           },
@@ -6157,7 +6862,7 @@
             "content": {
               "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/AgentCatalogValidationProblemDto"
                 }
               }
             },
@@ -6402,7 +7107,7 @@
             "content": {
               "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/AgentCatalogRefusalProblemDto"
                 }
               }
             },

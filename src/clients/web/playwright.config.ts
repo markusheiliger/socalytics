@@ -175,6 +175,15 @@ export default defineConfig({
       dependencies: ['platform-registry'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
+    // Runs after the last platform project because it changes the enabled version of a specialist.
+    {
+      name: 'platform-agent-catalog',
+      testDir: './tests/e2e/platform',
+      testMatch: /agent-catalog\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-operations'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
   ],
   webServer: [
     {
