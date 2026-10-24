@@ -176,7 +176,7 @@ dependency set; a dependency without a record or with a disallowed license fails
 
 ### Final verification
 
-- [ ] T041 Run the full verification of [quickstart.md](quickstart.md): the locked Python sequence and `uv run --no-sync pytest` in `<cap>/`, the same in `src/analysts/capabilities/reference-media-probe` (unchanged and passing), `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ShotBoundary"` and `--filter "FullyQualifiedName~ReferenceAnalyst"` on a Linux engine, and `node .github/scripts/check-markdown.mjs`; fix every finding caused by this feature
+- [ ] T041 Run the full verification of [quickstart.md](quickstart.md): the locked Python sequence and `uv run --no-sync pytest` in `<cap>/`, the same in `src/analysts/capabilities/reference-media-probe` (unchanged and passing), `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ShotBoundary"` and `--filter "FullyQualifiedName~ReferenceAnalyst"` on a Linux engine, and `node .github/scripts/check-markdown.mjs`; fix every finding caused by this feature, and record the outcome by creating `verification.md` in this spec folder (one line per command run with its result, such as the test counts), because a task whose agent changes no file fails
 
 ---
 
@@ -187,7 +187,7 @@ dependency set; a dependency without a record or with a disallowed license fails
 - US2 (T020 to T022) needs US1, because T020 extends `detector.py`; its tests T021 and T022 need T020.
 - US3 needs US1 and US2 for a complete capability: T026 needs T023 and T024; T027 needs T026; T031 needs T026, T029, and T030; T028 may start after T023.
 - US4 needs US3: T033 needs T032; T034 needs T033; T035 needs T026 and T033; T036 needs T035; T037 needs T028 and T033.
-- Polish needs all stories; T041 runs last.
+- Polish needs all stories; T041 runs last and creates `verification.md` in this spec folder, because a task whose agent changes no file fails (a first run that passed everything made no change and failed twice).
 
 ## Parallel Execution Examples
 
