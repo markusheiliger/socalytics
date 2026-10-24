@@ -254,7 +254,7 @@ requested from the Segment Service.
 
 ### Confinement checks
 
-- [ ] T025 [P] [US4] Extend `src/clients/web/tests/unit/serviceWorker/shellWorker.test.ts`: a `GET` with `Range` to the
+- [x] T025 [P] [US4] Extend `src/clients/web/tests/unit/serviceWorker/shellWorker.test.ts`: a `GET` with `Range` to the
   object-store origin stays unhandled by the service worker (FR-023)
 - [x] T026 [P] [US4] Add `src/clients/web/tests/e2e/simulated/evidence-confinement.spec.ts`: a page of another origin
   receives no CORS access to seeded media while the Web UI origin plays it, no `securitypolicyviolation` occurs during
