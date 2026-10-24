@@ -98,7 +98,7 @@ neither the area nor causes any request.
   `src/clients/web/src/session/roles.ts`), with the unit test
   `src/clients/web/tests/unit/features/matches/MatchPageSegments.test.tsx` (Club Admin sees the area; Coach, Analyst,
   Viewer, and a Club Admin of another club do not and no segment request is sent)
-- [ ] T008 [US1] Create `src/clients/web/tests/e2e/simulated/segments.spec.ts` with the access, listing, summary, empty,
+- [x] T008 [US1] Create `src/clients/web/tests/e2e/simulated/segments.spec.ts` with the access, listing, summary, empty,
   refresh, and axe accessibility scenarios of User Story 1 (Club Admin sees the area; other roles see no area and the
   list request counter stays zero; text-only states; keyboard use)
 
