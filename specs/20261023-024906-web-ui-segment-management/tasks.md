@@ -115,7 +115,7 @@ reports zero purged.
 
 ### Purge dialog and e2e configuration
 
-- [ ] T009 [P] [US2] Create `src/clients/web/src/features/segments/PurgeSegmentsDialog.tsx` following
+- [x] T009 [P] [US2] Create `src/clients/web/src/features/segments/PurgeSegmentsDialog.tsx` following
   `src/clients/web/src/features/operations/ReconcileDialog.tsx`: confirmation stating the match (opponent name),
   that segments not in use are deleted and become absent, that segments in use are kept and reported, and that a purged
   segment is rematerialized on demand; Cancel sends nothing; one purge request per confirmation (a ref guards a second

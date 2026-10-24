@@ -52,7 +52,11 @@
     "cancel": "Cancel",
     "inProgress": "Purging the unused segments…",
     "outcome": "{{purged}} segments purged, {{inUse}} kept because they are in use.",
+    "outcomeNote": "Purged segments are rematerialized on demand when a later job needs them.",
     "failure": "The segments could not be purged. Segments already purged by the call stay purged.",
+    "causeUnreachable": "The platform could not be reached.",
+    "causeOther": "The platform did not complete the purge, for example because it is temporarily unavailable.",
+    "close": "Close",
     "retry": "Try the purge again"
   }
 }
