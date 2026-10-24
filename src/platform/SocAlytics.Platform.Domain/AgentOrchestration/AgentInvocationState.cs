@@ -6,4 +6,5 @@ public enum AgentInvocationState
 	Running,
 	Succeeded,
 	Failed,
+	LifecycleSuppressed,
 }

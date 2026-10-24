@@ -3,7 +3,8 @@ namespace SocAlytics.Platform.Domain.AgentOrchestration;
 public static class AgentStateTransitions
 {
 	// Running to Queued is a retry after a retryable failure, lease expiry, or deadline; Queued or Running to Failed
-	// covers exhaustion, a permanent failure, and scope loss.
+	// covers exhaustion, a permanent failure, and scope loss; Queued or Running to LifecycleSuppressed is the archive or
+	// deletion of the conversation and does not use attempt budget.
 	public static bool IsAllowed(AgentInvocationState from, AgentInvocationState to) => (from, to) switch
 	{
 		(AgentInvocationState.Queued, AgentInvocationState.Running) => true,
@@ -11,6 +12,8 @@ public static class AgentStateTransitions
 		(AgentInvocationState.Running, AgentInvocationState.Succeeded) => true,
 		(AgentInvocationState.Running, AgentInvocationState.Queued) => true,
 		(AgentInvocationState.Running, AgentInvocationState.Failed) => true,
+		(AgentInvocationState.Queued, AgentInvocationState.LifecycleSuppressed) => true,
+		(AgentInvocationState.Running, AgentInvocationState.LifecycleSuppressed) => true,
 		_ => false,
 	};
 
@@ -27,5 +30,5 @@ public static class AgentStateTransitions
 	};
 
 	public static bool IsTerminal(AgentInvocationState state) =>
-		state is AgentInvocationState.Succeeded or AgentInvocationState.Failed;
+		state is AgentInvocationState.Succeeded or AgentInvocationState.Failed or AgentInvocationState.LifecycleSuppressed;
 }
