@@ -8,11 +8,13 @@ import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { createRecordingLineageAdapter } from '../../platform/adapters/recordingLineageAdapter';
 import { toPlatformFailure } from '../../platform/failure';
+import { isClubAdmin } from '../../session/roles';
 import { useSession } from '../../session/sessionContext';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { useUploads } from '../../uploads/uploadContext';
 import { AnalysisRunStates } from '../lineage/AnalysisRunStates';
 import { LineageSection } from '../lineage/LineageSection';
+import { SegmentsSection } from '../segments/SegmentsSection';
 import { FailureAlert } from '../shared/FailureAlert';
 import { TriageSection } from '../triage/TriageSection';
 import { AddRecordingsPanel } from '../uploads/AddRecordingsPanel';
@@ -80,6 +82,8 @@ export function MatchPage() {
   const { t } = useTranslation('matches');
   const { t: tc } = useTranslation('common');
   const { t: tl } = useTranslation('lineage');
+  const { session } = useSession();
+  const showSegments = Boolean(session?.member && isClubAdmin(session.member));
   const { match, team, permitted, editor, archived, canEdit } = useMatchContext(matchId);
   const m = match.data;
   const error = match.error ?? team.error;
@@ -138,6 +142,7 @@ export function MatchPage() {
           </Button>
           <RecordingsSection matchId={m.id} teamId={m.teamId} canUpload={canEdit} />
           <AnalysisRunStates matchId={m.id} teamId={m.teamId} />
+          {showSegments && <SegmentsSection matchId={m.id} />}
           <TriageSection matchId={m.id} canStart={editor} />
           <LineageSection matchId={m.id} />
         </>

@@ -93,7 +93,7 @@ neither the area nor causes any request.
 
 ### Match page mount and simulated evidence
 
-- [ ] T007 [US1] Mount `SegmentsSection` in `src/clients/web/src/features/matches/MatchPage.tsx` below the recordings
+- [x] T007 [US1] Mount `SegmentsSection` in `src/clients/web/src/features/matches/MatchPage.tsx` below the recordings
   and analysis run list and above the triage section, for a Club Admin of the owning club only (`isClubAdmin` from
   `src/clients/web/src/session/roles.ts`), with the unit test
   `src/clients/web/tests/unit/features/matches/MatchPageSegments.test.tsx` (Club Admin sees the area; Coach, Analyst,
