@@ -103,6 +103,101 @@ public sealed class AgentOrchestrationArchitectureTests
             $"Agent Orchestration persistence must not use another area's persistence types: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 
+    [Theory]
+    [InlineData("SocAlytics.Platform.Application.AgentOrchestration.Conversations", "ArchiveAgentConversationHandler")]
+    [InlineData("SocAlytics.Platform.Application.AgentOrchestration.Conversations", "UnarchiveAgentConversationHandler")]
+    [InlineData("SocAlytics.Platform.Application.AgentOrchestration.Conversations", "DeleteAgentConversationHandler")]
+    [InlineData("SocAlytics.Platform.Application.AgentOrchestration.Execution", "PurgeAgentConversationHandler")]
+    [InlineData("SocAlytics.Platform.Application.AgentOrchestration.Execution", "ReconcileAgentWorkHandler")]
+    public void Lifecycle_handlers_live_in_the_application_layer_and_use_stores_only_through_interfaces(string expectedNamespace, string name)
+    {
+        var application = Assembly.Load(new AssemblyName("SocAlytics.Platform.Application"));
+        var handler = application.GetTypes().SingleOrDefault(type => type.Name == name);
+
+        handler.ShouldNotBeNull();
+        handler.Namespace.ShouldBe(expectedNamespace);
+        handler.IsPublic.ShouldBeTrue();
+        handler.IsSealed.ShouldBeTrue();
+
+        var result = Types.InAssembly(application)
+            .That()
+            .HaveName(name)
+            .ShouldNot()
+            .HaveDependencyOnAny("SocAlytics.Platform.Infrastructure", "Npgsql", "Dapper", "NATS")
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue($"{name} must not depend on infrastructure types.");
+    }
+
+    [Fact]
+    public void Conversation_and_invocation_stores_are_implemented_only_by_internal_persistence_types()
+    {
+        var infrastructure = Assembly.Load(new AssemblyName("SocAlytics.Platform.Infrastructure"));
+        var application = Assembly.Load(new AssemblyName("SocAlytics.Platform.Application"));
+        var storeInterfaces = new[]
+        {
+            application.GetType("SocAlytics.Platform.Application.AgentOrchestration.IAgentConversationStore", throwOnError: true)!,
+            application.GetType("SocAlytics.Platform.Application.AgentOrchestration.IAgentInvocationStore", throwOnError: true)!,
+            application.GetType("SocAlytics.Platform.Application.AgentOrchestration.IAgentAttemptStore", throwOnError: true)!,
+        };
+
+        foreach (var storeInterface in storeInterfaces)
+        {
+            var implementations = infrastructure.GetTypes().Where(type => type.IsClass && storeInterface.IsAssignableFrom(type)).ToArray();
+
+            implementations.ShouldNotBeEmpty($"{storeInterface.Name} has no implementation.");
+            foreach (var implementation in implementations)
+            {
+                implementation.Namespace.ShouldBe(PersistenceNamespace, $"{implementation.Name} implements {storeInterface.Name} outside the Agent Orchestration persistence namespace.");
+                implementation.IsPublic.ShouldBeFalse($"{implementation.Name} must be internal.");
+            }
+        }
+    }
+
+    [Fact]
+    public void Agent_orchestration_stores_are_the_sole_writers_of_their_tables()
+    {
+        // Workers, scope sources, and every other Infrastructure type reach the tables only through Application handlers.
+        var result = Types.InAssembly(Assembly.Load(new AssemblyName("SocAlytics.Platform.Infrastructure")))
+            .That()
+            .DoNotResideInNamespaceStartingWith(PersistenceNamespace)
+            .And()
+            .DoNotHaveName("InfrastructureServiceCollectionExtensions")
+            .And()
+            .DoNotHaveNameStartingWith("<>")
+            .ShouldNot()
+            .HaveDependencyOnAny(
+                "SocAlytics.Platform.Application.AgentOrchestration.IAgentConversationStore",
+                "SocAlytics.Platform.Application.AgentOrchestration.IAgentInvocationStore",
+                "SocAlytics.Platform.Application.AgentOrchestration.IAgentAttemptStore")
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue(
+            $"Only the Agent Orchestration persistence types may use its stores: {string.Join(", ", result.FailingTypeNames ?? [])}");
+    }
+
+    [Theory]
+    [InlineData("AgentConversationPurgeWorker", "PurgeAgentConversationHandler")]
+    [InlineData("AgentWorkReconciliationWorker", "ReconcileAgentWorkHandler")]
+    public void Lifecycle_workers_are_internal_and_drive_their_application_handler(string workerName, string handlerName)
+    {
+        var infrastructure = Assembly.Load(new AssemblyName("SocAlytics.Platform.Infrastructure"));
+        var worker = infrastructure.GetTypes().SingleOrDefault(type => type.Name == workerName);
+
+        worker.ShouldNotBeNull();
+        worker.Namespace.ShouldBe("SocAlytics.Platform.Infrastructure.Workers");
+        worker.IsPublic.ShouldBeFalse();
+
+        var result = Types.InAssembly(infrastructure)
+            .That()
+            .HaveName(workerName)
+            .Should()
+            .HaveDependencyOn($"SocAlytics.Platform.Application.AgentOrchestration.Execution.{handlerName}")
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue($"{workerName} must run {handlerName}.");
+    }
+
     [Fact]
     public void The_simulated_agent_workload_references_no_production_project()
     {
