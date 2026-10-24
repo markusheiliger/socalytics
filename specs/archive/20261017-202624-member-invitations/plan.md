@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-202624-member-invitations` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261017-202624-member-invitations/spec.md`
+**Input**: Feature specification from `/specs/archive/20261017-202624-member-invitations/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -18,7 +18,7 @@ creates the active member with the verified address and the invited team roles i
 session. Club Admins list invitations (pending, expired, accepted, revoked) and resend or revoke them conditionally on
 the version. Link lifetime, resend limit, and per-client token limit are configuration with development values. The
 worker-issued token, check-then-complete pattern, and per-client token limit reuse the mechanics of
-[Self-Service Password Recovery](../archive/20261017-200823-password-recovery/plan.md). See [research.md](research.md).
+[Self-Service Password Recovery](../20261017-200823-password-recovery/plan.md). See [research.md](research.md).
 
 ## Technical Context
 
@@ -56,7 +56,7 @@ API operations, one members-area section with a dialog, one public page, one mes
 
 | Principle | Gate | Result |
 | --- | --- | --- |
-| I. Architecture Is the Design Authority | The feature implements the invitation account message of [Email Notifications](../../docs/architecture/email-notifications.md), the club-user management of [Terminology](../../docs/architecture/terminology-and-principles.md#terminology) and [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui), and the member rules of [API And Identity](../../docs/architecture/platform-implementation.md#api-and-identity); design decisions not yet stated there are applied now as decided but not implemented (see Architecture Updates). | Pass |
+| I. Architecture Is the Design Authority | The feature implements the invitation account message of [Email Notifications](../../../docs/architecture/email-notifications.md), the club-user management of [Terminology](../../../docs/architecture/terminology-and-principles.md#terminology) and [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui), and the member rules of [API And Identity](../../../docs/architecture/platform-implementation.md#api-and-identity); design decisions not yet stated there are applied now as decided but not implemented (see Architecture Updates). | Pass |
 | II. Respect Source-Area Ownership | Code lives in `src/platform/` (Domain, Application, Infrastructure, Api, Tests) and `src/clients/web/`; no new first-level area or project. | Pass |
 | III. API-First Control Plane | The Web UI uses six new `/api/v1` operations through its generated client and adapters; the OpenAPI snapshot is refreshed; the UI holds no invitation rules beyond input checks. | Pass |
 | IV. Evidence Over Claims | Integration tests cover creation, conflicts, delivery, token lifecycle, acceptance, resend, revoke, expiry, limits, authorization, and audit privacy; Web UI unit and Playwright tests cover the members area and the invitation page; development values are not presented as production values. | Pass |
@@ -69,25 +69,25 @@ Post-design re-check: unchanged, all gates pass. No Complexity Tracking entries.
 
 **Narratives** (implemented or changed by this feature):
 
-- [Email Notifications → Purpose And Scope](../../docs/architecture/email-notifications.md#purpose-and-scope),
-  [Notification Preferences](../../docs/architecture/email-notifications.md#notification-preferences),
-  [Message Content](../../docs/architecture/email-notifications.md#message-content),
-  [Delivery](../../docs/architecture/email-notifications.md#delivery),
-  [Member Invitations](../../docs/architecture/email-notifications.md#member-invitations) (added now),
-  [Security And Governance](../../docs/architecture/email-notifications.md#security-and-governance), and
-  [Production Values](../../docs/architecture/email-notifications.md#production-values): the invitation account
+- [Email Notifications → Purpose And Scope](../../../docs/architecture/email-notifications.md#purpose-and-scope),
+  [Notification Preferences](../../../docs/architecture/email-notifications.md#notification-preferences),
+  [Message Content](../../../docs/architecture/email-notifications.md#message-content),
+  [Delivery](../../../docs/architecture/email-notifications.md#delivery),
+  [Member Invitations](../../../docs/architecture/email-notifications.md#member-invitations) (added now),
+  [Security And Governance](../../../docs/architecture/email-notifications.md#security-and-governance), and
+  [Production Values](../../../docs/architecture/email-notifications.md#production-values): the invitation account
   message, its pending record, token, acceptance, administration, limits, audit events, and production values.
-- [Platform Implementation Profile → API And Identity](../../docs/architecture/platform-implementation.md#api-and-identity):
+- [Platform Implementation Profile → API And Identity](../../../docs/architecture/platform-implementation.md#api-and-identity):
   invitations beside direct member creation with handed-over credentials.
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): club-user management with
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): club-user management with
   invitations in the members area and the public invitation page.
-- [Architectural Principles → Terminology](../../docs/architecture/terminology-and-principles.md#terminology): Club
+- [Architectural Principles → Terminology](../../../docs/architecture/terminology-and-principles.md#terminology): Club
   administrators add club users directly or by invitation.
-- [Security and Data Governance](../../docs/architecture/security-and-data-governance.md): `DAT-001` (pending
+- [Security and Data Governance](../../../docs/architecture/security-and-data-governance.md): `DAT-001` (pending
   invitations with invited addresses), `THR-012` in the
-  [Threat Model](../../docs/architecture/security-and-data-governance.md#threat-model),
-  [Audit Events](../../docs/architecture/security-and-data-governance.md#audit-events), and `GOV-CRED-001`.
-- [Production Deployment and Operations → Versioned Production Profile](../../docs/architecture/production-operations.md#versioned-production-profile):
+  [Threat Model](../../../docs/architecture/security-and-data-governance.md#threat-model),
+  [Audit Events](../../../docs/architecture/security-and-data-governance.md#audit-events), and `GOV-CRED-001`.
+- [Production Deployment and Operations → Versioned Production Profile](../../../docs/architecture/production-operations.md#versioned-production-profile):
   the Email row.
 
 **Design updates** (applied now to the owning narratives, worded as decided but not yet implemented; the
@@ -120,7 +120,7 @@ implementation turns each into present tense)
 **Status statements at merge** (each must become true for the merged state)
 
 - `email-notifications.md` intro: "Self-service password recovery and invitations are not implemented" (or, if
-  [Self-Service Password Recovery](../archive/20261017-200823-password-recovery/plan.md) merged first, its rewrite) →
+  [Self-Service Password Recovery](../20261017-200823-password-recovery/plan.md) merged first, its rewrite) →
   invitations are implemented as development evidence against the local mail catcher.
 - `email-notifications.md` Purpose And Scope: "each through its own later specification, self-service password
   recovery and invitations" and "invitations are decided as described in Member Invitations and not yet implemented"
@@ -150,7 +150,7 @@ re-reading the documents at implementation time (including `README.md` summaries
 ### Documentation (this feature)
 
 ```text
-specs/20261017-202624-member-invitations/
+specs/archive/20261017-202624-member-invitations/
 ├── plan.md
 ├── research.md
 ├── data-model.md
@@ -211,6 +211,6 @@ no project. `PersistedTableClassifications` classifies the team-role table as a 
 links table as unversioned. The OpenAPI snapshot is refreshed with
 `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests`
 during implementation, never in the verification environment. Where
-[Self-Service Password Recovery](../archive/20261017-200823-password-recovery/plan.md) merges first, its shared pieces
+[Self-Service Password Recovery](../20261017-200823-password-recovery/plan.md) merges first, its shared pieces
 (fragment-token page pattern, anonymous JSON-only token endpoints) are reused; where this feature merges first, it
 builds the same pieces on the email confirmation implementation.

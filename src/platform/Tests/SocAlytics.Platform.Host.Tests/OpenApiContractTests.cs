@@ -107,7 +107,7 @@ public sealed class OpenApiContractTests
 		path.StartsWith("/api/v1/password-recovery/", StringComparison.Ordinal);
 
 	// Invitation operations are verified against
-	// specs/20261017-202624-member-invitations/contracts/member-invitations-api.md, not against the Club contract.
+	// specs/archive/20261017-202624-member-invitations/contracts/member-invitations-api.md, not against the Club contract.
 	private static bool IsInvitationPath(string path) =>
 		path == "/api/v1/invitations"
 		|| path.StartsWith("/api/v1/invitations/", StringComparison.Ordinal);

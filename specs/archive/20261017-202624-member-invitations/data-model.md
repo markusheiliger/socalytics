@@ -1,6 +1,6 @@
 # Data Model: Member Invitations by Email
 
-Persistence follows the platform conventions in [src/platform/README.md](../../src/platform/README.md): forward-only DbUp
+Persistence follows the platform conventions in [src/platform/README.md](../../../src/platform/README.md): forward-only DbUp
 migrations, one migration file numbered at implementation time as the next free number
 (`NNNN_identityaccess_member_invitations.sql`), `socalytics.attach_version_trigger` for versioned tables,
 `socalytics.attach_aggregate_child_triggers` for child tables, and a `PersistedTableClassifications` entry for every
