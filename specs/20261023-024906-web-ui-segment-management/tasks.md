@@ -151,9 +151,14 @@ reports zero purged.
 - [ ] T013 [US2] Create `src/clients/web/tests/e2e/platform/segments.spec.ts` (real `failed` segment from an uploaded
   file that is not decodable media with the platform-reported reason, real `available` segment from a tiny MP4 generated
   with the pinned `ffmpeg` lavfi source in the test's temporary folder, confirmed purge returning unused segments to
-  `absent` with the reported counts and the re-read list, repeat purge reporting zero, a non-admin member seeing no
-  area, and in-use paths asserted only if the scripted Manager holds a job; in-use behaviour is evidenced by the
-  simulated project, so this conditional platform assertion is not a gap). Because the materialization worker retries
+  `absent` with the reported counts and the re-read list, repeat purge reporting zero, and a non-admin member seeing no
+  area). The real `available` segment is pinned into the waiting job of the run the finalized upload created, which no
+  Manager completes in this project, so the platform marks it `In use` and a purge keeps it (failed attempt 2 of this
+  task asserted `Not in use` and found `In use`): assert the `In use` marker and the kept count first (real in-use
+  evidence), then cancel the run on the match page as `run-cancellation.spec.ts` does so the job is terminal, refresh
+  the list, and assert `Not in use` before the purge that returns the segment to `absent`; never assume an available
+  segment is unused and never count only on rows present at one instant (failed attempt 1 counted purgeable plus in-use
+  rows as zero), wait with a bounded refresh until the expected rows exist. Because the materialization worker retries
   (`Segments:Materialization` `MaxAttempts` and `RetryDelay`) and the area never polls, the test clicks the refresh
   action with a bounded wait until the segment is `failed`, and the e2e AppHost uses a short materialization retry
   configuration if one is needed. Register the chained project
