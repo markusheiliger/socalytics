@@ -66,7 +66,7 @@ yields an accepted empty result, and repeated runs are byte-identical.
 
 ### Implementation for User Story 1
 
-- [ ] T010 [P] [US1] Create `<cap>/schemas/shot-boundary.payload.schema.json` for the payload of [contracts/shot-boundary-fact.md](contracts/shot-boundary-fact.md) (`rule`, `changeMeasure` 0 to 255, `hardThreshold`, optional `adaptiveFloor`, `adaptiveRatio`, `contextMean` required together for adaptive cuts, `frameIndex` integer `>= 1`, `previousShotLastFrameMs` integer or null, `settings`), `additionalProperties` false
+- [x] T010 [P] [US1] Create `<cap>/schemas/shot-boundary.payload.schema.json` for the payload of [contracts/shot-boundary-fact.md](contracts/shot-boundary-fact.md) (`rule`, `changeMeasure` 0 to 255, `hardThreshold`, optional `adaptiveFloor`, `adaptiveRatio`, `contextMean` required together for adaptive cuts, `frameIndex` integer `>= 1`, `previousShotLastFrameMs` integer or null, `settings`), `additionalProperties` false
 - [x] T011 [P] [US1] Create `<cap>/src/media_context_classification/facts.py`: convert a boundary to a `Fact` (kind `shot-boundary`, range per FR-007, confidence from settings, payload with provenance `settings`, adaptive fields only for `adaptive-cut`)
 
 ### Hard-cut detector and entry point
