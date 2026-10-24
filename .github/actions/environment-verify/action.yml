@@ -142,7 +142,7 @@ runs:
           analyst_lines="$(node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));for(const p of r.projects)console.log("S "+p.root);for(const c of r.covered)console.log("C "+c)' <<< "$analyst_output")"
           analyst_selected="$(sed -n 's/^S //p' <<< "$analyst_lines")"
           while IFS= read -r analyst_root; do
-            [ -n "$analyst_root" ] && COVERED+=("^$(sed 's/[][\.*^$]/\\&/g' <<< "$analyst_root")/")
+            [ -n "$analyst_root" ] && COVERED+=("^$(sed 's/[][(){}.^$?+*|\\]/\\&/g' <<< "$analyst_root")/")
           done < <(sed -n 's/^C //p' <<< "$analyst_lines")
         fi
 
@@ -158,7 +158,7 @@ runs:
           agent_lines="$(node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));for(const p of r.projects)console.log("S "+p.root);for(const c of r.covered)console.log("C "+c)' <<< "$agent_output")"
           agent_selected="$(sed -n 's/^S //p' <<< "$agent_lines")"
           while IFS= read -r agent_root; do
-            [ -n "$agent_root" ] && COVERED+=("^$(sed 's/[][\.*^$]/\\&/g' <<< "$agent_root")/")
+            [ -n "$agent_root" ] && COVERED+=("^$(sed 's/[][(){}.^$?+*|\\]/\\&/g' <<< "$agent_root")/")
           done < <(sed -n 's/^C //p' <<< "$agent_lines")
         fi
 

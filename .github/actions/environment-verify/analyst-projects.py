@@ -150,12 +150,16 @@ def unrecognized_manifests(root, recognized, area="analysts"):
     return found
 
 
-def requirement_names(data):
+def requirement_entries(data):
     entries = list(data.get("project", {}).get("dependencies", []) or [])
     for values in (data.get("project", {}).get("optional-dependencies", {}) or {}).values():
         entries.extend(values)
     for values in (data.get("dependency-groups", {}) or {}).values():
         entries.extend(value for value in values if isinstance(value, str))
+    return entries
+
+
+def requirement_names(entries):
     names = set()
     for entry in entries:
         if isinstance(entry, str):
@@ -221,7 +225,16 @@ def load_project(root, relative, python_version, errors, area="analysts"):
         fail("project convention", "[tool.uv].package = false disables the required package build")
         healthy = False
 
-    required = requirement_names(data)
+    entries = requirement_entries(data)
+    required = requirement_names(entries)
+    if area == "agents":
+        for entry in entries:
+            if isinstance(entry, str) and re.match(
+                r"\s*[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?\s*@\s*\S+", entry
+            ):
+                fail("project convention",
+                     f"direct reference requirement {entry!r} is not supported; use a validated [tool.uv.sources] path")
+                healthy = False
     dependencies = []
     sources = uv.get("sources") or {}
     if not isinstance(sources, dict):

@@ -18,11 +18,22 @@ const repository = () => {
   return directory;
 };
 
-function manifest({ name, requiresPython = '>=3.11', dependencies = [], sources = {}, extra = '', build = true } = {}) {
+function manifest({
+  name, requiresPython = '>=3.11', dependencies = [], optionalDependencies = {}, dependencyGroups = {},
+  sources = {}, extra = '', build = true,
+} = {}) {
   const lines = ['[project]'];
   if (name !== undefined) lines.push(`name = "${name}"`);
   if (requiresPython !== null) lines.push(`requires-python = "${requiresPython}"`);
   lines.push(`dependencies = [${dependencies.map((value) => `"${value}"`).join(', ')}]`);
+  if (Object.keys(optionalDependencies).length) {
+    lines.push('', '[project.optional-dependencies]');
+    for (const [key, values] of Object.entries(optionalDependencies)) lines.push(`${key} = [${values.map((value) => `"${value}"`).join(', ')}]`);
+  }
+  if (Object.keys(dependencyGroups).length) {
+    lines.push('', '[dependency-groups]');
+    for (const [key, values] of Object.entries(dependencyGroups)) lines.push(`${key} = [${values.map((value) => `"${value}"`).join(', ')}]`);
+  }
   if (build) lines.push('', '[build-system]', 'requires = ["hatchling"]', 'build-backend = "hatchling.build"');
   if (Object.keys(sources).length) {
     lines.push('', '[tool.uv.sources]');
@@ -959,6 +970,18 @@ it('${id}', () => {
         assert.equal(present.calls.length, 0);
       });
 
+      it('matches agent coverage roots literally when the folder name contains ERE metacharacters', () => {
+        const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+        project(root, 'src/agents/mcp+server', { name: 'mcp-server' });
+        const result = run(root, {
+          mode: 'task',
+          changed: ['src/agents/mcp+server/agent.py', 'src/agents/mcpserver/unowned.py'],
+        });
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.outputs.checks, 'Agent Python projects');
+        assert.equal(result.outputs.uncovered, 'src/agents/mcpserver/unowned.py');
+      });
+
       const invalid = [
         ['a missing lock', 'src/agents/mcp', (root) => project(root, 'src/agents/mcp', { name: 'mcp' }, { lock: false })],
         ['the area-root manifest', 'src/agents/pyproject.toml', (root) => { project(root, 'src/agents', { name: 'area' }); project(root, 'src/agents/mcp', { name: 'mcp' }); }],
@@ -1318,6 +1341,9 @@ describe('agents area discovery', () => {
       [{ name: 'a', dependencies: ['other'], extra: '[tool.uv.sources]\nother = { git = "https://example.test/x.git" }' }, /must be a path/],
       [{ name: 'a', sources: { other: '../other' } }, /not in the project requirements/],
       [{ name: 'a', dependencies: ['other'], sources: { other: '../missing' } }, /has no project/],
+      [{ name: 'a', dependencies: ['sdk @ file:///repo/src/analysts/sdk'] }, /direct reference requirement/],
+      [{ name: 'a', optionalDependencies: { test: ['sdk @ file:///repo/src/analysts/sdk'] } }, /direct reference requirement/],
+      [{ name: 'a', dependencyGroups: { dev: ['sdk @ file:///repo/src/analysts/sdk'] } }, /direct reference requirement/],
     ];
     for (const [options, pattern] of cases) {
       const root = repository();
