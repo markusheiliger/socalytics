@@ -32,7 +32,7 @@ description: "Task list for Web UI Materialized Segment Management for Club Admi
   `PurgeOutcome` as specified in `specs/20261023-024906-web-ui-segment-management/data-model.md` (`state` is
   `'absent' | 'materializing' | 'available' | 'failed'` with unknown platform values kept as reported text;
   `mediaSizeBytes`, `failureReason`, and `availableAt` are `undefined` when not reported)
-- [ ] T002 [P] Create the `segments` translation namespace `src/clients/web/src/i18n/en/segments.json` (area title and
+- [x] T002 [P] Create the `segments` translation namespace `src/clients/web/src/i18n/en/segments.json` (area title and
   caption, loading, empty ("segments are created on demand when an analysis needs them"), not-permitted, error with
   retry, offline, summary, column headers (the segment number column labelled "Segment number"), an area note that
   purged segments are rematerialized on demand, the four state names, in-use and not-in-use, "not reported", refresh, purge
