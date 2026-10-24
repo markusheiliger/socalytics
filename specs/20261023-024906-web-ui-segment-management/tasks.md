@@ -126,7 +126,7 @@ reports zero purged.
   are rematerialized on demand, with the unit test
   `src/clients/web/tests/unit/features/segments/PurgeSegmentsDialog.test.tsx` (cancel sends nothing, single request,
   outcome, zero purged, refusal and `503`, in-progress, focus)
-- [ ] T010 [P] [US2] Add to `src/platform/SocAlytics.Platform.AppHost/Program.cs`, in the existing e2e-mode block only,
+- [x] T010 [P] [US2] Add to `src/platform/SocAlytics.Platform.AppHost/Program.cs`, in the existing e2e-mode block only,
   the environment value `Analysis__DefaultWorkflow__Nodes__0__VideoPolicy=optional` on the API so that finalizing an
   uploaded recording set requests segments (`research.md` R4); the value applies to the whole e2e AppHost, so the
   earlier chained platform projects must still pass with it (verified in T017); no other mode and no production code

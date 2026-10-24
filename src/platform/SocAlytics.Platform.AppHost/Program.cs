@@ -143,6 +143,9 @@ if (e2eMode)
     // The e2e API has no HTTPS endpoint; the scripted Analyst Manager declares the scheme through X-Forwarded-Proto.
     api.WithEnvironment("ASPNETCORE_FORWARDEDHEADERS_ENABLED", "true");
 
+    // Finalizing an uploaded recording set requests segments only for nodes whose pinned video policy is not none.
+    api.WithEnvironment("Analysis__DefaultWorkflow__Nodes__0__VideoPolicy", "optional");
+
     // The test OpenID Connect provider issues an ID token for a fixed subject without an interactive login. It listens on a
     // fixed port so the issuer is the same for the browser and the API.
     var testProvider = builder.AddContainer("oidc-provider", "ghcr.io/navikt/mock-oauth2-server")
