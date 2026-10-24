@@ -5,7 +5,7 @@ description: "Task list for Evidence Clip Access"
 
 # Tasks: Evidence Clip Access
 
-**Input**: Design documents from `specs/20261017-224326-evidence-clip-access/`
+**Input**: Design documents from `specs/archive/20261017-224326-evidence-clip-access/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)

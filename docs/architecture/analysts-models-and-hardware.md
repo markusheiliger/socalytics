@@ -381,7 +381,7 @@ counts nor metadata establish equal full inputs, equivalent outputs or quality.
 
 The evidence of those facts is resolvable to video by the same members, as
 development evidence (see
-[Evidence Clip Access](../../specs/20261017-224326-evidence-clip-access/spec.md)):
+[Evidence Clip Access](../../specs/archive/20261017-224326-evidence-clip-access/spec.md)):
 a member-facing `/api/v1` operation resolves one indexed fact of a run (with
 optional, bounded context before and after it) or an explicit, bounded
 match-time range of the run to ordered parts. Parts come only from the run's

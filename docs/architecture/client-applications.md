@@ -130,7 +130,7 @@ input snapshots.
 
 Evidence playback in the analysis review is implemented as development
 evidence as follows (see
-[Evidence Clip Access](../../specs/20261017-224326-evidence-clip-access/spec.md)).
+[Evidence Clip Access](../../specs/archive/20261017-224326-evidence-clip-access/spec.md)).
 Each fact offers "Play evidence": the Web UI resolves the fact with five
 seconds of context on each side through the member evidence-media operation of
 [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access)
