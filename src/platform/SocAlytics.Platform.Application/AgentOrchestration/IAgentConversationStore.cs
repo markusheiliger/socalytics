@@ -117,10 +117,16 @@ public interface IAgentConversationStore
     Task<ConversationTransitionResult> DeleteAsync(
         NewAgentConversationDeletion deletion, long expectedVersion, CancellationToken cancellationToken);
 
+    // Sets state deleted on a tombstoned conversation that is in another state; returns whether a row changed.
+    Task<bool> ReassertDeletedAsync(Guid conversationId, CancellationToken cancellationToken);
+
     Task<AgentConversationTombstoneRecord?> FindTombstoneAsync(Guid conversationId, CancellationToken cancellationToken);
 
     // Creates the missing purge records of a tombstoned conversation as pending; existing records are kept.
     Task EnsurePurgeRecordsAsync(Guid conversationId, DateTimeOffset now, CancellationToken cancellationToken);
+
+    // Creates the missing purge records of every tombstone (at most limit conversations per call) as pending.
+    Task EnsureMissingPurgeRecordsAsync(int limit, DateTimeOffset now, CancellationToken cancellationToken);
 
     // Locks due pending purge records for the transaction (FOR UPDATE SKIP LOCKED).
     Task<IReadOnlyList<AgentPurgeRecord>> ClaimDuePurgesAsync(DateTimeOffset now, int limit, CancellationToken cancellationToken);

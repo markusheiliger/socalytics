@@ -307,6 +307,16 @@ internal sealed class AgentConversationStore(IDbSession session, IOutbox outbox)
         return new ConversationTransitionResult(ConversationTransitionOutcome.Applied, row.Version);
     }
 
+    public async Task<bool> ReassertDeletedAsync(Guid conversationId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var changed = await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE socalytics.agent_conversations SET state = 'deleted' WHERE id = @conversationId AND state <> 'deleted'",
+            new { conversationId }, transaction, cancellationToken: cancellationToken));
+        return changed > 0;
+    }
+
     public async Task<AgentConversationTombstoneRecord?> FindTombstoneAsync(Guid conversationId, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);
@@ -340,6 +350,23 @@ internal sealed class AgentConversationStore(IDbSession session, IOutbox outbox)
             ON CONFLICT (conversation_id, copy) DO NOTHING
             """,
             new { conversationId, now }, transaction, cancellationToken: cancellationToken));
+    }
+
+    public async Task EnsureMissingPurgeRecordsAsync(int limit, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO socalytics.agent_conversation_purges (conversation_id, copy, state, attempts, next_attempt_at, updated_at)
+            SELECT t.conversation_id, c.copy, 'pending', 0, @now, @now
+            FROM (SELECT conversation_id FROM socalytics.agent_conversation_tombstones t
+                  WHERE (SELECT count(*) FROM socalytics.agent_conversation_purges p WHERE p.conversation_id = t.conversation_id) < 2
+                  ORDER BY deleted_at, conversation_id LIMIT @limit) t
+            CROSS JOIN (VALUES ('primary'), ('index')) AS c (copy)
+            ON CONFLICT (conversation_id, copy) DO NOTHING
+            """,
+            new { limit, now }, transaction, cancellationToken: cancellationToken));
     }
 
     private const string PurgeSelect =
