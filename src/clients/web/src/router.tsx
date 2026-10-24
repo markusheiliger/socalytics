@@ -7,6 +7,7 @@ import { PasswordChangePage } from './features/account/PasswordChangePage';
 import { AnalysisRunPage } from './features/analysis/AnalysisRunPage';
 import { ClubPage } from './features/club/ClubPage';
 import { HomePage } from './features/home/HomePage';
+import { InvitationAcceptPage } from './features/invitations/InvitationAcceptPage';
 import { ConversationPage } from './features/triage/ConversationPage';
 import { FinalizePage } from './features/lineage/FinalizePage';
 import { RecordingVersionPage } from './features/lineage/RecordingVersionPage';
@@ -84,6 +85,7 @@ export const appRoutes: RouteObject[] = [
     ],
   },
   { path: '/password-recovery/complete', element: <PasswordRecoveryCompletePage /> },
+  { path: '/invitations/accept', element: <InvitationAcceptPage /> },
   { path: '/set-password', element: <SetPasswordPage /> },
   { path: '/link-account', element: <LinkAccountPage /> },
   { path: '/email/confirm', element: <EmailConfirmPage /> },

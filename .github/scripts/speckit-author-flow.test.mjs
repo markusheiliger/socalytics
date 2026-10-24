@@ -83,7 +83,7 @@ function fakeGit({ upstream = 'origin/main', published = false, committed = fals
 }
 
 const TWINS = [
-  { number: 154, title: 'Member Invitations', state: 'OPEN', labels: [{ name: 'speckit:spec' }, { name: 'speckit:stage:implementing' }], body: '**Spec**: [`specs/20261017-202624-member-invitations`](https://example)' },
+  { number: 154, title: 'Member Invitations', state: 'OPEN', labels: [{ name: 'speckit:spec' }, { name: 'speckit:stage:implementing' }], body: '**Spec**: [`specs/archive/20261017-202624-member-invitations`](https://example)' },
 ];
 const fakeGh = (status = 0) => () => ({ status, stdout: status === 0 ? JSON.stringify(TWINS) : '', stderr: '' });
 

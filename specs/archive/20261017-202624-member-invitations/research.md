@@ -1,7 +1,7 @@
 # Research: Member Invitations by Email
 
 All Technical Context items are resolved from the architecture, the existing code, the clarifications in
-[spec.md](spec.md), and the mechanics that [Self-Service Password Recovery](../archive/20261017-200823-password-recovery/research.md)
+[spec.md](spec.md), and the mechanics that [Self-Service Password Recovery](../20261017-200823-password-recovery/research.md)
 defines for the same email channel. No new framework, SDK, or tool is needed.
 
 ## R1 - Invitation as a separate record
@@ -39,14 +39,14 @@ defines for the same email channel. No new framework, SDK, or tool is needed.
 
 - **Decision**: A new unversioned table `member_invitation_links`, modelled on `email_confirmations`: creation and
   every resend create a `pending` link and mark the invitation's open links `superseded`. The invitation message is an
-  `email_messages` row of the new type `member-invitation` with a new nullable column `invitation_link_id`;
+  `email_messages` row of the new type `member-invitation` with a new nullable column `invitation_ref`;
   `account_id` becomes nullable with a check that exactly the invitation type has no account and a link.
   `EmailDeliveryProcessor` handles the type like confirmations: it re-checks that the link is still `pending` or
   `issued`, that its invitation is still `pending`, and that the address hash matches, then generates a token with
   `ConfirmationTokens`, stores its hash and expiry on the link (`Invitations:LinkLifetime`), and sends to the
   invitation's address. The link is
   `<Web UI base address>/invitations/accept#token=<token>`, built like the recovery link of
-  [Self-Service Password Recovery](../archive/20261017-200823-password-recovery/contracts/password-recovery-api.md).
+  [Self-Service Password Recovery](../20261017-200823-password-recovery/contracts/password-recovery-api.md).
 - **Rationale**: FR-005, FR-006, and FR-008: same worker-issued, hash-only, fragment-carried token as verification
   and recovery; a resend supersedes the earlier link, so an earlier unsent message is discarded and an earlier
   sent link fails. Keeping links out of the versioned invitation keeps delivery from changing its version.
@@ -102,7 +102,7 @@ defines for the same email channel. No new framework, SDK, or tool is needed.
   or `password-policy`). Resource `invitation` with the invitation id; details carry `maskedAddress` where an address
   is involved. Detail keys are added to the `PostgresAuditTrail` allow-list.
 - **Rationale**: FR-019 and the masked-address rule of
-  [Email Notifications → Security And Governance](../../docs/architecture/email-notifications.md#security-and-governance).
+  [Email Notifications → Security And Governance](../../../docs/architecture/email-notifications.md#security-and-governance).
 - **Alternatives considered**: Auditing link checks (rejected: checks change nothing and are rate limited, as in
   recovery).
 

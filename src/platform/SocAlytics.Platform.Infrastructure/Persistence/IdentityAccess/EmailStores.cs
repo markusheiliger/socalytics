@@ -211,12 +211,12 @@ internal sealed class EmailMessageStore(IDbSession session) : IEmailMessageStore
         "id AS Id, notification_type AS NotificationType, account_id AS AccountId, address_hash AS AddressHash, " +
         "confirmation_id AS ConfirmationId, state AS State, attempt_count AS AttemptCount, next_attempt_at AS NextAttemptAt, " +
         "lease_until AS LeaseUntil, last_error_category AS LastErrorCategory, created_at AS CreatedAt, sent_at AS SentAt, " +
-        "password_recovery_id AS PasswordRecoveryId";
+        "password_recovery_id AS PasswordRecoveryId, invitation_ref AS InvitationRef";
 
     public async Task QueueAsync(NewEmailMessage message, CancellationToken cancellationToken) =>
         await ExecuteAsync(
-            "INSERT INTO socalytics.email_messages (id, notification_type, account_id, address_hash, confirmation_id, password_recovery_id, state, next_attempt_at, created_at) " +
-            "VALUES (@Id, @NotificationType, @AccountId, @AddressHash, @ConfirmationId, @PasswordRecoveryId, 'queued', @NextAttemptAt, @CreatedAt)",
+            "INSERT INTO socalytics.email_messages (id, notification_type, account_id, address_hash, confirmation_id, password_recovery_id, invitation_ref, state, next_attempt_at, created_at) " +
+            "VALUES (@Id, @NotificationType, @AccountId, @AddressHash, @ConfirmationId, @PasswordRecoveryId, @InvitationRef, 'queued', @NextAttemptAt, @CreatedAt)",
             message, cancellationToken);
 
     public async Task<StoredEmailMessage?> FindAsync(Guid id, CancellationToken cancellationToken)
@@ -242,7 +242,7 @@ internal sealed class EmailMessageStore(IDbSession session) : IEmailMessageStore
             "RETURNING m.id AS Id, m.notification_type AS NotificationType, m.account_id AS AccountId, m.address_hash AS AddressHash, " +
             "m.confirmation_id AS ConfirmationId, m.state AS State, m.attempt_count AS AttemptCount, m.next_attempt_at AS NextAttemptAt, " +
             "m.lease_until AS LeaseUntil, m.last_error_category AS LastErrorCategory, m.created_at AS CreatedAt, m.sent_at AS SentAt, " +
-            "m.password_recovery_id AS PasswordRecoveryId",
+            "m.password_recovery_id AS PasswordRecoveryId, m.invitation_ref AS InvitationRef",
             new { now, leaseUntil, limit }, transaction, cancellationToken: cancellationToken));
         return rows.Select(r => r.ToStored()).OrderBy(m => m.NextAttemptAt).ThenBy(m => m.Id).ToList();
     }
@@ -300,14 +300,14 @@ internal sealed class EmailMessageStore(IDbSession session) : IEmailMessageStore
     }
 
     private sealed record Row(
-        Guid Id, string NotificationType, Guid AccountId, string AddressHash, Guid? ConfirmationId, string State,
+        Guid Id, string NotificationType, Guid? AccountId, string AddressHash, Guid? ConfirmationId, string State,
         int AttemptCount, DateTime NextAttemptAt, DateTime? LeaseUntil, string? LastErrorCategory, DateTime CreatedAt,
-        DateTime? SentAt, Guid? PasswordRecoveryId)
+        DateTime? SentAt, Guid? PasswordRecoveryId, Guid? InvitationRef)
     {
         public StoredEmailMessage ToStored() =>
             new(Id, NotificationType, AccountId, AddressHash, ConfirmationId, State, AttemptCount,
                 EmailRows.Utc(NextAttemptAt), EmailRows.Utc(LeaseUntil), LastErrorCategory, EmailRows.Utc(CreatedAt),
-                EmailRows.Utc(SentAt), PasswordRecoveryId);
+                EmailRows.Utc(SentAt), PasswordRecoveryId, InvitationRef);
     }
 }
 

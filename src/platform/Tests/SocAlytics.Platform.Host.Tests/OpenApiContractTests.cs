@@ -58,7 +58,7 @@ public sealed class OpenApiContractTests
 		// Recording operations are verified by RecordingsOpenApiTests and Registry operations by
 		// RegistryOpenApiTests and AnalystRegistryOpenApiTests, not against the Club contract.
 		var operationCount = paths.EnumerateObject()
-			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name) && !IsExternalSignInPath(p.Name) && !IsPasswordRecoveryPath(p.Name) && !IsAgentOrchestrationPath(p.Name) && !IsMaterializedSegmentPath(p.Name))
+			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name) && !IsExternalSignInPath(p.Name) && !IsPasswordRecoveryPath(p.Name) && !IsInvitationPath(p.Name) && !IsAgentOrchestrationPath(p.Name) && !IsMaterializedSegmentPath(p.Name))
 			.Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
 		operationCount.ShouldBe(ContractOperations.All.Count);
 
@@ -105,6 +105,12 @@ public sealed class OpenApiContractTests
 	// specs/archive/20261017-200823-password-recovery/contracts/password-recovery-api.md, not against the Club contract.
 	private static bool IsPasswordRecoveryPath(string path) =>
 		path.StartsWith("/api/v1/password-recovery/", StringComparison.Ordinal);
+
+	// Invitation operations are verified against
+	// specs/archive/20261017-202624-member-invitations/contracts/member-invitations-api.md, not against the Club contract.
+	private static bool IsInvitationPath(string path) =>
+		path == "/api/v1/invitations"
+		|| path.StartsWith("/api/v1/invitations/", StringComparison.Ordinal);
 
 	// Materialized segment operations are verified by MaterializedSegmentEndpointTests against
 	// specs/archive/20261017-222433-materialized-segments/contracts/member-operations.md, not against the Club contract.

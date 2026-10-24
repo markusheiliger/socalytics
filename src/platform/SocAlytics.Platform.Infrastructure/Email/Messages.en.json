@@ -4,6 +4,11 @@
     "text": "An email address was added to a SocAlytics account for {clubName}.\n\nTo confirm it, open this link:\n{link}\n\nThe link is valid for {lifetime} and can be used once.\n\nIf you do nothing, nothing happens. You can ignore this message.\n",
     "html": "<p>An email address was added to a SocAlytics account for {clubName}.</p>\n<p>To confirm it, open this link:<br><a href=\"{link}\">{link}</a></p>\n<p>The link is valid for {lifetime} and can be used once.</p>\n<p>If you do nothing, nothing happens. You can ignore this message.</p>\n"
   },
+  "member-invitation": {
+    "subject": "You are invited to join {clubName} on SocAlytics",
+    "text": "You are invited to join {clubName} on SocAlytics.\n\nTo accept the invitation and set up your account, open this link:\n{link}\n\nThe link is valid for {lifetime} and can be used once.\n\nIf you did not expect this invitation, ignore this message. Nothing happens unless you open the link.\n",
+    "html": "<p>You are invited to join {clubName} on SocAlytics.</p>\n<p>To accept the invitation and set up your account, open this link:<br><a href=\"{link}\">{link}</a></p>\n<p>The link is valid for {lifetime} and can be used once.</p>\n<p>If you did not expect this invitation, ignore this message. Nothing happens unless you open the link.</p>\n"
+  },
   "password-recovery": {
     "subject": "Reset your SocAlytics password",
     "text": "A password reset was requested for a SocAlytics account that uses this email address.\n\nTo choose a new password, open this link:\n{link}\n\nThe link is valid for {lifetime} and can be used once.\n\nIf you did not request this, ignore this message. Your password stays unchanged.\n",

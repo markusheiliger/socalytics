@@ -66,6 +66,8 @@ internal static class PersistedTableClassifications
             ["agent_invocation_pins"] = TableClassification.Immutable,
             ["email_confirmations"] = TableClassification.Unversioned("single-use confirmation state; the state transition is the guard"),
             ["password_recoveries"] = TableClassification.Unversioned("single-use recovery state; the state transition is the guard"),
+            ["member_invitation_team_roles"] = TableClassification.ChildOf("member_invitations", "invitation_id"),
+            ["member_invitation_links"] = TableClassification.Unversioned("single-use invitation link state; the state transition is the guard"),
             ["notification_preferences"] = TableClassification.Unversioned("per-member preference rows upserted by key"),
             ["email_messages"] = TableClassification.Unversioned("operational email outbox; transitions guarded by row lock, lease, and state"),
             ["outbox_messages"] = TableClassification.Unversioned("operational publication record; transitions guarded by row lock and state"),
