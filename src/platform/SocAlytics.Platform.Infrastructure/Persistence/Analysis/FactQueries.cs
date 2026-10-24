@@ -161,6 +161,19 @@ internal sealed class FactQueries(IDbSession session) : IFactQueries
             rows.Count > query.PageSize);
     }
 
+    public async Task<FactTimeRange?> GetRunFactAsync(
+        Guid runId, Guid acceptedResultId, int ordinal, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<FactTimeRange>(new CommandDefinition(
+            """
+            SELECT start_ms AS StartMs, end_ms AS EndMs
+            FROM socalytics.analysis_indexed_facts
+            WHERE run_id = @runId AND accepted_result_id = @acceptedResultId AND ordinal = @ordinal
+            """,
+            new { runId, acceptedResultId, ordinal }, session.Transaction, cancellationToken: cancellationToken));
+    }
+
     public async Task<IReadOnlyDictionary<Guid, long>> CountFactsByNodeAsync(Guid runId, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);

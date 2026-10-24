@@ -30,11 +30,11 @@
 
 The actors are the club members who may read a match's analysis (Club Admins, and Coaches and Viewers of the team
 that owns the match), the platform that authorizes media access and asks the Segment Service of
-[Materialized Video Segments and Analyst Input Staging](../archive/20261017-222433-materialized-segments/spec.md) for segment
+[Materialized Video Segments and Analyst Input Staging](../20261017-222433-materialized-segments/spec.md) for segment
 media, and the browser that plays the media directly from object storage. The design follows the evidence rule of the
-[Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md), the `get_video_clip()` operation of
-[MCP Tools](../../docs/architecture/intelligence-and-agents.md#mcp-tools) (its API side only), and
-[S3 as Universal Data Plane](../../docs/architecture/terminology-and-principles.md#3-s3-as-universal-data-plane).
+[Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md), the `get_video_clip()` operation of
+[MCP Tools](../../../docs/architecture/intelligence-and-agents.md#mcp-tools) (its API side only), and
+[S3 as Universal Data Plane](../../../docs/architecture/terminology-and-principles.md#3-s3-as-universal-data-plane).
 
 ### User Story 1 - Resolve a fact's evidence to short-lived media access (Priority: P1)
 
@@ -215,7 +215,7 @@ caches or browser storage afterwards.
 
 - **FR-001**: The platform MUST provide a member-facing `/api/v1` operation that resolves the evidence of one
   accepted, indexed fact of a run, identified as the fact read of
-  [Accepted Fact Indexing and Capability-Scoped Fact Queries](../archive/20261017-175648-fact-indexing-queries/spec.md)
+  [Accepted Fact Indexing and Capability-Scoped Fact Queries](../20261017-175648-fact-indexing-queries/spec.md)
   identifies it (accepted result and position), to the media pieces that cover the fact's half-open match-time range.
   A fact resolution MAY ask for context before and after the fact, each at most the configured maximum context
   (development 10 seconds); the requested range then starts at the fact's start minus the context before (not below
@@ -225,7 +225,7 @@ caches or browser storage afterwards.
   configured maximum evidence duration (development 10 minutes), and is rejected as invalid otherwise.
 - **FR-003**: The platform MUST derive the covering segments only from the run's own finalized recording-set version,
   timeline mappings, and pinned segmentation policy, using the nominal windows and coverage clipping of the
-  [Segment Contract](../../docs/architecture/match-data-pipeline.md#segment-contract); it MUST NOT mix media of other
+  [Segment Contract](../../../docs/architecture/match-data-pipeline.md#segment-contract); it MUST NOT mix media of other
   runs or recording-set versions. Where several recordings of the set cover the same match time, each part of the
   range MUST use the first recording in the recording set's order that covers it.
 - **FR-004**: A fact range (including requested context) longer than the configured maximum evidence duration MUST
@@ -339,34 +339,34 @@ caches or browser storage afterwards.
 
 ### Dependencies
 
-- [Materialized Video Segments and Analyst Input Staging](../archive/20261017-222433-materialized-segments/spec.md) (batch
+- [Materialized Video Segments and Analyst Input Staging](../20261017-222433-materialized-segments/spec.md) (batch
   sibling) provides the Segment Service, its materialized-segment states, the segment manifest with its timeline spans
   and encoded interval, on-demand materialization requests, invalid-media handling, and the Club Admin purge; it MUST
   merge before this feature.
-- [Accepted Fact Indexing and Capability-Scoped Fact Queries](../archive/20261017-175648-fact-indexing-queries/spec.md)
+- [Accepted Fact Indexing and Capability-Scoped Fact Queries](../20261017-175648-fact-indexing-queries/spec.md)
   (#144) provides indexed facts with their identities and match-time ranges and the team-read authorization of runs;
   it MUST merge before this feature.
-- [Web UI Connected Analysis Review](../archive/20261017-181118-web-ui-analysis-review/spec.md) (#145) provides the review and
+- [Web UI Connected Analysis Review](../20261017-181118-web-ui-analysis-review/spec.md) (#145) provides the review and
   its fact browser that gain the "Play evidence" action; it MUST merge before this feature.
-- [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) (#143) provides
+- [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) (#143) provides
   the pinned FFmpeg and ffprobe that the Segment Service and the synthetic test media of this feature's tests need; it
   MUST merge before this feature.
-- [Recording Lineage and Upload](../archive/20261005-130702-recording-lineage-upload/spec.md),
-  [Club and Identity Foundation](../archive/20261005-130701-club-identity-foundation/spec.md), and
-  [Web UI Foundation](../archive/20261012-150657-web-ui-foundation/spec.md) are implemented and provide recording-set
+- [Recording Lineage and Upload](../20261005-130702-recording-lineage-upload/spec.md),
+  [Club and Identity Foundation](../20261005-130701-club-identity-foundation/spec.md), and
+  [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md) are implemented and provide recording-set
   versions and timeline mappings, object storage with presigned grants and the development cross-origin allow-list,
   member sessions and team authorization, and the Web UI's adapters, security headers, and test projects.
 
 ### Architecture Alignment
 
 - Implements the API side of `get_video_clip()` from the
-  [Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md) and
-  [MCP Tools](../../docs/architecture/intelligence-and-agents.md#mcp-tools), evidence playback in the analysis review of
-  [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui), and the artifact-authorization
-  evidence of [Audit Events](../../docs/architecture/security-and-data-governance.md#audit-events) for `DAT-004`
+  [Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md) and
+  [MCP Tools](../../../docs/architecture/intelligence-and-agents.md#mcp-tools), evidence playback in the analysis review of
+  [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui), and the artifact-authorization
+  evidence of [Audit Events](../../../docs/architecture/security-and-data-governance.md#audit-events) for `DAT-004`
   access.
 - For evidence playback, video bytes flow only between object storage and the browser, as
-  [S3 as Universal Data Plane](../../docs/architecture/terminology-and-principles.md#3-s3-as-universal-data-plane)
+  [S3 as Universal Data Plane](../../../docs/architecture/terminology-and-principles.md#3-s3-as-universal-data-plane)
   requires.
 
 ### Scope Boundaries

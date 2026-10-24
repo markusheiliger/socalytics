@@ -231,6 +231,27 @@ without disclosure (`analysis.upstream-read-refused` audit events). Options
 (100) are development values. Contract:
 `contracts/analysis/upstream-results/v1/`.
 
+Evidence clip access is implemented as development evidence:
+`resolveAnalysisEvidenceMedia` (`POST /api/v1/analysis/runs/{runId}/evidence-media`,
+tag `Analysis evidence`, `MapMemberApi()`) resolves a fact (with context) or a
+match-time range of a run into ordered parts. Members who may read the run
+(Club Admins, and Coaches and Viewers of the owning team) receive a short-lived
+presigned media link per available part, with the media type, digest, and size;
+parts that are not materialized are requested from the Segment Service and
+reported as `materializing`, `rematerializing`, `failed`, or `not-covered` with a
+retry hint. Links are never stored or logged, responses are `no-store`, and
+authorization is evaluated on every request. A resolution that issues at least
+one link records the security audit event `analysis.evidence-media.granted`
+(actor, scope, request, media digests, latest expiry; no links or object keys).
+The rate-limiter policy `analysis-evidence-media` allows
+`Analysis:Evidence:ResolutionsPerMinute` resolutions per member account and
+minute and answers `429` `evidence-rate-limited` with `Retry-After`.
+`Analysis:Evidence` options, validated at start (development values, not
+production values): `GrantLifetime` 5 minutes, `RetryAfter` 5 seconds,
+`ResolutionsPerMinute` 60, `MaxDuration` 10 minutes, and `MaxContext` 10
+seconds. The MCP tool, CDN delivery, and production link lifetimes, rate limits,
+and storage origin remain unresolved.
+
 Agent Orchestration direct invocations are implemented as development evidence
 (migrations `0024_agentorchestration_conversations_and_invocations.sql` and
 `0025_agentorchestration_outbox_message_type.sql`): members who are Club Admins

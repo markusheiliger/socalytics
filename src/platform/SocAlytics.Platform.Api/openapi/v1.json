@@ -3355,6 +3355,299 @@
         ],
         "type": "object"
       },
+      "EvidenceFactRequestDto": {
+        "properties": {
+          "acceptedResultId": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "contextAfterMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          },
+          "contextBeforeMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          },
+          "ordinal": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "acceptedResultId",
+          "ordinal",
+          "contextBeforeMs",
+          "contextAfterMs"
+        ],
+        "type": "object"
+      },
+      "EvidenceFactWindowDto": {
+        "properties": {
+          "endMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "startMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "startMs",
+          "endMs"
+        ],
+        "type": "object"
+      },
+      "EvidenceMediaDto": {
+        "properties": {
+          "endOffsetMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "mediaDigest": {
+            "type": "string"
+          },
+          "mediaSizeBytes": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "recordingVersionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "startOffsetMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expiresAt",
+          "mediaType",
+          "mediaDigest",
+          "mediaSizeBytes",
+          "startOffsetMs",
+          "endOffsetMs",
+          "recordingVersionId"
+        ],
+        "type": "object"
+      },
+      "EvidenceMediaResponse": {
+        "properties": {
+          "fact": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvidenceFactWindowDto"
+              }
+            ]
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/EvidencePartDto"
+            },
+            "type": "array"
+          },
+          "requested": {
+            "$ref": "#/components/schemas/EvidenceWindowDto"
+          },
+          "run": {
+            "$ref": "#/components/schemas/EvidenceRunDto"
+          },
+          "shortened": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run",
+          "requested",
+          "fact",
+          "shortened",
+          "parts"
+        ],
+        "type": "object"
+      },
+      "EvidencePartDto": {
+        "properties": {
+          "endMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "media": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvidenceMediaDto"
+              }
+            ]
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "retryAfterSeconds": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          },
+          "startMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "startMs",
+          "endMs",
+          "state",
+          "reason",
+          "retryAfterSeconds",
+          "media"
+        ],
+        "type": "object"
+      },
+      "EvidenceRangeRequestDto": {
+        "properties": {
+          "fromMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          },
+          "toMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "fromMs",
+          "toMs"
+        ],
+        "type": "object"
+      },
+      "EvidenceRunDto": {
+        "properties": {
+          "matchId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "runId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "teamId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "matchId",
+          "teamId"
+        ],
+        "type": "object"
+      },
+      "EvidenceWindowDto": {
+        "properties": {
+          "fromMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "toMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "fromMs",
+          "toMs"
+        ],
+        "type": "object"
+      },
       "ExternalAuthorizationDto": {
         "properties": {
           "authorizationUrl": {
@@ -5186,6 +5479,42 @@
           "definition",
           "createdAt",
           "createdBy"
+        ],
+        "type": "object"
+      },
+      "ResolveEvidenceMediaRequest": {
+        "properties": {
+          "fact": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvidenceFactRequestDto"
+              }
+            ]
+          },
+          "range": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvidenceRangeRequestDto"
+              }
+            ]
+          },
+          "retryFailed": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "required": [
+          "fact",
+          "range",
+          "retryFailed"
         ],
         "type": "object"
       },
@@ -8785,6 +9114,123 @@
         ],
         "tags": [
           "Analysis runs"
+        ]
+      }
+    },
+    "/api/v1/analysis/runs/{runId}/evidence-media": {
+      "post": {
+        "operationId": "resolveAnalysisEvidenceMedia",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveEvidenceMediaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceMediaResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analysis evidence"
         ]
       }
     },
@@ -16276,6 +16722,9 @@
     },
     {
       "name": "Analysis facts"
+    },
+    {
+      "name": "Analysis evidence"
     },
     {
       "name": "Materialized segments"

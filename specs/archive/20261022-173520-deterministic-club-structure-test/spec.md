@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Fix for**: #225 (implementation of `specs/20261017-224326-evidence-clip-access`, twin #162)
+**Fix for**: #225 (implementation of `specs/archive/20261017-224326-evidence-clip-access`, twin #162)
 
-**Input**: User description: "The Web UI platform browser test `[platform-club-structure] tests/e2e/platform/club-structure.spec.ts` ('creates and activates a season; creates two teams; and edits one (SC-002)') failed and then passed on its one rerun in the verifications of three implementation pull requests (#214, #221, #225), so it is flaky. Find and remove the cause of the flakiness (timing and ordering between the UI and refetches or cache invalidation of the season and team lists, shared state between specs that run against one platform instance and one Club Admin, external dependencies) in the test, its support code, or the Web UI or platform code it covers, without weakening, skipping, or deleting the test or any of its assertions, and without adding retries or longer timeouts as the fix. The evidence clip access spec (`specs/20261017-224326-evidence-clip-access`) depends on this spec."
+**Input**: User description: "The Web UI platform browser test `[platform-club-structure] tests/e2e/platform/club-structure.spec.ts` ('creates and activates a season; creates two teams; and edits one (SC-002)') failed and then passed on its one rerun in the verifications of three implementation pull requests (#214, #221, #225), so it is flaky. Find and remove the cause of the flakiness (timing and ordering between the UI and refetches or cache invalidation of the season and team lists, shared state between specs that run against one platform instance and one Club Admin, external dependencies) in the test, its support code, or the Web UI or platform code it covers, without weakening, skipping, or deleting the test or any of its assertions, and without adding retries or longer timeouts as the fix. The evidence clip access spec (`specs/archive/20261017-224326-evidence-clip-access`) depends on this spec."
 
 ## Clarifications
 
@@ -81,6 +81,6 @@ A maintainer running the Web UI browser tests, or the verification of any implem
 ## Assumptions
 
 - **Cause**: The test belongs to the Web UI club structure behavior (the merged Web UI foundation and club structure specs under `specs/archive/`). The test is presumed to race refetches or shared state between specs against one platform instance and one Club Admin; this is a hypothesis, and the concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Evidence Clip Access](../../20261017-224326-evidence-clip-access/spec.md) (implementation #225, twin #162) depends on this spec. Related specs that must not be repeated: [Deterministic Web UI Keyboard and Club Structure Browser Tests](../20261014-172346-fix-web-ui-keyboard-flake/spec.md).
+- **Dependencies**: [Evidence Clip Access](../20261017-224326-evidence-clip-access/spec.md) (implementation #225, twin #162) depends on this spec. Related specs that must not be repeated: [Deterministic Web UI Keyboard and Club Structure Browser Tests](../20261014-172346-fix-web-ui-keyboard-flake/spec.md).
 - **Out of scope**: Other flaky tests, the simulated browser projects, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

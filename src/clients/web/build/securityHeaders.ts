@@ -1,7 +1,7 @@
 // contracts/security-headers.md: the single source of the production security headers, shared by
 // preview mode in vite.config.ts and the production server configuration.
 
-// connect-src is the only directive that depends on the deployment; it is rendered by contentSecurityPolicy().
+// connect-src and media-src are the only directives that depend on the deployment; they are rendered by contentSecurityPolicy().
 export const productionContentSecurityPolicyDirectives = [
   "default-src 'self'",
   "script-src 'self'",
@@ -26,9 +26,14 @@ export const commonHeaders = {
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
 };
 
-// Renders the production policy; the optional object storage origin is added to connect-src.
+// Renders the production policy; the optional object storage origin is added to connect-src and media-src.
 export function contentSecurityPolicy(objectStorageOrigin?: string): string {
   return productionContentSecurityPolicyDirectives
-    .map((directive) => (directive === "connect-src 'self'" && objectStorageOrigin ? `connect-src 'self' ${objectStorageOrigin}` : directive))
+    .map((directive) => {
+      if (!objectStorageOrigin) return directive;
+      if (directive === "connect-src 'self'") return `connect-src 'self' ${objectStorageOrigin}`;
+      if (directive === 'media-src blob:') return `media-src blob: ${objectStorageOrigin}`;
+      return directive;
+    })
     .join('; ');
 }
