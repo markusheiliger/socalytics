@@ -279,7 +279,7 @@ requested from the Segment Service.
   anywhere in `docs/architecture/`, treating the plan's rewrites as examples rather than the whole job; keep the MCP
   tool, production link lifetimes, rate limits, CDN delivery, and the production storage origin explicitly unresolved;
   run `node .github/scripts/check-markdown.mjs` (FR-025)
-- [ ] T029 [P] Update `AGENTS.md` (Current State: the evidence-media operation, Web UI evidence playback, the
+- [x] T029 [P] Update `AGENTS.md` (Current State: the evidence-media operation, Web UI evidence playback, the
   `Analysis:Evidence` options), `README.md` (the toolchain prerequisite for the Web UI evidence browser tests),
   `src/platform/README.md` (operation, options, rate limit, audit event), and `src/clients/README.md` (evidence
   playback, synthetic VP9 test media); run `node .github/scripts/check-markdown.mjs` (FR-025)

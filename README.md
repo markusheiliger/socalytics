@@ -176,7 +176,10 @@ deployment configuration (its container image is described under
 needs Node.js 24, the Kiota 1.36.0 CLI on `PATH`
 (`dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0`), and
 for browser tests the Playwright Chromium browser
-(`npx playwright@1.63.0 install chromium`). Run these commands from
+(`npx playwright@1.63.0 install chromium`). The evidence playback browser
+tests also need the pinned `ffmpeg` with `libvpx-vp9` on `PATH`, which
+generates their synthetic VP9 test media (the `platform` evidence test also
+needs the Segment Service toolchain described above). Run these commands from
 `src/clients/web/`:
 
 ```powershell
