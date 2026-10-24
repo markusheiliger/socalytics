@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { vi } from 'vitest';
 import { TriageSection } from '../../../../src/features/triage/TriageSection';
@@ -37,7 +38,7 @@ const conversation = (id: string, createdAt: string, current = true): Conversati
   analysisRunId: 'run-1',
   teamId: 'team-1',
   analysisRunIsCurrent: current,
-  state: 'Open',
+  state: 'active',
   participants: [{ agentId: 'specialist-tactics', addedAt: createdAt }],
   createdAt,
   version: 1,
@@ -123,5 +124,38 @@ describe('TriageSection', () => {
     renderSection(true, true);
     expect(await screen.findByText(/A connection is required/)).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Start triage conversation' })).toBeDisabled();
+  });
+
+  it('requests the active conversations first and shows the state badge of each', async () => {
+    listConversations.mockResolvedValue([conversation('conv-1', '2026-10-02T10:00:00Z'), { ...conversation('conv-2', '2026-10-03T10:00:00Z'), state: 'mystery' }]);
+    renderSection(false);
+    const items = await screen.findAllByRole('listitem');
+    expect(listConversations).toHaveBeenCalledWith('match-1', 'active');
+    expect(screen.getByRole('button', { name: 'Active', pressed: true })).toBeInTheDocument();
+    expect(items[1]).toHaveTextContent('Active');
+    expect(items[0]).toHaveTextContent('mystery');
+  });
+
+  it('switches to the archived filter, reloads, and shows the archived badge', async () => {
+    listConversations.mockImplementation((_matchId: string, state: string) =>
+      Promise.resolve(state === 'archived' ? [{ ...conversation('conv-a', '2026-10-02T10:00:00Z'), state: 'archived' }] : [conversation('conv-1', '2026-10-03T10:00:00Z')]),
+    );
+    renderSection(false);
+    await screen.findAllByRole('listitem');
+    await userEvent.click(screen.getByRole('button', { name: 'Archived' }));
+    const link = await screen.findByRole('link');
+    expect(link).toHaveAttribute('href', '/matches/match-1/triage/conv-a');
+    expect(listConversations).toHaveBeenCalledWith('match-1', 'archived');
+    expect(screen.getByRole('listitem')).toHaveTextContent('Archived');
+    expect(screen.getByRole('button', { name: 'Archived', pressed: true })).toBeInTheDocument();
+  });
+
+  it('shows the explicit empty state of each filter', async () => {
+    listConversations.mockResolvedValue([]);
+    renderSection(false);
+    expect(await screen.findByText('You have no active triage conversations for this match.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Archived' }));
+    expect(await screen.findByText('You have no archived triage conversations for this match.')).toBeInTheDocument();
+    expect(screen.queryByText('You have no active triage conversations for this match.')).not.toBeInTheDocument();
   });
 });
