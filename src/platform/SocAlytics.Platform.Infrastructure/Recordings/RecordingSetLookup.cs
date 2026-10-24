@@ -42,6 +42,18 @@ internal sealed class RecordingSetLookup(IDbSession session) : IRecordingSetLook
                 r.Position, r.RecordingVersionId, r.RecordingContentDigest, r.TimelineMappingId, r.TimelineMappingDigest, ParseSpans(r.Spans)))]);
     }
 
+    public async Task<RecordingSetLineage?> GetCurrentForMatchAsync(Guid matchId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var currentId = await connection.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+            "SELECT id FROM socalytics.recording_set_versions WHERE match_id = @matchId " +
+            "ORDER BY finalized_at DESC, id DESC LIMIT 1",
+            new { matchId },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        return currentId is null ? null : await GetAsync(currentId.Value, cancellationToken);
+    }
+
     private static List<TimelineSpan> ParseSpans(string json)
     {
         using var document = JsonDocument.Parse(json);
