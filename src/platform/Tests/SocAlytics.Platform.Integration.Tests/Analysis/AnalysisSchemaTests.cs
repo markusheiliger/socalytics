@@ -460,4 +460,175 @@ public sealed class AnalysisSchemaTests(PostgresContainerFixture postgres)
 		var ex = await Should.ThrowAsync<PostgresException>(() => connection.ExecuteAsync(new CommandDefinition(sql, cancellationToken: ct)));
 		ex.SqlState.ShouldBe(PostgresErrorCodes.InsufficientPrivilege);
 	}
+
+	[Theory]
+	[InlineData("recordings-finalized", "schema-invalid", true)]
+	[InlineData("analysis-requested", null, true)]
+	[InlineData("analysis-requested", "no-finalized-recording-set", true)]
+	[InlineData("analysis-requested", "not-configured", true)]
+	[InlineData("analysis-requested", "invalid-definition", true)]
+	[InlineData("recordings-finalized", "no-finalized-recording-set", true)]
+	[InlineData("analysis-requests", null, false)]
+	[InlineData("analysis-requested", "unknown-category", false)]
+	public async Task ReceiptsAcceptTheAnalysisRequestedTypeAndTheNewRejectionCategories(string type, string? category, bool accepted)
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		await using var connection = new NpgsqlConnection(db.AppConnectionString);
+		await connection.OpenAsync(ct);
+
+		var insert = connection.ExecuteAsync(new CommandDefinition(
+			"""
+			INSERT INTO socalytics.analysis_notification_receipts (message_id, message_type, outcome, rejection_category, received_at)
+			VALUES (@id, @type, @outcome, @category, now())
+			""",
+			new { id = Guid.NewGuid(), type, outcome = category is null ? "run-exists" : "rejected", category }, cancellationToken: ct));
+		if (accepted)
+			(await insert).ShouldBe(1);
+		else
+			(await Should.ThrowAsync<PostgresException>(() => insert)).SqlState.ShouldBe(PostgresErrorCodes.CheckViolation);
+	}
+
+	private sealed record RequestRow(string Key, string Outcome, string? Category, bool WithRun, bool WithSet);
+
+	private static async Task<(Guid Match, Guid Account, Guid Run)> SeedRequestPrerequisitesAsync(
+		IsolatedDatabase db, ServiceProvider provider, CancellationToken ct)
+	{
+		var account = Guid.NewGuid();
+		var season = Guid.NewGuid();
+		var team = Guid.NewGuid();
+		var match = Guid.NewGuid();
+		await using (var connection = new NpgsqlConnection(db.MigratorConnectionString))
+		{
+			await connection.OpenAsync(ct);
+			await connection.ExecuteAsync(new CommandDefinition(
+				"""
+				INSERT INTO socalytics.member_account (id, account_name, normalized_account_name, security_stamp, membership_changed_at, created_at)
+				VALUES (@account, 'a', 'A', 's', now(), now());
+				INSERT INTO socalytics.season (id, name, created_at) VALUES (@season, 'S', now());
+				INSERT INTO socalytics.team (id, season_id, name, created_at) VALUES (@team, @season, 'T', now());
+				INSERT INTO socalytics.match (id, team_id, opponent_name, kickoff_at, home_away, created_at, created_by_account_id)
+				VALUES (@match, @team, 'O', now(), 'home', now(), @account);
+				""",
+				new { account, season, team, match }, cancellationToken: ct));
+		}
+
+		var run = await InsertAsync(provider, NewRun(Guid.NewGuid(), "1", out _, out _), ct);
+		return (match, account, run);
+	}
+
+	private static async Task InsertRequestAsync(
+		string connectionString, Guid match, Guid account, Guid run, RequestRow row, CancellationToken ct)
+	{
+		await using var connection = new NpgsqlConnection(connectionString);
+		await connection.OpenAsync(ct);
+		var requestId = Guid.NewGuid();
+		var setId = row.WithSet ? Guid.NewGuid() : (Guid?)null;
+		var runId = row.WithRun ? run : (Guid?)null;
+		await connection.ExecuteAsync(new CommandDefinition(
+			"""
+			INSERT INTO socalytics.analysis_notification_receipts
+				(message_id, message_type, recording_set_version_id, outcome, rejection_category, run_id, received_at)
+			VALUES (@requestId, 'analysis-requested', @setId, @outcome, @category, @runId, now());
+			INSERT INTO socalytics.analysis_run_requests
+				(idempotency_key, match_id, requested_by, request_id, outcome, rejection_category, recording_set_version_id, run_id, created_at)
+			VALUES (@key, @match, @account, @requestId, @outcome, @category, @setId, @runId, now());
+			""",
+			new { requestId, setId, runId, outcome = row.Outcome, category = row.Category, key = row.Key, match, account },
+			cancellationToken: ct));
+	}
+
+	[Theory]
+	[InlineData("run-created", null, true, true, true)]
+	[InlineData("run-exists", null, true, true, true)]
+	[InlineData("rejected", "no-finalized-recording-set", false, false, true)]
+	[InlineData("rejected", "not-configured", false, true, true)]
+	[InlineData("rejected", "invalid-definition", false, true, true)]
+	[InlineData("accepted", null, true, true, false)]
+	[InlineData("rejected", null, false, true, false)]
+	[InlineData("rejected", "schema-invalid", false, true, false)]
+	[InlineData("run-created", "not-configured", true, true, false)]
+	[InlineData("rejected", "not-configured", true, true, false)]
+	[InlineData("run-created", null, false, true, false)]
+	[InlineData("run-exists", null, true, false, false)]
+	[InlineData("rejected", "not-configured", false, false, false)]
+	public async Task RunRequestConstraintsEnforceTheOutcomeRunAndCategoryRules(
+		string outcome, string? category, bool withRun, bool withSet, bool accepted)
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var (match, account, run) = await SeedRequestPrerequisitesAsync(db, provider, ct);
+
+		var insert = InsertRequestAsync(db.AppConnectionString, match, account, run, new RequestRow("key-1", outcome, category, withRun, withSet), ct);
+		if (accepted)
+			await insert;
+		else
+			(await Should.ThrowAsync<PostgresException>(() => insert)).SqlState.ShouldBe(PostgresErrorCodes.CheckViolation);
+	}
+
+	[Theory]
+	[InlineData("a", true)]
+	[InlineData("0123456789!~", true)]
+	[InlineData("", false)]
+	[InlineData("has space", false)]
+	[InlineData("tab\there", false)]
+	public async Task RunRequestIdempotencyKeysMustBeVisibleAscii(string key, bool accepted)
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var (match, account, run) = await SeedRequestPrerequisitesAsync(db, provider, ct);
+
+		var insert = InsertRequestAsync(db.AppConnectionString, match, account, run, new RequestRow(key, "run-created", null, true, true), ct);
+		if (accepted)
+			await insert;
+		else
+			(await Should.ThrowAsync<PostgresException>(() => insert)).SqlState.ShouldBe(PostgresErrorCodes.CheckViolation);
+	}
+
+	[Fact]
+	public async Task RunRequestKeysAreUniqueAndAtMost255Characters()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var (match, account, run) = await SeedRequestPrerequisitesAsync(db, provider, ct);
+
+		await InsertRequestAsync(db.AppConnectionString, match, account, run, new RequestRow(new string('k', 255), "run-created", null, true, true), ct);
+		(await Should.ThrowAsync<PostgresException>(() => InsertRequestAsync(
+			db.AppConnectionString, match, account, run, new RequestRow(new string('k', 255), "run-exists", null, true, true), ct)))
+			.SqlState.ShouldBe(PostgresErrorCodes.UniqueViolation);
+		(await Should.ThrowAsync<PostgresException>(() => InsertRequestAsync(
+			db.AppConnectionString, match, account, run, new RequestRow(new string('k', 256), "run-created", null, true, true), ct)))
+			.SqlState.ShouldBe(PostgresErrorCodes.CheckViolation);
+	}
+
+	[Theory]
+	[InlineData("UPDATE socalytics.analysis_run_requests SET outcome = 'run-exists'")]
+	[InlineData("DELETE FROM socalytics.analysis_run_requests")]
+	public async Task RunRequestsRejectUpdateAndDeleteForTheRuntimeRoleAndTheOwner(string sql)
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var (match, account, run) = await SeedRequestPrerequisitesAsync(db, provider, ct);
+		await InsertRequestAsync(db.AppConnectionString, match, account, run, new RequestRow("key-1", "run-created", null, true, true), ct);
+
+		await using var app = new NpgsqlConnection(db.AppConnectionString);
+		await app.OpenAsync(ct);
+		(await Should.ThrowAsync<PostgresException>(() => app.ExecuteAsync(new CommandDefinition(sql, cancellationToken: ct))))
+			.SqlState.ShouldBe(PostgresErrorCodes.InsufficientPrivilege);
+
+		await using var owner = new NpgsqlConnection(db.MigratorConnectionString);
+		await owner.OpenAsync(ct);
+		await Should.ThrowAsync<PostgresException>(() => owner.ExecuteAsync(new CommandDefinition(sql, cancellationToken: ct)));
+		(await owner.ExecuteScalarAsync<long>(new CommandDefinition("SELECT count(*) FROM socalytics.analysis_run_requests", cancellationToken: ct))).ShouldBe(1);
+	}
 }

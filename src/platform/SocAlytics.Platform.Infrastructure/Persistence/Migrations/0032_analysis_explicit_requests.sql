@@ -12,11 +12,11 @@ CREATE TABLE socalytics.analysis_run_requests (
     CONSTRAINT ck_analysis_run_requests_key CHECK (idempotency_key ~ '^[!-~]{1,255}$'),
     CONSTRAINT ck_analysis_run_requests_outcome CHECK (outcome IN ('run-created', 'run-exists', 'rejected')),
     CONSTRAINT ck_analysis_run_requests_category CHECK (
-        (outcome = 'rejected' AND rejection_category IN ('no-finalized-recording-set', 'not-configured', 'invalid-definition'))
+        (outcome = 'rejected' AND COALESCE(rejection_category IN ('no-finalized-recording-set', 'not-configured', 'invalid-definition'), false))
         OR (outcome <> 'rejected' AND rejection_category IS NULL)),
     CONSTRAINT ck_analysis_run_requests_run CHECK ((outcome = 'rejected') = (run_id IS NULL)),
     CONSTRAINT ck_analysis_run_requests_set CHECK (
-        recording_set_version_id IS NOT NULL OR rejection_category = 'no-finalized-recording-set')
+        recording_set_version_id IS NOT NULL OR COALESCE(rejection_category = 'no-finalized-recording-set', false))
 );
 
 CREATE TRIGGER trg_analysis_run_requests_immutable
