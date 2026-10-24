@@ -29,14 +29,15 @@ internal sealed class CutMedia : IDisposable
     public const int Height = 72;
     public const string HardCutRule = "hard-cut";
 
-    // Shot colors differ strongly in every channel, so every cut is a hard cut and every shot is static.
+    // Consecutive shot colors differ by an HSV change measure of at least 55 (hard threshold 30), so every cut is a
+    // hard cut and every shot is static.
     private static readonly (int Frames, string Color)[] Shots =
     [
         (50, "0xC81E1E"),
-        (40, "0x1EC81E"),
-        (161, "0x1E1EC8"),
-        (59, "0xE6E632"),
-        (65, "0x303030"),
+        (40, "0x1E1E78"),
+        (161, "0x1EC81E"),
+        (59, "0x303030"),
+        (65, "0xE6E632"),
     ];
 
     private readonly string directory;
