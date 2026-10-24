@@ -266,8 +266,11 @@ in stamp metadata. ACs never write metadata tables directly. The result write
 grants, the result-manifest contract, and this validation are implemented as
 development evidence against the simulated Analyst and against a real Analyst
 container on the Docker Desktop profile, as are fact validation and indexing
-(development evidence against the simulated Analyst); capability-specific
-payload validation remains future work.
+(development evidence against the simulated Analyst), and so is
+capability-specific payload validation against the pinned payload schemas
+(see Fact payload schemas below). Still open: no catalog capability declares
+payload schemas, the limit values are development values, and the platform
+neither interprets payloads nor computes quality metrics from them.
 
 Fact indexing is implemented as follows. Facts travel in
 result artifacts whose manifest media type is
@@ -276,7 +279,8 @@ result artifacts whose manifest media type is
 with the capability, output schema version, and output type, and per fact a
 capability-owned kind, a half-open match-time range, a confidence, and a
 capability-owned payload object. Before acceptance, the API reads every fact
-artifact and checks its envelope (not capability-specific payload fields), its
+artifact and checks its envelope, its payloads against the pinned schema of
+their kind when the capability declares one (see Fact payload schemas below), its
 agreement with the manifest and the run-pinned node snapshot, that every range
 lies within the validity window, that the facts add up to the declared fact
 count, and configured size limits; a failure ends the attempt as failed with a
@@ -284,20 +288,30 @@ named reason. The API stores each fact as an immutable record of the accepted
 result in the same transaction as the acceptance, so no partially indexed
 result is ever visible.
 
-Fact payload schemas are decided and not implemented yet. A capability
+Fact payload schemas are implemented as development evidence. A capability
 declares, per fact kind it emits, a payload schema in the Analyst manifest
-(`output.factPayloadSchemas`, manifest contract `1.2.0`) written in a
+(`output.factPayloadSchemas`, manifest contract `1.2.0`; manifests `1.0.0` and
+`1.1.0` stay valid without it) written in a
 restricted, self-contained subset of JSON Schema 2020-12: no format
 assertions, no external references, internal `$defs` and `$ref` only, and
 fixed size and depth limits (development values). The Registry validates and
-caches the declaration with the image, profile and workflow bindings pin it
+caches the declaration with the image and refuses a violating manifest at
+import; profile and workflow bindings pin it
 through the image digest, and each run's node snapshot pins the schemas and
-their digest. Before the accepting transaction, result acceptance validates
-every fact payload against the pinned schema of its kind, and a capability
+their digest (runs created earlier are never validated retroactively). Before the accepting transaction, result acceptance validates
+every fact payload against the pinned schema of its kind within a bounded
+duration (`Analysis:Results:PayloadValidation:MaxDuration`, a development value), and a capability
 that declares any schema must declare every kind it emits. A violation ends the
-attempt as failed with a named, bounded reason and leaves no visible fact;
-payloads are never rewritten. The Python Analyst SDK performs the same check
-automatically before it writes a result.
+attempt as failed with a named, bounded reason (`result-payload-invalid`,
+`result-payload-kind-undeclared`, or `result-payload-validation-bound`, never
+carrying a payload value) and leaves no visible fact;
+payloads are never rewritten, and normal retry rules apply. The Python Analyst SDK performs the same check
+automatically before it writes a result and always fails the write on a
+violation. The `reference-media-probe` development capability has a `1.1.0`
+variant that declares a payload schema for its fact kind, built from its own
+`Dockerfile.payload-validated`; no catalog capability declares payload schemas
+yet, and the platform neither interprets payloads nor computes quality metrics
+from them.
 
 ### Capability-Scoped Result Access
 

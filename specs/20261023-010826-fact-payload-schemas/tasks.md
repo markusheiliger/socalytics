@@ -255,7 +255,7 @@ unchanged.
 
 ## Phase 7: Polish and Cross-Cutting Concerns
 
-- [ ] T037 Documentation: make `docs/architecture/` describe the implemented state, re-reading it at implementation
+- [x] T037 Documentation: make `docs/architecture/` describe the implemented state, re-reading it at implementation
   time: apply every rewrite listed in the plan's Architecture Updates to
   `docs/architecture/analysts-models-and-hardware.md` (result validation, fact indexing, the "decided and not
   implemented yet" paragraph in present tense naming manifest `1.2.0` and the reasons),
