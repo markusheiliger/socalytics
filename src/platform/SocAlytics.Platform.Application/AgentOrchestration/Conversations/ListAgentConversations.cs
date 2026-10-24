@@ -31,7 +31,7 @@ public sealed class ListAgentConversationsHandler(
             return OperationFailure.NotFound();
         }
 
-        var page = await conversations.ListByOwnerAndMatchAsync(ownerId, query.MatchId, null, MaxConversations, cancellationToken);
+        var page = await conversations.ListByOwnerAndMatchAsync(ownerId, query.MatchId, null, MaxConversations, "active", cancellationToken);
         var currentByRun = new Dictionary<Guid, bool>();
         var items = new List<AgentConversationView>(page.Items.Count);
         foreach (var conversation in page.Items)
