@@ -56,6 +56,15 @@ proves the Analyst SDK, segment media staging, and fact indexing with a real
 container; it passes none of the gates below and never enters a production
 workflow.
 
+The first catalog-named capability, `media-context-classification`, exists as a
+shot-boundary baseline only (implemented as development evidence in
+`src/analysts/capabilities/media-context-classification`; fixed rules without a
+model, a digest-pinned image, and its own dependency audit). No gate below is
+met, it has no learned classifier, and it never enters a production workflow.
+Shot type, live, replay, graphics, quality, and usable intervals, and the
+challenger, are not implemented, and the reference capability remains the only
+other development capability.
+
 The Wave 0 metrics harness is decided as development tooling, not a catalog
 capability: a Python project `analyst-evaluation-harness` under
 `src/analysts/capabilities/` that is decided but not implemented yet. It
@@ -136,6 +145,11 @@ compiler and runtime versions.
 | `jersey-number-recognition` (optional capability) | Segment | Person tracklets | Optional for declared crops | Number candidates with crop and frame evidence; never authoritative identity | Permissively licensed OCR stack after dependency and weight audit, crop rectification, temporal voting | CPU/CUDA as audited | Character/number accuracy, coverage, false confident reads |
 | `match-identity-linkage` | Match | Tracklets; teams; calibration and media context; jersey evidence optional | Upstream results only; source video forbidden | Stable anonymous match-entity IDs and cross-segment linkage confidence | Team and role gates, pitch continuity, temporal constraints, OSNet-class appearance embeddings trained and evaluated on approved data | CPU/CUDA; match-scoped foundational continuity | Rank-1/mAP, false merges, identity switches across cuts and replays |
 | `ball-control-candidates` | Segment | Tracklets or match identities; ball trajectory; teams; calibration optional | Forbidden | Contact and control candidate intervals with player, team, evidence, and uncertainty | Deterministic proximity, relative velocity, direction change, occlusion, and temporal hysteresis | CPU; deterministic policy profile | Candidate interval F1 and timing error |
+
+Of this table, only the shot-boundary baseline of `media-context-classification`
+is implemented (development evidence, no gate met). Its shot types, live,
+replay, graphics, quality, and usable-interval outputs, its learned challenger,
+and every other capability row are not implemented.
 
 Named player identity is never inferred from track IDs alone. Jersey and roster
 evidence remains optional and confidence-bearing; anonymous match identities
@@ -226,7 +240,11 @@ nodes become ready.
    cards, metrics harness, and immutable versioning rules.
 2. **Wave 1 - dual-profile visual foundation:** implement media context, person
    and ball detection, person tracking, pitch calibration, and ball trajectory.
-   Both fixed and broadcast acceptance subsets must pass.
+   Both fixed and broadcast acceptance subsets must pass. Wave 1 has started
+   only with the shot-boundary baseline of media context (development
+   evidence); shot type, live, replay, graphics, quality, usable intervals, and
+   the challenger, and every other Wave 1 capability, are not implemented, and
+   no Wave 1 gate is met.
 3. **Wave 2 - match-consistent foundation:** implement team and role
    classification, optional jersey OCR, match identity linkage, and ball-control
    candidates. Preserve anonymous analysis when named identity is unavailable.
