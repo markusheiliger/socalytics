@@ -8,7 +8,7 @@ import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAda
 import { createRecordingLineageAdapter } from '../../platform/adapters/recordingLineageAdapter';
 import { toPlatformFailure, type PlatformFailure } from '../../platform/failure';
 import type { AnalysisRunSummary } from '../../platform/models/recordings';
-import { canEditTeamMatches } from '../../session/roles';
+import { canEditTeamMatches, canViewTeam } from '../../session/roles';
 import { useSession } from '../../session/sessionContext';
 import { FailureAlert, useFieldError } from '../shared/FailureAlert';
 import { CancelRunDialog } from './CancelRunDialog';
@@ -42,6 +42,7 @@ const cancelled = (run: AnalysisRunSummary) => run.state === 'Cancelled' && Bool
 export function AnalysisRunStates({ matchId, teamId }: { matchId: string; teamId?: string }) {
   const { t } = useTranslation('lineage');
   const { t: tc } = useTranslation('common');
+  const { t: ta } = useTranslation('analysis');
   const { platform, session } = useSession();
   const queryClient = useQueryClient();
   const [target, setTarget] = useState<AnalysisRunSummary | undefined>();
@@ -109,6 +110,11 @@ export function AnalysisRunStates({ matchId, teamId }: { matchId: string; teamId
         />
       )}
       {cancelFailure && cancelFailure.kind !== 'validation' && <FailureAlert failure={cancelFailure} onReload={() => void refetchRuns()} />}
+      {member && teamId && canViewTeam(member, teamId) && (
+        <Typography>
+          <Link to={`/matches/${matchId}/analysis-comparison`}>{ta('comparison.matchEntry')}</Link>
+        </Typography>
+      )}
       {lineage.data && sets.length === 0 && <Typography>{t('runs.empty')}</Typography>}
       {sets.length > 0 && (
         <ul aria-label={t('runs.listLabel')}>

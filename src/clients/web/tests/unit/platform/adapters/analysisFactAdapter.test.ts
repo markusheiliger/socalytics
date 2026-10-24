@@ -70,6 +70,13 @@ describe('analysisFactAdapter', () => {
     const { api } = setup(() => ok(200, { run: page.run, items: [{ ...entry, provenance: withoutModel }] }));
     const outcome = await createAnalysisFactAdapter(api).listStreams(ids.run);
     expect(outcome.kind === 'found' && outcome.streams[0].provenance.modelDigest).toBeUndefined();
+    expect(outcome.kind === 'found' && 'modelDigest' in outcome.streams[0].provenance && outcome.streams[0].provenance.modelDigest).toBeFalsy();
+  });
+
+  it('treats a null model digest as not reported', async () => {
+    const { api } = setup(() => ok(200, { run: page.run, items: [{ ...entry, provenance: { ...provenance, modelDigest: null } }] }));
+    const outcome = await createAnalysisFactAdapter(api).listStreams(ids.run);
+    expect(outcome.kind === 'found' && outcome.streams[0].provenance.modelDigest).toBeUndefined();
   });
 
   it('answers a missing run for the streams', async () => {
@@ -80,6 +87,58 @@ describe('analysisFactAdapter', () => {
   it('refuses a stream without coverage as incompatible', async () => {
     const { api } = setup(() => ok(200, { run: page.run, items: [{ ...entry, coverage: null }] }));
     await expect(createAnalysisFactAdapter(api).listStreams(ids.run)).rejects.toMatchObject({ kind: 'incompatible' });
+  });
+
+  it('accepts an explicit empty stream collection as a genuine empty workflow', async () => {
+    const { api } = setup(() => ok(200, { run: page.run, items: [] }));
+    expect(await createAnalysisFactAdapter(api).listStreams(ids.run)).toEqual({ kind: 'found', streams: [] });
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+  ])('refuses a %s stream collection as incompatible', async (_name, items) => {
+    const { api } = setup(() => ok(200, { run: page.run, items }));
+    await expect(createAnalysisFactAdapter(api).listStreams(ids.run)).rejects.toMatchObject({ kind: 'incompatible' });
+  });
+
+  it.each([
+    ['negative fact count', { factCount: -1 }],
+    ['fractional fact count', { factCount: 1.5 }],
+    ['unsafe fact count', { factCount: Number.MAX_SAFE_INTEGER + 1 }],
+    ['missing fact count', { factCount: null }],
+    ['negative coverage count', { coverage: { ...entry.coverage, failed: -1 } }],
+    ['fractional coverage count', { coverage: { ...entry.coverage, skipped: 0.5 } }],
+    ['missing coverage count', { coverage: { ...entry.coverage, blocked: null } }],
+    ['positive facts without accepted units', { factCount: 2, coverage: { accepted: 0, missing: 1, failed: 0, blocked: 0, skipped: 2 } }],
+    ['missing node key', { nodeKey: '' }],
+    ['missing capability version', { capability: { id: 'cap' } }],
+    ['missing output type', { outputType: null }],
+    ['missing image digest', { provenance: { ...provenance, imageDigest: null } }],
+  ])('refuses a stream with %s as incompatible', async (_name, override) => {
+    const { api } = setup(() => ok(200, { run: page.run, items: [{ ...entry, ...override }] }));
+    await expect(createAnalysisFactAdapter(api).listStreams(ids.run)).rejects.toMatchObject({ kind: 'incompatible' });
+  });
+
+  it('keeps complete-zero, partial-zero, and all-skipped streams with their separate counts', async () => {
+    const complete = { ...entry, nodeKey: 'complete', factCount: 0, coverage: { accepted: 4, missing: 0, failed: 0, blocked: 0, skipped: 0 } };
+    const partial = { ...entry, nodeKey: 'partial', factCount: 0, coverage: { accepted: 2, missing: 1, failed: 1, blocked: 0, skipped: 0 } };
+    const skipped = { ...entry, nodeKey: 'skipped', factCount: 0, coverage: { accepted: 0, missing: 0, failed: 0, blocked: 0, skipped: 3 } };
+    const none = { ...entry, nodeKey: 'none', factCount: 0, coverage: { accepted: 0, missing: 0, failed: 0, blocked: 0, skipped: 0 } };
+    const { api } = setup(() => ok(200, { run: page.run, items: [complete, partial, skipped, none] }));
+    const outcome = await createAnalysisFactAdapter(api).listStreams(ids.run);
+    expect(outcome.kind === 'found' && outcome.streams.map((s) => [s.nodeKey, s.factCount, s.coverage])).toEqual([
+      ['complete', 0, complete.coverage],
+      ['partial', 0, partial.coverage],
+      ['skipped', 0, skipped.coverage],
+      ['none', 0, none.coverage],
+    ]);
+  });
+
+  it('keeps unfamiliar contract values raw', async () => {
+    const { api } = setup(() => ok(200, { run: page.run, items: [{ ...entry, outputType: 'future-type', executionScope: 'Galaxy', schemaVersion: '9.x' }] }));
+    const outcome = await createAnalysisFactAdapter(api).listStreams(ids.run);
+    expect(outcome.kind === 'found' && outcome.streams[0]).toMatchObject({ outputType: 'future-type', executionScope: 'Galaxy', schemaVersion: '9.x' });
   });
 
   it('passes other stream failures through the shared mapping', async () => {

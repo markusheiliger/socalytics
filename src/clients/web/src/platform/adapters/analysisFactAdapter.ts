@@ -44,6 +44,10 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
 /** Normalizes a Kiota untyped node, a model with `additionalData`, or a plain value into JSON (research.md § R4). */
 export function toJsonValue(value: unknown): JsonValue {
   if (value === null) return null;
@@ -83,11 +87,12 @@ function toStreamSummary(dto: FactStreamEntryDto): FactStreamSummary {
   const c = dto.coverage;
   if (
     !dto.nodeKey || !dto.capability?.id || !dto.capability.version || !dto.schemaVersion || !dto.outputType || !dto.executionScope ||
-    typeof dto.required !== 'boolean' || !isFiniteNumber(dto.factCount) || !c ||
-    !isFiniteNumber(c.accepted) || !isFiniteNumber(c.missing) || !isFiniteNumber(c.failed) || !isFiniteNumber(c.blocked) || !isFiniteNumber(c.skipped)
+    typeof dto.required !== 'boolean' || !isCount(dto.factCount) || !c ||
+    !isCount(c.accepted) || !isCount(c.missing) || !isCount(c.failed) || !isCount(c.blocked) || !isCount(c.skipped)
   ) {
     throw incompatible();
   }
+  if (dto.factCount > 0 && c.accepted === 0) throw incompatible();
   return {
     nodeKey: dto.nodeKey,
     capabilityId: dto.capability.id,
@@ -160,7 +165,8 @@ export function createAnalysisFactAdapter(api: PlatformApi): AnalysisFactAdapter
     listStreams: async (runId) => {
       try {
         const result = await sendFor<FactStreamListDto>(api, run(runId).factStreams.toGetRequestInformation(), streamsFactory);
-        return { kind: 'found', streams: (result.items ?? []).map(toStreamSummary) };
+        if (!Array.isArray(result.items)) throw incompatible();
+        return { kind: 'found', streams: result.items.map(toStreamSummary) };
       } catch (error) {
         if (isNotFound(error)) return { kind: 'runNotFound' };
         throw error;

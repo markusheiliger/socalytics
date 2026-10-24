@@ -1,3 +1,4 @@
+import { isRunTerminal } from '../../../../src/platform/models/analysis';
 import { createAnalysisRunAdapter } from '../../../../src/platform/adapters/analysisRunAdapter';
 import { bodyOf, header, ids, ok, problem, setup } from './support';
 
@@ -105,7 +106,7 @@ describe('analysisRunAdapter', () => {
       blockedByNodeKey: null,
       jobs,
     };
-    const status = { ...run, requestedCapabilities: ['ball-detection'], nodes: [node] };
+    const status = { ...run, isCurrent: true, supersededBy: null, supersededAt: null, requestedCapabilities: ['ball-detection'], nodes: [node] };
 
     it('maps the run status with its nodes and job counts', async () => {
       const { api, calls } = setup(() => ok(200, status));
@@ -119,6 +120,60 @@ describe('analysisRunAdapter', () => {
       expect(outcome.run.nodes).toEqual([
         { nodeKey: 'detect', capabilityId: 'ball-detection', capabilityVersion: '1.0', tier: 'Match', executionScope: 'Recording', state: 'Running', blockedByNodeKey: undefined, jobs },
       ]);
+    });
+
+    it('retains current, supersession, and input coverage facts', async () => {
+      const coverage = { upstreamNodeKey: 'prepare', coverageMode: 'future-policy', minimumAcceptedFraction: 0.5, accepted: 3, missing: 1, failed: 0, blocked: 0, skipped: 2 };
+      const superseded = {
+        ...status,
+        isCurrent: false,
+        supersededAt: '2026-10-02T08:00:00Z',
+        supersededBy: { runId: ids.version, recordingSetVersionId: ids.set, recordingSetFinalizedAt: '2026-10-02T07:59:00Z' },
+        nodes: [{ ...node, inputCoverage: [coverage] }, { ...node, nodeKey: 'empty', inputCoverage: [] }, { ...node, nodeKey: 'none', inputCoverage: null }],
+      };
+      const { api } = setup(() => ok(200, superseded));
+      const outcome = await createAnalysisRunAdapter(api).getRun(ids.run);
+      if (outcome.kind !== 'found') throw new Error('expected found');
+      expect(outcome.run.isCurrent).toBe(false);
+      expect(outcome.run.supersededBy).toMatchObject({ runId: ids.version, recordingSetVersionId: ids.set });
+      expect(outcome.run.supersededBy?.recordingSetFinalizedAt).toBeInstanceOf(Date);
+      expect(outcome.run.supersededAt).toBeInstanceOf(Date);
+      expect(outcome.run.nodes[0].inputCoverage).toEqual([coverage]);
+      expect(outcome.run.nodes[1].inputCoverage).toEqual([]);
+      expect(outcome.run.nodes[2].inputCoverage).toBeUndefined();
+    });
+
+    it('keeps a non-current run without supersession and does not invent a time', async () => {
+      const { api } = setup(() => ok(200, { ...status, isCurrent: false }));
+      const outcome = await createAnalysisRunAdapter(api).getRun(ids.run);
+      expect(outcome).toMatchObject({ kind: 'found', run: { isCurrent: false, supersededBy: undefined, supersededAt: undefined } });
+    });
+
+    it('refuses a missing isCurrent and an incomplete supersession as incompatible', async () => {
+      const noFlag = setup(() => ok(200, { ...status, isCurrent: null }));
+      await expect(createAnalysisRunAdapter(noFlag.api).getRun(ids.run)).rejects.toMatchObject({ kind: 'incompatible' });
+      const partial = setup(() => ok(200, { ...status, supersededBy: { runId: ids.version, recordingSetVersionId: ids.set } }));
+      await expect(createAnalysisRunAdapter(partial.api).getRun(ids.run)).rejects.toMatchObject({ kind: 'incompatible' });
+    });
+
+    it('refuses invalid input coverage as incompatible', async () => {
+      const good = { upstreamNodeKey: 'prepare', coverageMode: 'all', minimumAcceptedFraction: null, accepted: 1, missing: 0, failed: 0, blocked: 0, skipped: 0 };
+      const bad: Record<string, unknown>[] = [
+        { ...good, upstreamNodeKey: '' },
+        { ...good, coverageMode: null },
+        { ...good, minimumAcceptedFraction: 1.5 },
+        { ...good, minimumAcceptedFraction: -0.1 },
+        { ...good, accepted: -1 },
+        { ...good, missing: 1.5 },
+        { ...good, skipped: null },
+        { ...good, failed: 2 ** 60 },
+      ];
+      for (const entry of bad) {
+        const { api } = setup(() => ok(200, { ...status, nodes: [{ ...node, inputCoverage: [entry] }] }));
+        await expect(createAnalysisRunAdapter(api).getRun(ids.run)).rejects.toMatchObject({ kind: 'incompatible' });
+      }
+      const valid = setup(() => ok(200, { ...status, nodes: [{ ...node, inputCoverage: [good] }] }));
+      await expect(createAnalysisRunAdapter(valid.api).getRun(ids.run)).resolves.toMatchObject({ kind: 'found' });
     });
 
     it('keeps the failure reason and blocking node', async () => {
@@ -146,5 +201,12 @@ describe('analysisRunAdapter', () => {
       const noCount = setup(() => ok(200, { ...status, nodes: [{ ...node, jobs: { ...jobs, failed: null } }] }));
       await expect(createAnalysisRunAdapter(noCount.api).getRun(ids.run)).rejects.toMatchObject({ kind: 'incompatible' });
     });
+  });
+});
+
+describe('isRunTerminal', () => {
+  it('is true only for the known terminal states', () => {
+    for (const state of ['Completed', 'PartiallyCompleted', 'Failed', 'Cancelled', 'completed']) expect(isRunTerminal(state)).toBe(true);
+    for (const state of ['Requested', 'Running', 'Quantum', '', undefined]) expect(isRunTerminal(state)).toBe(false);
   });
 });

@@ -13,6 +13,7 @@ const run = (over: Partial<AnalysisRunStatus> = {}): AnalysisRunStatus => ({
   state: 'Running',
   createdAt: new Date('2026-10-12T12:00:00Z'),
   runningAt: new Date('2026-10-12T12:05:00Z'),
+  isCurrent: true,
   requestedCapabilities: ['detect'],
   nodes: [
     {

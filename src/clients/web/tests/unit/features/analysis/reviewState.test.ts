@@ -20,7 +20,7 @@ const stream: FactStreamSummary = {
 function run(state: string, matchId = 'm1'): AnalysisRunStatus {
   return {
     runId: 'r1', teamId: 't1', matchId, recordingSetVersionId: 'v1', workflowId: 'w', workflowVersion: '1', state,
-    createdAt: new Date(0), requestedCapabilities: ['c'], nodes: [],
+    createdAt: new Date(0), isCurrent: true, requestedCapabilities: ['c'], nodes: [],
   };
 }
 

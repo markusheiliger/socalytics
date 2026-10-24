@@ -113,4 +113,87 @@ test('marks the earlier run as superseded with its member cancellation and the n
   await expect(superseded).toContainText(reason);
   await expect(current).not.toContainText('Superseded by');
   await expect(statuses).toHaveCount(2);
+
+  // Comparison (connected metadata and navigation): the current run is made terminal first, if it is still active.
+  const supersededItem = runItems.filter({ hasText: 'Superseded by the run of the recording set finalized' });
+  const currentItem = runItems.filter({ hasText: 'Current run' });
+  const terminal = /Cancelled|State: (Completed|Partially completed|Failed)/;
+  await expect(async () => {
+    await page.reload();
+    await expect(currentItem.getByRole('button', { name: 'Cancel run' }).or(currentItem.getByRole('status').filter({ hasText: terminal }))).toBeVisible({
+      timeout: 5_000,
+    });
+  }).toPass({ timeout: 90_000, intervals: [2_000, 5_000] });
+  const currentCancel = currentItem.getByRole('button', { name: 'Cancel run' });
+  if (await currentCancel.isVisible()) {
+    await currentCancel.click();
+    const secondDialog = page.getByRole('dialog', { name: 'Cancel this analysis run?' });
+    await secondDialog.getByLabel('Reason').fill(reason);
+    await secondDialog.getByRole('button', { name: 'Cancel run' }).click();
+    await expect(secondDialog).toBeHidden({ timeout: 15_000 });
+  }
+  await expect(currentItem.getByRole('status')).toContainText(terminal, { timeout: 30_000 });
+
+  const runIdOf = async (item: typeof currentItem) => {
+    const href = await item.getByRole('link', { name: 'Open analysis review' }).getAttribute('href');
+    const id = href?.match(/\/analysis-runs\/([0-9a-f-]+)$/)?.[1];
+    expect(id).toBeTruthy();
+    return id as string;
+  };
+  const olderId = await runIdOf(supersededItem);
+  const newerId = await runIdOf(currentItem);
+  expect(olderId).not.toBe(newerId);
+
+  const comparisonRoute = new RegExp(`/matches/[0-9a-f-]+/analysis-comparison$`);
+  const side = (name: 'Left run' | 'Right run') => page.getByRole('region', { name, exact: true });
+  const field = (name: 'Left run' | 'Right run', label: string) =>
+    side(name).locator('dt', { hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd');
+  const reviewLink = (name: 'Left run' | 'Right run') => page.getByRole('link', { name: `Open the detailed review of the ${name}` });
+  const expectPair = async () => {
+    await expect(page).toHaveURL(new RegExp(`analysis-comparison\\?left=${olderId}&right=${newerId}$`));
+    await expect(field('Left run', 'Run ID')).toHaveText(olderId);
+    await expect(field('Right run', 'Run ID')).toHaveText(newerId);
+  };
+
+  await page.getByRole('link', { name: 'Compare analysis runs' }).click();
+  await expect(page).toHaveURL(comparisonRoute);
+  await page.getByLabel('Left run').selectOption({ value: olderId });
+  await page.getByLabel('Right run').selectOption({ value: newerId });
+  await page.getByRole('button', { name: 'Compare the runs' }).click();
+  await expectPair();
+
+  await expect(field('Left run', 'Current run')).toHaveText('No');
+  await expect(field('Left run', 'Superseded by')).toContainText(newerId);
+  await expect(field('Left run', 'Superseded at')).toBeVisible();
+  await expect(field('Right run', 'Current run')).toHaveText('Yes');
+  await expect(field('Right run', 'Superseded by')).toHaveCount(0);
+  await expect(field('Left run', 'Superseded by')).toContainText(await field('Right run', 'Recording set').innerText());
+  expect(await field('Left run', 'Recording set').innerText()).not.toBe(await field('Right run', 'Recording set').innerText());
+  await expect(field('Left run', 'State')).toHaveText(/Cancelled/);
+  await expect(field('Right run', 'State')).toHaveText(/Cancelled|Completed|Partially completed|Failed/);
+  await expect(field('Left run', 'Workflow').first()).not.toBeEmpty();
+  await expect(field('Right run', 'Workflow').first()).not.toBeEmpty();
+
+  // Result availability is stated for each side, as a stream list or as an explicit empty state, never left blank.
+  for (const name of ['Left run', 'Right run'] as const) {
+    await expect(
+      side(name).getByText('This run has no fact streams.').or(side(name).getByRole('list', { name: `Fact streams of the ${name}` })),
+    ).toBeVisible();
+  }
+
+  await reviewLink('Left run').click();
+  await expect(page).toHaveURL(new RegExp(`/analysis-runs/${olderId}$`));
+  await expect(page.getByRole('region', { name: 'Run details' })).toBeVisible();
+  await page.goBack();
+  await expectPair();
+
+  await reviewLink('Right run').click();
+  await expect(page).toHaveURL(new RegExp(`/analysis-runs/${newerId}$`));
+  await expect(page.getByRole('region', { name: 'Run details' })).toBeVisible();
+
+  // Re-entering from a terminal review fixes that run as the left side.
+  await page.getByRole('link', { name: 'Compare this run with another run' }).click();
+  await expect(page).toHaveURL(new RegExp(`analysis-comparison\\?left=${newerId}$`));
+  await expect(page.getByLabel('Left run')).toHaveValue(newerId);
+  await expect(page.getByLabel('Right run')).toHaveValue('');
 });
