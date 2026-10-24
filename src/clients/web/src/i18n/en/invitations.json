@@ -1,0 +1,103 @@
+{
+  "invite": {
+    "action": "Invite member",
+    "title": "Invite a member",
+    "intro": "The invitee receives an email with a link to choose their own password. The account name cannot be changed by the invitee.",
+    "address": "Email address",
+    "accountName": "Sign-in name",
+    "teamRolesTitle": "Team roles",
+    "noTeams": "There are no teams to assign.",
+    "noRows": "No team roles. The member can get roles later.",
+    "team": "Team",
+    "role": "Role",
+    "teamRole": {
+      "Coach": "Coach",
+      "Viewer": "Viewer"
+    },
+    "addRow": "Add team role",
+    "removeRow": "Remove team role {{number}}",
+    "send": "Send invitation",
+    "sending": "Sending…",
+    "cancel": "Cancel",
+    "sent": "The invitation was sent to {{address}}.",
+    "emailAddressInUse": "This email address is already in use by a member or another invitation.",
+    "accountNameTaken": "This sign-in name is already taken by a member or another invitation.",
+    "rateLimited": "Too many requests. Try again later.",
+    "rateLimitedWait": "Too many requests. Try again in {{seconds}} seconds.",
+    "fieldError": {
+      "required": "This field is required.",
+      "too-long": "This value is too long.",
+      "other": "The platform refused this value."
+    }
+  },
+  "accept": {
+    "title": "Accept your invitation",
+    "checking": "Checking your invitation…",
+    "intro": "You are invited to join {{clubName}}. Choose a password for your account.",
+    "accountName": "Sign-in name",
+    "password": "Password",
+    "confirmPassword": "Confirm password",
+    "submit": "Create account",
+    "submitting": "Saving…",
+    "invalid": "This invitation cannot be used. Contact your club for help.",
+    "done": "Your account is ready. Sign in with your sign-in name and your new password.",
+    "toSignIn": "Go to sign in",
+    "rateLimited": "Too many requests. Try again in {{seconds}} seconds.",
+    "rateLimitedUnknown": "Too many requests. Try again later.",
+    "problem": {
+      "mismatch": "The two passwords do not match.",
+      "policy": "This password does not meet the password requirements. Choose another one; your invitation is still valid.",
+      "refused": "The platform refused this password. Choose another one.",
+      "unreachable": "The platform is not reachable. Try again in a moment.",
+      "error": "Something went wrong. Try again later."
+    }
+  },
+  "list": {
+    "title": "Invitations",
+    "filterLabel": "Show invitations",
+    "filter": {
+      "all": "All",
+      "pending": "Pending",
+      "expired": "Expired",
+      "accepted": "Accepted",
+      "revoked": "Revoked"
+    },
+    "empty": "There are no invitations.",
+    "listLabel": "Invitations",
+    "state": {
+      "pending": "Pending",
+      "expired": "Expired",
+      "accepted": "Accepted",
+      "revoked": "Revoked"
+    },
+    "delivery": {
+      "queued": "Message queued",
+      "sent": "Message sent",
+      "failed": "Message could not be delivered"
+    },
+    "deliveryLabel": "Delivery: {{value}}",
+    "stateLabel": "State: {{value}}",
+    "accountName": "Sign-in name: {{value}}",
+    "noRoles": "No team roles",
+    "teamRole": "{{team}}: {{role}}",
+    "rolesLabel": "Team roles: {{value}}",
+    "invitedBy": "Invited by {{name}}",
+    "created": "Created {{value}}",
+    "linkExpires": "Link valid until {{value}}",
+    "accepted": "Accepted {{value}}",
+    "revoked": "Revoked {{value}}",
+    "acceptedMember": "Open the member {{name}}",
+    "resend": "Resend invitation to {{address}}",
+    "revoke": "Revoke invitation to {{address}}",
+    "resent": "A new invitation was sent to {{address}}. The previous link no longer works.",
+    "revokedDone": "The invitation to {{address}} was revoked.",
+    "revokeTitle": "Revoke this invitation?",
+    "revokeText": "The link in the invitation to {{address}} stops working, and the sign-in name and email address become available again.",
+    "revokeConfirm": "Revoke invitation",
+    "cancel": "Cancel",
+    "notOpen": "This invitation was already accepted or revoked. The list was refreshed.",
+    "stale": "This invitation was changed in the meantime. The list was refreshed.",
+    "rateLimited": "Too many resends. Try again later.",
+    "rateLimitedWait": "Too many resends. Try again in {{seconds}} seconds."
+  }
+}

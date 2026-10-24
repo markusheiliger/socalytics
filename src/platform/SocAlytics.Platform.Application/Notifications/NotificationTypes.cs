@@ -7,6 +7,9 @@ public enum NotificationAudience
 
     /// <summary>Active members holding the Club Admin role.</summary>
     ClubAdmins,
+
+    /// <summary>The invited person, who has no member account yet.</summary>
+    Invitee,
 }
 
 /// <param name="Code">The stable code stored in <c>email_messages.notification_type</c>.</param>
@@ -20,6 +23,7 @@ public static class NotificationTypes
     public const string EmailConfirmationCode = "email-confirmation";
     public const string RegistrationPendingCode = "registration-pending";
     public const string PasswordRecoveryCode = "password-recovery";
+    public const string MemberInvitationCode = "member-invitation";
 
     public static NotificationType EmailConfirmation { get; } = new(
         EmailConfirmationCode, NotificationAudience.AddressOwner, AccountMessage: true, DefaultEnabled: true, "/email/confirm");
@@ -30,7 +34,10 @@ public static class NotificationTypes
     public static NotificationType PasswordRecovery { get; } = new(
         PasswordRecoveryCode, NotificationAudience.AddressOwner, AccountMessage: true, DefaultEnabled: true, "/password-recovery/complete");
 
-    public static IReadOnlyList<NotificationType> All { get; } = [EmailConfirmation, RegistrationPending, PasswordRecovery];
+    public static NotificationType MemberInvitation { get; } = new(
+        MemberInvitationCode, NotificationAudience.Invitee, AccountMessage: true, DefaultEnabled: true, "/invitations/accept");
+
+    public static IReadOnlyList<NotificationType> All { get; } = [EmailConfirmation, RegistrationPending, PasswordRecovery, MemberInvitation];
 
     public static NotificationType? Find(string? code) => All.FirstOrDefault(t => t.Code == code);
 }

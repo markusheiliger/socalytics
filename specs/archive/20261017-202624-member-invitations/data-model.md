@@ -1,6 +1,6 @@
 # Data Model: Member Invitations by Email
 
-Persistence follows the platform conventions in [src/platform/README.md](../../src/platform/README.md): forward-only DbUp
+Persistence follows the platform conventions in [src/platform/README.md](../../../src/platform/README.md): forward-only DbUp
 migrations, one migration file numbered at implementation time as the next free number
 (`NNNN_identityaccess_member_invitations.sql`), `socalytics.attach_version_trigger` for versioned tables,
 `socalytics.attach_aggregate_child_triggers` for child tables, and a `PersistedTableClassifications` entry for every
@@ -90,8 +90,8 @@ An expired invitation keeps its reservations until it is resent (pending again) 
 ## Email message (existing table `socalytics.email_messages`)
 
 - `account_id` becomes nullable; new nullable column
-  `invitation_link_id uuid REFERENCES socalytics.member_invitation_links (id)`.
-- New check: `(notification_type = 'member-invitation') = (invitation_link_id IS NOT NULL AND account_id IS NULL)`, so
+  `invitation_ref uuid REFERENCES socalytics.member_invitation_links (id)`.
+- New check: `(notification_type = 'member-invitation') = (invitation_ref IS NOT NULL AND account_id IS NULL)`, so
   every other type keeps a recipient member.
 - `notification_type` gains the value `member-invitation` (a code in `NotificationTypes`, audience `Invitee`).
 - The list's delivery state is the state of the message of the invitation's newest link (`queued` and `sending` show as

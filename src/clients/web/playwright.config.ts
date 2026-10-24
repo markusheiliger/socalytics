@@ -143,11 +143,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
+      name: 'platform-invitations',
+      testDir: './tests/e2e/platform',
+      testMatch: /invitations\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-triage'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
       name: 'platform',
       testDir: './tests/e2e/platform',
       testMatch: /manager-fleet\.spec\.ts$/,
       fullyParallel: false,
-      dependencies: ['platform-triage'],
+      dependencies: ['platform-invitations'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     // Runs last because it changes the default workflow.

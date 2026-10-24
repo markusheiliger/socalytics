@@ -63,6 +63,8 @@ public sealed class SecretHygieneTests(PostgresContainerFixture postgres, RustFs
 		var spans = new[] { new { mediaStartSeconds = 0, mediaEndSeconds = 10, matchStartSeconds = 0 } };
 
 		var recording = RecordingTestData.Generate(1, 2048);
+		// Presigned URLs are checked by real object storage against wall-clock time; restart the clock after setup so a slow setup cannot expire the 5-second grant.
+		factory.Time.Set(DateTimeOffset.UtcNow);
 		using var started = await PostAsync(admin, $"/api/v1/matches/{match}/upload-sessions", recording.Declaration(), ct);
 		started.StatusCode.ShouldBe(HttpStatusCode.Created, await started.Content.ReadAsStringAsync(ct));
 		started.Headers.CacheControl!.NoStore.ShouldBeTrue();

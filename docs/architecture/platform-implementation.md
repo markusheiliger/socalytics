@@ -487,8 +487,8 @@ password-recovery account message (implemented as development evidence; see
 [Email Notifications](email-notifications.md#password-recovery)). Recovery
 never creates a local password, changes external identity links, grants roles,
 or reactivates an account, and completing it ends every session of the member.
-Club Admins will also be able to invite a person by email instead of handing
-over a credential (decided, not yet implemented; see
+Club Admins also invite a person by email instead of handing
+over a credential (implemented as development evidence; see
 [Email Notifications](email-notifications.md#member-invitations)): an
 invitation is a pending record that reserves an account name and address, and
 the member account, its verified address, and its team roles are created only
@@ -501,9 +501,9 @@ types they receive. The API sends transactional notifications and account
 messages through a dedicated transactional email outbox table and a delivery
 worker that submits them with MailKit by authenticated, TLS-protected SMTP to
 the stamp's configured relay; the Aspire AppHost and tests use a Mailpit
-mail-catcher container. Self-service password recovery uses this channel;
-invitations may use it through their own specification. The channel and
-password recovery are implemented as development evidence against
+mail-catcher container. Self-service password recovery and member
+invitations use this channel. The channel, password recovery, and invitations
+are implemented as development evidence against
 Mailpit; see [Email Notifications](email-notifications.md).
 
 Analyst Manager registration uses browser device-code pairing initiated by a
@@ -822,8 +822,8 @@ current and non-current migration states; and
   from NATS outage, restart, and duplicate notifications; and
 - integration, host, and browser tests cover member email addresses and their
   verification, notification preferences, transactional email delivery through
-  the dedicated outbox including a relay outage, and the pending-request
-  notification, using the Mailpit mail catcher; and
+  the dedicated outbox including a relay outage, the pending-request
+  notification, self-service password recovery, and member invitations, using the Mailpit mail catcher; and
 - end-to-end tests cover run cancellation during an active simulated attempt:
   the attempt is closed without consuming budget, its later calls are refused
   as obsolete, and the Analyst Manager cleans up, and run supersession

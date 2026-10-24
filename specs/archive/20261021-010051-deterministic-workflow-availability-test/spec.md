@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Fix for**: #184 (implementation of `specs/20261017-202624-member-invitations`, twin #154)
+**Fix for**: #184 (implementation of `specs/archive/20261017-202624-member-invitations`, twin #154)
 
-**Input**: User description: "`WorkflowAvailabilityTests.Pending_notifications_wait_while_unresolvable_and_produce_one_run_after_recovery` in SocAlytics.Platform.Integration.Tests/Analysis failed and then passed on its one rerun in the verifications of three implementation pull requests (#184, #199, #208), so it is flaky. Find and remove the cause of the flakiness (timing, ordering, shared state, external dependencies) in the test or in the code it covers, without weakening, skipping, or deleting the test or its assertions, and without adding retries or longer timeouts as the fix. The member invitations spec (`specs/20261017-202624-member-invitations`) depends on this spec."
+**Input**: User description: "`WorkflowAvailabilityTests.Pending_notifications_wait_while_unresolvable_and_produce_one_run_after_recovery` in SocAlytics.Platform.Integration.Tests/Analysis failed and then passed on its one rerun in the verifications of three implementation pull requests (#184, #199, #208), so it is flaky. Find and remove the cause of the flakiness (timing, ordering, shared state, external dependencies) in the test or in the code it covers, without weakening, skipping, or deleting the test or its assertions, and without adding retries or longer timeouts as the fix. The member invitations spec (`specs/archive/20261017-202624-member-invitations`) depends on this spec."
 
 ## Clarifications
 
@@ -80,6 +80,6 @@ A maintainer running the Integration suite, or the verification of any implement
 ## Assumptions
 
 - **Cause**: The test belongs to the analysis workflow availability behavior (the merged durable analysis workflow specs under `specs/archive/`); it races real time and shared NATS state between the test, the consumer worker, and the cached availability status. The concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Member Invitations](../../20261017-202624-member-invitations/spec.md) (implementation #184, twin #154) depends on this spec. Related specs that cover other tests and must not be repeated: [Timing Margins for Intermittent Integration Tests](../20261019-221242-harden-integration-test-timing/spec.md), [Deterministic Fail-Once Retry of the Simulated Agent Workload](../20261020-224223-deterministic-simulated-workload-retry/spec.md), and [Analyst Manager Deterministic Tests](../20261020-072206-deterministic-manager-tests/spec.md).
+- **Dependencies**: [Member Invitations](../20261017-202624-member-invitations/spec.md) (implementation #184, twin #154) depends on this spec. Related specs that cover other tests and must not be repeated: [Timing Margins for Intermittent Integration Tests](../20261019-221242-harden-integration-test-timing/spec.md), [Deterministic Fail-Once Retry of the Simulated Agent Workload](../20261020-224223-deterministic-simulated-workload-retry/spec.md), and [Analyst Manager Deterministic Tests](../20261020-072206-deterministic-manager-tests/spec.md).
 - **Out of scope**: Other flaky tests, the default values of the notification options, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

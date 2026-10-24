@@ -63,7 +63,8 @@ The React Web UI supports connected platform and club workflows, including:
 - club, season, and team management
 - club-user and team-role management, including invitations by email that
   Club Admins create, resend, and revoke in the members area and that invitees
-  accept on a public invitation page (decided, not yet implemented; see
+  accept on a public invitation page at `/invitations/accept` (implemented as
+  development evidence; see
   [Email Notifications](email-notifications.md#member-invitations))
 - platform configuration and administration: the Analyst Registry
   administration, the workflow operations area, and the agent catalog
