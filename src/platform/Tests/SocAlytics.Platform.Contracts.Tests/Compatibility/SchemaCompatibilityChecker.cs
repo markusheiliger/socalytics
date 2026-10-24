@@ -82,7 +82,8 @@ public sealed class SchemaCompatibilityChecker
         {
             var (rb, rbBase) = Resolve(bo, bBase, _baselineDocuments, _currentDocuments);
             var (rc, rcBase) = Resolve(co, cBase, _currentDocuments, _currentDocuments);
-            var key = $"{rbBase}|{rcBase}|{path}|{bo["$ref"]}|{co["$ref"]}";
+            // The comparison of a resolved pair does not depend on the path, so recursive references stop here.
+            var key = $"{rbBase}|{rcBase}|{bo["$ref"]}|{co["$ref"]}";
             if (rb is not null && rc is not null && _visited.Add(key))
             {
                 Compare(rb, rc, rbBase, rcBase, path + "/$ref");

@@ -87,6 +87,7 @@ public static class AgentPersistedNames
 		AgentFailureReason.AttemptsExhausted => "attempts-exhausted",
 		AgentFailureReason.ExecutionFailed => "execution-failed",
 		AgentFailureReason.ScopeLost => "scope-lost",
+		AgentFailureReason.AgentNotAvailable => "agent-not-available",
 		_ => throw new ArgumentOutOfRangeException(nameof(reason)),
 	};
 
@@ -102,6 +103,9 @@ public static class AgentPersistedNames
 				return true;
 			case "scope-lost":
 				reason = AgentFailureReason.ScopeLost;
+				return true;
+			case "agent-not-available":
+				reason = AgentFailureReason.AgentNotAvailable;
 				return true;
 			default:
 				reason = default;

@@ -10,7 +10,7 @@ public class AnalysisExampleTests
 {
     private static readonly string AnalysisRoot = Path.Combine(AppContext.BaseDirectory, "contracts", "analysis");
 
-    private static readonly string[] SchemaDirectories = ["analyst-job", "attempt-completion", "run-state-changed", "result-manifest", "result-grants", "upstream-results", "fact-artifact"];
+    private static readonly IReadOnlyList<string> SchemaDirectories = ContractCatalog.AnalysisExampleContracts;
 
     private sealed record Outcome(string File, bool Valid, string[] Keywords);
 
@@ -101,6 +101,116 @@ public class AnalysisExampleTests
                 outcome.Keywords.ShouldContain(item.Keyword!, name);
             }
         }
+    }
+
+    [Fact]
+    public void Attempt_and_job_1_1_0_examples_are_present_with_their_expected_keywords()
+    {
+        var items = Discover();
+        string[] valid =
+        [
+            "analyst-attempt/v1/examples/valid/attempt.json",
+            "analyst-job/v1/examples/valid/segment-job-with-window.json",
+            "analyst-job/v1/examples/valid/match-job-with-workflow.json",
+            "analyst-job/v1/examples/valid/segment-job-with-media.json",
+            "segment-media/v1/examples/valid/segment-media.json",
+        ];
+        foreach (var path in valid)
+        {
+            items.ShouldContain(i => i.ExpectValid && i.File.EndsWith(path.Replace('/', Path.DirectorySeparatorChar), StringComparison.Ordinal), path);
+        }
+
+        (string Path, string Keyword)[] invalid =
+        [
+            ("analyst-attempt/v1/examples/invalid/missing-attempt-number.json", "required"),
+            ("analyst-attempt/v1/examples/invalid/carries-fencing-token.json", "additionalProperties"),
+            ("analyst-attempt/v1/examples/invalid/zero-attempt-number.json", "minimum"),
+            ("analyst-job/v1/examples/invalid/segment-window-on-match-job.json", "not"),
+            ("analyst-job/v1/examples/invalid/segment-window-unknown-property.json", "additionalProperties"),
+            ("analyst-job/v1/examples/invalid/segment-media-on-match-job.json", "not"),
+            ("analyst-job/v1/examples/invalid/segment-media-forbidden-policy.json", "enum"),
+            ("segment-media/v1/examples/invalid/missing-grants.json", "required"),
+            ("segment-media/v1/examples/invalid/write-grant-name.json", "enum"),
+            ("segment-media/v1/examples/invalid/single-grant.json", "minItems"),
+        ];
+        foreach (var (path, keyword) in invalid)
+        {
+            items.ShouldContain(i => !i.ExpectValid && i.Keyword == keyword && i.File.EndsWith(path.Replace('/', Path.DirectorySeparatorChar), StringComparison.Ordinal), path);
+        }
+    }
+
+    [Fact]
+    public void Analyst_job_1_1_0_is_same_major_compatible_with_its_1_0_0_baseline()
+    {
+        var dir = Path.Combine(AnalysisRoot, "analyst-job", "v1");
+        var baselineFile = Path.Combine(dir, "releases", "1.0.0.schema.json");
+        var currentFile = Path.Combine(dir, "analyst-job.schema.json");
+        var baseline = JsonNode.Parse(File.ReadAllText(baselineFile))!;
+        var current = JsonNode.Parse(File.ReadAllText(currentFile))!;
+
+        current["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order()
+            .ShouldBe(baseline["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order());
+        foreach (var property in baseline["properties"]!.AsObject().Select(p => p.Key))
+        {
+            current["properties"]!.AsObject().ContainsKey(property).ShouldBeTrue($"analyst-job: property {property} removed");
+        }
+
+        foreach (var example in new[] { "segment-job.json", "match-job-with-segment-barrier.json" })
+        {
+            var file = Path.Combine(dir, "examples", "valid", example);
+            ContractCatalog.EvaluateAgainstRelease(baselineFile, file).IsValid.ShouldBeTrue($"analyst-job/{example} under 1.0.0");
+            ContractCatalog.EvaluateAgainstRelease(currentFile, file).IsValid.ShouldBeTrue($"analyst-job/{example} under 1.1.0");
+        }
+    }
+
+    [Fact]
+    public void Analyst_job_1_2_0_is_same_major_compatible_with_its_earlier_releases()
+    {
+        var dir = Path.Combine(AnalysisRoot, "analyst-job", "v1");
+        var currentFile = Path.Combine(dir, "analyst-job.schema.json");
+        var current = JsonNode.Parse(File.ReadAllText(currentFile))!;
+        current["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.2.0");
+        File.ReadAllBytes(Path.Combine(dir, "releases", "1.2.0.schema.json")).ShouldBe(File.ReadAllBytes(currentFile));
+
+        foreach (var release in new[] { "1.0.0", "1.1.0" })
+        {
+            var baselineFile = Path.Combine(dir, "releases", release + ".schema.json");
+            var baseline = JsonNode.Parse(File.ReadAllText(baselineFile))!;
+            current["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order()
+                .ShouldBe(baseline["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order(), release);
+            foreach (var property in baseline["properties"]!.AsObject().Select(p => p.Key))
+            {
+                current["properties"]!.AsObject().ContainsKey(property).ShouldBeTrue($"analyst-job: property {property} removed since {release}");
+            }
+        }
+
+        current["required"]!.AsArray().Select(n => n!.GetValue<string>()).ShouldNotContain("segmentMedia");
+        ContractCatalog.EvaluateAgainstRelease(currentFile, Path.Combine(dir, "examples", "valid", "segment-job.json")).IsValid.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Analyst_manifest_1_2_0_is_same_major_compatible_with_its_earlier_releases()
+    {
+        var dir = Path.Combine(AnalysisRoot, "analyst-manifest", "v1");
+        var currentFile = Path.Combine(dir, "analyst-manifest.schema.json");
+        var current = JsonNode.Parse(File.ReadAllText(currentFile))!;
+        current["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.2.0");
+        File.ReadAllBytes(Path.Combine(dir, "releases", "1.2.0.schema.json")).ShouldBe(File.ReadAllBytes(currentFile));
+
+        foreach (var release in new[] { "1.0.0", "1.1.0" })
+        {
+            var baseline = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "releases", release + ".schema.json")))!;
+            current["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order()
+                .ShouldBe(baseline["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order(), release);
+            foreach (var property in baseline["properties"]!.AsObject().Select(p => p.Key))
+            {
+                current["properties"]!.AsObject().ContainsKey(property).ShouldBeTrue($"analyst-manifest: property {property} removed since {release}");
+            }
+        }
+
+        var output = current["properties"]!["output"]!;
+        output["properties"]!.AsObject().ContainsKey("factPayloadSchemas").ShouldBeTrue();
+        output["required"]!.AsArray().Select(n => n!.GetValue<string>()).ShouldNotContain("factPayloadSchemas");
     }
 
     [Fact]

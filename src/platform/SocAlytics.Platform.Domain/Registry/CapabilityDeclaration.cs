@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SocAlytics.Platform.Domain.Analysis;
 
 namespace SocAlytics.Platform.Domain.Registry;
@@ -37,4 +38,8 @@ public sealed record CapabilityDeclaration(
     IReadOnlyList<string> Accelerators,
     IReadOnlyDictionary<string, string> Resources,
     IReadOnlyList<DeclaredUpstream> Upstream,
-    DeclaredRequirements Requirements);
+    DeclaredRequirements Requirements)
+{
+    public IReadOnlyDictionary<string, JsonElement> FactPayloadSchemas { get; init; } =
+        new Dictionary<string, JsonElement>();
+}

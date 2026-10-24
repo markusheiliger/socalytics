@@ -200,6 +200,24 @@ public sealed class UpstreamStagerTests : IDisposable
         return await task.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
+    private async Task<IReadOnlyCollection<SimulatedAttempt>> WaitForAttemptsAsync(int expected)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            while (_runtime.Attempts.Count != expected)
+            {
+                await Task.Delay(5, timeout.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The caller's assertion reports the observed count.
+        }
+
+        return _runtime.Attempts;
+    }
+
     private int Calls(WorkOperation operation) => _platform.Headers.Count(h => h.Operation == operation);
 
     private JsonNode LastCompletion() =>
@@ -268,7 +286,7 @@ public sealed class UpstreamStagerTests : IDisposable
         (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
 
         Calls(WorkOperation.UpstreamRead).ShouldBe(2);
-        _runtime.Attempts.Single().Launch.InputsDirectory.ShouldBe(InputsDirectory);
+        (await WaitForAttemptsAsync(1)).Single().Launch.InputsDirectory.ShouldBe(InputsDirectory);
         foreach (var result in new[] { first, second })
         {
             var directory = Path.Combine(StagedDirectory, Upstream, result.Id.ToString());
@@ -368,7 +386,7 @@ public sealed class UpstreamStagerTests : IDisposable
         (await RunAsync(withUpstream: false)).ShouldBe(AttemptRunEnd.Completed);
 
         Calls(WorkOperation.UpstreamRead).ShouldBe(0);
-        _runtime.Attempts.Single().Launch.InputsDirectory.ShouldBeNull();
+        (await WaitForAttemptsAsync(1)).Single().Launch.InputsDirectory.ShouldBeNull();
         Directory.Exists(InputsDirectory).ShouldBeFalse();
     }
 
@@ -470,7 +488,7 @@ public sealed class UpstreamStagerTests : IDisposable
         (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
 
         _storage.Requests.Count.ShouldBeGreaterThan(3);
-        _runtime.Attempts.Count.ShouldBe(1);
+        (await WaitForAttemptsAsync(1)).Count.ShouldBe(1);
         ((string)LastCompletion()["outcome"]!).ShouldBe("succeeded");
     }
 
@@ -494,7 +512,7 @@ public sealed class UpstreamStagerTests : IDisposable
 
         (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
 
-        var launch = _runtime.Attempts.Single().Launch;
+        var launch = (await WaitForAttemptsAsync(1)).Single().Launch;
         JsonSerializer.Serialize(launch with { Job = null }).ShouldNotContain("storage.test");
         JsonSerializer.Serialize(launch with { Job = null }).ShouldNotContain("sig=");
     }

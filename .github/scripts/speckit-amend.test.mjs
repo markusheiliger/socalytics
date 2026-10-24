@@ -26,7 +26,7 @@ const amendmentPull = (github) => github.repo.pulls.find((pull) => pull.number =
 const later = (github, ms = 1000) => new Date(github.clock + ms).toISOString();
 
 // Records an analysis of amendment #11 as the custom safe-output job of Spec Kit analyze would.
-async function recordAnalysis(github, report, { round = 0, mode = 'loop', detection = 'success', stalls = 0, previous = '' } = {}) {
+async function recordAnalysis(github, report, { round = 0, mode = 'loop', detection = 'success', stalls = 0, previous = '', markdownRun = undefined } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'speckit-analysis-'));
   try {
     const check = await github.createCheckRun({ name: 'Spec Kit amendment', head_sha: 'sha-amend', status: 'in_progress', external_id: 'speckit:amend-checking' });
@@ -34,8 +34,9 @@ async function recordAnalysis(github, report, { round = 0, mode = 'loop', detect
     writeFileSync(output, JSON.stringify({ items: report === null ? [] : [{ type: 'speckit_analysis', report: JSON.stringify(report) }] }));
     const result = await runRecordAnalysis({
       client: github,
-      env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: String(round), SPECKIT_STALLS: String(stalls), SPECKIT_PREVIOUS: previous, SPECKIT_MODE: mode, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_DETECTION: detection }),
+      env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: String(round), SPECKIT_STALLS: String(stalls), SPECKIT_PREVIOUS: previous, SPECKIT_MODE: mode, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_DETECTION: detection, ...(markdownRun ? { SPECKIT_MARKDOWN_GATE: 'true' } : {}) }),
       log: silent,
+      markdownRun,
     });
     return { ...result, check: github.repo.checkRuns.find((run) => run.id === check.id) };
   } finally {
@@ -77,6 +78,28 @@ test('a consistent amendment is handed to the requester for review', async () =>
   assert.doesNotMatch(pull.body, /Review and merge/);
 });
 
+test('the Markdown gate turns a lint error into a correction round, so a spec PR is never handed over or merged with it', async () => {
+  const github = diagnosisRepo();
+  github.repo.pullFiles[11] = ['specs/f/tasks.md', 'specs/f/spec.md'];
+  github.setFile('sha-amend', 'specs/f/spec.md', '# Spec\n\nUses _a_ and _b .\n');
+  const root = mkdtempSync(path.join(tmpdir(), 'speckit-gate-root-'));
+  try {
+    const failing = Object.assign(() => ({ status: 1, stdout: 'specs/f/spec.md:3:13 error MD037/no-space-in-emphasis Spaces inside emphasis markers\n', stderr: '' }), { root });
+    const result = await recordAnalysis(github, { summary: 'No issues.', findings: [] }, { markdownRun: failing });
+    assert.equal(result.outcome, 'correcting');
+    assert.match(result.check.output.summary, /MD037\/no-space-in-emphasis/);
+    const rework = github.repo.runs.at(-1);
+    assert.match(rework.inputs.guidance, /the Markdown check fails; fix each problem[^\n]*specs\/f\/spec\.md:3:13 MD037/);
+    assert.doesNotMatch(amendmentPull(github).body ?? '', /Review and merge/);
+
+    const passing = Object.assign(() => ({ status: 0, stdout: '', stderr: '' }), { root });
+    const clean = await recordAnalysis(github, { summary: 'No issues.', findings: [] }, { round: 1, markdownRun: passing });
+    assert.equal(clean.outcome, 'consistent');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('LOW findings get correction rounds too, and are handed over once a round resolves none of them', async () => {
   const LOW = { severity: 'LOW', category: 'Coverage', location: 'tasks.md T001', summary: 'SC-003 is not verified by T001.', recommendation: 'Add the Host tests.' };
   const github = diagnosisRepo();
@@ -114,7 +137,7 @@ test('correction rounds continue while they make progress and stop after three r
   assert.deepEqual([first.check.conclusion, first.check.output.title], ['neutral', '1 inconsistency(ies) found; correction round 1 follows']);
   const fix = github.repo.runs.at(-1);
   assert.equal(fix.workflow, 'speckit-diagnose.lock.yml');
-  assert.deepEqual([fix.inputs.mode, fix.inputs.amendment, fix.inputs.round, fix.inputs.stalls, fix.inputs.pull, fix.inputs.twin], ['fix', '11', '1', '0', '9', '5']);
+  assert.deepEqual([fix.inputs.mode, fix.inputs.amendment, fix.inputs.round, fix.inputs.stalls, fix.inputs.pull, fix.inputs.issue], ['fix', '11', '1', '0', '9', '5']);
   assert.match(fix.inputs.guidance, /- \[F1\] \*\*HIGH\*\* \(Inconsistency\) `plan\.md CI-R10`: CI-R10 still expects a residual difference\. — Update it to the refined R6\./);
   const tracked = JSON.parse(fix.inputs.findings);
   assert.deepEqual(tracked.map((item) => [item.id, item.severity, item.location]), [['F1', 'HIGH', 'plan.md CI-R10']]);
@@ -318,7 +341,7 @@ test('merging continues the implementation; closing discards; a person\'s push i
   assert.equal(merged.repo.branches['speckit-amend/f'], undefined);
   assert.match(merged.comments.at(-1).body, /^<!-- speckit-implement:retry -->\n<!-- speckit-amend:closed 11 -->\n\*\*Amendment #11 was merged\*\* by @dev\. The implementation retries/);
   assert.equal(merged.comments.at(-1).number, 9);
-  assert.deepEqual([merged.repo.runs.at(-1).workflow, merged.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }], 'the implementation chain continues, named after the spec');
+  assert.deepEqual([merged.repo.runs.at(-1).workflow, merged.repo.runs.at(-1).inputs], ['speckit-implement-decide.yml', { issue: '5', pull: '9', title: 'F' }], 'the implementation chain continues, named after the spec');
   assert.equal((await runClosed({ client: merged, env: env({ SPECKIT_PULL: '11' }), log: silent })).outcome, 'handled', 'a merge is settled once');
 
   const discarded = diagnosisRepo();

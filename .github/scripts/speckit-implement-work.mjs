@@ -6,6 +6,7 @@ import { specDir, stageLabelChange } from './speckit-prepare-core.mjs';
 import { archiveSpec, referenceOnlySpecChanges, refreshArchivedReferences, resolveSpecConflicts } from './speckit-archive.mjs';
 import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
+import { workflowFailure } from './speckit-workflow-job.mjs';
 import {
   CHECK_CONFLICT,
   CHECK_DONE,
@@ -35,14 +36,15 @@ import {
   latestCheckRun,
   listTasks,
   neutralizeMarkers,
+  parseFlakyList,
   pointSpecLinks,
   progressOutput,
   readSpecTasks,
   attemptCheckId,
   renderAttemptMarker,
+  renderFlakyLines,
   renderNextSteps,
   renderRepairMarker,
-  renderResolvePrompt,
   renderSyncSkippedMarker,
   renderBaseOwnedMarker,
   baseOwnedChanges,
@@ -58,6 +60,7 @@ import {
   tickTask,
   validateConvergeChange,
   validateTaskChange,
+  WORK_VERBS,
 } from './speckit-implement-core.mjs';
 
 export const MAX_PATCH_BYTES = 5 * 1024 * 1024;
@@ -103,6 +106,9 @@ function tail(text, lines = 60) {
 function fence(text) {
   return ['```text', String(text).replaceAll('```', "'''"), '```'].join('\n');
 }
+
+// Lines as a paragraph of their own: a blank line before them, none without lines.
+const paragraph = (lines) => (lines.length > 0 ? ['', ...lines] : []);
 
 function readJson(file) {
   try {
@@ -169,7 +175,7 @@ function isSafeRelativePath(file) {
 // `baseOwned`, recorded on the pull request, and hold the final merge for a person's review. Deleting such files,
 // protected paths, and the environment actions stay off limits. Runs during the uncommitted merge, so HEAD is the
 // implementation branch.
-function resolutionScope({ git, baseSha, paths, deleted = [] }) {
+export function resolutionScope({ git, baseSha, paths, deleted = [] }) {
   if (paths.length === 0) return { reasons: [], baseOwned: [] };
   const reasons = [];
   if (paths.length > MAX_CHANGED_FILES) reasons.push(`the resolution changes more than ${MAX_CHANGED_FILES} files besides the conflicts`);
@@ -230,9 +236,13 @@ export function checkStagedConvergence({ git, workspace, folder, patchBytes }) {
   return { ...validation, reasons: [...sizeReasons(patchBytes, paths), ...validation.reasons], paths };
 }
 
+// The agent runs as a Spec Kit workflow (the speckit-workflow action): a run that did not complete reports the
+// workflow's own reason (workflow.json); agent-exit.txt says whether it completed.
 function agentReasons(resultDir) {
   const exitFile = path.join(resultDir, 'agent-exit.txt');
   const agentExit = existsSync(exitFile) ? Number(readFileSync(exitFile, 'utf8').trim()) : null;
+  const failure = workflowFailure(resultDir);
+  if (failure) return { agentExit, reasons: [failure] };
   if (agentExit === 124) return { agentExit, reasons: ['the agent did not finish within 60 minutes'] };
   if (agentExit !== 0) return { agentExit, reasons: [agentExit === null ? 'the agent did not run' : `the agent exited with code ${agentExit}`] };
   return { agentExit, reasons: [] };
@@ -260,7 +270,7 @@ const isProtected = isProtectedPath;
 // A file of the implemented spec's own folder (active or archived).
 const isOwnSpecPath = (file, folder) => [specDir(folder), specDir(folder, { archived: true })].some((dir) => file.startsWith(`${dir}/`));
 
-// Spec Kit implement conflict resolution and Spec Kit implement merge, job "verify": merges the base branch
+// Spec Kit implement task (a conflict resolution) and Spec Kit implement merge, job "Verify the merged result": merges the base branch
 // (SPECKIT_BASE_BRANCH) into the checked-out implementation branch without committing, records the base branch SHA and
 // any conflicted files, and prepares the agent prompt for conflict resolution. Conflicts in protected paths need a
 // person. After a clean merge it writes the paths the implementation changes compared to the base branch for the
@@ -270,13 +280,13 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   const baseBranch = baseBranchFromEnv(env);
   const baseSha = gitOrThrow(git, ['rev-parse', `refs/remotes/origin/${baseBranch}`]).trim();
   const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
-  const forkPoint = git(['merge-base', 'HEAD', baseSha]);
   const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', baseSha]);
   const root = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
   const specs = resolveSpecConflicts({ git, root, folder });
   const conflicts = unmergedPaths(git);
   const result = { kind: inputs.kind, baseSha, head, conflicts, reasons: [], checks: [], verified: false };
   if (specs.resolved.length > 0) result.specResolved = specs.resolved;
+  if (specs.refreshed.length > 0) result.referencesRefreshed = specs.refreshed;
   if (env.SPECKIT_REQUIRED_SYNC) result.requiredSync = env.SPECKIT_REQUIRED_SYNC;
   if (env.SPECKIT_REQUIRED_SYNC && env.SPECKIT_SYNC_REPAIR) {
     const repair = parseJsonInput(env.SPECKIT_SYNC_REPAIR, 'SPECKIT_SYNC_REPAIR');
@@ -310,14 +320,6 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   setOutput(env, 'agent', String(agent));
   setOutput(env, 'verify', String(inputs.kind === 'merge' && conflicts.length === 0 && result.reasons.length === 0));
   setOutput(env, 'environment', String(inputs.kind === 'merge' && result.environment));
-  setOutput(env, 'prompt', agent ? renderResolvePrompt({
-    folder,
-    files: conflicts,
-    base: baseBranch,
-    forkPoint: forkPoint.status === 0 ? forkPoint.stdout.trim() : null,
-    archived: isArchivedIn(root, folder),
-    guidance: env.SPECKIT_GUIDANCE,
-  }) : '');
   log(conflicts.length > 0 ? `Conflicts with ${baseBranch} (${baseSha}): ${conflicts.join(', ')}` : `Merged ${baseBranch} (${baseSha}) cleanly.`);
   return { exitCode: 0, result };
 }
@@ -433,7 +435,8 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
 // The task and resolution workflows and the merge verification record the optional environment-verify outcome here.
 // SPECKIT_VERIFY_CONFIGURED tells whether the action exists; SPECKIT_VERIFY_OUTCOME and SPECKIT_VERIFY_CHECKS are the
 // verification's outcome and its "checks" output (comma-separated, in order; after a failure the last one failed);
-// SPECKIT_VERIFY_UNCOVERED lists changed files that no check covers. For a merge that changes the environment
+// SPECKIT_VERIFY_UNCOVERED lists changed files that no check covers, and SPECKIT_VERIFY_FLAKY the tests that passed only
+// on their rerun (`flaky`). For a merge that changes the environment
 // actions, SPECKIT_SELFTEST_OUTCOME is the outcome of running the changed actions themselves.
 export function runVerdict({ env, inputs, resultDir, log }) {
   mkdirSync(resultDir, { recursive: true });
@@ -442,6 +445,7 @@ export function runVerdict({ env, inputs, resultDir, log }) {
   const configured = String(env.SPECKIT_VERIFY_CONFIGURED ?? '') === 'true';
   result.verification = configured ? 'configured' : 'not-configured';
   result.verificationMode = String(env.SPECKIT_VERIFY_MODE ?? '');
+  result.flaky = configured ? parseFlakyList(env.SPECKIT_VERIFY_FLAKY) : [];
   const pendingConflicts = inputs.kind === 'merge' && (result.conflicts ?? []).length > 0;
   if (env.SPECKIT_REQUIRED_SYNC && !configured) result.reasons.push('required synchronization needs configured verification');
   if (result.reasons.length === 0 && configured && !pendingConflicts) {
@@ -509,6 +513,7 @@ async function requesterMention(client, twin) {
 
 async function reportFailure({ client, inputs, reasons, resultDir }) {
   const verification = neutralizeMarkers(tail(readOptional(path.join(resultDir, 'verification.log'))));
+  const flaky = readJson(path.join(resultDir, 'result.json'))?.flaky ?? [];
   const safeReasons = reasons.map(neutralizeMarkers);
   await client.updateCheckRun(inputs.checkRun, {
     status: 'completed',
@@ -520,6 +525,7 @@ async function reportFailure({ client, inputs, reasons, resultDir }) {
     `**${title(inputs)} failed:**`,
     '',
     ...safeReasons.map((reason) => `- ${reason}`),
+    ...renderFlakyLines(flaky),
     ...(verification.trim() ? ['', '<details><summary>Verification output (tail)</summary>', '', fence(verification), '', '</details>'] : []),
     ...agentDetails(resultDir),
     '',
@@ -586,7 +592,7 @@ export function combinedGroupEdits(git, start, head = 'HEAD') {
   return [...files].sort();
 }
 
-// Spec Kit implement group, job "verify" (read-only): decides whether the parallel tasks need a combined verification.
+// Spec Kit implement group, job "Verify the parallel tasks together" (read-only): decides whether the parallel tasks need a combined verification.
 // Writes combined=true|false and the combined files; the workflow verifies only a combination.
 export function runCombinedEdits({ git, env, log }) {
   const start = String(env.SPECKIT_GROUP_START ?? '').trim();
@@ -771,6 +777,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   }
   if (reasons.length === 0 && inputs.kind === 'task') {
     reasons.push(...applyPatch({ git, resultDir, check: (patchBytes) => checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes, baseBranch: baseBranchFromEnv(env) }).reasons }));
+    if (reasons.length === 0) reasons.push(...tickLandedTask({ git, workspace, folder, task: inputs.task }));
   }
   if (reasons.length === 0 && inputs.kind === 'repair') {
     reasons.push(...applyPatch({
@@ -868,6 +875,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       `- Changed files: ${(result.changedFiles ?? []).map((file) => `\`${file}\``).join(', ') || 'none'}`,
       `- Verification: ${verification}`,
       ...((result.uncovered ?? []).length > 0 ? [`- Not covered by any check: ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
+      ...renderFlakyLines(result.flaky),
     ];
   } else if (inputs.kind === 'converge') {
     const round = convergenceRounds(tasksMarkdown);
@@ -901,6 +909,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       `Merge ${baseBranchOf(pull)} into ${implementationBranch(folder)}`,
       files.length > 0 ? `Conflicts in ${files.join(', ')} resolved by Copilot (attempt ${inputs.attempt}).` : 'No conflicts remained.',
       ...((result.specResolved ?? []).length > 0 ? [`Archive reference conflicts in ${result.specResolved.join(', ')} resolved by the archive script.`] : []),
+      ...((result.referencesRefreshed ?? []).length > 0 ? [`References to archived specs rewritten by the archive script in ${result.referencesRefreshed.join(', ')}.`] : []),
       ...(extra.length > 0 ? [`Also adapted this implementation's own files: ${extra.join(', ')}.`] : []),
       ...(baseOwned.length > 0 ? [`Also adapted files of ${baseBranchOf(pull)} for the merged result (held for review): ${baseOwned.join(', ')}.`] : []),
       ...(ownSpec.length > 0 ? [`Resolved conflicts in this spec's own artifacts (held for review): ${ownSpec.join(', ')}.`] : []),
@@ -912,10 +921,12 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       `**${barrier ? 'Base synchronized and verified' : 'Conflicts resolved'}** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
       '',
       ...((result.specResolved ?? []).length > 0 ? [`- Archive reference conflicts resolved by the archive script, without an agent: ${result.specResolved.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
+      ...((result.referencesRefreshed ?? []).length > 0 ? [`- References to archived specs rewritten by the archive script after the merge: ${result.referencesRefreshed.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
       ...(extra.length > 0 ? [`- Also adapted this implementation's own files: ${extra.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
       ...(baseOwned.length > 0 ? [`- Also adapted files of \`${baseBranchOf(pull)}\` that the merged result needed: ${baseOwned.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}. The final merge waits for a person's review of these changes.`] : []),
       ...(ownSpec.length > 0 ? [`- Resolved conflicts in this spec's own artifacts that \`${baseBranchOf(pull)}\` changed too: ${ownSpec.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}. Every task and every checked box was kept; the final merge waits for a person's review of these changes.`] : []),
       `- Verification: ${result.verification === 'not-configured' ? 'no verification configured (no environment-verify action)' : checks.join(', ') || 'no checks'}`,
+      ...renderFlakyLines(result.flaky),
       barrier ? '- Next: recheck the latest base before releasing the required synchronization barrier.'
         : bestEffort ? '- Next: the work continues on the merged branch.' : `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
       ...baseOwnedDiff(git, result.baseSha, held, baseBranchOf(pull)),
@@ -971,17 +982,20 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   if (body !== pull.body) await client.updatePullRequest(inputs.pull, { body });
   await client.updateCheckRun(inputs.checkRun, { status: 'completed', conclusion: 'success', output: { title: checkTitle, summary: message.join('\n\n') } });
   await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'queued', external_id: CHECK_PROGRESS, output: progressOutput(progress) });
-  await client.createComment(inputs.pull, [...markerLines(inputs, 'success'), ...comment].join('\n'));
+  // The barrier state of a required synchronization rides on the visible comment that reports it, so no comment is
+  // only a marker (GitHub would show it empty).
+  let barrierMarker = [];
   if (barrier) {
     const repair = unresolvedRepair(await client.listIssueComments(inputs.pull));
-    await client.createComment(inputs.pull, renderSyncBarrierMarker({
+    barrierMarker = [renderSyncBarrierMarker({
       request: barrier.request, state: 'verified', head, base: baseBranchOf(pull), baseSha: result.baseSha,
       guidanceConsumed: Boolean(barrier.completion?.guidanceConsumed || (result.conflicts ?? []).length > 0),
       ...(repair && result.syncRepair?.id === repair.id && result.syncRepair.scope === repair.scope && result.syncRepair.covered === true &&
           JSON.stringify(result.syncRepair.snapshot) === JSON.stringify(repair)
         ? { repair: { id: repair.id, covered: true, snapshot: repair } } : {}),
-    }));
+    })];
   }
+  await client.createComment(inputs.pull, [...markerLines(inputs, 'success'), ...barrierMarker, ...comment].join('\n'));
   report.line(`${checkTitle}; pushed as ${head}.`);
   report.flush();
   return { exitCode: 0, head, combined };
@@ -1097,7 +1111,7 @@ export async function runLandTasks({ client, git, env, folder, workspace, result
   return { exitCode: ok ? 0 : 1, ok, head, combined, outcomes };
 }
 
-// Spec Kit implement group, job "report" (write token, never runs agent-written code): after parallel tasks land,
+// Spec Kit implement group, job "Report the group verification" (write token, never runs agent-written code): after parallel tasks land,
 // the group decides how the phase continues. Without combined edits (SPECKIT_COMBINED=false) nothing was verified
 // together, because each task passed its own verification and the phase verification covers them; with combined
 // edits the affected tests of the group's changes ran. Success: the next tasks are shown as in progress on the new
@@ -1119,10 +1133,14 @@ export async function runCombinedVerified({ client, env, log }) {
   const tasks = current.include.map((entry) => entry.task).filter(Boolean).join(', ');
   const verification = String(env.SPECKIT_VERIFY_RESULT ?? '');
   const combinedEdits = String(env.SPECKIT_COMBINED ?? 'true').toLowerCase() !== 'false';
+  const flaky = renderFlakyLines(env.SPECKIT_VERIFY_FLAKY);
   if (verification === 'success') {
     const next = order[index + 1];
     if (String(env.SPECKIT_LAND_OK) === 'true' && Array.isArray(next?.include) && next.include.length > 0) {
       await startAttemptChecks(client, { head, kind: 'task', entries: next.include });
+    }
+    if (combinedEdits && flaky.length > 0) {
+      await client.createComment(pull, [`**${tasks} verified together** on \`${head}\`.`, '', ...flaky].join('\n'));
     }
     report.line(combinedEdits
       ? `${tasks} verified together on ${head}.`
@@ -1156,6 +1174,7 @@ export async function runCombinedVerified({ client, env, log }) {
   await client.createComment(pull, [
     renderRepairMarker(repair),
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: the verification of ${tasks} together ${outcome}${run}. Each task passed its own verification and their changes to the same files merged cleanly, so the combination breaks something.`,
+    ...(flaky.length > 0 ? ['', ...flaky] : []),
     '',
     ...renderNextSteps({ diagnosisUrl: diagnosisRunsUrl(env), ...nextContext, continuation: { repair } }),
   ].join('\n'));
@@ -1178,6 +1197,7 @@ export async function runRepairReport({ client, env, log }) {
   const inputs = { kind: 'repair', twin, pull, task: null, attempt, checkRun };
   const verification = String(env.SPECKIT_VERIFY_RESULT ?? '');
   const verifiedAction = String(env.SPECKIT_VERIFICATION_OUTCOME ?? '') === 'success';
+  const flaky = renderFlakyLines(env.SPECKIT_VERIFY_FLAKY);
   const currentHead = (await client.getPullRequest(pull)).head?.sha;
   if (verification === 'success' && verifiedAction && currentHead === head) {
     await client.updateCheckRun(checkRun, {
@@ -1189,7 +1209,10 @@ export async function runRepairReport({ client, env, log }) {
     await client.createComment(pull, [
       renderRepairMarker({ id: repair.id, state: 'resolved', at: new Date().toISOString(), head }),
       ...markerLines(inputs, 'success'),
+      // A repaired phase verification verified the phase, so the chain does not verify it again.
+      ...(String(repair.id).startsWith('phase:') && repair.phase !== undefined ? [renderAttemptMarker({ kind: 'verify', attempt, outcome: 'success', phase: repair.phase || null })] : []),
       `**Repair verified** (attempt ${attempt}): the ${repair.scope} verification passes on \`${head}\`.`,
+      ...(flaky.length > 0 ? ['', ...flaky] : []),
     ].join('\n'));
     report.line(`Repair ${repair.id} verified on ${head}.`);
     report.flush();
@@ -1208,6 +1231,7 @@ export async function runRepairReport({ client, env, log }) {
   await client.createComment(pull, [
     ...markerLines(inputs, 'failure'),
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: repair attempt ${attempt} reached reverification, but the ${repair.scope} verification ${outcome}.`,
+    ...(flaky.length > 0 ? ['', ...flaky] : []),
     '',
     ...renderNextSteps({
       diagnosisUrl: diagnosisRunsUrl(env),
@@ -1227,6 +1251,20 @@ function applyPatch({ git, resultDir, check, allowEmpty = false }) {
   const applied = git(['apply', '--index', '--whitespace=nowarn', patchFile]);
   if (applied.status !== 0) return [`the change could not be applied: ${applied.stderr.trim()}`];
   return check(patchBytes);
+}
+
+// Checks the verified task in tasks.md and stages it, unless the agent checked it already (tickTask keeps the line
+// endings). Returns the reasons the task cannot be checked.
+function tickLandedTask({ git, workspace, folder, task }) {
+  const tasksPath = tasksPathOf(folder, { archived: isArchivedIn(workspace, folder) });
+  const file = path.join(workspace, tasksPath);
+  const markdown = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  if (listTasks(markdown).some((item) => item.id === task && item.done)) return [];
+  const ticked = tickTask(markdown, task);
+  if (ticked === null) return [`${task} is not a task in \`${tasksPath}\``];
+  writeFileSync(file, ticked);
+  gitOrThrow(git, ['add', '--', tasksPath]);
+  return [];
 }
 
 // Re-creates the merge in the land job and applies the agent's versions of the conflicted files and its in-scope
@@ -1377,7 +1415,7 @@ function baseOwnedDiff(git, baseSha, files, baseBranch) {
   return ['', `<details><summary>Changes to files of \`${baseBranch}\`</summary>`, '', ['```diff', neutralizeMarkers(text).replaceAll('```', "'''"), '```'].join('\n'), '', '</details>'];
 }
 
-// Spec Kit implement merge, job "land" (write token, no checkout of workspace code): reports the verified integration
+// Spec Kit implement merge, job "Merge into the base branch" (write token, no checkout of workspace code): reports the verified integration
 // and squash-merges the implementation into its base branch (the pull request's base), or asks for review when
 // automatic merging is off.
 export async function runMergeLand({ client, env, inputs, resultDir, workResult, log }) {
@@ -1439,6 +1477,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
       await client.createComment(inputs.pull, [
         renderRepairMarker(repair),
         '**The verified merge result needs repair.** The implementation remains draft while diagnosis prepares guidance.',
+        ...renderFlakyLines(result.flaky),
       ].join('\n'));
     }
     report.line(`Merge attempt ${inputs.attempt} failed: ${reasons.join('; ')}`);
@@ -1490,6 +1529,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     await client.createComment(inputs.pull, [
       DONE_COMMENT_MARKER,
       `**All ${progress.total} tasks are implemented**, the implementation converged, and ${verification}.`,
+      ...paragraph(renderFlakyLines(result.flaky, { bullet: false })),
       '',
       'This pull request is ready for review instead of being merged automatically, because:',
       '',
@@ -1578,6 +1618,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
   await client.createComment(inputs.pull, [
     DONE_COMMENT_MARKER,
     `**Merged into \`${baseBranch}\`** as ${merged.sha}${mention ? ` ${mention}` : ''}: all ${progress.total} tasks are implemented, the implementation converged, and ${verification}.`,
+    ...paragraph(renderFlakyLines(result.flaky, { bullet: false })),
     ...(notes.length > 0 ? ['', ...notes.map((note) => `- ${note}`)] : []),
   ].join('\n'));
   report.line(`Merged #${inputs.pull} into ${baseBranch} as ${merged.sha}.`);
@@ -1606,7 +1647,7 @@ export async function pointPullRequestLinks(client, pull, folder, { baseBranch, 
   }
 }
 
-// Spec Kit implement merge, job "archive" (write token, trusted tooling; it never runs agent-written code): archives
+// Spec Kit implement merge, job "Archive the spec before the merge" (write token, trusted tooling; it never runs agent-written code): archives
 // the implemented spec on the implementation branch right before the merge, so the move to specs/archive/<folder> and
 // every rewritten reference land with the implementation. It works on the branch merged with the base branch, because
 // specs merged there since may link to this one, and it also points references to specs archived there since to the
@@ -1726,7 +1767,7 @@ export async function main(argv, { env = process.env, log = console.log, client,
     })).exitCode;
   }
   if (!['integrate', 'package', 'verdict', 'merge-land'].includes(command)) {
-    throw new TaskInputError(`Usage: speckit-task.mjs <${COMMANDS}> (inputs come from SPECKIT_* environment variables)`);
+    throw new TaskInputError(`Usage: speckit-implement.mjs <${COMMANDS}> (inputs come from SPECKIT_* environment variables)`);
   }
   const inputs = parseTaskInputs(env);
   if (command === 'integrate') return runIntegrate({ git: git ?? defaultGit(workspace), env, inputs, folder, resultDir, log }).exitCode;
@@ -1739,7 +1780,7 @@ export async function main(argv, { env = process.env, log = console.log, client,
 export async function runTypedCommand(kind, commands, argv, options = {}) {
   const [command] = argv;
   if (!commands.includes(command)) {
-    throw new TaskInputError(`Usage: speckit-${kind}.mjs <${commands.join(' | ')}> (inputs come from SPECKIT_* environment variables)`);
+    throw new TaskInputError(`Usage: speckit-${WORK_VERBS[kind] ?? kind}.mjs <${commands.join(' | ')}> (inputs come from SPECKIT_* environment variables)`);
   }
   return main(argv, { ...options, env: { ...(options.env ?? process.env), SPECKIT_KIND: kind } });
 }

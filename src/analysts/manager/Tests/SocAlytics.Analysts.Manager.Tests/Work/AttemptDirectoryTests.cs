@@ -1,6 +1,10 @@
 #pragma warning disable xUnit1051 // The fake platform answers synchronously; there is nothing to cancel.
 using System.Net;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using Json.Schema;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Time.Testing;
 using Shouldly;
 using Xunit;
@@ -19,6 +23,7 @@ public sealed class AttemptDirectoryTests
     private static readonly Guid MessageId = Guid.NewGuid();
 
     private readonly Guid _attemptId = Guid.NewGuid();
+    private int _attemptNumber = 1;
     private readonly FakeTimeProvider _time = new(DateTimeOffset.Parse("2026-10-12T14:00:00Z"));
     private readonly FakePlatform _platform;
     private readonly PlatformSession _session;
@@ -31,7 +36,7 @@ public sealed class AttemptDirectoryTests
         _client = new PlatformClient(new HttpClient(_platform), new ProofFactory(_time));
         _session = new PlatformSession(new Uri("https://platform.test"), new InMemoryDeviceKeyProvider().ImportFixtureKey(), "opaque-token");
         _platform.Script(WorkOperation.Claim, () => Json(HttpStatusCode.Created,
-            $$"""{"attemptId":"{{_attemptId}}","logicalJobId":"{{JobId}}","readinessOccurrenceId":"{{OccurrenceId}}","attemptNumber":1,"fencingToken":7,"leaseExpiresAt":"{{_time.GetUtcNow().AddSeconds(60):O}}","leaseSeconds":60,"staleTimeoutSeconds":120,"executionTimeoutSeconds":600,"replayed":false}"""));
+            $$"""{"attemptId":"{{_attemptId}}","logicalJobId":"{{JobId}}","readinessOccurrenceId":"{{OccurrenceId}}","attemptNumber":{{_attemptNumber}},"fencingToken":7,"leaseExpiresAt":"{{_time.GetUtcNow().AddSeconds(60):O}}","leaseSeconds":60,"staleTimeoutSeconds":120,"executionTimeoutSeconds":600,"replayed":false}"""));
         _platform.Script(WorkOperation.Heartbeat, () => Json(HttpStatusCode.OK,
             $$"""{"attemptId":"{{_attemptId}}","leaseExpiresAt":"{{_time.GetUtcNow().AddSeconds(60):O}}"}"""));
         _platform.Script(WorkOperation.Completion, () => Json(HttpStatusCode.Created,
@@ -41,7 +46,9 @@ public sealed class AttemptDirectoryTests
     private static HttpResponseMessage Json(HttpStatusCode status, string body) =>
         new(status) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
 
-    private InMemoryDelivery Delivery() => new(_platform, new JsonObject
+    private InMemoryDelivery Delivery() => new(_platform, MatchJob().ToJsonString());
+
+    private static JsonObject MatchJob() => new()
     {
         ["contractVersion"] = "1.0.0",
         ["messageId"] = MessageId.ToString(),
@@ -63,13 +70,13 @@ public sealed class AttemptDirectoryTests
         },
         ["resources"] = new JsonObject { ["cpuMillicores"] = 1000, ["memoryMebibytes"] = 2048 },
         ["correlation"] = new JsonObject { ["correlationId"] = "corr-1" },
-    }.ToJsonString());
+    };
 
-    private async Task<AttemptRunEnd> RunAsync(Func<bool>? until = null)
+    private async Task<AttemptRunEnd> RunAsync(Func<bool>? until = null, InMemoryDelivery? delivery = null)
     {
         var publisher = new ResultPublisher(_client, new HttpClient(), _time, false);
         var runner = new AttemptRunner(_client, _runtime, _time, publisher: publisher);
-        var task = runner.RunAsync(Delivery(), () => _session, null, CancellationToken.None);
+        var task = runner.RunAsync(delivery ?? Delivery(), () => _session, null, CancellationToken.None);
         for (var i = 0; i < 3000 && !task.IsCompleted && !(until?.Invoke() ?? false); i++)
         {
             _time.Advance(TimeSpan.FromSeconds(1));
@@ -82,6 +89,90 @@ public sealed class AttemptDirectoryTests
         }
 
         return await task.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    private static JsonObject SegmentMediaJob(string manifestChecksum)
+    {
+        var job = MatchJob();
+        job["contractVersion"] = "1.2.0";
+        job["executionScope"] = "segment";
+        job["recordingSetVersionId"] = "rsv-1";
+        job["segment"] = new JsonObject { ["recordingVersionId"] = "rv-1", ["segmentNumber"] = 1 };
+        job["segmentMedia"] = new JsonObject { ["videoPolicy"] = "required", ["manifestChecksum"] = manifestChecksum };
+        return job;
+    }
+
+    [Fact]
+    public async Task Verified_segment_media_is_staged_before_launch_and_deleted_with_the_attempt()
+    {
+        var media = System.Text.Encoding.UTF8.GetBytes("not really an mp4");
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "contracts", "segments", "segment-manifest", "v1", "examples", "valid", "segment-manifest.json")))!.AsObject();
+        manifest["media"]!["digest"] = ResultPublisher.Digest(media);
+        manifest["media"]!["sizeBytes"] = media.Length;
+        var manifestBytes = System.Text.Encoding.UTF8.GetBytes(manifest.ToJsonString());
+        var checksum = ResultPublisher.Digest(manifestBytes);
+        _platform.Script(WorkOperation.SegmentMediaRead, () => Json(HttpStatusCode.OK, new JsonObject
+        {
+            ["contractVersion"] = "1.0.0",
+            ["attemptId"] = _attemptId.ToString(),
+            ["logicalJobId"] = "logical-job-0001",
+            ["manifestChecksum"] = checksum,
+            ["manifest"] = JsonNode.Parse(manifestBytes),
+            ["grants"] = new JsonArray(Grant("segment-manifest.json"), Grant("segment.mp4")),
+        }.ToJsonString()));
+        _runtime.Outcome = AttemptOutcome.Failure("analyst lost");
+        var storage = new FixedStorage(new Dictionary<string, byte[]> { ["/segment-manifest.json"] = manifestBytes, ["/segment.mp4"] = media });
+        var logs = new FakeLogCollector();
+        var observed = new List<string>();
+        _runtime.OnStart = launch =>
+        {
+            var directory = launch.MediaDirectory!;
+            observed.Add(Path.GetFileName(directory));
+            observed.AddRange(Directory.EnumerateFiles(directory).Select(f => Path.GetFileName(f)).Order(StringComparer.Ordinal));
+        };
+
+        var stager = new SegmentMediaStager(_client, new HttpClient(storage), _time, new StagingOptions(), false, LoggerFactory.Create(b => b.AddProvider(new FakeLoggerProvider(logs))).CreateLogger<SegmentMediaStager>());
+        var runner = new AttemptRunner(_client, _runtime, _time, mediaStager: stager);
+        var task = runner.RunAsync(new InMemoryDelivery(_platform, SegmentMediaJob(checksum).ToJsonString()), () => _session, null, CancellationToken.None);
+        for (var i = 0; i < 3000 && !task.IsCompleted; i++)
+        {
+            _time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(1);
+        }
+
+        (await task.WaitAsync(TimeSpan.FromSeconds(10))).ShouldBe(AttemptRunEnd.Completed);
+
+        var launch = _runtime.Launch.ShouldNotBeNull(string.Join("\n", logs.GetSnapshot().Select(r => r.Message)));
+        launch.MediaDirectory.ShouldBe(Path.Combine(UpstreamStager.DirectoryFor(_attemptId), "media"));
+        observed.ShouldBe(["media", "segment-manifest.json", "segment.mp4"]);
+        Directory.Exists(UpstreamStager.DirectoryFor(_attemptId)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_job_without_segment_media_gets_no_media_directory()
+    {
+        _runtime.Outcome = AttemptOutcome.Failure("analyst lost");
+
+        (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
+
+        _runtime.Launch.ShouldNotBeNull().MediaDirectory.ShouldBeNull();
+        _runtime.Observed.ShouldNotContain("media");
+    }
+
+    private static JsonObject Grant(string name) => new()
+    {
+        ["name"] = name,
+        ["url"] = $"https://storage.test/{name}?sig=abc",
+        ["expiresAt"] = "2026-10-12T14:10:00Z",
+    };
+
+    private sealed class FixedStorage(Dictionary<string, byte[]> objects) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(objects.TryGetValue(request.RequestUri!.AbsolutePath, out var bytes)
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) }
+                : new HttpResponseMessage(HttpStatusCode.NotFound));
     }
 
     private int Heartbeats => _platform.Headers.Count(h => h.Operation == WorkOperation.Heartbeat);
@@ -99,13 +190,93 @@ public sealed class AttemptDirectoryTests
         launch.ResultDirectory.ShouldBe(Path.Combine(directory, "result"));
         launch.ScratchDirectory.ShouldBe(Path.Combine(directory, "scratch"));
         launch.InputsDirectory.ShouldBeNull();
-        _runtime.Observed.ShouldBe(["job.json", "result", "scratch"]);
+        _runtime.Observed.ShouldBe(["attempt.json", "job.json", "result", "scratch"]);
 
         var job = JsonNode.Parse(_runtime.JobJson!)!;
         job["logicalJobId"]!.GetValue<string>().ShouldBe(JobId.ToString());
         job["capability"]!["id"]!.GetValue<string>().ShouldBe("player-detection");
         job["pinned"]!["imageDigest"]!.GetValue<string>().ShouldBe("sha-256:" + new string('4', 64));
         ResultPublisher.DirectoryFor(_attemptId).ShouldBe(launch.ResultDirectory);
+        launch.AttemptFile.ShouldBe(Path.Combine(directory, "attempt.json"));
+    }
+
+    [Fact]
+    public async Task A_job_message_of_contract_version_1_0_0_is_written_byte_identical_and_still_runs_with_the_attempt_context()
+    {
+        var payload = MatchJob().ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        _runtime.Outcome = AttemptOutcome.Failure("analyst lost");
+
+        (await RunAsync(delivery: new InMemoryDelivery(_platform, payload))).ShouldBe(AttemptRunEnd.Completed);
+
+        _runtime.JobBytes.ShouldBe(System.Text.Encoding.UTF8.GetBytes(payload));
+        var attempt = JsonNode.Parse(_runtime.AttemptJson!)!.AsObject();
+        attempt["contractVersion"]!.GetValue<string>().ShouldBe("1.0.0");
+        attempt["attemptId"]!.GetValue<string>().ShouldBe(_attemptId.ToString());
+        attempt["attemptNumber"]!.GetValue<int>().ShouldBe(1);
+        IsValid("analyst-attempt", System.Text.Encoding.UTF8.GetBytes(_runtime.AttemptJson!)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task The_job_file_is_byte_identical_to_a_1_1_0_delivery_and_valid_against_the_job_contract()
+    {
+        var example = JsonNode.Parse(File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "contracts", "analysis", "analyst-job", "v1", "examples", "valid", "segment-job-with-window.json")))!.AsObject();
+        example["messageId"] = MessageId.ToString();
+        example["readinessOccurrenceId"] = OccurrenceId.ToString();
+        example["logicalJobId"] = JobId.ToString();
+        // Indented with a trailing newline, so a re-serialization would differ from the delivered bytes.
+        var payload = example.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+        _runtime.Outcome = AttemptOutcome.Failure("analyst lost");
+
+        (await RunAsync(delivery: new InMemoryDelivery(_platform, payload))).ShouldBe(AttemptRunEnd.Completed);
+
+        var written = _runtime.JobBytes.ShouldNotBeNull();
+        written.ShouldBe(System.Text.Encoding.UTF8.GetBytes(payload));
+        IsValid("analyst-job", written).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task The_attempt_file_names_the_new_attempt_on_a_retry_and_carries_no_lease_or_fencing_data()
+    {
+        _attemptNumber = 2;
+        _runtime.Outcome = AttemptOutcome.Failure("analyst lost");
+
+        (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
+
+        var attempt = JsonNode.Parse(_runtime.AttemptJson!)!.AsObject();
+        attempt["attemptId"]!.GetValue<string>().ShouldBe(_attemptId.ToString());
+        attempt["attemptNumber"]!.GetValue<int>().ShouldBe(2);
+        attempt.Select(p => p.Key).Order(StringComparer.Ordinal).ShouldBe(["attemptId", "attemptNumber", "contractVersion"]);
+        IsValid("analyst-attempt", System.Text.Encoding.UTF8.GetBytes(_runtime.AttemptJson!)).ShouldBeTrue();
+    }
+
+    private static readonly Lazy<BuildOptions> Schemas = new(() =>
+    {
+        var build = new BuildOptions { SchemaRegistry = new SchemaRegistry { Fetch = (_, _) => null } };
+        var options = new EvaluationOptions { OutputFormat = OutputFormat.List, RequireFormatValidation = true };
+        using var probe = JsonDocument.Parse("null");
+        var loaded = Directory.EnumerateFiles(Path.Combine(AppContext.BaseDirectory, "contracts"), "*.schema.json", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}releases{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !f.Contains($"{Path.DirectorySeparatorChar}examples{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && (f.Contains("analyst-job", StringComparison.Ordinal) || f.Contains("analyst-attempt", StringComparison.Ordinal)
+                    || f.Contains("common.schema", StringComparison.Ordinal)))
+            .Select(f => JsonSchema.FromText(File.ReadAllText(f), build))
+            .ToList();
+        // Reference resolution is lazy and not thread-safe, so resolve it up front.
+        foreach (var schema in loaded)
+        {
+            schema.Evaluate(probe.RootElement, options);
+        }
+
+        return build;
+    });
+
+    private static bool IsValid(string contract, byte[] json)
+    {
+        var wrapper = JsonSchema.FromText(
+            $$"""{"$ref":"https://socalytics.invalid/contracts/analysis/{{contract}}/v1/{{contract}}.schema.json"}""", Schemas.Value);
+        using var document = JsonDocument.Parse(json);
+        return wrapper.Evaluate(document.RootElement, new EvaluationOptions { OutputFormat = OutputFormat.List, RequireFormatValidation = true }).IsValid;
     }
 
     [Theory]
@@ -155,6 +326,10 @@ public sealed class AttemptDirectoryTests
 
         public string? JobJson { get; private set; }
 
+        public byte[]? JobBytes { get; private set; }
+
+        public string? AttemptJson { get; private set; }
+
         public List<string> Observed { get; private set; } = [];
 
         public AttemptOutcome Outcome { get; set; } = AttemptOutcome.Failure("analyst lost");
@@ -162,6 +337,8 @@ public sealed class AttemptDirectoryTests
         public bool Block { get; set; }
 
         public bool Throw { get; set; }
+
+        public Action<AttemptLaunch>? OnStart { get; set; }
 
         public void Release() => _release.TrySetResult();
 
@@ -171,9 +348,12 @@ public sealed class AttemptDirectoryTests
         public async Task<IAttemptExecution> StartAttemptAsync(AttemptLaunch launch, CancellationToken cancellationToken)
         {
             Launch = launch;
+            OnStart?.Invoke(launch);
             var directory = Path.GetDirectoryName(launch.JobFile)!;
             Observed = Directory.EnumerateFileSystemEntries(directory).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList()!;
-            JobJson = await File.ReadAllTextAsync(launch.JobFile!, cancellationToken);
+            JobBytes = await File.ReadAllBytesAsync(launch.JobFile!, cancellationToken);
+            JobJson = System.Text.Encoding.UTF8.GetString(JobBytes);
+            AttemptJson = await File.ReadAllTextAsync(launch.AttemptFile!, cancellationToken);
             if (Throw)
             {
                 throw new InvalidOperationException("the runtime refused the attempt");

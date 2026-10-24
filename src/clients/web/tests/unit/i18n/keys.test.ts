@@ -38,6 +38,6 @@ describe('translation keys', () => {
   });
 
   it('defines the keys the navigation uses', () => {
-    expect(Object.keys(shell.nav)).toEqual(['label', 'home', 'club', 'seasons', 'teams', 'members', 'analystManagers', 'myRequests', 'pairManager', 'account', 'analystManagersPending']);
+    expect(Object.keys(shell.nav)).toEqual(['label', 'home', 'club', 'seasons', 'teams', 'members', 'analystManagers', 'registry', 'operations', 'agentCatalog', 'myRequests', 'pairManager', 'account', 'analystManagersPending']);
   });
 });

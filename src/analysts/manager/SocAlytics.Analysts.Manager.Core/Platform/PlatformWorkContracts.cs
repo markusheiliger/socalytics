@@ -113,6 +113,17 @@ public sealed record UpstreamResultsPage(
     string ContractVersion, UpstreamDescriptor Upstream, IReadOnlyList<UpstreamResult> Results,
     IReadOnlyList<UpstreamCoverageEntry> Coverage, string? ContinuationToken);
 
+/// <summary>A presigned read grant of a materialized segment object; the URL is a credential and is never logged.</summary>
+public sealed record SegmentMediaGrant(string Name, string Url, DateTimeOffset ExpiresAt)
+{
+    public override string ToString() => $"SegmentMediaGrant {{ Name = {Name} }}";
+}
+
+/// <summary>Response of contracts/analysis/segment-media/v1: the segment manifest, its pinned checksum, and two read grants.</summary>
+public sealed record SegmentMediaResponse(
+    string ContractVersion, string AttemptId, string LogicalJobId, string ManifestChecksum,
+    System.Text.Json.JsonElement Manifest, IReadOnlyList<SegmentMediaGrant> Grants);
+
 /// <summary>Response of contracts/analyst-manager/registry-credentials/v1; the token is a credential and is never logged.</summary>
 public sealed record RegistryCredentialsResponse(
     string Registry, IReadOnlyList<string> Repositories, string Kind, string? Token, DateTimeOffset ExpiresAt)

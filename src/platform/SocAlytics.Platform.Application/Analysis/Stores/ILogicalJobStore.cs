@@ -28,7 +28,8 @@ public sealed record LogicalJobRecord(
     Guid? CurrentAttemptId,
     string? FailureReason,
     DateTimeOffset UpdatedAt,
-    long Version);
+    long Version,
+    string? SegmentRejectionReason = null);
 
 public sealed record NewLogicalJob(
     Guid Id,
@@ -40,7 +41,16 @@ public sealed record NewLogicalJob(
     string? SegmentationPolicyDigest,
     int? SegmentNumber,
     LogicalJobState State,
-    LogicalJobSnapshotRecord Snapshot);
+    LogicalJobSnapshotRecord Snapshot,
+    string? SegmentRejectionReason = null);
+
+// The segment media a job was pinned to when it became ready; reused for every retry.
+public sealed record SegmentMediaPin(
+    string VideoPolicy,
+    string ManifestChecksum,
+    string ManifestReference,
+    string MediaDigest,
+    long MediaSizeBytes);
 
 public interface ILogicalJobStore
 {
@@ -62,11 +72,17 @@ public interface ILogicalJobStore
         int? attemptsUsed,
         CancellationToken cancellationToken);
 
+    // Moves the run's Waiting, Ready, and Claimed jobs to Cancelled in id order and returns their ids in that order.
+    Task<IReadOnlyList<Guid>> CancelUnfinishedByRunAsync(Guid runId, CancellationToken cancellationToken);
+
     // Returns false when the inputs were already recorded.
     Task<bool> TryInsertInputsAsync(Guid jobId, string inputsJson, CancellationToken cancellationToken);
 
     // Writes the entries, including coverage, as the job's input snapshot; returns false when already recorded.
-    Task<bool> TryInsertInputSnapshotAsync(Guid jobId, IReadOnlyList<InputSnapshotEntry> entries, CancellationToken cancellationToken);
+    Task<bool> TryInsertInputSnapshotAsync(
+        Guid jobId, IReadOnlyList<InputSnapshotEntry> entries, SegmentMediaPin? segmentMedia, CancellationToken cancellationToken);
+
+    Task<SegmentMediaPin?> LoadSegmentMediaAsync(Guid jobId, CancellationToken cancellationToken);
 
     // Snapshots written without coverage fields are read as complete.
     Task<IReadOnlyList<InputSnapshotEntry>> LoadInputSnapshotAsync(Guid jobId, CancellationToken cancellationToken);

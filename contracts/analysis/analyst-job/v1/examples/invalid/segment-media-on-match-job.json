@@ -1,0 +1,53 @@
+{
+  "contractVersion": "1.2.0",
+  "messageId": "msg-0002",
+  "readinessOccurrenceId": "ready-0002",
+  "readinessSequence": 1,
+  "runId": "run-0001",
+  "nodeId": "node-0002",
+  "nodeKey": "match-summary",
+  "logicalJobId": "job-0002",
+  "teamId": "team-0001",
+  "matchId": "match-0001",
+  "recordingSetVersionId": "rsv-0001",
+  "capability": {
+    "id": "match-summary",
+    "version": "1.0.0"
+  },
+  "tier": "high-level",
+  "schemaVersion": "1.0.0",
+  "executionScope": "match",
+  "segmentMedia": {
+    "videoPolicy": "required",
+    "manifestChecksum": "sha-256:0000000000000000000000000000000000000000000000000000000000000008"
+  },
+  "inputs": [],
+  "pinned": {
+    "analystProfileId": "profile-summary",
+    "analystProfileDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000003",
+    "imageDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000004",
+    "modelDigest": null,
+    "policies": []
+  },
+  "resources": {
+    "cpuMillicores": 500,
+    "memoryMebibytes": 1024,
+    "scratchDiskMebibytes": 0
+  },
+  "attemptBudget": {
+    "maxAttempts": 3
+  },
+  "timeouts": {
+    "leaseSeconds": 60,
+    "staleTimeoutSeconds": 120,
+    "executionTimeoutSeconds": 1800
+  },
+  "createdAt": "2026-10-05T13:05:00Z",
+  "correlation": {
+    "correlationId": "corr-0001"
+  },
+  "workflow": {
+    "id": "default-analysis",
+    "version": "1.0.0"
+  }
+}

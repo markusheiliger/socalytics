@@ -38,7 +38,7 @@ overlap. A fact range is first extended by the requested context (clipped at zer
 **Rationale**: Implements the clarified "first recording in the set's order" rule and the
 [Segment Contract](../../docs/architecture/match-data-pipeline.md#segment-contract) windows exactly; splitting at span
 boundaries makes each part's media offsets a single linear translation. The segment window arithmetic reuses the
-Domain calculator that [Materialized Video Segments](../20261017-222433-materialized-segments/plan.md) adds
+Domain calculator that [Materialized Video Segments](../archive/20261017-222433-materialized-segments/plan.md) adds
 (`SegmentWindowCalculator`), so evidence and analysis agree on numbering.
 
 **Alternatives considered**: Returning every covering recording (rejected by clarification: more UI scope, no player

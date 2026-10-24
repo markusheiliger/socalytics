@@ -14,14 +14,16 @@ internal sealed class LogicalJobStore(IDbSession session, TimeProvider time) : I
                segmentation_policy_digest AS SegmentationPolicyDigest, segment_number AS SegmentNumber,
                state AS State, attempts_used AS AttemptsUsed,
                current_readiness_occurrence_id AS CurrentReadinessOccurrenceId, current_attempt_id AS CurrentAttemptId,
-               failure_reason AS FailureReason, updated_at AS UpdatedAt, version AS Version
+               failure_reason AS FailureReason, updated_at AS UpdatedAt, version AS Version,
+               segment_rejection_reason AS SegmentRejectionReason
         FROM socalytics.analysis_logical_jobs
         """;
 
     private sealed record JobRow(
         Guid Id, Guid RunId, Guid NodeId, string ExecutionScope, Guid? RecordingVersionId, string? TimelineMappingDigest,
         string? SegmentationPolicyDigest, int? SegmentNumber, string State, int AttemptsUsed,
-        Guid? CurrentReadinessOccurrenceId, Guid? CurrentAttemptId, string? FailureReason, DateTime UpdatedAt, long Version);
+        Guid? CurrentReadinessOccurrenceId, Guid? CurrentAttemptId, string? FailureReason, DateTime UpdatedAt, long Version,
+        string? SegmentRejectionReason);
 
     private sealed record SnapshotRow(
         int MaxAttempts, int LeaseSeconds, int StaleTimeoutSeconds, int ExecutionTimeoutSeconds,
@@ -34,7 +36,8 @@ internal sealed class LogicalJobStore(IDbSession session, TimeProvider time) : I
             : throw new InvalidOperationException($"Unknown scope '{r.ExecutionScope}'."),
         r.RecordingVersionId, r.TimelineMappingDigest, r.SegmentationPolicyDigest, r.SegmentNumber,
         Enum.Parse<LogicalJobState>(r.State), r.AttemptsUsed, r.CurrentReadinessOccurrenceId, r.CurrentAttemptId,
-        r.FailureReason, new DateTimeOffset(DateTime.SpecifyKind(r.UpdatedAt, DateTimeKind.Utc)), r.Version);
+        r.FailureReason, new DateTimeOffset(DateTime.SpecifyKind(r.UpdatedAt, DateTimeKind.Utc)), r.Version,
+        r.SegmentRejectionReason);
 
     public async Task InsertAsync(IReadOnlyList<NewLogicalJob> jobs, CancellationToken cancellationToken)
     {
@@ -47,8 +50,9 @@ internal sealed class LogicalJobStore(IDbSession session, TimeProvider time) : I
                 """
                 INSERT INTO socalytics.analysis_logical_jobs
                     (id, run_id, node_id, execution_scope, recording_version_id, timeline_mapping_digest,
-                     segmentation_policy_digest, segment_number, state, updated_at)
-                VALUES (@id, @runId, @nodeId, @scope, @recordingVersionId, @mappingDigest, @policyDigest, @segmentNumber, @state, @now)
+                     segmentation_policy_digest, segment_number, state, updated_at, segment_rejection_reason)
+                VALUES (@id, @runId, @nodeId, @scope, @recordingVersionId, @mappingDigest, @policyDigest, @segmentNumber, @state, @now,
+                        @segmentRejectionReason)
                 """,
                 new
                 {
@@ -61,6 +65,7 @@ internal sealed class LogicalJobStore(IDbSession session, TimeProvider time) : I
                     policyDigest = job.SegmentationPolicyDigest,
                     segmentNumber = job.SegmentNumber,
                     state = job.State.ToString(),
+                    segmentRejectionReason = job.SegmentRejectionReason,
                     now,
                 },
                 transaction,
@@ -156,24 +161,64 @@ internal sealed class LogicalJobStore(IDbSession session, TimeProvider time) : I
         return changed == 1;
     }
 
-    public async Task<bool> TryInsertInputsAsync(Guid jobId, string inputsJson, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<Guid>> CancelUnfinishedByRunAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var ids = await connection.QueryAsync<Guid>(new CommandDefinition(
+            """
+            WITH locked AS (
+                SELECT id FROM socalytics.analysis_logical_jobs
+                WHERE run_id = @runId AND state IN ('Waiting', 'Ready', 'Claimed')
+                ORDER BY id FOR UPDATE)
+            UPDATE socalytics.analysis_logical_jobs j
+            SET state = 'Cancelled', updated_at = @now
+            FROM locked WHERE j.id = locked.id
+            RETURNING j.id
+            """,
+            new { runId, now = time.GetUtcNow() },
+            transaction,
+            cancellationToken: cancellationToken));
+        return ids.OrderBy(id => id.ToString(), StringComparer.Ordinal).ToList();
+    }
+
+    public Task<bool> TryInsertInputsAsync(Guid jobId, string inputsJson, CancellationToken cancellationToken) =>
+        TryInsertInputsAsync(jobId, inputsJson, null, cancellationToken);
+
+    private async Task<bool> TryInsertInputsAsync(Guid jobId, string inputsJson, SegmentMediaPin? segmentMedia, CancellationToken cancellationToken)
     {
         var transaction = session.RequireTransaction();
         var connection = await session.GetConnectionAsync(cancellationToken);
         var inserted = await connection.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO socalytics.analysis_logical_job_inputs (logical_job_id, inputs, recorded_at)
-            VALUES (@jobId, @inputs::jsonb, @now)
+            INSERT INTO socalytics.analysis_logical_job_inputs (logical_job_id, inputs, recorded_at, segment_media)
+            VALUES (@jobId, @inputs::jsonb, @now, @segmentMedia::jsonb)
             ON CONFLICT (logical_job_id) DO NOTHING
             """,
-            new { jobId, inputs = inputsJson, now = time.GetUtcNow() },
+            new
+            {
+                jobId,
+                inputs = inputsJson,
+                now = time.GetUtcNow(),
+                segmentMedia = segmentMedia is null ? null : JsonSerializer.Serialize(segmentMedia),
+            },
             transaction,
             cancellationToken: cancellationToken));
         return inserted == 1;
     }
 
-    public Task<bool> TryInsertInputSnapshotAsync(Guid jobId, IReadOnlyList<InputSnapshotEntry> entries, CancellationToken cancellationToken) =>
-        TryInsertInputsAsync(jobId, JsonSerializer.Serialize(entries.Select(ToJson)), cancellationToken);
+    public Task<bool> TryInsertInputSnapshotAsync(
+        Guid jobId, IReadOnlyList<InputSnapshotEntry> entries, SegmentMediaPin? segmentMedia, CancellationToken cancellationToken) =>
+        TryInsertInputsAsync(jobId, JsonSerializer.Serialize(entries.Select(ToJson)), segmentMedia, cancellationToken);
+
+    public async Task<SegmentMediaPin?> LoadSegmentMediaAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var json = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT segment_media::text FROM socalytics.analysis_logical_job_inputs WHERE logical_job_id = @jobId",
+            new { jobId }, session.Transaction, cancellationToken: cancellationToken));
+        return json is null ? null : JsonSerializer.Deserialize<SegmentMediaPin>(json);
+    }
 
     private static object ToJson(InputSnapshotEntry e) => new
     {

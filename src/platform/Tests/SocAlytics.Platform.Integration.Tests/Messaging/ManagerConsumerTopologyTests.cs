@@ -23,6 +23,30 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
     private const string MatchCapability = "dev-match-capability";
     private const string PartialMatchCapability = "dev-partial-match-capability";
 
+    // Generous client limits so a loaded machine delays, rather than fails, a correct call.
+    private static readonly TimeSpan ClientTimeout = TimeSpan.FromSeconds(60);
+    private const int MaxAttempts = 4;
+
+    private static async Task<T> RetryTimedOutAsync<T>(Func<int, Task<T>> call, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await call(attempt);
+            }
+            catch (Exception ex) when (attempt < MaxAttempts && !ct.IsCancellationRequested && IsTimeout(ex))
+            {
+                await Task.Delay(TimeSpan.FromSeconds(attempt), ct);
+            }
+        }
+    }
+
+    private static bool IsTimeout(Exception ex) =>
+        ex is OperationCanceledException or TimeoutException or NatsJSTimeoutException
+        || ex is MessageTransportException { FailureCategory: TransportFailureCategories.PublishTimeout }
+        || ex.InnerException is not null && IsTimeout(ex.InnerException);
+
     private ServiceProvider Provider()
     {
         var settings = new Dictionary<string, string?>(TestWorkflowSettings.Values)
@@ -44,7 +68,9 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
     {
         var connection = provider.GetRequiredService<NatsConnectionProvider>();
         connection.EnsureStarted();
-        var js = new NatsJSContext(connection.Connection);
+        var js = new NatsJSContext(
+            connection.Connection,
+            new NatsJSOpts(connection.Connection.Opts with { RequestTimeout = ClientTimeout }));
         var topology = provider.GetRequiredService<NatsTopology>();
 
         // The first run creates the stream; the deletion then removes consumers left by earlier tests.
@@ -101,8 +127,15 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
         var js = await ProvisionAsync(provider, ct);
         var payload = Guid.NewGuid().ToString("N");
 
-        var published = await provider.GetRequiredService<IMessageTransport>().PublishAsync(
-            new TransportMessage("analysis.jobs.ready." + MatchCapability, Guid.NewGuid().ToString("N"), Encoding.UTF8.GetBytes(payload)), ct);
+        var transport = provider.GetRequiredService<IMessageTransport>();
+        var message = new TransportMessage("analysis.jobs.ready." + MatchCapability, Guid.NewGuid().ToString("N"), Encoding.UTF8.GetBytes(payload));
+        var published = await RetryTimedOutAsync(async attempt =>
+        {
+            var result = await transport.PublishAsync(message, ct);
+
+            // A retry after a timed-out attempt that the server did store reports a duplicate of the same message.
+            return attempt > 1 && result == TransportPublishResult.Duplicate ? TransportPublishResult.Published : result;
+        }, ct);
         published.ShouldBe(TransportPublishResult.Published);
 
         (await FetchAsync(js, SegmentCapability, payload, ct)).ShouldBeFalse();
@@ -128,16 +161,24 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
         var transport = provider.GetRequiredService<IMessageTransport>();
         var id = Guid.NewGuid() + ":1";
         var message = new TransportMessage("agents.invocations.ready", id, Encoding.UTF8.GetBytes("{}"));
-        (await transport.PublishAsync(message, ct)).ShouldBe(TransportPublishResult.Published);
-        (await transport.PublishAsync(message, ct)).ShouldBe(TransportPublishResult.Duplicate);
+        var first = await RetryTimedOutAsync(async attempt =>
+        {
+            var result = await transport.PublishAsync(message, ct);
+            return attempt > 1 && result == TransportPublishResult.Duplicate ? TransportPublishResult.Published : result;
+        }, ct);
+        first.ShouldBe(TransportPublishResult.Published);
+        (await RetryTimedOutAsync(_ => transport.PublishAsync(message, ct), ct)).ShouldBe(TransportPublishResult.Duplicate);
     }
 
-    private static async Task<bool> FetchAsync(NatsJSContext js, string capability, string payload, CancellationToken ct)
+    private static Task<bool> FetchAsync(NatsJSContext js, string capability, string payload, CancellationToken ct) =>
+        RetryTimedOutAsync(_ => FetchOnceAsync(js, capability, payload, ct), ct);
+
+    private static async Task<bool> FetchOnceAsync(NatsJSContext js, string capability, string payload, CancellationToken ct)
     {
         var consumer = await js.GetConsumerAsync(Stream, "analyst-" + capability, ct);
         var found = false;
         await foreach (var message in consumer.FetchAsync(
-            new NatsJSFetchOpts { MaxMsgs = 50, Expires = TimeSpan.FromSeconds(3) },
+            new NatsJSFetchOpts { MaxMsgs = 50, Expires = TimeSpan.FromSeconds(10) },
             serializer: NatsRawSerializer<byte[]>.Default,
             cancellationToken: ct))
         {

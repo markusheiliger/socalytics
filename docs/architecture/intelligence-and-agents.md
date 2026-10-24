@@ -202,8 +202,11 @@ clip references through MCP/API tools. The triage remains bound to its selected
 analysis run; a newer run requires a new triage until an explicit rebase design
 is introduced. The platform side of direct `User -> SA` conversations bound to
 one terminal successful run is implemented as development evidence (see
-[Agent Orchestration Authority](#agent-orchestration-authority)); Coach
-consultations and the Web UI remain planned.
+[Agent Orchestration Authority](#agent-orchestration-authority)), and the
+connected Web UI conversations with Specialist Agents are implemented as
+development evidence (see
+[Client Applications → Web UI](client-applications.md#web-ui)); Coach Agent
+conversations and consultations remain planned.
 
 ### Agent Orchestration Authority
 
@@ -462,8 +465,8 @@ and context, consulted agents, MCP calls, evidence references, and any applied
 philosophy modifiers. The catalog defines the required lineage fields; the
 Agent Orchestration functional area owns their durable representation.
 
-Decided and not yet implemented: Hermes does not choose agent or artifact
-versions. Agent Orchestration pins the enabled agent version and every artifact
+Implemented as development evidence on the platform side (Hermes itself stays
+planned): Hermes does not choose agent or artifact versions. Agent Orchestration pins the enabled agent version and every artifact
 digest from the platform's agent catalog into the invocation at submission
 ([Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance)),
 the claim's execution envelope carries those references, and the workload reads

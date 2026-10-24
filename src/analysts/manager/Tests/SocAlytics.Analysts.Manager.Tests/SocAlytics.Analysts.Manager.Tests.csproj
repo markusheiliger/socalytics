@@ -21,7 +21,11 @@
   <ItemGroup>
     <Content Include="../../../../../contracts/analyst-manager/**/*" LinkBase="contracts/analyst-manager" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../../../../contracts/analysis/upstream-results/**/*" LinkBase="contracts/analysis/upstream-results" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../../../contracts/analysis/segment-media/**/*" LinkBase="contracts/analysis/segment-media" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../../../contracts/segments/**/*" LinkBase="contracts/segments" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../../../../contracts/analysis/attempt-completion/**/*" LinkBase="contracts/analysis/attempt-completion" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../../../contracts/analysis/analyst-job/**/*" LinkBase="contracts/analysis/analyst-job" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../../../contracts/analysis/analyst-attempt/**/*" LinkBase="contracts/analysis/analyst-attempt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../../../../contracts/common/**/*" LinkBase="contracts/common" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../../../../contracts/analysis/result-manifest/**/*" LinkBase="contracts/analysis/result-manifest" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

@@ -22,15 +22,19 @@ import {
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment } from './speckit-amend.mjs';
-import { maintainFixSpec, requestPrerequisite } from './speckit-fix.mjs';
+import { maintainBacklog } from './speckit-backlog.mjs';
+import { maintainFixSpec, startFixAuthoring } from './speckit-fix.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import {
   BLOCKED_LABEL,
+  BOT_LOGIN,
+  BRANCH_PREFIX,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
-  IMPLEMENT_WORKFLOW_FILE,
+  IMPLEMENT_CHAIN_WORKFLOW_FILES,
+  LEGACY_IMPLEMENT_WORKFLOW_FILES,
   ORCHESTRATE_WORKFLOW_FILE,
   START_COMMENT_MARKER,
   baseBranchOf,
@@ -43,7 +47,11 @@ import {
   implementationBranch,
   isImplementRunOf,
   kindLabel,
+  neutralizeMarkers,
+  parseFlakyMarkers,
+  parseFlakySpecMarkers,
   parseMaxActiveSpecs,
+  renderFlakySpecMarker,
   renderPullRequestBody,
   renderPullRequestTitle,
   readSpecTasks,
@@ -117,7 +125,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the amendment of #${issue.number}: ${error.message}`);
       }
-      // Prerequisites: a prerequisite spec from `/speckit fix` holds the implementation until the twin depends on it;
+      // Prerequisites: a spec authored by `/speckit author` holds the implementation until the twin depends on it;
       // open dependencies of the twin block it, and once none is open, the implementation retries.
       const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
@@ -132,7 +140,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       await client.createComment(issue.number, [
         `Implementation pull request #${lifecycle.pull.number} was closed without merging, so the implementation request was removed.`,
         '',
-        `The twin is back at its computed stage \`${computedStage}\`. Flag it again to restart; the branch \`${implementationBranch(folder)}\` is then reset.`,
+        `The twin is back at its computed stage \`${computedStage}\`. Comment \`/speckit implement\` on this issue to restart; the branch \`${implementationBranch(folder)}\` is then reset.`,
       ].join('\n'));
       fallback.push({ number: issue.number, folder, pull: lifecycle.pull.number });
       continue;
@@ -144,8 +152,9 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   }
   const unblocked = await sweepBlocked(client, env, { handled: new Set(inProgress.map((twin) => twin.pull)), now: now(), notes: amendmentNotes });
   amendmentActions += unblocked;
-  amendmentActions += await requestPrerequisites(client, env, { byFolder, specs, inProgress, notes: amendmentNotes });
-  // Prerequisites of running implementations first: each unblocks an implementation that waits for it.
+  // Requested prerequisites of running implementations first, however the dependency came about: each unblocks an
+  // implementation that waits for it. A prerequisite that is not requested never starts; the Blocked comment on the
+  // waiting implementation recommends `/speckit implement` on its twin.
   const prerequisites = new Set(inProgress.flatMap((twin) => twin.blockers));
   for (const twin of ready) twin.prerequisite = prerequisites.has(twin.number);
   ready.sort((a, b) => Number(b.prerequisite) - Number(a.prerequisite));
@@ -175,7 +184,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   return { exitCode: 0, ready, blocked, inconsistent, inProgress, fallback, merged, amendmentActions };
 }
 
-// Maintains what holds an open implementation pull request: its prerequisite spec from `/speckit fix` (maintainFixSpec)
+// Maintains what holds an open implementation pull request: the spec `/speckit author` authored for it (maintainFixSpec)
 // and the open dependencies of its twin (maintainDependencyBlock). Returns whether it is blocked and by which twins.
 async function maintainBlock(client, env, { implementation, twin }, { now, notes, count }) {
   const report = (line) => notes.push(line);
@@ -195,39 +204,6 @@ async function maintainBlock(client, env, { implementation, twin }, { now, notes
     notes.push(`- Warning: could not check the prerequisites of #${implementation.number}: ${error.message}`);
     return { blocked: hold, blockers: [], outcome: 'unknown' };
   }
-}
-
-// The open twins that running implementations wait for are requested for implementation on behalf of the person who
-// requested the waiting implementation, once, when their computed stage allows it. Returns the number of requests.
-async function requestPrerequisites(client, env, { byFolder, specs, inProgress, notes }) {
-  let requested = 0;
-  const twins = new Map([...byFolder].map(([folder, issue]) => [issue.number, { folder, issue }]));
-  for (const waiting of inProgress) {
-    for (const number of waiting.blockers) {
-      const found = twins.get(number);
-      const entry = found ? specs.get(found.folder) : null;
-      if (!found || !entry || found.issue.state !== 'open') continue;
-      const computedStage = deriveStage(entry.artifacts, entry.tasks);
-      if (isImplementRequested(found.issue, computedStage)) continue;
-      if (implementBlockers({ folder: found.folder, computedStage, openChecklistItems: entry.openChecklistItems }).length > 0) continue;
-      try {
-        if (await requestPrerequisite(client, found.issue, waiting.requester, `the implementation of #${waiting.number} (pull request #${waiting.pull}) depends on this spec and waits for it.`)) {
-          notes.push(`- Requested prerequisite #${number} on behalf of @${waiting.requester}; #${waiting.number} waits for it.`);
-          requested += 1;
-        }
-      } catch (error) {
-        notes.push(`- Warning: could not request prerequisite #${number}: ${error.message}`);
-      }
-    }
-  }
-  if (requested > 0) {
-    try {
-      await client.dispatchWorkflow(ORCHESTRATE_WORKFLOW_FILE, defaultBranchOf(env), {});
-    } catch {
-      // The hourly scheduler run starts it.
-    }
-  }
-  return requested;
 }
 
 // Every open implementation pull request labelled BLOCKED_LABEL that the twin loop did not handle (for example because
@@ -314,10 +290,19 @@ function describeDecision(twin) {
   }
 }
 
-// Whether a run of the twin's implementation chain is queued or running.
+// Whether a run of the twin's implementation chain is queued or running, also one of the chain before groups that
+// started before it was replaced (LEGACY_IMPLEMENT_WORKFLOW_FILES).
 async function chainActive(client, twin, since) {
-  return (await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, since))
-    .some((run) => run.status !== 'completed' && isImplementRunOf(run.display_title, twin));
+  for (const file of [...IMPLEMENT_CHAIN_WORKFLOW_FILES, ...LEGACY_IMPLEMENT_WORKFLOW_FILES]) {
+    let runs = [];
+    try {
+      runs = await client.listWorkflowRuns(file, since);
+    } catch {
+      // A removed workflow file may not be listed any more.
+    }
+    if (runs.some((run) => run.status !== 'completed' && isImplementRunOf(run.display_title, twin))) return true;
+  }
+  return false;
 }
 
 // Scheduler: selects flagged twins, starts new implementations while fewer than SPECKIT_MAX_ACTIVE_SPECS are active,
@@ -356,8 +341,114 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     actions += 1;
   }
   if (actions === 0) report.line('- Nothing to do.');
+  const flaky = await maintainFlakyTests(client, env, { now: now() });
+  if (flaky.lines.length > 0) {
+    report.line();
+    report.line('### Flaky tests');
+    report.line();
+    for (const line of flaky.lines) report.line(line);
+  }
+  const backlog = await maintainBacklog(client, env, { rootDir, now: now() });
+  if (backlog.lines.length > 0) {
+    report.line();
+    report.line('### Spec backlog');
+    report.line();
+    for (const line of backlog.lines) report.line(line);
+  }
   report.flush();
-  return { exitCode: 0, selection };
+  return { exitCode: 0, selection, flaky, backlog };
+}
+
+// Flaky-test ledger: a test that passed only on its rerun (the flaky markers of verification comments) in at least
+// SPECKIT_FLAKY_THRESHOLD (default 3) distinct implementation pull requests (the open ones and those merged in the last
+// FLAKY_WINDOW_MS) gets one spec that makes it deterministic. It is started with `/speckit author`'s authoring entry on
+// the open implementation pull request where the test was flaky most recently, without blocking that implementation
+// (`link: false`), and recorded there with a flaky-spec marker, so the test is never started again while that marker
+// is in the window. Returns the summary lines and the tests it started specs for.
+export const FLAKY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+export const DEFAULT_FLAKY_THRESHOLD = 3;
+export function parseFlakyThreshold(value) {
+  const number = Number(String(value ?? '').trim());
+  return Number.isInteger(number) && number > 0 ? number : DEFAULT_FLAKY_THRESHOLD;
+}
+
+const isImplementationPull = (pull) => String(pull.head?.ref ?? '').startsWith(BRANCH_PREFIX) &&
+  !(pull.head?.repo?.full_name && pull.base?.repo?.full_name && pull.head.repo.full_name !== pull.base.repo.full_name);
+
+export async function maintainFlakyTests(client, env, { now = Date.now() } = {}) {
+  const lines = [];
+  const started = [];
+  const threshold = parseFlakyThreshold(env.SPECKIT_FLAKY_THRESHOLD);
+  const since = new Date(now - FLAKY_WINDOW_MS).toISOString();
+  let pulls;
+  try {
+    const open = (await client.listOpenPullRequests()).filter(isImplementationPull);
+    const merged = (await client.listClosedPullRequestsSince(since))
+      .filter((pull) => isImplementationPull(pull) && pull.merged_at && Date.parse(pull.merged_at) >= Date.parse(since));
+    pulls = [...open, ...merged.filter((pull) => !open.some((item) => item.number === pull.number))];
+  } catch (error) {
+    return { lines: [`- Warning: could not read the flaky tests: ${error.message}`], started };
+  }
+  const seen = new Map();
+  const covered = new Set();
+  for (const pull of pulls) {
+    const comments = await client.listIssueComments(pull.number);
+    for (const test of parseFlakySpecMarkers(comments)) covered.add(test);
+    for (const { test, at } of parseFlakyMarkers(comments)) {
+      const byPull = seen.get(test) ?? new Map();
+      const previous = byPull.get(pull.number);
+      if (!previous || Date.parse(at) > Date.parse(previous.at)) byPull.set(pull.number, { pull, at });
+      seen.set(test, byPull);
+    }
+  }
+  const candidates = [...seen.entries()]
+    .filter(([test, byPull]) => byPull.size >= threshold && !covered.has(test))
+    .sort(([a], [b]) => a.localeCompare(b));
+  const busy = new Set();
+  for (const [test, byPull] of candidates) {
+    const occurrences = [...byPull.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    const numbers = occurrences.map((item) => `#${item.pull.number}`).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+    const target = occurrences.find((item) => item.pull.state === 'open')?.pull;
+    const name = `\`${neutralizeMarkers(test).replaceAll('`', "'")}\``;
+    if (!target) {
+      lines.push(`- ${name} was flaky in ${numbers.join(', ')}; no spec started: none of them is open.`);
+      continue;
+    }
+    if (busy.has(target.number)) {
+      lines.push(`- ${name} was flaky in ${numbers.join(', ')}; its spec starts on #${target.number} in a later run.`);
+      continue;
+    }
+    busy.add(target.number);
+    const twin = Number(String(target.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
+    if (!Number.isInteger(twin) || twin <= 0) {
+      lines.push(`- ${name} was flaky in ${numbers.join(', ')}; no spec started: #${target.number} names no twin.`);
+      continue;
+    }
+    const implementation = await client.getPullRequest(target.number);
+    const actor = (await resolveImplementRequester(client, twin))?.login ?? implementation.user?.login ?? BOT_LOGIN;
+    const guidance = [
+      `The test \`${test}\` failed and then passed on its one rerun in the verifications of ${occurrences.length} implementation pull requests (${numbers.join(', ')}), so it is flaky.`,
+      'Make it deterministic: find and remove the cause of the flakiness (timing, ordering, shared state, external dependencies) in the test or in the code it covers.',
+      'Do not weaken, skip, or delete the test or its assertions, and do not add retries or longer timeouts as the fix.',
+    ].join(' ');
+    let result;
+    try {
+      result = await startFixAuthoring(client, env, { twin, implementation, guidance, actor, now, link: false });
+    } catch (error) {
+      result = { started: false, reason: error.message };
+    }
+    if (!result.started) {
+      lines.push(`- ${name} was flaky in ${numbers.join(', ')}; the spec could not start on #${target.number}: ${neutralizeMarkers(result.reason)}.`);
+      continue;
+    }
+    await client.createComment(target.number, [
+      renderFlakySpecMarker(test),
+      `**Flaky test** ${name} passed only on its rerun in ${occurrences.length} implementations (${numbers.join(', ')}), so a spec that makes it deterministic is being authored from here. It does not block this implementation.`,
+    ].join('\n'));
+    started.push({ test, pull: target.number, pulls: occurrences.map((item) => item.pull.number) });
+    lines.push(`- ${name} was flaky in ${numbers.join(', ')}; started a spec to make it deterministic on #${target.number}.`);
+  }
+  return { lines, started };
 }
 // Server side: prepares the implementation workspace of one ready twin. Each part checks what already exists,
 // so a rerun after a partial failure completes the work instead of duplicating it.
@@ -488,7 +579,8 @@ export function readSpecFromRef(git, ref, folder) {
   });
 }
 
-// Client side: checks a spec against the remote default branch and flags its twin for implementation.
+// Client side: checks a spec against the remote default branch and requests its implementation with
+// `/speckit implement` on its twin.
 export async function runRequest({ client, git, rootDir, env, folder, log }) {
   const name = resolveFolder({ folder, env, rootDir });
   // Implementation is requested for specs on the repository's default branch, which GitHub defines.
@@ -533,10 +625,12 @@ export async function runRequest({ client, git, rootDir, env, folder, log }) {
     for (const reason of reasons) log(`- ${reason}`);
     return { exitCode: 1 };
   }
-  await updateIssueWithLabels(client, twin, stageLabelChange(twin, IMPLEMENT_STAGE));
-  log(`Requested: ${url} is labelled ${implementLabel}. The Spec Kit prepare workflow validates the request on GitHub.`);
+  // Implementation is requested with the comment command on the twin (with the user's token), so the request is
+  // checked on GitHub and records who requested it.
+  const comment = await client.createComment(twin.number, '/speckit implement');
+  log(`Requested: posted \`/speckit implement\` on ${url}${comment?.html_url ? ` (${comment.html_url})` : ''}. The Spec Kit commands workflow checks it on GitHub, records you as the requester, and sets ${implementLabel}.`);
   await reportBlockers();
-  return { exitCode: 0 };
+  return { exitCode: 0, comment: comment ?? null };
 }
 
 function parseArgs(argv) {

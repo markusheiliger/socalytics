@@ -116,4 +116,11 @@ export interface AnalysisRunSummary {
   createdAt: Date;
   runningAt?: Date;
   terminatedAt?: Date;
+  version: number;
+  cancelledBy?: { memberId: string; accountName: string };
+  cancellationReason?: string;
+  isCurrent: boolean;
+  supersededBy?: { runId: string; recordingSetVersionId: string; recordingSetFinalizedAt: Date };
+  supersededAt?: Date;
+  cancellationCause?: 'member' | 'superseded';
 }

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Dapper;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +16,7 @@ using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Domain.Analysis;
 using SocAlytics.Platform.Domain.Recordings;
 using SocAlytics.Platform.Infrastructure;
+using SocAlytics.Platform.Infrastructure.Contracts;
 using SocAlytics.Platform.Infrastructure.Persistence;
 using SocAlytics.Platform.Infrastructure.Registry;
 using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
@@ -107,7 +109,7 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 				null)).ToList();
 			var runs = sp.GetRequiredService<IAnalysisRunStore>();
 			runId = await runs.InsertAsync(new NewAnalysisRun(
-				lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, definition.WorkflowId, definition.WorkflowVersion,
+				lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, lineage.FinalizedAt, definition.WorkflowId, definition.WorkflowVersion,
 				definition.RequestedCapabilities, definition.CompletionPolicy, AnalysisRunState.Requested, null,
 				new AnalysisRunSnapshotRecord(mapped.RunSnapshotJson, mapped.RunSnapshotDigest), nodes, edges), ct);
 			await sp.GetRequiredService<ILogicalJobStore>().InsertAsync(planned.Select(p => new NewLogicalJob(
@@ -158,6 +160,8 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 	private sealed record Spec(string Key, bool Segment = false);
 
 	private sealed record Link(string Up, string Down, string Kind = "required", string? Predicate = null);
+
+	private const string DefaultRunSnapshot = """{"segmentationPolicy":{"durationSeconds":300}}""";
 
 	private static readonly string Digest = "sha-256:" + new string('a', 64);
 
@@ -224,6 +228,14 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 			}
 		}
 
+		public async Task<List<(Guid RecordingVersionId, int? SegmentNumber, JsonElement Payload)>> PublishedJobsAsync(string key)
+		{
+			var rows = await sql.QueryAsync<(Guid? RecordingVersionId, int? SegmentNumber, string Payload)>(
+				"SELECT j.recording_version_id, j.segment_number, o.payload::text FROM socalytics.outbox_messages o JOIN socalytics.analysis_logical_jobs j ON j.id = o.logical_job_id WHERE o.message_type = 'analysis.ready-work' AND o.logical_job_id IN (" + JobIds + ") ORDER BY j.segment_number",
+				new { runId, key });
+			return rows.Select(r => (r.RecordingVersionId ?? Guid.Empty, r.SegmentNumber, JsonDocument.Parse(r.Payload).RootElement.Clone())).ToList();
+		}
+
 		public async Task FailAsync(string key) =>
 			await sql.ExecuteAsync("UPDATE socalytics.analysis_logical_jobs SET state = 'Failed', failure_reason = 'attempts-exhausted' WHERE id = ANY(@ids)", new { ids = (await JobsAsync(key)).ToArray() });
 
@@ -243,7 +255,7 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 		}
 	}
 
-	private async Task<Fixture> CreateAsync(IsolatedDatabase db, Spec[] nodes, Link[] links, CancellationToken ct)
+	private async Task<Fixture> CreateAsync(IsolatedDatabase db, Spec[] nodes, Link[] links, CancellationToken ct, string runSnapshot = DefaultRunSnapshot)
 	{
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
 		var configuration = new ConfigurationBuilder()
@@ -268,8 +280,8 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 		var sp = scope.ServiceProvider;
 		await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
 		var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
-			Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "wf", "1.0.0", nodes.Select(n => "cap-" + n.Key).ToList(), "all-requested-capabilities",
-			AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord("{}", Digest), records, edges), ct);
+			Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, "wf", "1.0.0", nodes.Select(n => "cap-" + n.Key).ToList(), "all-requested-capabilities",
+			AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord(runSnapshot, Digest), records, edges), ct);
 		var jobs = new List<NewLogicalJob>();
 		foreach (var record in records)
 		{
@@ -368,6 +380,45 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 		await f.ApplyAsync(ct);
 		(await f.JobStateAsync("m")).ShouldBe("Ready");
 		(await f.ReadyWorkAsync("m")).ShouldBe(1);
+	}
+
+	[Fact]
+	public async Task Published_jobs_carry_the_workflow_and_segment_jobs_the_shared_segment_window()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		const string snapshot = """{"segmentationPolicy":{"durationSeconds":300}}""";
+		await using var db = await postgres.CreateDatabaseAsync(ct);
+		await using var f = await CreateAsync(db, [new("s", true), new("m")], [new("s", "m")], ct, snapshot);
+		await f.ApplyAsync(ct);
+		await f.CompleteAsync("s");
+		await f.ApplyAsync(ct);
+
+		var validator = new JsonSchemaContractValidator();
+		var durationMs = SegmentWindows.DurationMs(snapshot);
+		var segments = await f.PublishedJobsAsync("s");
+		segments.Count.ShouldBe(2);
+		foreach (var (recordingVersionId, segmentNumber, payload) in segments)
+		{
+			validator.Validate(ContractSchemaIds.AnalystJobV1, payload).IsValid.ShouldBeTrue();
+			payload.GetProperty("contractVersion").GetString().ShouldBe("1.1.0");
+			payload.GetProperty("workflow").GetProperty("id").GetString().ShouldBe("wf");
+			payload.GetProperty("workflow").GetProperty("version").GetString().ShouldBe("1.0.0");
+			var window = payload.GetProperty("segmentWindow");
+			var (startMs, endMs) = SegmentWindows.Window(segmentNumber!.Value, durationMs);
+			window.GetProperty("segmentId").GetString().ShouldBe(SegmentWindows.SegmentId(recordingVersionId, segmentNumber.Value));
+			window.GetProperty("startMs").GetInt64().ShouldBe(startMs);
+			window.GetProperty("endMs").GetInt64().ShouldBe(endMs);
+			endMs.ShouldBe(segmentNumber.Value * 300_000L);
+		}
+
+		var matches = await f.PublishedJobsAsync("m");
+		matches.Count.ShouldBe(1);
+		var match = matches[0].Payload;
+		validator.Validate(ContractSchemaIds.AnalystJobV1, match).IsValid.ShouldBeTrue();
+		match.GetProperty("contractVersion").GetString().ShouldBe("1.1.0");
+		match.GetProperty("workflow").GetProperty("id").GetString().ShouldBe("wf");
+		match.GetProperty("workflow").GetProperty("version").GetString().ShouldBe("1.0.0");
+		match.TryGetProperty("segmentWindow", out _).ShouldBeFalse();
 	}
 
 	[Fact]

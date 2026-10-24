@@ -198,11 +198,16 @@ const insideSpec = (file, folder) => [specDir(folder), specDir(folder, { archive
 //   branch's version with every archive applied is the result, and a file the base branch removed stays removed;
 // - in the spec's own folder both sides and their merge base are normalized with every archive and merged three-way;
 //   a clean merge is the result, anything else stays a conflict for the conflict resolution.
-// Afterwards references in the other files point to every archived spec. Returns the resolved and remaining conflicts.
+// Afterwards references in the other files point to every archived spec, also when nothing conflicted: a file the base
+// branch added may link to a spec this branch archived (or the reverse), and such a link would be dead after the merge.
+// Returns the resolved and remaining conflicts and the files whose references were rewritten.
 export function resolveSpecConflicts({ git, root, folder }) {
   const conflicts = unmergedFiles(git);
   const specConflicts = conflicts.filter((file) => file.startsWith(`${SPECS_DIR}/`));
-  if (specConflicts.length === 0) return { resolved: [], remaining: conflicts };
+  if (specConflicts.length === 0) {
+    const refreshed = refreshReferences({ root, git, folders: archivedFolders(git), skip: new Set(conflicts) });
+    return { resolved: [], remaining: conflicts, refreshed };
+  }
   const folders = [...new Set([...archivedFolders(git, 'HEAD'), ...archivedFolders(git, 'MERGE_HEAD')])].sort();
   const mergeBase = git(['merge-base', 'HEAD', 'MERGE_HEAD']).stdout.trim();
   const resolved = new Set();
@@ -256,8 +261,8 @@ export function resolveSpecConflicts({ git, root, folder }) {
     }
   }
   const remaining = unmergedFiles(git);
-  refreshReferences({ root, git, folders: archivedFolders(git), skip: new Set(remaining) });
-  return { resolved: specConflicts.filter((file) => resolved.has(file) && !remaining.includes(file)), remaining };
+  const refreshed = refreshReferences({ root, git, folders: archivedFolders(git), skip: new Set(remaining) });
+  return { resolved: specConflicts.filter((file) => resolved.has(file) && !remaining.includes(file)), remaining, refreshed };
 }
 
 // Points every reference in the tracked text files (except `skip`) to the archive of each folder in `folders` and

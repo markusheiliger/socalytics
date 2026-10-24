@@ -209,6 +209,17 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
             : result;
     }
 
+    public async Task<WorkResult<SegmentMediaResponse>> GetSegmentMediaAsync(
+        PlatformSession session, Guid attemptId, long fencingToken, CancellationToken cancellationToken = default)
+    {
+        var uri = AnalysisEndpoint(session.BaseUri, $"attempts/{attemptId}/segment-media");
+        // The proof binds the path without the query string.
+        var request = Authenticated(HttpMethod.Get, uri, session);
+        request.RequestUri = new Uri(uri.AbsoluteUri + $"?fencingToken={fencingToken}");
+        return await ExecuteAsync<SegmentMediaResponse>(
+            request, cancellationToken, bodyValidator: body => SegmentMediaSchema.IsValid(System.Text.Encoding.UTF8.GetBytes(body)));
+    }
+
     public Task<PlatformResponse> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
     {
         if (request.RequestUri?.Scheme != Uri.UriSchemeHttps)
@@ -241,7 +252,8 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
     }
 
     private async Task<WorkResult<T>> ExecuteAsync<T>(
-        HttpRequestMessage request, CancellationToken cancellationToken, Func<T, bool>? isReplay = null) where T : class
+        HttpRequestMessage request, CancellationToken cancellationToken, Func<T, bool>? isReplay = null,
+        Func<string, bool>? bodyValidator = null) where T : class
     {
         PlatformResponse response;
         try
@@ -261,6 +273,11 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
         switch (signal.Outcome)
         {
             case PlatformOutcome.Success:
+                if (bodyValidator?.Invoke(response.Body) == false)
+                {
+                    return new(WorkResultKind.Refused, Code: "contract-invalid");
+                }
+
                 var value = response.Read<T>();
                 if (value is null)
                 {

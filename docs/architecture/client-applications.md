@@ -18,7 +18,9 @@ moving Web UI source under `src/platform`.
 The Web UI release is coordinated with the platform API and is
 deployed as a separate OCI container whose image is built from `src/clients`.
 The service worker and installable PWA are implemented as development
-evidence; offline mode and Docker Compose deployment are not implemented yet.
+evidence; offline mode is not implemented. The self-hosted Docker Compose
+evaluation composition serves the Web UI image next to the platform API as
+development evidence; production deployment stays unresolved.
 
 The Web UI image is implemented (see
 [Platform Implementation](platform-implementation.md#source-and-runtime-baseline)).
@@ -61,32 +63,36 @@ The React Web UI supports connected platform and club workflows, including:
 - club, season, and team management
 - club-user and team-role management, including invitations by email that
   Club Admins create, resend, and revoke in the members area and that invitees
-  accept on a public invitation page (decided, not yet implemented; see
+  accept on a public invitation page at `/invitations/accept` (implemented as
+  development evidence; see
   [Email Notifications](email-notifications.md#member-invitations))
-- platform configuration and administration (the Analyst Registry
+- platform configuration and administration: the Analyst Registry
   administration, the workflow operations area, and the agent catalog
-  administration for Club Admins are decided, not yet implemented; see below)
+  administration for Club Admins are implemented (connected workflows; see
+  below)
 - Analyst Manager pairing for Registrars and the fleet view for Club Admins
   (implemented): registration approval, rejection, and revocation, and each
   Manager's connectivity, operating state, and activity (see
   [Analyst Manager](analyst-manager.md#fleet-visibility-in-the-web-ui))
 - match creation, recording uploads, and upload finalization (implemented as
-  connected workflows); the match page's analysis run list will offer Club
+  connected workflows); the match page's analysis run list offers Club
   Admins and Coaches of the owning team a confirmed cancel action with an
   optional reason for requested and running runs, and shows cancelled runs
-  with who cancelled them, when, and why (decided, not yet implemented); the
-  run list will also mark the match's current run and each superseded run
-  with the run that superseded it, and shows a run cancelled because it was
-  superseded without a member (decided, not yet implemented)
-- team and match review, analytics, and agent conversations for coaches
-  (analysis review and agent conversations are not implemented yet; the
-  analysis review and the match triage conversations are decided, see below)
+  with who cancelled them, when, and why (implemented); the
+  run list also marks the match's current run and each superseded run with
+  the run that superseded it, and shows a run cancelled because it was
+  superseded without a member (implemented)
+- team and match review, analytics, and agent conversations for coaches (the
+  connected analysis review and the match triage conversations with Specialist
+  Agents are implemented, see below; run comparison is decided but not yet
+  implemented as described below; visualizations, the Coach Agent
+  conversations and consultations are not implemented yet)
 
 What a user sees is decided by their roles and team authorization, online and
 offline alike.
 
-The connected analysis review is decided as follows and not yet implemented.
-From a match, members who may read it (Club Admins, and Coaches and Viewers of
+The connected analysis review is implemented as development evidence (the
+`simulated` and `platform` browser-test projects). From a match, members who may read it (Club Admins, and Coaches and Viewers of
 the owning team) open the review of one analysis run: its state, timestamps,
 failure reason, workflow, and each capability node's tier, scope, state,
 blocking node, and job counts, refreshed while the run is in progress. For
@@ -96,9 +102,30 @@ order through the member fact reads of
 filter them by a match-time range, page forward and back, and see coverage
 windows and run-pinned provenance, with explicit messages for missing,
 incomplete, empty, and unavailable analysis instead of empty lists. The review
-is online only and keeps analysis data in memory only; it offers no run
-controls, visualizations, cross-run comparison, or export, and plays no video
-other than the evidence playback below.
+is online only and keeps analysis data in memory only; the current
+implementation offers no run controls, visualizations, cross-run comparison,
+or export, and plays no video other than the evidence playback below.
+
+Connected analysis run comparison is decided and not yet implemented. Club
+Admins and Coaches and Viewers authorized for the owning team will reach a
+read-only comparison from the match or a terminal run review, selecting
+exactly two distinct runs of that match in `Completed`, `PartiallyCompleted`,
+`Failed`, or `Cancelled` state. Current and superseded runs remain selectable
+history; their execution states and accepted results do not change. Each side
+will retain its review link, recording-set finalization context, workflow,
+stream contracts and counts, output and reported input coverage, and pinned
+Analyst provenance through existing member reads. Streams align only for a
+unique capability identity and execution scope on both sides; ambiguous and
+absent counterparts remain unmatched, with contract and provenance changes
+explicit and no semantic equivalence or quality claim. Missing results,
+skipped or incomplete coverage, and accepted complete zero-fact results stay
+distinct. Entry, refresh, return and reconnection require fresh authorized
+reads of both sides before displaying results; offline or detected access
+loss removes their details and reusable comparison data. The view will be
+online only and memory-only, with no new comparison endpoint, payload
+reconciliation, run controls, media changes, visualizations, export, sharing,
+agent or MCP operations. Equal reported metadata never proves equal full
+input snapshots.
 
 Evidence playback in the analysis review is decided as follows and not yet
 implemented (see
@@ -114,9 +141,9 @@ error states, and resolves again when a link expires. Links and media stay in
 memory only, the service worker never handles them, and playback is online
 only; downloads, sharing, and whole-recording playback are not offered.
 
-The connected match triage conversations are decided as follows and not yet
-implemented. From a match with a `Completed` or `PartiallyCompleted` analysis
-run, Club Admins and Coaches of the owning team start a triage conversation
+The connected match triage conversations are implemented as development
+evidence as follows. From a match with a `Completed` or `PartiallyCompleted`
+analysis run, Club Admins and Coaches of the owning team start a triage conversation
 for a run they choose, add Specialist Agents the stamp enables, and address a
 question to one of them. Members list and reopen their own conversations from
 the match view, see the bound run with a link to its review and whether it is
@@ -143,8 +170,8 @@ disagreed with it, a conflict marked as a disagreement; the Agent Catalog area
 shows and registers consultation policies and lets Coach Agent versions
 reference one.
 
-The Analyst Registry administration is decided as follows and not yet
-implemented. Club Admins, the only role that operates the Registry, see the
+The Analyst Registry administration is implemented as a connected workflow
+as follows. Club Admins, the only role that operates the Registry, see the
 stamp's default workflow and browse the registered Analyst images with their
 imported declarations, the Analyst profile versions with their states, and the
 workflow versions with their nodes and dependency edges as readable lists.
@@ -158,11 +185,11 @@ applies only to analysis runs created afterwards. The platform decides every
 rule and the Web UI explains its refusals; the area is online only and offers
 no deletion, image building, signing, or graphical workflow editing.
 
-The workflow operations area is decided as follows and not yet implemented.
+The workflow operations area is implemented as a connected workflow as follows.
 Club Admins, who use the operational workflow operations until a stamp-operator
 role exists (see
-[API And Identity](platform-implementation.md#api-and-identity)), open an
-Operations area with the analysis operational summary as the platform reports
+[API And Identity](platform-implementation.md#api-and-identity)), open the
+Operations area under `/operations` with the analysis operational summary as the platform reports
 it, with its observation time and a manual refresh; the outgoing messages of
 the transactional outbox filtered by state and message type, paged, with a
 detail view of everything the platform returns about a message but never its
@@ -175,11 +202,11 @@ accepted state (see
 and they see its outcome. The area offers no per-message retry, edit, or
 deletion, no automatic refresh, charts, or alerts, and is online only.
 
-The agent catalog administration is decided as follows and not yet
-implemented. Club Admins, who operate the agent catalog until a stamp-operator
+The agent catalog administration is implemented as a connected workflow as
+follows. Club Admins, who operate the agent catalog until a stamp-operator
 role exists (see
 [Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance)),
-open an Agent Catalog area that lists the catalog's agents with their kind,
+open an Agent Catalog area under `/agent-catalog` that lists the catalog's agents with their kind,
 enabled version, version states, and what triage conversations offer as the
 platform's available-agents read reports it. They read agent versions with
 every artifact reference and digest and each artifact read-only: prompt text
@@ -304,8 +331,8 @@ and receives `202 Accepted`, durable conversation and invocation identifiers, a
 status location, and retry guidance. The Web UI uses conditional REST polling
 for status, accepted advice, and lineage. It does not call Hermes, publish agent
 transport messages, or receive a separate completion semantic. The Web UI's
-retry and polling behavior is decided and not yet implemented: when the
-answer to a submission is lost, sending the unchanged question to the same
+retry and polling behavior is implemented for Specialist Agent submissions:
+when the answer to a submission is lost, sending the unchanged question to the same
 agent again reuses its idempotency key, and the Web UI checks status
 conditionally, starting at the platform's retry guidance and slowing down to
 a cap while nothing changes, pausing while the view is hidden or offline.

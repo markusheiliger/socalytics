@@ -37,7 +37,7 @@ sequenceDiagram
   the set used by an analysis run. A later recording addition or correction
   creates a new recording-set version and a new run rather than overwriting
   accepted evidence; once the new run exists, it supersedes the match's older
-  runs (decided, not yet implemented; see
+  runs (see
   [Run State And Recovery](job-processing.md#run-state-and-recovery)).
 
   Every recording upload is one multipart upload of one platform-chosen
@@ -67,12 +67,13 @@ authorization are resolved through the Club and Identity and Access application
 handlers; downstream validation uses a typed Recordings lineage query rather
 than reading Recordings tables directly. The recording-set versions of a match
 are ordered by finalization time with the version identity as tie-break;
-analysis run supersession uses this order (decided, not yet implemented).
+analysis run supersession uses this order.
 
 Its integration tests cover immutable metadata and mapping revisions,
 mapping/recording mismatch, missing Match and unauthorized Team access, empty
 or cross-scope sets, atomic finalization and rollback, replay behavior, one
-canonical finalized event, and revision through a new recording-set identity.
+canonical finalized event, and revision through a new recording-set identity, which supersedes the
+older run of the match.
 
 ---
 
@@ -120,8 +121,8 @@ The accepted logical-segment design uses immutable values, not mutable labels:
   `(recording-version-id, timeline-mapping-digest,
   segmentation-policy-digest, segment-number)`, where the segment number is a
   positive one-based integer. The cache key is a deterministic projection of
-  every field in this tuple; its canonical serialization is deferred to the
-  future machine-readable contract work.
+  every field in this tuple; its canonical serialization is the segment
+  manifest contract `contracts/segments/segment-manifest/v1/`.
 - An **analysis segment reference** combines one finalized
   `recording-set-version-id` with one complete materialized-segment identity.
   Validation confirms that the recording version and exact timeline mapping
@@ -163,8 +164,9 @@ A published segment manifest records:
 - an immutable artifact reference; and
 - an algorithm-qualified media digest, `sha-256:<hex-digest>`.
 
-Machine-readable segment schemas will be introduced with the Segment Service
-implementation and must encode these identities without redefining them.
+The machine-readable segment manifest contract,
+`contracts/segments/segment-manifest/v1/`, encodes these identities without
+redefining them.
 
 Encoded boundaries may extend beyond the requested interval when keyframe
 alignment requires decoding context, but they must cover the complete requested
@@ -211,8 +213,8 @@ implemented initially. Purge never changes logical identity: a later request
 deterministically rematerializes the same logical segment, subject to the same
 manifest and digest validation.
 
-The Segment Service is decided as follows and not yet implemented (see
-[Materialized Video Segments and Analyst Input Staging](../../specs/20261017-222433-materialized-segments/spec.md)).
+The Segment Service is implemented as development evidence (see
+[Materialized Video Segments and Analyst Input Staging](../../specs/archive/20261017-222433-materialized-segments/spec.md)).
 It is the `Segments` functional area of the platform and runs as a background
 worker of the API host; no API operation reads or relays media bytes. One
 durable record per materialized identity holds its state, its single current
@@ -237,7 +239,9 @@ claimed job and returns it to `absent`. A member's evidence resolution (see
 [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access))
 is decided, not yet implemented, to request the materialization of `absent`
 segments it needs as another requester, without pinning them against the
-purge; a purged segment is then rematerialized on demand.
+purge; a purged segment is then rematerialized on demand. Storage cost,
+policy-version migration at scale, the production cache and deletion policy
+(`POL-004`), and the production toolchain and storage values remain unresolved.
 
 ### Segment And Match Analysis Scope
 
@@ -257,7 +261,7 @@ scope and query this stream through team-authorized, match-scoped APIs.
 The stream is readable by authorized members as well, per run and capability
 (implemented as development evidence), as described in
 [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access),
-with the Web UI's connected analysis review (decided, not yet implemented; see
+with the Web UI's connected analysis review (implemented; see
 [Client Applications](client-applications.md#web-ui)) as its first consumer;
 high-level ACs keep receiving their inputs through the Analyst Manager's
 staging of accepted upstream results.
@@ -278,10 +282,11 @@ validity window. Result acceptance rejects facts outside that window.
 
 ### Implementation Validation
 
-A prototype must verify keyframe-aligned extraction, stable logical boundaries, concurrent
-cache-miss behavior, storage cost, and policy-version migration. The choice is
-revisited only if measured results challenge the segment identity, cache, and
-materialization boundaries above. Workflow evidence must also verify cross-
+Development tests evidence keyframe-aligned extraction, stable logical
+boundaries, concurrent cache-miss behavior, and the coexistence of
+segmentation-policy versions. Storage cost and policy-version migration at
+scale remain unverified. The choice is revisited only if measured results
+challenge the segment identity, cache, and materialization boundaries above. Workflow evidence must also verify cross-
 segment identity continuity and concepts that span segment boundaries.
 
 ---

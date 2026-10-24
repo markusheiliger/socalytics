@@ -15,7 +15,8 @@ internal sealed class AgentInvocationStore(IDbSession session) : IAgentInvocatio
                correlation_id AS CorrelationId, policy_version AS PolicyVersion, execution_policy::text AS ExecutionPolicy,
                state AS State, attempts_used AS AttemptsUsed, current_attempt_id AS CurrentAttemptId,
                ready_occurrence AS ReadyOccurrence, last_notified_at AS LastNotifiedAt, failure_reason AS FailureReason,
-               submitted_at AS SubmittedAt, ended_at AS EndedAt, progress_version AS ProgressVersion, version AS Version
+               submitted_at AS SubmittedAt, ended_at AS EndedAt, progress_version AS ProgressVersion, version AS Version,
+               agent_version AS AgentVersion, agent_version_digest AS AgentVersionDigest
         FROM socalytics.agent_invocations
         """;
 
@@ -55,6 +56,8 @@ internal sealed class AgentInvocationStore(IDbSession session) : IAgentInvocatio
         public DateTime? EndedAt { get; set; }
         public long ProgressVersion { get; set; }
         public long Version { get; set; }
+        public string? AgentVersion { get; set; }
+        public string? AgentVersionDigest { get; set; }
     }
 
     private sealed class TurnRow
@@ -95,7 +98,7 @@ internal sealed class AgentInvocationStore(IDbSession session) : IAgentInvocatio
             r.Id, r.ConversationId, r.TeamId, r.MatchId, r.AnalysisRunId, r.OwnerMemberId, r.AgentId, route, r.Question,
             r.IdempotencyKey, r.RequestHash, r.CorrelationId, r.PolicyVersion, r.ExecutionPolicy, state, r.AttemptsUsed,
             r.CurrentAttemptId, r.ReadyOccurrence, Utc(r.LastNotifiedAt), ParseReason(r.FailureReason), Utc(r.SubmittedAt),
-            Utc(r.EndedAt), r.ProgressVersion, r.Version);
+            Utc(r.EndedAt), r.ProgressVersion, r.Version, r.AgentVersion, r.AgentVersionDigest);
     }
 
     private static AgentAcceptedAdviceRecord? ToAdvice(Guid invocationId, TurnRow r) =>
@@ -140,10 +143,10 @@ internal sealed class AgentInvocationStore(IDbSession session) : IAgentInvocatio
             INSERT INTO socalytics.agent_invocations
                 (id, conversation_id, team_id, match_id, analysis_run_id, owner_member_id, agent_id, route, question,
                  idempotency_key, request_hash, correlation_id, policy_version, execution_policy, state, attempts_used,
-                 ready_occurrence, submitted_at)
+                 ready_occurrence, submitted_at, agent_version, agent_version_digest)
             VALUES (@Id, @ConversationId, @TeamId, @MatchId, @AnalysisRunId, @OwnerMemberId, @AgentId, @Route, @Question,
                     @IdempotencyKey, @RequestHash, @CorrelationId, @PolicyVersion, @ExecutionPolicy::jsonb, 'queued', 0,
-                    1, @SubmittedAt)
+                    1, @SubmittedAt, @AgentVersion, @AgentVersionDigest)
             """,
             new
             {
@@ -162,6 +165,8 @@ internal sealed class AgentInvocationStore(IDbSession session) : IAgentInvocatio
                 invocation.PolicyVersion,
                 ExecutionPolicy = invocation.ExecutionPolicyJson,
                 invocation.SubmittedAt,
+                invocation.AgentVersion,
+                invocation.AgentVersionDigest,
             },
             transaction,
             cancellationToken: cancellationToken));

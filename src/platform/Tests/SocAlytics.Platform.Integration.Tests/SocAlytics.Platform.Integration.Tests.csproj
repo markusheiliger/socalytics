@@ -42,6 +42,8 @@
   <ItemGroup>
     <None Include="..\..\SocAlytics.Platform.AppHost\PostgresInit\01-socalytics-roles.sh" Link="PostgresInit\01-socalytics-roles.sh" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\..\contracts\recordings\recordings-finalized\v1\recordings-finalized.schema.json" Link="contracts\recordings\recordings-finalized\v1\recordings-finalized.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\contracts\common\v1\common.schema.json" Link="contracts\common\v1\common.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\contracts\segments\segment-manifest\v1\segment-manifest.schema.json" Link="contracts\segments\segment-manifest\v1\segment-manifest.schema.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\..\contracts\analyst-manager\queue-depth\v1\queue-depth.schema.json" Link="contracts\analyst-manager\queue-depth\v1\queue-depth.schema.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\..\contracts\analyst-manager\registration\v1\**" Link="contracts\analyst-manager\registration\v1\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\..\contracts\analyst-manager\status\v1\**" Link="contracts\analyst-manager\status\v1\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-catalog/model-selection/v1/model-selection.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent model selection v1",
+  "description": "Immutable, digest-addressed Agent Catalog model selection artifact: the provider, model, deployment, and generation parameters of one agent version. The artifact is a closed object and never carries credentials, endpoints, or other secret-bearing fields.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "id", "version", "provider", "model", "deployment"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "kind": { "const": "model-selection" },
+    "id": { "type": "string", "minLength": 3, "maxLength": 100, "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "version": {
+      "type": "string",
+      "maxLength": 100,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "provider": { "enum": ["openai", "github-models", "simulated"] },
+    "model": { "type": "string", "pattern": "^[A-Za-z0-9._/:-]{1,128}$" },
+    "deployment": { "type": "string", "pattern": "^[A-Za-z0-9._/:-]{1,128}$" },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+        "topP": { "type": "number", "minimum": 0, "maximum": 1 },
+        "maxOutputTokens": { "type": "integer", "minimum": 1, "maximum": 32768 },
+        "reasoningEffort": { "enum": ["low", "medium", "high"] }
+      }
+    }
+  }
+}

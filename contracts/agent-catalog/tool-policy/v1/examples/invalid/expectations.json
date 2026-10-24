@@ -1,0 +1,6 @@
+{
+  "unknown-tool.json": "enum",
+  "tool-with-parentheses.json": "enum",
+  "duplicate-tools.json": "uniqueItems",
+  "empty-tools.json": "minItems"
+}

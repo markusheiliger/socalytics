@@ -43,8 +43,8 @@ public sealed class CompletionTests(PostgresContainerFixture postgres, NatsConta
         await c.OpenAsync(ct);
         await using var cmd = new NpgsqlCommand(
             """
-            INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
-            VALUES (@run, @team, @match, @g, 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', 'Running', @at, @at, @at);
+            INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
+            VALUES (@run, @team, @match, @g, now(), 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', 'Running', @at, @at, @at);
             INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
             VALUES (@node, @run, 'm1', 'cap-a', '1.0.0', 'high-level', 'match', 0, 'Active', @at);
             INSERT INTO socalytics.analysis_run_snapshots (run_id, snapshot, snapshot_digest) VALUES (@run, '{}'::jsonb, 'sha-256:a');
@@ -341,6 +341,52 @@ public sealed class CompletionTests(PostgresContainerFixture postgres, NatsConta
         b.GetProperty("outcome").GetString().ShouldBe("failure-recorded");
         b.GetProperty("replayed").GetBoolean().ShouldBeTrue();
         (await RowsAsync(db, StateSql, ct)).ShouldBe(before);
+    }
+
+    [Fact]
+    public async Task FailedCompletionWithBoundedReasonIsStoredAndReadBackUnchanged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, host) = await StartAsync(ct);
+        await using var _ = host;
+        var s = await SeedReadyJobAsync(db, ct);
+        using var m = new TestManagerClient(host.Factory);
+        var (attempt, token, number) = await ClaimAsync(m, s, "c1", ct);
+        var body = Body(s, attempt, token, number, "bounded-1", true);
+        body["result"]!["manifestReference"] = "results/absent.json";
+
+        using var first = await CompleteAsync(host.Factory, m, attempt, body, ct);
+        first.StatusCode.ShouldBe(HttpStatusCode.OK, await first.Content.ReadAsStringAsync(ct));
+        (await ReadAsync(first, ct)).GetProperty("outcome").GetString().ShouldBe("failed");
+
+        // The storage columns are unbounded text: a reason at the 256-character bound must survive unchanged.
+        var reason = "result-payload-invalid[kind=k;fact=3;count=2;at=" + new string('p', 256 - 49) + "]";
+        reason.Length.ShouldBe(256);
+        await using (var c = new NpgsqlConnection(db.MigratorConnectionString))
+        {
+            await c.OpenAsync(ct);
+            await using var cmd = new NpgsqlCommand(
+                """
+                ALTER TABLE socalytics.analysis_completion_outcomes DISABLE TRIGGER USER;
+                ALTER TABLE socalytics.analysis_execution_attempts DISABLE TRIGGER USER;
+                UPDATE socalytics.analysis_completion_outcomes SET reason = @r;
+                UPDATE socalytics.analysis_execution_attempts SET close_reason = @r;
+                ALTER TABLE socalytics.analysis_completion_outcomes ENABLE TRIGGER USER;
+                ALTER TABLE socalytics.analysis_execution_attempts ENABLE TRIGGER USER;
+                """, c);
+            cmd.Parameters.AddWithValue("r", reason);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_completion_outcomes WHERE length(reason) = 256", ct)).ShouldBe(1);
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_execution_attempts WHERE length(close_reason) = 256", ct)).ShouldBe(1);
+
+        using var replay = await CompleteAsync(host.Factory, m, attempt, Clone(body), ct);
+        replay.StatusCode.ShouldBe(HttpStatusCode.OK, await replay.Content.ReadAsStringAsync(ct));
+        var b = await ReadAsync(replay, ct);
+        b.GetProperty("outcome").GetString().ShouldBe("failed");
+        b.GetProperty("replayed").GetBoolean().ShouldBeTrue();
+        b.GetProperty("reason").GetString().ShouldBe(reason);
     }
 
     [Fact]

@@ -27,6 +27,34 @@ public static class ResultRejectionReasons
     public const string FactsOutOfWindow = "result-facts-out-of-window";
     public const string FactsCountMismatch = "result-facts-count-mismatch";
     public const string FactsTooLarge = "result-facts-too-large";
+    public const string PayloadInvalid = "result-payload-invalid";
+    public const string PayloadKindUndeclared = "result-payload-kind-undeclared";
+
+    /// <summary>Also covers a payload instance deeper than the instance depth limit.</summary>
+    public const string PayloadValidationBound = "result-payload-validation-bound";
+
+    public const int MaxLocatorLength = 256;
+
+    /// <summary>The bare reason code of a reason that may carry a bounded locator; used as the tag of metrics and audit records.</summary>
+    public static string Code(string reason)
+    {
+        var bracket = reason.IndexOf('[', StringComparison.Ordinal);
+        return bracket < 0 ? reason : reason[..bracket];
+    }
+
+    /// <summary>The bounded locator <c>[kind=..;fact=..;count=..;at=..]</c>; it never contains a payload value.</summary>
+    public static string Locator(string? kind, int? factIndex, int count, string? pointer)
+    {
+        var head = string.Create(CultureInfo.InvariantCulture, $"[kind={kind};fact={factIndex};count={count};at=");
+        var room = MaxLocatorLength - head.Length - 1;
+        var at = pointer ?? string.Empty;
+        if (room < 0)
+        {
+            return head[..(MaxLocatorLength - 1)] + "]";
+        }
+
+        return head + (at.Length > room ? at[..room] : at) + "]";
+    }
 }
 
 public enum ResultVerificationStatus
@@ -77,7 +105,8 @@ public sealed class ResultManifestVerifier(
     IObjectStorage storage,
     IContractValidator validator,
     IResultDeclarationStore declarations,
-    IOptions<AnalysisResultOptions> options)
+    IOptions<AnalysisResultOptions> options,
+    IFactPayloadValidator payloadValidator)
 {
     public const string SupportedContractVersion = "1.1.0";
     public const string FactContractVersion = "1.0.0";
@@ -225,6 +254,13 @@ public sealed class ResultManifestVerifier(
                 return Reject(ResultRejectionReasons.FactsCountMismatch);
             }
 
+            // 13: fact payloads against the schemas pinned to the node
+            var payloadRejection = ValidatePayloads(request.Node.SnapshotJson, facts);
+            if (payloadRejection is not null)
+            {
+                return Reject(payloadRejection);
+            }
+
             return ResultVerificationOutcome.Accepted(new ValidatedResultManifest(
                 root.GetProperty("contractVersion").GetString()!,
                 root.GetProperty("outputType").GetString()!,
@@ -234,6 +270,57 @@ public sealed class ResultManifestVerifier(
                 artifacts.GetRawText(),
                 root.GetProperty("upstreamLineage").GetRawText(),
                 facts));
+        }
+    }
+
+    // Returns the rejection reason, or null when no schema is pinned or every payload conforms; nothing is retained or modified.
+    private string? ValidatePayloads(string nodeSnapshotJson, IReadOnlyList<ParsedFact> facts)
+    {
+        using var snapshot = JsonDocument.Parse(nodeSnapshotJson);
+        if (snapshot.RootElement.ValueKind != JsonValueKind.Object
+            || !snapshot.RootElement.TryGetProperty("factPayloadSchemas", out var pinned)
+            || pinned.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var schemas = pinned.EnumerateObject().ToDictionary(p => p.Name, p => p.Value, StringComparer.Ordinal);
+        if (schemas.Count == 0)
+        {
+            return null;
+        }
+
+        var documents = new List<JsonDocument>(facts.Count);
+        try
+        {
+            var candidates = new List<FactPayloadCandidate>(facts.Count);
+            foreach (var fact in facts)
+            {
+                var document = JsonDocument.Parse(fact.PayloadJson);
+                documents.Add(document);
+                candidates.Add(new FactPayloadCandidate(fact.Kind, document.RootElement));
+            }
+
+            var verdict = payloadValidator.Validate(schemas, candidates);
+            if (verdict.IsValid)
+            {
+                return null;
+            }
+
+            var code = verdict.Outcome switch
+            {
+                FactPayloadValidationOutcome.KindUndeclared => ResultRejectionReasons.PayloadKindUndeclared,
+                FactPayloadValidationOutcome.BoundReached => ResultRejectionReasons.PayloadValidationBound,
+                _ => ResultRejectionReasons.PayloadInvalid,
+            };
+            return code + ResultRejectionReasons.Locator(verdict.Kind, verdict.FactIndex, verdict.ViolationCount, verdict.Pointer);
+        }
+        finally
+        {
+            foreach (var document in documents)
+            {
+                document.Dispose();
+            }
         }
     }
 
@@ -374,10 +461,7 @@ public sealed class ResultManifestVerifier(
             return false;
         }
 
-        using var snapshot = JsonDocument.Parse(request.RunSnapshotJson);
-        var duration = snapshot.RootElement.GetProperty("segmentationPolicy").GetProperty("durationSeconds").GetInt32() * 1000L;
-        var start = (segmentNumber - 1) * duration;
-        var end = segmentNumber * duration;
+        var (start, end) = SegmentWindows.Window(segmentNumber, SegmentWindows.DurationMs(request.RunSnapshotJson));
         if (!segment.GetProperty("windowStartMs").TryGetInt64(out var reportedStart)
             || !segment.GetProperty("windowEndMs").TryGetInt64(out var reportedEnd)
             || reportedStart != start

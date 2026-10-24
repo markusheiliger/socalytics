@@ -11,7 +11,8 @@ internal sealed class AnalysisOperationalQueries(IDbSession session) : IAnalysis
 
     private sealed record StateCount(string State, int Count);
 
-    private sealed record Scalars(int Blocked, int Stale, int Rejected, int Pending, int Failed, DateTime? OldestPending);
+    private sealed record Scalars(int Blocked, int Stale, int Rejected, int Pending, int Failed, DateTime? OldestPending,
+        int CancelledJobs, int CancelledAttempts);
 
     public async Task<AnalysisOperationalCounts> GetCountsAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -26,14 +27,17 @@ internal sealed class AnalysisOperationalQueries(IDbSession session) : IAnalysis
                    (SELECT count(*) FROM socalytics.analysis_notification_receipts WHERE outcome = 'rejected')::int AS Rejected,
                    (SELECT count(*) FROM socalytics.outbox_messages WHERE state = 'pending')::int AS Pending,
                    (SELECT count(*) FROM socalytics.outbox_messages WHERE state = 'failed')::int AS Failed,
-                   (SELECT min(created_at) FROM socalytics.outbox_messages WHERE state = 'pending') AS OldestPending
+                   (SELECT min(created_at) FROM socalytics.outbox_messages WHERE state = 'pending') AS OldestPending,
+                   (SELECT count(*) FROM socalytics.analysis_logical_jobs WHERE state = 'Cancelled')::int AS CancelledJobs,
+                   (SELECT count(*) FROM socalytics.analysis_execution_attempts WHERE state = 'Cancelled')::int AS CancelledAttempts
             """,
             transaction: session.Transaction, cancellationToken: cancellationToken));
         long? oldest = s.OldestPending is null
             ? null
             : Math.Max(0, (long)(now - new DateTimeOffset(DateTime.SpecifyKind(s.OldestPending.Value, DateTimeKind.Utc))).TotalSeconds);
         return new AnalysisOperationalCounts(
-            states.ToDictionary(x => x.State, x => x.Count), s.Blocked, s.Stale, s.Rejected, s.Pending, s.Failed, oldest);
+            states.ToDictionary(x => x.State, x => x.Count), s.Blocked, s.Stale, s.Rejected, s.Pending, s.Failed, oldest,
+            s.CancelledJobs, s.CancelledAttempts);
     }
 
     public async Task<OperationsPageResult<NotificationReceiptView>> ListReceiptsAsync(

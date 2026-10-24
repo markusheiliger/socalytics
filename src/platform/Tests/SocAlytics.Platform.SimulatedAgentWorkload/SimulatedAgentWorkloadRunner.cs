@@ -50,6 +50,9 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 		_key.ImportPkcs8PrivateKey(Convert.FromBase64String(options.PrivateKey), out _);
 	}
 
+	/// <summary>Raised once the runner has read the claim of a first attempt it stalls on purpose; the argument is the attempt id.</summary>
+	public event Action<Guid>? AttemptStalled;
+
 	/// <summary>Processes notifications until cancelled; transient failures are logged and retried after a delay.</summary>
 	public async Task RunAsync(CancellationToken cancellationToken)
 	{
@@ -145,6 +148,7 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 		if (behavior == Behavior.Stall && attemptNumber == 1)
 		{
 			// The first attempt neither renews nor ends; the platform's monitor expires it and the next attempt succeeds.
+			AttemptStalled?.Invoke(attemptId);
 			return true;
 		}
 
@@ -176,6 +180,12 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 				cancellationToken);
 		}
 
+		var references = await ReadPinnedReferencesAsync($"{attemptPath}/pinned-artifacts", fencingToken, cancellationToken);
+		if (references is null)
+		{
+			return false;
+		}
+
 		using var completion = await SendAsync(
 			HttpMethod.Post, $"{attemptPath}/completion",
 			new
@@ -189,9 +199,9 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 					modelProvider = "simulated",
 					model = "simulated",
 					deployment = "simulated",
-					promptRef = "simulated",
-					toolPolicyRef = "simulated",
-					safetyPolicyRef = "simulated",
+					promptRef = references["prompt-template"],
+					toolPolicyRef = references["tool-policy"],
+					safetyPolicyRef = references["safety-policy"],
 				},
 			},
 			cancellationToken);
@@ -202,6 +212,26 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 
 		_logger?.LogWarning("The completion of {InvocationId} answered {Status}.", invocationId, (int)completion.StatusCode);
 		return false;
+	}
+
+	// Reads the pinned artifacts as the current attempt and returns their digests by kind; null when the attempt is settled or the read failed.
+	private async Task<Dictionary<string, string>?> ReadPinnedReferencesAsync(string path, string fencingToken, CancellationToken cancellationToken)
+	{
+		using var response = await SendAsync(HttpMethod.Post, path, new { fencingToken }, cancellationToken);
+		if (!response.IsSuccessStatusCode)
+		{
+			_logger?.LogWarning("The pinned artifact read {Path} answered {Status}.", path, (int)response.StatusCode);
+			return null;
+		}
+
+		var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
+		var digests = new Dictionary<string, string>(StringComparer.Ordinal);
+		foreach (var artifact in body.GetProperty("artifacts").EnumerateArray())
+		{
+			digests[artifact.GetProperty("kind").GetString()!] = artifact.GetProperty("digest").GetString()!;
+		}
+
+		return digests.ContainsKey("prompt-template") && digests.ContainsKey("tool-policy") && digests.ContainsKey("safety-policy") ? digests : null;
 	}
 
 	// Renews the lease once and, while simulating a longer work duration, at every third of the lease.

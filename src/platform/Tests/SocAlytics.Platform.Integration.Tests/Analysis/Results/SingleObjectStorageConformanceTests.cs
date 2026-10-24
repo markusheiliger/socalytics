@@ -83,6 +83,38 @@ public sealed class SingleObjectStorageConformanceTests(RustFsContainerFixture s
     }
 
     [Fact]
+    public async Task Streaming_put_stores_the_object_with_a_full_object_checksum_and_length()
+    {
+        var body = RandomNumberGenerator.GetBytes(300_000);
+        var digest = Sha256Digest.FromBytes(SHA256.HashData(body));
+        var key = $"segments/{Guid.NewGuid():N}";
+
+        await _storage.PutObjectAsync(key, "video/mp4", new MemoryStream(body), body.Length, digest, CancellationToken.None);
+
+        var checksum = await _storage.GetObjectChecksumAsync(key, CancellationToken.None);
+        checksum.ShouldNotBeNull();
+        checksum.Digest.ShouldBe(digest);
+        checksum.ContentLength.ShouldBe(body.Length);
+        (await _storage.ReadObjectAsync(key, body.Length, CancellationToken.None))!.Content.ShouldBe(body);
+    }
+
+    [Fact]
+    public async Task Streaming_put_with_bytes_that_do_not_match_the_digest_is_rejected_and_stores_nothing()
+    {
+        var body = RandomNumberGenerator.GetBytes(4096);
+        var digest = Sha256Digest.FromBytes(SHA256.HashData(body));
+        var flipped = (byte[])body.Clone();
+        flipped[0] ^= 0xFF;
+        var key = $"segments/{Guid.NewGuid():N}";
+
+        var rejection = await Should.ThrowAsync<ObjectStorageRejectedException>(() =>
+            _storage.PutObjectAsync(key, "video/mp4", new MemoryStream(flipped), flipped.Length, digest, CancellationToken.None));
+
+        rejection.Reason.ShouldBe(ObjectStorageRejectionReason.BadDigest);
+        (await _storage.GetObjectChecksumAsync(key, CancellationToken.None)).ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Missing_object_reports_null()
     {
         var key = $"results/{Guid.NewGuid():N}";

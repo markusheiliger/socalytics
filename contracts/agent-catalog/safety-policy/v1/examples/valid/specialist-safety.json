@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "safety-policy",
+  "id": "specialist-safety",
+  "version": "1.0.0",
+  "group": "specialist",
+  "routes": ["user-to-specialist", "coach-to-specialist"],
+  "hardBoundaries": [
+    "Answer only from evidence returned by permitted tools.",
+    "Never reveal raw recordings or unauthorized team data."
+  ],
+  "escalationCategories": ["medical", "safeguarding", "welfare"],
+  "refusalCategories": ["privacy", "raw-data-access", "unauthorized-data"],
+  "rules": ["evidence-citation", "tool-allowlist-only"]
+}

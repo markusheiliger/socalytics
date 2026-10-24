@@ -4,8 +4,11 @@ import { EmailConfirmPage } from './features/email-confirm/EmailConfirmPage';
 import { LinkAccountPage } from './features/link-account/LinkAccountPage';
 import { SetPasswordPage } from './features/set-password/SetPasswordPage';
 import { PasswordChangePage } from './features/account/PasswordChangePage';
+import { AnalysisRunPage } from './features/analysis/AnalysisRunPage';
 import { ClubPage } from './features/club/ClubPage';
 import { HomePage } from './features/home/HomePage';
+import { InvitationAcceptPage } from './features/invitations/InvitationAcceptPage';
+import { ConversationPage } from './features/triage/ConversationPage';
 import { FinalizePage } from './features/lineage/FinalizePage';
 import { RecordingVersionPage } from './features/lineage/RecordingVersionPage';
 import { MatchCreatePage } from './features/matches/MatchCreatePage';
@@ -16,6 +19,28 @@ import { MyRequestPage } from './features/managers/MyRequestPage';
 import { MyRequestsPage } from './features/managers/MyRequestsPage';
 import { PairingPage } from './features/managers/PairingPage';
 import { RegistrationPage } from './features/managers/RegistrationPage';
+import { AgentCatalogOverviewPage } from './features/agent-catalog/AgentCatalogOverviewPage';
+import { AgentPage } from './features/agent-catalog/AgentPage';
+import { AgentVersionCreatePage } from './features/agent-catalog/AgentVersionCreatePage';
+import { AgentVersionPage } from './features/agent-catalog/AgentVersionPage';
+import { ArtifactCreatePage } from './features/agent-catalog/ArtifactCreatePage';
+import { ArtifactPage } from './features/agent-catalog/ArtifactPage';
+import { ArtifactsPage } from './features/agent-catalog/ArtifactsPage';
+import { CatalogBaselinePage } from './features/agent-catalog/CatalogBaselinePage';
+import { ImagePage } from './features/registry/ImagePage';
+import { ImagesPage } from './features/registry/ImagesPage';
+import { ProfileCreatePage } from './features/registry/ProfileCreatePage';
+import { ProfilesPage } from './features/registry/ProfilesPage';
+import { ProfileVersionPage } from './features/registry/ProfileVersionPage';
+import { RegisterImagePage } from './features/registry/RegisterImagePage';
+import { RegistryOverviewPage } from './features/registry/RegistryOverviewPage';
+import { WorkflowCreatePage } from './features/registry/WorkflowCreatePage';
+import { WorkflowsPage } from './features/registry/WorkflowsPage';
+import { WorkflowVersionPage } from './features/registry/WorkflowVersionPage';
+import { NotificationReceiptsPage } from './features/operations/NotificationReceiptsPage';
+import { OperationsSummaryPage } from './features/operations/OperationsSummaryPage';
+import { OutboxMessagePage } from './features/operations/OutboxMessagePage';
+import { OutboxMessagesPage } from './features/operations/OutboxMessagesPage';
 import { MemberPage } from './features/members/MemberPage';
 import { MembersPage } from './features/members/MembersPage';
 import { SeasonPage } from './features/seasons/SeasonPage';
@@ -60,6 +85,7 @@ export const appRoutes: RouteObject[] = [
     ],
   },
   { path: '/password-recovery/complete', element: <PasswordRecoveryCompletePage /> },
+  { path: '/invitations/accept', element: <InvitationAcceptPage /> },
   { path: '/set-password', element: <SetPasswordPage /> },
   { path: '/link-account', element: <LinkAccountPage /> },
   { path: '/email/confirm', element: <EmailConfirmPage /> },
@@ -81,7 +107,9 @@ export const appRoutes: RouteObject[] = [
           { path: '/matches/:matchId', element: <MatchPage /> },
           { path: '/matches/:matchId/edit', element: <MatchEditPage /> },
           { path: '/matches/:matchId/finalize', element: <FinalizePage /> },
+          { path: '/matches/:matchId/analysis-runs/:runId', element: <AnalysisRunPage /> },
           { path: '/matches/:matchId/recordings/:recordingVersionId', element: <RecordingVersionPage /> },
+          { path: '/matches/:matchId/triage/:conversationId', element: <ConversationPage /> },
           { path: '/members', element: clubAdminOnly(<MembersPage />) },
           { path: '/members/:memberId', element: clubAdminOnly(<MemberPage />) },
           { path: '/analyst-managers', element: clubAdminOnly(<FleetPage />) },
@@ -89,6 +117,28 @@ export const appRoutes: RouteObject[] = [
           { path: '/analyst-managers/requests', element: <RequireRole allow={canPairManagers}><MyRequestsPage /></RequireRole> },
           { path: '/analyst-managers/requests/:registrationId', element: <RequireRole allow={canPairManagers}><MyRequestPage /></RequireRole> },
           { path: '/analyst-managers/:registrationId', element: clubAdminOnly(<RegistrationPage />) },
+          { path: '/operations', element: clubAdminOnly(<OperationsSummaryPage />) },
+          { path: '/operations/outbox-messages', element: clubAdminOnly(<OutboxMessagesPage />) },
+          { path: '/operations/outbox-messages/:messageId', element: clubAdminOnly(<OutboxMessagePage />) },
+          { path: '/operations/notification-receipts', element: clubAdminOnly(<NotificationReceiptsPage />) },
+          { path: '/registry', element: clubAdminOnly(<RegistryOverviewPage />) },
+          { path: '/registry/images', element: clubAdminOnly(<ImagesPage />) },
+          { path: '/registry/images/register', element: clubAdminOnly(<RegisterImagePage />) },
+          { path: '/registry/images/:digest', element: clubAdminOnly(<ImagePage />) },
+          { path: '/registry/profiles', element: clubAdminOnly(<ProfilesPage />) },
+          { path: '/registry/profiles/new', element: clubAdminOnly(<ProfileCreatePage />) },
+          { path: '/registry/profiles/:profileId/versions/:version', element: clubAdminOnly(<ProfileVersionPage />) },
+          { path: '/registry/workflows', element: clubAdminOnly(<WorkflowsPage />) },
+          { path: '/registry/workflows/new', element: clubAdminOnly(<WorkflowCreatePage />) },
+          { path: '/registry/workflows/:workflowId/versions/:version', element: clubAdminOnly(<WorkflowVersionPage />) },
+          { path: '/agent-catalog', element: clubAdminOnly(<AgentCatalogOverviewPage />) },
+          { path: '/agent-catalog/baseline', element: clubAdminOnly(<CatalogBaselinePage />) },
+          { path: '/agent-catalog/agents/:agentId', element: clubAdminOnly(<AgentPage />) },
+          { path: '/agent-catalog/agents/:agentId/versions/new', element: clubAdminOnly(<AgentVersionCreatePage />) },
+          { path: '/agent-catalog/agents/:agentId/versions/:version', element: clubAdminOnly(<AgentVersionPage />) },
+          { path: '/agent-catalog/artifacts/:kind', element: clubAdminOnly(<ArtifactsPage />) },
+          { path: '/agent-catalog/artifacts/:kind/new', element: clubAdminOnly(<ArtifactCreatePage />) },
+          { path: '/agent-catalog/artifacts/:kind/:artifactId/versions/:version', element: clubAdminOnly(<ArtifactPage />) },
         ],
       },
     ],

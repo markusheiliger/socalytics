@@ -63,8 +63,12 @@ The Docker Desktop profile (`Runtime:Profile` `docker-desktop`, configured
 through `Runtime:Docker`) is implemented and verified end to end: automated
 verification runs the same Engine API adapter against a Linux Docker engine
 through its local Unix socket, an endpoint the AM accepts only in Development
-and Test configurations. Docker Desktop on Windows itself is verified manually
-and awaits that manual evidence; only manually verified versions enter the
+and Test configurations. That verification includes the SDK-built reference
+Analyst (`reference-media-probe`), run as a restricted container on materialized
+segment media staged by the AM, whose facts are accepted and indexed; it is
+development evidence, not a catalog capability or a production Analyst image.
+Docker Desktop on Windows itself is verified manually and awaits that manual
+evidence; only manually verified versions enter the
 shipped compatibility matrix, so no compatibility entry ships yet. Automated
 verification on Windows runners with Docker Desktop is an open gap: it changes
 the repository's build and verification tooling and is outside the Spec Kit
@@ -116,6 +120,7 @@ credentials, or host-wide control APIs. Analyst launches default to:
   logs
 
 The Analyst container interface fixes what an Analyst sees: the Logical Job message read-only at `/socalytics/job.json`, the
+read-only attempt context at `/socalytics/attempt.json`, the
 staged upstream results read-only at `/socalytics/inputs/`, the result mount
 at `/socalytics/result/` (where the Analyst writes its result manifest and
 artifacts), scratch space at `/socalytics/scratch/`, and a small memory-backed
@@ -126,7 +131,7 @@ container's output stays on the host as a bounded log for the operator; the
 platform receives only the sanitized failure category of the attempt
 completion.
 
-The interface is completed as follows (decided, not yet implemented; see
+The interface is completed as follows (see
 [Analysts, Models, and Hardware](analysts-models-and-hardware.md#implementation-profile)
 for the Analyst SDK that consumes it): `/socalytics/job.json` holds the
 received Logical Job message byte for byte, and job messages of contract
@@ -137,8 +142,7 @@ compares. The AM also writes a read-only attempt context to
 claimed attempt's identity and number, and nothing else: no lease, fencing
 token, grant, or address.
 
-Segment media reaches an Analyst only through the AM (decided, not yet
-implemented): for a job whose message pins segment media, the AM obtains, for
+Segment media reaches an Analyst only through the AM: for a job whose message pins segment media, the AM obtains, for
 its current, unfenced attempt, the segment manifest and short-lived per-object
 read grants for the manifest and the media (`getAnalysisSegmentMedia`,
 response contract `contracts/analysis/segment-media/v1/`), verifies the
@@ -242,7 +246,7 @@ permanently and is not republished. A recovered old AM cannot renew or complete
 the stale attempt. Late heartbeats and callbacks are rejected or acknowledged
 as obsolete without changing the accepted result.
 
-Cancelling an analysis run (decided, not yet implemented; see
+Cancelling an analysis run (implemented; see
 [Run State And Recovery](job-processing.md#run-state-and-recovery)) closes
 its active attempts in the cancellation's transaction, like expiry invalidates
 a token, but neither republishes their logical jobs nor consumes attempt
@@ -331,8 +335,7 @@ pair. Retry and fencing semantics remain identical across implementations.
   before launching high-level attempts, and delete them when the attempt ends
 - read and stage a segment job's pinned segment manifest and media,
   digest-verified and size-bounded, into the attempt's read-only media mount
-  before launch, and delete them when the attempt ends (decided, not yet
-  implemented)
+  before launch, and delete them when the attempt ends
 - pull the image digest that the job pins (the platform assigns it; the AM
   never selects an image) and refuse images outside the stamp's registry prefix
 - launch and constrain the selected Analyst container through the runtime

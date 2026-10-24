@@ -131,7 +131,7 @@ public sealed class WorkExecutionEndToEndTests
 
     /// <summary>Creates a run with one ready match-scope job and lets readiness enqueue its outbox message.</summary>
     internal static async Task<Guid> SeedReadyJobAsync(
-        EndToEndHarness harness, CancellationToken ct, int leaseSeconds = 60, int staleTimeoutSeconds = 120)
+        EndToEndHarness harness, CancellationToken ct, int leaseSeconds = 60, int staleTimeoutSeconds = 120, Guid? teamId = null, Guid? matchId = null)
     {
         var node = new WorkflowNodeRecord(
             Guid.CreateVersion7(), "e2e-match-node", EndToEndHarness.MatchCapability, "1.0.0", CapabilityTier.LowLevel, ExecutionScope.Match, 0,
@@ -140,7 +140,7 @@ public sealed class WorkExecutionEndToEndTests
         var sp = scope.ServiceProvider;
         await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
         var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
-            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "development-default", "1", [EndToEndHarness.MatchCapability], "all-requested-capabilities",
+            teamId ?? Guid.NewGuid(), matchId ?? Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, "development-default", "1", [EndToEndHarness.MatchCapability], "all-requested-capabilities",
             AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord("{}", Digest), [node], []), ct);
         await sp.GetRequiredService<ILogicalJobStore>().InsertAsync(
         [

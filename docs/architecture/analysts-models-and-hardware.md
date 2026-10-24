@@ -62,9 +62,9 @@ reproducible execution without runtime artifact downloads or credentials.
 External digest-pinned model artifacts remain a future optimization.
 
 The packaging convention for Analyst authors, enforced when an image is
-registered by digest (`POST /api/v1/registry/analyst-images`; Club Admins will
-also register images from the Web UI's Registry administration, decided but
-not yet implemented, see [Web UI](client-applications.md#web-ui)):
+registered by digest (`POST /api/v1/registry/analyst-images`; Club Admins also
+register images from the Web UI's Registry administration, see
+[Web UI](client-applications.md#web-ui)):
 
 - `analyst-manifest.json` sits beside the Dockerfile and is validated against
   the released manifest schema `contracts/analysis/analyst-manifest/v1/`.
@@ -85,9 +85,8 @@ not yet implemented, see [Web UI](client-applications.md#web-ui)):
 - References must use a digest, not a tag, and lie within the configured
   registry host and repository prefix.
 
-A development reference Analyst is decided as follows and not yet implemented
-(see the
-[reference Analyst contract](../../specs/20261018-095952-reference-analyst/contracts/reference-media-probe.md)).
+A development reference Analyst is implemented as development evidence (see the
+[reference Analyst contract](../../specs/archive/20261018-095952-reference-analyst/contracts/reference-media-probe.md)).
 The capability `reference-media-probe` is the first Analyst built on the
 Analyst SDK: the independent locked Python project
 `src/analysts/capabilities/reference-media-probe/`, a low-level,
@@ -100,7 +99,8 @@ statistics). It contains no model and declares the platform's no-model digest
 literal labels that the build verifies against the manifest, is built from
 the repository root, and uses only pinned inputs: a base image pinned by
 digest, the project's `uv.lock`, and the environment's hash-verified uv and
-FFmpeg archives; byte-identical rebuilds are not claimed. It runs under any
+FFmpeg archives; byte-identical rebuilds are not claimed and remain unevidenced.
+It runs under any
 non-root user on a read-only root file system. It is development evidence
 only: it is registered by the Docker-backed end-to-end tests and a documented
 local procedure through the normal Registry operations, is never published to
@@ -122,12 +122,14 @@ select the newest Python release independently of the validated runtime matrix.
 
 The versioned JSON Schema documents for job inputs and result manifests in
 `contracts/analysis/` are canonical; the platform and the Analyst Manager
-validate result manifests against them. The shared internal Analyst SDK will
-expose Pydantic models and validate both boundaries; it and cross-runtime
-schema agreement remain future work. The platform validates the same schemas
-independently rather than treating Python types as cross-language authority.
+validate result manifests against them. The shared internal Analyst SDK exposes
+Pydantic models and validates both boundaries; cross-runtime schema agreement
+is evidenced by the shared contract examples that the platform, the Analyst
+Manager, and the SDK's conformance tests all validate. The platform validates
+the same schemas independently rather than treating Python types as
+cross-language authority.
 
-The Analyst SDK is decided as follows and not yet implemented. It is the
+The Analyst SDK is the
 independently locked Python project `src/analysts/sdk/` (distribution
 `socalytics-analyst-sdk`, package `socalytics_analyst`), whose major version
 follows the contracts' major version. It carries a byte-identical, test-verified
@@ -264,8 +266,11 @@ in stamp metadata. ACs never write metadata tables directly. The result write
 grants, the result-manifest contract, and this validation are implemented as
 development evidence against the simulated Analyst and against a real Analyst
 container on the Docker Desktop profile, as are fact validation and indexing
-(development evidence against the simulated Analyst); capability-specific
-payload validation remains future work.
+(development evidence against the simulated Analyst), and so is
+capability-specific payload validation against the pinned payload schemas
+(see Fact payload schemas below). Still open: no catalog capability declares
+payload schemas, the limit values are development values, and the platform
+neither interprets payloads nor computes quality metrics from them.
 
 Fact indexing is implemented as follows. Facts travel in
 result artifacts whose manifest media type is
@@ -274,13 +279,39 @@ result artifacts whose manifest media type is
 with the capability, output schema version, and output type, and per fact a
 capability-owned kind, a half-open match-time range, a confidence, and a
 capability-owned payload object. Before acceptance, the API reads every fact
-artifact and checks its envelope (not capability-specific payload fields), its
+artifact and checks its envelope, its payloads against the pinned schema of
+their kind when the capability declares one (see Fact payload schemas below), its
 agreement with the manifest and the run-pinned node snapshot, that every range
 lies within the validity window, that the facts add up to the declared fact
 count, and configured size limits; a failure ends the attempt as failed with a
 named reason. The API stores each fact as an immutable record of the accepted
 result in the same transaction as the acceptance, so no partially indexed
 result is ever visible.
+
+Fact payload schemas are implemented as development evidence. A capability
+declares, per fact kind it emits, a payload schema in the Analyst manifest
+(`output.factPayloadSchemas`, manifest contract `1.2.0`; manifests `1.0.0` and
+`1.1.0` stay valid without it) written in a
+restricted, self-contained subset of JSON Schema 2020-12: no format
+assertions, no external references, internal `$defs` and `$ref` only, and
+fixed size and depth limits (development values). The Registry validates and
+caches the declaration with the image and refuses a violating manifest at
+import; profile and workflow bindings pin it
+through the image digest, and each run's node snapshot pins the schemas and
+their digest (runs created earlier are never validated retroactively). Before the accepting transaction, result acceptance validates
+every fact payload against the pinned schema of its kind within a bounded
+duration (`Analysis:Results:PayloadValidation:MaxDuration`, a development value), and a capability
+that declares any schema must declare every kind it emits. A violation ends the
+attempt as failed with a named, bounded reason (`result-payload-invalid`,
+`result-payload-kind-undeclared`, or `result-payload-validation-bound`, never
+carrying a payload value) and leaves no visible fact;
+payloads are never rewritten, and normal retry rules apply. The Python Analyst SDK performs the same check
+automatically before it writes a result and always fails the write on a
+violation. The `reference-media-probe` development capability has a `1.1.0`
+variant that declares a payload schema for its fact kind, built from its own
+`Dockerfile.payload-validated`; no catalog capability declares payload schemas
+yet, and the platform neither interprets payloads nor computes quality metrics
+from them.
 
 ### Capability-Scoped Result Access
 
@@ -293,8 +324,7 @@ capability-owned payload and explicitly reports coverage per expected upstream
 segment as accepted, missing, failed, blocked, or skipped. Within one run,
 accepted results are never superseded; supersession applies only across runs,
 which a job's read never crosses. A superseded run keeps its accepted results
-as readable history through reads of that run only (decided, not yet
-implemented).
+as readable history through reads of that run only.
 
 The AM performs that query on the AC's behalf, because ACs receive no platform
 credentials. Before launching a high-level attempt, the AM reads every upstream
@@ -308,8 +338,8 @@ bounded by a configured size and deleted when the attempt ends. This
 Manager-mediated read, the staging, and the coverage are implemented as
 development evidence against the simulated Analyst, whose match-level lineage
 is built from the staged inputs; real Analyst execution is implemented on the
-Docker Desktop profile, while production evidence remains future work, as does
-source-video access for ACs. The member fact read described below is implemented
+Docker Desktop profile, and segment media access for ACs through Manager
+staging is implemented, while production evidence remains future work. The member fact read described below is implemented
 as development evidence against the simulated Analyst. For a dependency that permits partial coverage,
 the read reports the coverage recorded in the job's input snapshot together
 with the declared coverage mode, and members see each node's input coverage
@@ -322,13 +352,14 @@ directly. If the run-pinned Analyst profile's video policy permits video, the
 AC receives its segment's materialized media staged by the AM through
 short-lived per-object read grants, as described in
 [Analyst Runtime and Recovery](analyst-runtime-and-recovery.md#runtime-preflight-and-status)
-(decided, not yet implemented); the AC itself never receives presigned access,
+; the AC itself never receives presigned access,
 and video bytes do not pass through the API.
 
 The same capability-scoped pattern is implemented for people (development
-evidence against the simulated Analyst; the Web UI analysis review is not
-implemented): members with read access to a run's team (Club Admins, and Coaches
-and Viewers of the team) read a run's indexed facts per capability, capability
+evidence against the simulated Analyst; the Web UI's connected analysis review
+is its consumer, see [Web UI](client-applications.md#web-ui)): members with
+read access to a run's team (Club Admins, and Coaches and Viewers of the team)
+read a run's indexed facts per capability, capability
 version, and output schema version through the member-facing `/api/v1`
 operation `listAnalysisRunFacts`, optionally narrowed to a match-time range and paginated in stable
 time order. Each response states the run's state, the run-pinned provenance
@@ -338,6 +369,15 @@ missing, failed, blocked, or skipped, without segment, recording, or storage
 identifiers. The operation `listAnalysisRunFactStreams` names every capability
 node of the run with its fact count and coverage. Both reads carry a weak ETag
 and never cross runs.
+
+The Web UI's same-match terminal-run comparison is decided but not yet
+implemented (see [Web UI](client-applications.md#web-ui)). It will consume
+each selected run's independently authorized stream summaries and pinned
+provenance, alongside run-status input coverage and recording lineage, without
+downloading fact payloads or introducing a cross-run endpoint. Unique
+capability-and-scope alignment is only a presentation aid; contract, input
+coverage and provenance differences stay explicit, and neither matching
+counts nor metadata establish equal full inputs, equivalent outputs or quality.
 
 The evidence of those facts is decided, but not yet implemented, to be
 resolvable to video by the same members (see
@@ -431,7 +471,11 @@ APIs, local endpoint authorization, runtime and VM restart, orphan
 reconciliation, incompatible upgrades, disk exhaustion, and image pull and
 launch latency. Security tests must reject forbidden mounts, devices,
 privileges, host namespaces, and runtime endpoint exposure. The Docker Desktop
-adapter's tests evidence the Engine API path against a Linux engine, the local
+adapter's tests evidence the Engine API path against a Linux engine, an
+SDK-built Analyst (`reference-media-probe`) that decodes Manager-staged segment
+media in a restricted container from its digest-pinned image, with its facts
+accepted, indexed, and read by members (validation of presigned video access
+stays open), the local
 endpoint policy (remote and unauthenticated endpoints refused), orphan
 reconciliation of the Manager's own labelled containers, and the launch
 restrictions (non-root user, read-only root filesystem, no network, dropped

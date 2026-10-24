@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-catalog/modifier-policy/v1/modifier-policy.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent catalog modifier policy v1",
+  "description": "Bounds for the contextual weight modifiers a Coach Agent may apply on top of its base philosophy profile: the per-dimension bound, the maximum total positive movement, the permitted context categories, and the budget-neutral rule (modifiers move attention between dimensions and never change the total).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "version",
+    "dimensionSetMajor",
+    "perDimensionBound",
+    "maxPositiveMovement",
+    "contextCategories",
+    "budgetNeutral"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "kind": { "const": "modifier-policy" },
+    "id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 100,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "dimensionSetMajor": { "type": "integer", "minimum": 1 },
+    "perDimensionBound": { "type": "integer", "minimum": 1, "maximum": 3 },
+    "maxPositiveMovement": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "contextCategories": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "score-state",
+          "match-period",
+          "player-number-state",
+          "opponent-phase-behavior",
+          "evidence-availability"
+        ]
+      }
+    },
+    "budgetNeutral": { "const": true }
+  }
+}

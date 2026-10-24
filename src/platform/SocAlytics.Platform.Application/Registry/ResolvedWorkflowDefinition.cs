@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SocAlytics.Platform.Domain.Analysis;
 using SocAlytics.Platform.Domain.Recordings;
 
@@ -26,7 +27,15 @@ public sealed record ResolvedWorkflowNode(
     int MaxAttempts,
     int LeaseSeconds,
     int StaleTimeoutSeconds,
-    int ExecutionTimeoutSeconds);
+    int ExecutionTimeoutSeconds,
+    string VideoPolicy)
+{
+    /// <summary>The fact payload schemas of the image's declaration by fact kind; null when it declares none.</summary>
+    public IReadOnlyDictionary<string, JsonElement>? FactPayloadSchemas { get; init; }
+
+    /// <summary>The digest of <see cref="FactPayloadSchemas"/>; null together with the map.</summary>
+    public string? FactPayloadSchemasDigest { get; init; }
+}
 
 public sealed record ResolvedWorkflowEdge(
     string UpstreamNodeKey,

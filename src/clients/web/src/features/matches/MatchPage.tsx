@@ -14,6 +14,7 @@ import { useUploads } from '../../uploads/uploadContext';
 import { AnalysisRunStates } from '../lineage/AnalysisRunStates';
 import { LineageSection } from '../lineage/LineageSection';
 import { FailureAlert } from '../shared/FailureAlert';
+import { TriageSection } from '../triage/TriageSection';
 import { AddRecordingsPanel } from '../uploads/AddRecordingsPanel';
 import { formatBytes } from '../uploads/formatBytes';
 import { PendingUploads } from '../uploads/PendingUploads';
@@ -136,7 +137,8 @@ export function MatchPage() {
             {t('matches.backToTeam')}
           </Button>
           <RecordingsSection matchId={m.id} teamId={m.teamId} canUpload={canEdit} />
-          <AnalysisRunStates matchId={m.id} />
+          <AnalysisRunStates matchId={m.id} teamId={m.teamId} />
+          <TriageSection matchId={m.id} canStart={editor} />
           <LineageSection matchId={m.id} />
         </>
       )}
