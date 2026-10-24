@@ -148,7 +148,7 @@ description: "Task list for Agent Evidence Tools API"
 
 ### Within Phases
 
-- Phase 1: T001–T005 run in parallel; T004 and T005 register their read cores themselves and run the unchanged member tests; T006 was removed as redundant; T007 adds the abstractions; T008, T009, and T010 run in parallel; T011 registers what they created.
+- Phase 1: T001–T005 run in parallel; T004 and T005 split the read cores and keep member behavior unchanged; the member handlers keep working through the existing registrations and are covered by the existing fact-read and evidence-media integration tests (T006 was removed as redundant); T007 adds the abstractions; T008, T009, and T010 run in parallel; T011 registers what they created.
 - Phase 2: T012 and T013 run in parallel; T014 maps them and refreshes the snapshot; T015 adds the test client; T016 and T017 run in parallel.
 - Phase 3: T018, then T019.
 - Phase 4: T020–T022 run in parallel; T023 maps the nine operations and refreshes the snapshot; T024 makes the simulated workload call the tools only after every tool it calls is mapped (it is hosted by existing orchestration tests); T025–T028 run in parallel.
