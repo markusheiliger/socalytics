@@ -191,6 +191,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAgentConversationsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.GetAgentConversationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.AddAgentConversationParticipantHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ArchiveAgentConversationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.UnarchiveAgentConversationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.SubmitAgentInvocationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.GetAgentInvocationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.ListAgentConversationTurnsHandler>();
