@@ -62,6 +62,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.CancelAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListMatchAnalysisRunsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.IRunFactStreamReader, SocAlytics.Platform.Application.Analysis.Facts.RunFactStreamReader>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.IRunFactReader, SocAlytics.Platform.Application.Analysis.Facts.RunFactReader>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.ListRunFactsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.ListRunFactStreamsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Evidence.ResolveEvidenceMediaHandler>();
