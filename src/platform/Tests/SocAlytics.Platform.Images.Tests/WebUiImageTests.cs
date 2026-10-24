@@ -20,7 +20,9 @@ public sealed partial class WebUiImageTests(StampDependenciesFixture stamp) : IC
 
     // contracts/container-images.md section 6.3; the text of build/securityHeaders.ts.
     private const string PolicyPrefix =
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; media-src blob:; connect-src 'self'";
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; media-src blob:";
+
+    private const string PolicyConnect = "; connect-src 'self'";
 
     private const string PolicySuffix =
         "; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; require-trusted-types-for 'script'; trusted-types default react-dom upload-worker service-worker";
@@ -98,7 +100,7 @@ public sealed partial class WebUiImageTests(StampDependenciesFixture stamp) : IC
         foreach (var path in new[] { "/index.html", "/assets/missing-0123456789.js", "/matches/42" })
         {
             using var response = await http.GetAsync(address + path, ct);
-            AssertSecurityHeaders(response, $"{PolicyPrefix} {StorageOrigin}{PolicySuffix}");
+            AssertSecurityHeaders(response, $"{PolicyPrefix} {StorageOrigin}{PolicyConnect} {StorageOrigin}{PolicySuffix}");
         }
     }
 
@@ -112,7 +114,7 @@ public sealed partial class WebUiImageTests(StampDependenciesFixture stamp) : IC
         foreach (var path in new[] { "/index.html", "/assets/missing-0123456789.js", "/matches/42" })
         {
             using var response = await http.GetAsync(address + path, ct);
-            AssertSecurityHeaders(response, PolicyPrefix + PolicySuffix);
+            AssertSecurityHeaders(response, PolicyPrefix + PolicyConnect + PolicySuffix);
         }
     }
 

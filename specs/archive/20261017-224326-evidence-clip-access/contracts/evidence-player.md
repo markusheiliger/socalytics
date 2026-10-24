@@ -1,7 +1,7 @@
 # Contract: Evidence Player (Web UI)
 
 Extends the analysis review of
-[Web UI Connected Analysis Review](../../archive/20261017-181118-web-ui-analysis-review/contracts/routes-and-roles.md). No
+[Web UI Connected Analysis Review](../../20261017-181118-web-ui-analysis-review/contracts/routes-and-roles.md). No
 route, navigation item, or search parameter is added; the player is a dialog of the review route
 `/matches/:matchId/analysis-runs/:runId`.
 

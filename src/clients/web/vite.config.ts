@@ -22,6 +22,7 @@ const objectStorageOrigin = process.env.SOCALYTICS_OBJECT_STORAGE_ORIGIN
   ? new URL(process.env.SOCALYTICS_OBJECT_STORAGE_ORIGIN).origin
   : undefined;
 const connectSources = objectStorageOrigin ? `'self' ${objectStorageOrigin}` : "'self'";
+const mediaSources = objectStorageOrigin ? `blob: ${objectStorageOrigin}` : 'blob:';
 
 // Hot reload needs inline scripts, eval, and a WebSocket; this policy is never used to measure CSP.
 const developmentContentSecurityPolicy = [
@@ -30,7 +31,7 @@ const developmentContentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
-  'media-src blob:',
+  `media-src ${mediaSources}`,
   `connect-src ${connectSources} ws: wss:`,
   "worker-src 'self'",
   "manifest-src 'self'",

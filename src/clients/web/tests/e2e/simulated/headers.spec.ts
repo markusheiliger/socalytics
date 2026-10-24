@@ -6,7 +6,7 @@ const policy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
-  'media-src blob:',
+  'media-src blob: http://127.0.0.1:4176',
   "connect-src 'self' http://127.0.0.1:4176",
   "worker-src 'self'",
   "manifest-src 'self'",

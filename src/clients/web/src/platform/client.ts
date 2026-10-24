@@ -27,7 +27,8 @@ export interface PlatformClientOptions {
 
 // A 429 is shown with its wait time instead of being retried silently; an unavailable
 // provider on external sign-in start is shown at once. A reconciliation request is never repeated (FR-017).
-const noRetryPaths = ['/api/v1/session/external', '/api/v1/operations/analysis/reconciliations'];
+// An evidence resolution answers its own retry hints, so its 503 is shown at once too.
+const noRetryPaths = ['/api/v1/session/external', '/api/v1/operations/analysis/reconciliations', '/evidence-media'];
 const noRateLimitRetry = () =>
   new RetryHandler(
     new RetryHandlerOptions({

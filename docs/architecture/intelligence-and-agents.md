@@ -70,7 +70,7 @@ Representative tools resolve as follows:
 - `get_video_clip()` resolves accepted evidence time ranges to short-lived
     presigned media access (its API side, the member evidence-media operation
     of [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access),
-    is decided, not yet implemented; the MCP tool is future work).
+    is implemented as development evidence; the MCP tool is future work).
 
 When required analysis is unavailable or incomplete, MCP reports that state. It
 does not infer missing concepts from bounding boxes, silently trigger ad hoc LLM
