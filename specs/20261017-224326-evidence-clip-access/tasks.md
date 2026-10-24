@@ -286,9 +286,11 @@ requested from the Segment Service.
 
 ### Validation
 
-- [ ] T030 Run the quickstart validation: `dotnet restore`, `dotnet build --no-restore`, and `dotnet test --no-build`
-  for `src/platform/SocAlytics.Platform.slnx`, and `npm ci`, `npm run build`, `npm test`, and `npm run test:e2e` with
-  the `simulated` and `platform` projects in `src/clients/web`; fix failures in the files of the tasks above
+The quickstart validation (`dotnet restore`, `dotnet build --no-restore`, `dotnet test --no-build` for
+`src/platform/SocAlytics.Platform.slnx`, and `npm ci`, `npm run build`, `npm test`, and `npm run test:e2e` with the
+`simulated` and `platform` projects in `src/clients/web`) changes no file, so it is not a task: the task pipeline
+accepts only tasks that change files. The phase verifications, the convergence, and the merge verification run these
+commands, and failures there are repaired in the files of the tasks above.
 
 ---
 
@@ -303,7 +305,7 @@ requested from the Segment Service.
 - **US3 (Phase 5)**: T019 and T020 in parallel (T019 needs the snapshot of T010); T021 (needs T019, T020), T022 (needs
   T021), T023 (needs T006–T008, T022), T024 (needs T016, T022).
 - **US4 (Phase 6)**: T025–T027 in parallel after US3 (T027 extends the file of T024).
-- **Polish (Phase 7)**: T028 and T029 in parallel after all stories; T030 last.
+- **Polish (Phase 7)**: T028 and T029 in parallel after all stories; the quickstart validation is run by the verification, not a task.
 
 ### User Story Dependencies
 
@@ -331,4 +333,4 @@ Phase 7:  T028 architecture docs | T029 READMEs and AGENTS.md
    independent test.
 2. **Delivery**: Phase 4 (US2) explicit states and on-demand materialization; Phase 5 (US3) the player.
 3. **Hardening**: Phase 6 (US4) confinement checks.
-4. **Finish**: Phase 7 documentation and full validation.
+4. **Finish**: Phase 7 documentation; the full validation is run by the verification and convergence.
