@@ -190,6 +190,14 @@ public static class ApplicationServiceCollectionExtensions
             .ValidateOnStart();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IInvocationScopeEvaluator, SocAlytics.Platform.Application.AgentOrchestration.InvocationScopeEvaluator>();
 
+        services.AddOptions<SocAlytics.Platform.Application.AgentOrchestration.Tools.AgentToolOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.AgentOrchestration.Tools.AgentToolOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.AgentOrchestration.Tools.AgentToolOptions>,
+            SocAlytics.Platform.Application.AgentOrchestration.Tools.AgentToolOptionsValidator>());
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Tools.AuthorizeToolCallHandler>();
+
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadTokenHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.AuthenticateAgentWorkloadRequestHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadQueueCredentialsHandler>();

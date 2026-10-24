@@ -47,7 +47,7 @@ description: "Task list for Agent Evidence Tools API"
 
 ### Foundation registration
 
-- [ ] T011 Register `AgentToolOptions`, `IAgentToolCallStore`, `AuthorizeToolCall`, `ToolCallLineage`, and `AgentToolMetrics` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs` and `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs`, and add the development and test values (`MaxCallsPerAttempt` 50, `MaxClipResolutionsPerAttempt` 10) to `src/platform/SocAlytics.Platform.Api/appsettings.Development.json` and `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/Support/TestIdentityAccessSettings.cs` (FR-007b; research R10)
+- [x] T011 Register `AgentToolOptions`, `IAgentToolCallStore`, `AuthorizeToolCall`, `ToolCallLineage`, and `AgentToolMetrics` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs` and `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs`, and add the development and test values (`MaxCallsPerAttempt` 50, `MaxClipResolutionsPerAttempt` 10) to `src/platform/SocAlytics.Platform.Api/appsettings.Development.json` and `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/Support/TestIdentityAccessSettings.cs` (FR-007b; research R10)
 
 **Checkpoint**: Foundation ready — tool calls can be bound, authorized, reserved, and recorded
 
