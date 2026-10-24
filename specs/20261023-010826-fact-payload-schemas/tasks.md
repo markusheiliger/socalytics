@@ -267,6 +267,7 @@ unchanged.
   payload schema validation as development evidence), `README.md`, `contracts/README.md` (manifest `1.2.0`, shared
   payload examples), `src/platform/README.md`, `src/analysts/sdk/README.md`, and
   `src/analysts/capabilities/reference-media-probe/README.md` (the 1.1.0 variant and its build command)
+
 ### Verification without tasks
 
 T039 and T040 were verification-only tasks that change no file, and the task automation lands only tasks that
