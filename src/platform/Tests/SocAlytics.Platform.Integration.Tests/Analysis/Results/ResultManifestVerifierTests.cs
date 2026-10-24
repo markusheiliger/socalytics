@@ -212,7 +212,8 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
             storage ?? store.CreateObjectStorage(),
             new JsonSchemaContractValidator(),
             declarations,
-            Options.Create(NewOptions(maxManifestBytes, configure)));
+            Options.Create(NewOptions(maxManifestBytes, configure)),
+            new SocAlytics.Platform.Infrastructure.Registry.FactPayloadValidator(Options.Create(new AnalysisResultOptions())));
         var request = BuildRequest(s, reportedChecksum ?? DigestOf(bytes), s.Location + "manifest.json", lineageUpstream);
         return new Prepared(verifier, request, declarations, bytes);
     }

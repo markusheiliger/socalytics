@@ -310,7 +310,7 @@ set fails verification.
   Analyst Input Staging, the Analyst and Media Verification Environment, the Analyst Registry, Analysis Result
   Manifests and Validated Acceptance, and Accepted Fact Indexing and Capability-Scoped Fact Queries features. All are
   merged.
-- The [Capability Fact Payload Schemas](../20261023-010826-fact-payload-schemas/spec.md) feature is open. This feature
+- The [Capability Fact Payload Schemas](../archive/20261023-010826-fact-payload-schemas/spec.md) feature is open. This feature
   does not require it: the payload shape is documented and tested in the capability's own tests; if that feature has
   merged when this one is planned, the plan declares the payload schema through it.
 - The environment actions provide CPython, `uv`, the pinned FFmpeg and ffprobe build, and locked verification of

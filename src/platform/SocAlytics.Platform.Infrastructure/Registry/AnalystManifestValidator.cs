@@ -7,7 +7,7 @@ using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Infrastructure.Registry;
 
-/// <summary>Validates manifests with the contract validator against the analyst manifest schema (the 1.0.0 and 1.1.0 releases; 1.1.0 adds the partial upstream coverage declaration).</summary>
+/// <summary>Validates manifests with the contract validator against the analyst manifest schema (the 1.0.0, 1.1.0, and 1.2.0 releases; 1.1.0 adds the partial upstream coverage declaration, 1.2.0 the fact payload schemas, which are checked against the Domain subset rules).</summary>
 internal sealed class AnalystManifestValidator(IContractValidator contracts) : IAnalystManifestValidator
 {
     public const string SchemaId = "https://socalytics.invalid/contracts/analysis/analyst-manifest/v1/analyst-manifest.schema.json";
@@ -84,6 +84,29 @@ internal sealed class AnalystManifestValidator(IContractValidator contracts) : I
             return Invalid(new ContractValidationError("/upstream", "duplicate-capability"));
         }
 
+        var payloadSchemas = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        if (root["output"]!["factPayloadSchemas"] is JsonObject schemaNodes)
+        {
+            if (!Version.TryParse(root["manifestVersion"]?.GetValue<string>(), out var manifestVersion)
+                || manifestVersion < new Version(1, 2, 0))
+            {
+                return Invalid(new ContractValidationError("/output/factPayloadSchemas", "payload-schemas-on-old-version"));
+            }
+
+            foreach (var (kind, schemaNode) in schemaNodes)
+            {
+                payloadSchemas[kind] = JsonSerializer.Deserialize<JsonElement>(schemaNode!.ToJsonString());
+            }
+
+            if (FactPayloadSchemaLimits.Check(payloadSchemas) is { } violation)
+            {
+                var field = violation.Kind.Length == 0
+                    ? "/output/factPayloadSchemas"
+                    : $"/output/factPayloadSchemas/{violation.Kind}";
+                return Invalid(new ContractValidationError(field, violation.Code));
+            }
+        }
+
         var declaration = new CapabilityDeclaration(
             imageDigest,
             capabilityId,
@@ -102,7 +125,10 @@ internal sealed class AnalystManifestValidator(IContractValidator contracts) : I
                 requirements["minMaxAttempts"]!.GetValue<int>(),
                 requirements["minLeaseSeconds"]!.GetValue<int>(),
                 requirements["minStaleTimeoutSeconds"]!.GetValue<int>(),
-                requirements["minExecutionTimeoutSeconds"]!.GetValue<int>()));
+                requirements["minExecutionTimeoutSeconds"]!.GetValue<int>()))
+        {
+            FactPayloadSchemas = payloadSchemas,
+        };
         return new AnalystManifestValidationResult(true, [], declaration);
     }
 

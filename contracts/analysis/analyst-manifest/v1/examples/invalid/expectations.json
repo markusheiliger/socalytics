@@ -3,6 +3,14 @@
   "missing-capability.json": "required",
   "partial-coverage-unknown-mode.json": "enum",
   "partial-coverage-zero-fraction.json": "exclusiveMinimum",
+  "payload-schema-cyclic-ref.json": { "code": "payload-schema-cyclic-ref" },
+  "payload-schema-external-ref.json": { "pointer": "/output/factPayloadSchemas/player-box/properties/box/$ref" },
+  "payload-schema-root-not-object.json": { "code": "payload-schema-root-not-object" },
+  "payload-schema-too-deep.json": { "code": "payload-schema-too-deep" },
+  "payload-schema-too-large.json": { "code": "payload-schema-too-large" },
+  "payload-schema-unknown-keyword.json": { "pointer": "/output/factPayloadSchemas/player-box/properties/label" },
+  "payload-schemas-on-old-version.json": { "pointer": "/manifestVersion" },
+  "payload-schemas-too-many-kinds.json": { "code": "payload-schemas-too-many-kinds" },
   "unknown-property.json": "additionalProperties",
   "unknown-tier.json": "enum"
 }

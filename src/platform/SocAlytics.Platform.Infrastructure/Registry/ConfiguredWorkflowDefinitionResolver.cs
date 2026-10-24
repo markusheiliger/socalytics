@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Domain.Analysis;
@@ -85,7 +86,13 @@ internal sealed class ConfiguredWorkflowDefinitionResolver(IOptionsMonitor<Confi
                 return null;
             }
 
-            nodes.Add(new ResolvedWorkflowNode(
+            var schemas = n.FactPayloadSchemas;
+            if (schemas.Count > 0 && FactPayloadSchemaLimits.Check(schemas) is not null)
+            {
+                return null;
+            }
+
+            var node = new ResolvedWorkflowNode(
                 n.NodeKey,
                 n.CapabilityId,
                 n.CapabilityVersion,
@@ -102,7 +109,14 @@ internal sealed class ConfiguredWorkflowDefinitionResolver(IOptionsMonitor<Confi
                 n.LeaseSeconds,
                 n.StaleTimeoutSeconds,
                 n.ExecutionTimeoutSeconds,
-                n.VideoPolicy));
+                n.VideoPolicy);
+            nodes.Add(schemas.Count == 0
+                ? node
+                : node with
+                {
+                    FactPayloadSchemas = schemas,
+                    FactPayloadSchemasDigest = FactPayloadSchemaLimits.Digest(schemas),
+                });
         }
 
         var edges = new List<ResolvedWorkflowEdge>();
@@ -197,6 +211,8 @@ internal sealed class ConfiguredNode
     public int ExecutionTimeoutSeconds { get; set; }
 
     public string VideoPolicy { get; set; } = VideoPolicies.Optional;
+
+    public Dictionary<string, JsonElement> FactPayloadSchemas { get; set; } = [];
 }
 
 internal sealed class ConfiguredEdge

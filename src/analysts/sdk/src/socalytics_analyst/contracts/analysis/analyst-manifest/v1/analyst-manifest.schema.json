@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/analyst-manifest/v1/analyst-manifest.schema.json",
+  "x-socalytics-version": "1.2.0",
+  "title": "Analyst manifest v1",
+  "description": "The analyst-manifest.json an Analyst image carries in its last layer. The Registry validates it when an image is imported and stores it as the capability declaration. Unknown properties are refused, so additive changes take a new minor version.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifestVersion",
+    "capability",
+    "upstream",
+    "videoAccess",
+    "output",
+    "compatibleProfiles",
+    "model",
+    "runtime",
+    "resources",
+    "requirements",
+    "determinism"
+  ],
+  "properties": {
+    "manifestVersion": { "enum": ["1.0.0", "1.1.0", "1.2.0"] },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "tier", "executionScope"],
+      "properties": {
+        "id": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "version": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+        "tier": { "enum": ["low-level", "high-level"] },
+        "executionScope": { "enum": ["segment", "match"] }
+      }
+    },
+    "upstream": {
+      "description": "Capabilities whose accepted results this Analyst consumes.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["capabilityId", "capabilityVersion", "schemaVersion", "kind"],
+        "properties": {
+          "capabilityId": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+          "capabilityVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+          "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+          "kind": { "enum": ["required", "optional", "conditional"] },
+          "coverage": {
+            "description": "Declares that this Analyst accepts a partial upstream result set. Absent means complete coverage is required.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode"],
+            "properties": {
+              "mode": { "enum": ["partial"] },
+              "minimumAcceptedFraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "videoAccess": { "enum": ["required", "optional", "forbidden"] },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion"],
+      "properties": {
+        "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+        "factPayloadSchemas": {
+          "description": "Payload schema per fact kind (manifest 1.2.0). Each value uses the closed payload schema subset.",
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+          "additionalProperties": { "$ref": "#/$defs/payloadSchema" }
+        }
+      }
+    },
+    "compatibleProfiles": {
+      "description": "Identifiers of the Analyst profiles this image can run under.",
+      "type": "array",
+      "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest"],
+      "properties": {
+        "digest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["constraints", "accelerators"],
+      "properties": {
+        "constraints": {
+          "type": "array",
+          "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" }
+        },
+        "accelerators": {
+          "type": "array",
+          "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minMaxAttempts", "minLeaseSeconds", "minStaleTimeoutSeconds", "minExecutionTimeoutSeconds"],
+      "properties": {
+        "minMaxAttempts": { "type": "integer", "minimum": 1 },
+        "minLeaseSeconds": { "type": "integer", "minimum": 1 },
+        "minStaleTimeoutSeconds": { "type": "integer", "minimum": 1 },
+        "minExecutionTimeoutSeconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "determinism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deterministic", "idempotent"],
+      "properties": {
+        "deterministic": { "type": "boolean" },
+        "idempotent": { "type": "boolean" }
+      }
+    }
+  },
+  "if": {
+    "description": "Declaring factPayloadSchemas requires manifest 1.2.0.",
+    "required": ["output"],
+    "properties": { "output": { "required": ["factPayloadSchemas"] } }
+  },
+  "then": {
+    "properties": { "manifestVersion": { "const": "1.2.0" } }
+  },
+  "$defs": {
+    "payloadSchema": {
+      "description": "The closed JSON Schema keyword subset for fact payloads.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["object", "array", "string", "number", "integer", "boolean", "null"] },
+        "enum": { "type": "array", "minItems": 1 },
+        "const": true,
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/payloadSchema" }
+        },
+        "required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "additionalProperties": {
+          "oneOf": [{ "type": "boolean" }, { "$ref": "#/$defs/payloadSchema" }]
+        },
+        "items": { "$ref": "#/$defs/payloadSchema" },
+        "minItems": { "type": "integer", "minimum": 0 },
+        "maxItems": { "type": "integer", "minimum": 0 },
+        "minimum": { "type": "number" },
+        "maximum": { "type": "number" },
+        "exclusiveMinimum": { "type": "number" },
+        "exclusiveMaximum": { "type": "number" },
+        "minLength": { "type": "integer", "minimum": 0 },
+        "maxLength": { "type": "integer", "minimum": 0 },
+        "$defs": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/payloadSchema" }
+        },
+        "$ref": { "type": "string", "pattern": "^#/\\$defs/[A-Za-z0-9_.-]+$" },
+        "title": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    }
+  }
+}

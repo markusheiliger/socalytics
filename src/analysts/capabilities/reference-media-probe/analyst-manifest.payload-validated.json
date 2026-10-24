@@ -1,0 +1,45 @@
+{
+  "manifestVersion": "1.2.0",
+  "capability": {
+    "id": "reference-media-probe",
+    "version": "1.1.0",
+    "tier": "low-level",
+    "executionScope": "segment"
+  },
+  "upstream": [],
+  "videoAccess": "required",
+  "output": {
+    "schemaVersion": "1.0.0",
+    "factPayloadSchemas": {
+      "frame-second-probe": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decodedFrames"],
+        "properties": {
+          "decodedFrames": { "type": "integer", "minimum": 0 },
+          "meanLuma": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["min", "mean", "max"],
+            "properties": {
+              "min": { "type": "number", "minimum": 0, "maximum": 255 },
+              "mean": { "type": "number", "minimum": 0, "maximum": 255 },
+              "max": { "type": "number", "minimum": 0, "maximum": 255 }
+            }
+          }
+        }
+      }
+    }
+  },
+  "compatibleProfiles": ["reference-media-probe-dev"],
+  "model": { "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000000" },
+  "runtime": { "constraints": ["linux-amd64"], "accelerators": [] },
+  "resources": { "memory": "512Mi", "cpu": "1" },
+  "requirements": {
+    "minMaxAttempts": 1,
+    "minLeaseSeconds": 30,
+    "minStaleTimeoutSeconds": 60,
+    "minExecutionTimeoutSeconds": 300
+  },
+  "determinism": { "deterministic": true, "idempotent": true }
+}

@@ -1,0 +1,33 @@
+{
+  "manifestVersion": "1.2.0",
+  "capability": {
+    "id": "player-detection",
+    "version": "1.2.0",
+    "tier": "low-level",
+    "executionScope": "segment"
+  },
+  "upstream": [],
+  "videoAccess": "required",
+  "output": {
+    "schemaVersion": "1.0.0",
+    "factPayloadSchemas": {
+      "player-box": {
+        "type": "object",
+        "properties": {
+          "box": { "$ref": "https://example.com/schemas/box.json" }
+        }
+      }
+    }
+  },
+  "compatibleProfiles": ["gpu-standard"],
+  "model": { "digest": "sha-256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+  "runtime": { "constraints": ["linux-amd64"], "accelerators": ["cuda"] },
+  "resources": { "memory": "8Gi", "cpu": "4" },
+  "requirements": {
+    "minMaxAttempts": 3,
+    "minLeaseSeconds": 60,
+    "minStaleTimeoutSeconds": 120,
+    "minExecutionTimeoutSeconds": 900
+  },
+  "determinism": { "deterministic": true, "idempotent": true }
+}

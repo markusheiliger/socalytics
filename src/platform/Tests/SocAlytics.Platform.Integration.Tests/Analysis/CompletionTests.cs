@@ -344,6 +344,52 @@ public sealed class CompletionTests(PostgresContainerFixture postgres, NatsConta
     }
 
     [Fact]
+    public async Task FailedCompletionWithBoundedReasonIsStoredAndReadBackUnchanged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, host) = await StartAsync(ct);
+        await using var _ = host;
+        var s = await SeedReadyJobAsync(db, ct);
+        using var m = new TestManagerClient(host.Factory);
+        var (attempt, token, number) = await ClaimAsync(m, s, "c1", ct);
+        var body = Body(s, attempt, token, number, "bounded-1", true);
+        body["result"]!["manifestReference"] = "results/absent.json";
+
+        using var first = await CompleteAsync(host.Factory, m, attempt, body, ct);
+        first.StatusCode.ShouldBe(HttpStatusCode.OK, await first.Content.ReadAsStringAsync(ct));
+        (await ReadAsync(first, ct)).GetProperty("outcome").GetString().ShouldBe("failed");
+
+        // The storage columns are unbounded text: a reason at the 256-character bound must survive unchanged.
+        var reason = "result-payload-invalid[kind=k;fact=3;count=2;at=" + new string('p', 256 - 49) + "]";
+        reason.Length.ShouldBe(256);
+        await using (var c = new NpgsqlConnection(db.MigratorConnectionString))
+        {
+            await c.OpenAsync(ct);
+            await using var cmd = new NpgsqlCommand(
+                """
+                ALTER TABLE socalytics.analysis_completion_outcomes DISABLE TRIGGER USER;
+                ALTER TABLE socalytics.analysis_execution_attempts DISABLE TRIGGER USER;
+                UPDATE socalytics.analysis_completion_outcomes SET reason = @r;
+                UPDATE socalytics.analysis_execution_attempts SET close_reason = @r;
+                ALTER TABLE socalytics.analysis_completion_outcomes ENABLE TRIGGER USER;
+                ALTER TABLE socalytics.analysis_execution_attempts ENABLE TRIGGER USER;
+                """, c);
+            cmd.Parameters.AddWithValue("r", reason);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_completion_outcomes WHERE length(reason) = 256", ct)).ShouldBe(1);
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_execution_attempts WHERE length(close_reason) = 256", ct)).ShouldBe(1);
+
+        using var replay = await CompleteAsync(host.Factory, m, attempt, Clone(body), ct);
+        replay.StatusCode.ShouldBe(HttpStatusCode.OK, await replay.Content.ReadAsStringAsync(ct));
+        var b = await ReadAsync(replay, ct);
+        b.GetProperty("outcome").GetString().ShouldBe("failed");
+        b.GetProperty("replayed").GetBoolean().ShouldBeTrue();
+        b.GetProperty("reason").GetString().ShouldBe(reason);
+    }
+
+    [Fact]
     public async Task InvalidTokensAndIdentitiesAreRejectedWithoutChange()
     {
         var ct = TestContext.Current.CancellationToken;

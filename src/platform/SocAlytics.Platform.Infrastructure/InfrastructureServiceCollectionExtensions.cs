@@ -74,6 +74,7 @@ public static class InfrastructureServiceCollectionExtensions
             sp.GetService<TimeProvider>() ?? TimeProvider.System));
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IOciImageReader, SocAlytics.Platform.Infrastructure.Registry.Oci.OciImageReader>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IAnalystManifestValidator, SocAlytics.Platform.Infrastructure.Registry.AnalystManifestValidator>();
+        services.TryAddSingleton<IFactPayloadValidator, SocAlytics.Platform.Infrastructure.Registry.FactPayloadValidator>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.StatusReporting.IManagerStatusStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.ManagerStatusStore>();
         services.TryAddSingleton<SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn.IOidcProviderClient>(sp => new SocAlytics.Platform.Infrastructure.IdentityAccess.ExternalIdentity.OidcProviderClient(
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<IdentityAccessOptions>>(),

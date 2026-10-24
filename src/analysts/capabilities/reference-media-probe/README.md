@@ -25,6 +25,21 @@ the staged segment manifest, the Analyst writes one fact:
 | payload | `{ "decodedFrames": n }` and, when `n > 0`, `"meanLuma": { "min", "mean", "max" }` (8-bit luma, rounded half-even to three decimals) |
 
 The payload is described by [schemas/frame-second-probe.payload.schema.json](schemas/frame-second-probe.payload.schema.json).
+The `1.0.0` manifest (`analyst-manifest.json`) declares no payload schema.
+
+## Payload-validated variant (1.1.0)
+
+`reference-media-probe` `1.1.0` is a development variant that declares the schema above for `frame-second-probe` in
+`analyst-manifest.payload-validated.json` (manifest `1.2.0`, `output.factPayloadSchemas`; a project test checks that the
+declared schema equals the schema file). It is built from its own `Dockerfile.payload-validated`, whose
+`io.socalytics.analyst-manifest.sha256` label must equal the SHA-256 of that manifest. From the repository root:
+
+```text
+docker build -f src/analysts/capabilities/reference-media-probe/Dockerfile.payload-validated -t reference-media-probe:payload-validated .
+```
+
+The `1.0.0` files and image are unchanged. The platform and the SDK validate the facts of this variant against the
+declared schema; it is development evidence only and, like `1.0.0`, not a catalog capability.
 Frames in keyframe context before the requested interval, in unmapped time, or outside the nominal window are ignored.
 Two runs over the same job and media write byte-identical `facts.json`. A job without segment media exits 2
 (`segment-media-required`); media that cannot be decoded exits 1 (`media-decode-failed`); every other failure category
