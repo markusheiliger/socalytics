@@ -28,11 +28,11 @@ description: "Task list for Web UI Materialized Segment Management for Club Admi
 
 ### Models and texts
 
-- [ ] T001 [P] Create `src/clients/web/src/platform/models/segments.ts` with `MaterializedSegment`, `SegmentList`, and
+- [x] T001 [P] Create `src/clients/web/src/platform/models/segments.ts` with `MaterializedSegment`, `SegmentList`, and
   `PurgeOutcome` as specified in `specs/20261023-024906-web-ui-segment-management/data-model.md` (`state` is
   `'absent' | 'materializing' | 'available' | 'failed'` with unknown platform values kept as reported text;
   `mediaSizeBytes`, `failureReason`, and `availableAt` are `undefined` when not reported)
-- [ ] T002 [P] Create the `segments` translation namespace `src/clients/web/src/i18n/en/segments.json` (area title and
+- [x] T002 [P] Create the `segments` translation namespace `src/clients/web/src/i18n/en/segments.json` (area title and
   caption, loading, empty ("segments are created on demand when an analysis needs them"), not-permitted, error with
   retry, offline, summary, column headers (the segment number column labelled "Segment number"), an area note that
   purged segments are rematerialized on demand, the four state names, in-use and not-in-use, "not reported", refresh, purge
@@ -47,13 +47,13 @@ description: "Task list for Web UI Materialized Segment Management for Club Admi
 
 ### Adapter and derived values
 
-- [ ] T003 [P] Create `src/clients/web/src/platform/adapters/segmentAdapter.ts` (`list` over `listMaterializedSegments`
+- [x] T003 [P] Create `src/clients/web/src/platform/adapters/segmentAdapter.ts` (`list` over `listMaterializedSegments`
   and `purge` over `purgeMaterializedSegments` through the shared Kiota client and `toPlatformFailure`; nullable DTO
   fields become `undefined`; an unknown `state` is kept verbatim; no headers, no retry, no snapshot change) as specified
   in `specs/20261023-024906-web-ui-segment-management/contracts/segment-adapter.md`, with the unit test
   `src/clients/web/tests/unit/platform/adapters/segmentAdapter.test.ts` (mapping, nullable fields, unknown state,
   `401`, `403`, `404`, `503` refusals, single request per call)
-- [ ] T004 [P] Create `src/clients/web/src/features/segments/segmentSummary.ts` (`total`, per-state counts, `other`,
+- [x] T004 [P] Create `src/clients/web/src/features/segments/segmentSummary.ts` (`total`, per-state counts, `other`,
   `inUse`, and `purgeable` = segments with `inUse === false` and `state` in (`available`, `failed`), as in `data-model.md`) and
   `src/clients/web/src/features/segments/segmentKeys.ts` (query key `['matches','segments',matchId]`), with the unit
   test `src/clients/web/tests/unit/features/segments/segmentSummary.test.ts` (including cases for an unknown state and
@@ -72,7 +72,7 @@ neither the area nor causes any request.
 
 ### Segments area and scripted segment API
 
-- [ ] T005 [P] [US1] Create `src/clients/web/src/features/segments/SegmentsSection.tsx`: the list query (`retry: false`,
+- [x] T005 [P] [US1] Create `src/clients/web/src/features/segments/SegmentsSection.tsx`: the list query (`retry: false`,
   `refetchOnWindowFocus: false`, no `refetchInterval`, `gcTime: 0`, enabled only for the Club Admin) with explicit
   loading, empty, and list states; a `role="status"` summary from `segmentSummary`; a semantic table with caption and
   column headers in platform order (shortened recording version with the full value and the digests available in a
@@ -87,18 +87,18 @@ neither the area nor causes any request.
   `src/clients/web/tests/unit/features/segments/SegmentsSection.test.tsx` (loading, empty, every state, absent values,
   summary, refresh keeps the previous list, offline, no storage writes, locale-specific size and time formatting, and
   that after sign-out or a `401` no segment data remains in the query cache)
-- [ ] T006 [P] [US1] Add the scripted segment API to `src/clients/web/tests/e2e/support/simulatedApi.ts` (list handler
+- [x] T006 [P] [US1] Add the scripted segment API to `src/clients/web/tests/e2e/support/simulatedApi.ts` (list handler
   and fixtures with segments in every state, in use and not in use, and a purge handler with scripted outcomes and
   refusals, usable by all three stories; request counters so tests can assert that no request was sent)
 
 ### Match page mount and simulated evidence
 
-- [ ] T007 [US1] Mount `SegmentsSection` in `src/clients/web/src/features/matches/MatchPage.tsx` below the recordings
+- [x] T007 [US1] Mount `SegmentsSection` in `src/clients/web/src/features/matches/MatchPage.tsx` below the recordings
   and analysis run list and above the triage section, for a Club Admin of the owning club only (`isClubAdmin` from
   `src/clients/web/src/session/roles.ts`), with the unit test
   `src/clients/web/tests/unit/features/matches/MatchPageSegments.test.tsx` (Club Admin sees the area; Coach, Analyst,
   Viewer, and a Club Admin of another club do not and no segment request is sent)
-- [ ] T008 [US1] Create `src/clients/web/tests/e2e/simulated/segments.spec.ts` with the access, listing, summary, empty,
+- [x] T008 [US1] Create `src/clients/web/tests/e2e/simulated/segments.spec.ts` with the access, listing, summary, empty,
   refresh, and axe accessibility scenarios of User Story 1 (Club Admin sees the area; other roles see no area and the
   list request counter stays zero; text-only states; keyboard use)
 
@@ -115,7 +115,7 @@ reports zero purged.
 
 ### Purge dialog and e2e configuration
 
-- [ ] T009 [P] [US2] Create `src/clients/web/src/features/segments/PurgeSegmentsDialog.tsx` following
+- [x] T009 [P] [US2] Create `src/clients/web/src/features/segments/PurgeSegmentsDialog.tsx` following
   `src/clients/web/src/features/operations/ReconcileDialog.tsx`: confirmation stating the match (opponent name),
   that segments not in use are deleted and become absent, that segments in use are kept and reported, and that a purged
   segment is rematerialized on demand; Cancel sends nothing; one purge request per confirmation (a ref guards a second
@@ -126,7 +126,7 @@ reports zero purged.
   are rematerialized on demand, with the unit test
   `src/clients/web/tests/unit/features/segments/PurgeSegmentsDialog.test.tsx` (cancel sends nothing, single request,
   outcome, zero purged, refusal and `503`, in-progress, focus)
-- [ ] T010 [P] [US2] Add to `src/platform/SocAlytics.Platform.AppHost/Program.cs`, in the existing e2e-mode block only,
+- [x] T010 [P] [US2] Add to `src/platform/SocAlytics.Platform.AppHost/Program.cs`, in the existing e2e-mode block only,
   the environment value `Analysis__DefaultWorkflow__Nodes__0__VideoPolicy=optional` on the API so that finalizing an
   uploaded recording set requests segments (`research.md` R4); the value applies to the whole e2e AppHost, so the
   earlier chained platform projects must still pass with it (verified in T017); no other mode and no production code
@@ -134,12 +134,12 @@ reports zero purged.
 
 ### Purge action and simulated evidence
 
-- [ ] T011 [US2] Extend `src/clients/web/src/features/segments/SegmentsSection.tsx` with the purge action offered only
+- [x] T011 [US2] Extend `src/clients/web/src/features/segments/SegmentsSection.tsx` with the purge action offered only
   while `purgeable > 0` (otherwise the "nothing to purge" reason), purge and refresh disabled while a purge is pending
   or the browser is offline, a list re-read after the purge ends, on success and on failure, and the area note that
   purged segments are rematerialized on demand; extend
   `src/clients/web/tests/unit/features/segments/SegmentsSection.test.tsx` for these cases
-- [ ] T012 [US2] Extend `src/clients/web/tests/e2e/simulated/segments.spec.ts` with the purge scenarios (confirmation
+- [x] T012 [US2] Extend `src/clients/web/tests/e2e/simulated/segments.spec.ts` with the purge scenarios (confirmation
   text, cancel sends nothing, confirm sends one request, counts and re-read list with purged segments absent and in-use
   segments unchanged, repeat reports zero purged, no purge when nothing is purgeable, in-flight controls disabled,
   refusal and `503` with retry, offline, navigating away from the match page during a pending purge (the result is
