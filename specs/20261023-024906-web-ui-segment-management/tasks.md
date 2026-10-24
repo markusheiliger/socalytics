@@ -183,7 +183,7 @@ for each and, after the condition clears and the Club Admin retries, shows the l
   retry action for network and `5xx` failures that is never an empty list, and the `401` path that follows the existing
   session-ended flow and leaves no stale data; extend
   `src/clients/web/tests/unit/features/segments/SegmentsSection.test.tsx` for `403`, `401`, error, retry, and offline
-- [ ] T015 [US3] Extend `src/clients/web/tests/e2e/simulated/segments.spec.ts` with the `403`, `401` (sign-in flow, no
+- [x] T015 [US3] Extend `src/clients/web/tests/e2e/simulated/segments.spec.ts` with the `403`, `401` (sign-in flow, no
   stale data afterwards), `404` (existing match not-found view), server-error with retry, and offline scenarios, and
   that after sign-out or a `401` no segment data remains and that `localStorage`, `sessionStorage`, IndexedDB, and
   Cache Storage contain none after leaving the match page

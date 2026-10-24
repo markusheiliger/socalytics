@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 import { expectNoAxeViolations } from '../support/axe';
 import { expect, test } from '../support/fixtures';
 import { activateWithKeyboard, expectAllReachableByKeyboard } from '../support/keyboard';
-import { match, segmentFixtures, team } from '../support/simulatedApi';
+import { SIMULATED_PASSWORD, match, segmentFixtures, sessionFor, team } from '../support/simulatedApi';
 
 const matchId = match.id as string;
 const listPath = `/matches/${matchId}/materialized-segments`;
@@ -318,5 +318,213 @@ test.describe('Purge', () => {
     api.segments.set(matchId, segmentFixtures());
     await area(page).getByRole('button', { name: 'Refresh' }).click();
     await expect(rows(page).nth(0)).toContainText('Available');
+  });
+});
+
+const listProblem = (status: number) => (route: import('@playwright/test').Route) =>
+  route.fulfill({ status, contentType: 'application/problem+json', body: JSON.stringify({ type: 'about:blank', title: 'Problem', status }) });
+
+const SEGMENT_DATA = /00000000-0000-4000-8000-000000000a01|segment-media-undecodable|materialized-segments/;
+// Cached application code names the operation, so only stored URLs and stored data are inspected.
+const segmentEntries = (entries: string[]) =>
+  entries.filter((entry) => (entry.startsWith('cache-body ') ? /00000000-0000-4000-8000-000000000a01|segment-media-undecodable/.test(entry) : SEGMENT_DATA.test(entry)));
+
+async function browserStorageEntries(page: Page) {
+  return page.evaluate(async () => {
+    const entries: string[] = [];
+    for (const name of await caches.keys()) {
+      const cache = await caches.open(name);
+      for (const request of await cache.keys()) {
+        entries.push(`cache ${request.url}`);
+        entries.push(`cache-body ${(await (await cache.match(request))?.text()) ?? ''}`);
+      }
+    }
+    for (const storage of [localStorage, sessionStorage]) {
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i) ?? '';
+        entries.push(`storage ${key}=${storage.getItem(key) ?? ''}`);
+      }
+    }
+    for (const info of (await indexedDB.databases?.()) ?? []) {
+      if (!info.name) continue;
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(info.name as string);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      for (const storeName of Array.from(db.objectStoreNames)) {
+        const stored = await new Promise<unknown[]>((resolve, reject) => {
+          const request = db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        entries.push(`indexeddb ${info.name}/${storeName}=${JSON.stringify(stored)}`);
+      }
+      db.close();
+    }
+    return entries;
+  });
+}
+
+test.describe('Failure states', () => {
+  test.beforeEach(({ api }) => api.signInAs('ClubAdmin'));
+
+  test('a 403 shows the not-permitted state inside the area without data, purge, or retry', async ({ page, api }) => {
+    api.segmentSwitches.set('listMaterializedSegments', 403);
+    await page.goto(`/matches/${match.id}`);
+    await expect(area(page).getByRole('alert')).toHaveText('Only Club Admins can see and manage the video segments of a match.');
+    await expect(page.getByRole('heading', { level: 2, name: 'Rivals FC' })).toBeVisible();
+    await expect(area(page).getByRole('table')).toHaveCount(0);
+    await expect(area(page).getByRole('button')).toHaveCount(0);
+    await expect(area(page).getByText(/no video segments yet/)).toHaveCount(0);
+    expect(api.segmentRequests.listMaterializedSegments).toBe(1);
+    expect(api.segmentRequests.purgeMaterializedSegments).toBe(0);
+    await expectNoAxeViolations(page);
+  });
+
+  test('an unknown match shows the existing match not-found handling and sends no segment request', async ({ page, api }) => {
+    await page.goto('/matches/00000000-0000-4000-8000-0000000000ff');
+    await expect(page.getByRole('alert').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Video segments' })).toHaveCount(0);
+    await expect(page.getByRole('table')).toHaveCount(0);
+    expect(api.segmentRequests.listMaterializedSegments).toBe(0);
+  });
+
+  test('a 404 of the list is an error with a retry, never an empty list', async ({ page, api }) => {
+    api.segmentSwitches.set('listMaterializedSegments', 404);
+    await page.goto(`/matches/${match.id}`);
+    await expect(area(page).getByRole('alert')).toHaveText('The video segments could not be loaded.');
+    await expect(area(page).getByText(/no video segments yet/)).toHaveCount(0);
+    await expect(area(page).getByRole('table')).toHaveCount(0);
+    await expect(area(page).getByRole('button', { name: 'Try again' })).toBeEnabled();
+  });
+
+  for (const status of [500] as const) {
+    test(`a ${status} shows an error with a retry that never reads as an empty list, and the retry shows the list`, async ({ page, api }) => {
+      api.on('GET', listPath, listProblem(status));
+      await page.goto(`/matches/${match.id}`);
+      await expect(area(page).getByRole('alert')).toHaveText('The video segments could not be loaded.');
+      await expect(area(page).getByText(/no video segments yet/)).toHaveCount(0);
+      await expect(area(page).getByRole('table')).toHaveCount(0);
+      await expect(area(page).getByRole('button', { name: 'Purge unused segments' })).toHaveCount(0);
+      await expectNoAxeViolations(page);
+
+      api.on('GET', listPath, (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ matchId, segments: segmentFixtures() }) }),
+      );
+      await area(page).getByRole('button', { name: 'Try again' }).click();
+      await expect(rows(page)).toHaveCount(5);
+      await expect(area(page).getByRole('alert')).toHaveCount(0);
+      await expect(area(page).getByRole('button', { name: 'Try again' })).toHaveCount(0);
+    });
+  }
+
+  test('an unreachable platform shows the error with a retry', async ({ page, api }) => {
+    api.on('GET', listPath, (route) => route.abort('connectionrefused'));
+    await page.goto(`/matches/${match.id}`);
+    await expect(area(page).getByRole('alert')).toHaveText('The video segments could not be loaded.');
+    await expect(area(page).getByRole('table')).toHaveCount(0);
+    await expect(area(page).getByText(/no video segments yet/)).toHaveCount(0);
+    await expect(area(page).getByRole('button', { name: 'Try again' })).toBeVisible();
+  });
+
+  test('a failed refresh states the error, and the next successful refresh clears it', async ({ page, api }) => {
+    await page.goto(`/matches/${match.id}`);
+    await expect(rows(page)).toHaveCount(5);
+    api.on('GET', listPath, listProblem(500));
+    await area(page).getByRole('button', { name: 'Refresh' }).click();
+    await expect(area(page).getByRole('alert')).toHaveText('The video segments could not be loaded.');
+    await expect(area(page).getByText(/no video segments yet/)).toHaveCount(0);
+
+    api.on('GET', listPath, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ matchId, segments: segmentFixtures() }) }),
+    );
+    await area(page).getByRole('button', { name: 'Refresh' }).click();
+    await expect(area(page).getByRole('alert')).toHaveCount(0);
+    await expect(rows(page)).toHaveCount(5);
+  });
+
+  test('offline, the area states the connection requirement and the retry is disabled', async ({ page, api, context }) => {
+    api.on('GET', listPath, (route) => route.abort('internetdisconnected'));
+    await page.goto(`/matches/${match.id}`);
+    await expect(area(page).getByRole('alert')).toHaveText('The video segments could not be loaded.');
+    await context.setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await expect(area(page).getByText(/Video segment management needs a connection/)).toBeVisible();
+    await expect(area(page).getByRole('button', { name: 'Try again' })).toBeDisabled();
+    await expect(area(page).getByRole('table')).toHaveCount(0);
+    await expect(area(page).getByText(/no video segments yet/)).toHaveCount(0);
+    await expectNoAxeViolations(page);
+    await context.setOffline(false);
+  });
+
+  test('offline with a loaded list, the connection requirement is stated and refresh and purge are disabled', async ({ page, api, context }) => {
+    await page.goto(`/matches/${match.id}`);
+    await expect(rows(page)).toHaveCount(5);
+    await context.setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await expect(area(page).getByText(/Video segment management needs a connection/)).toBeVisible();
+    await expect(area(page).getByRole('button', { name: 'Refresh' })).toBeDisabled();
+    await expect(area(page).getByRole('button', { name: 'Purge unused segments' })).toBeDisabled();
+    expect(api.segmentRequests.listMaterializedSegments).toBe(1);
+    await context.setOffline(false);
+  });
+});
+
+test.describe('Ended session and stored data', () => {
+  test('a 401 of the list follows the sign-in flow and leaves no segment data', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto(`/matches/${match.id}`);
+    await expect(rows(page)).toHaveCount(5);
+
+    api.endSession();
+    api.on('POST', '/session', async (route) => {
+      api.signInAs('ClubAdmin');
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sessionFor('ClubAdmin')) });
+    });
+    await area(page).getByRole('button', { name: 'Refresh' }).click();
+    await expect(page).toHaveURL(/\/sign-in/);
+    await expect(page.getByText('Your session ended. Sign in again to continue.')).toBeVisible();
+    await expect(page.getByRole('table')).toHaveCount(0);
+    await expect(page.getByText(/Video segments|segments, /)).toHaveCount(0);
+    expect(segmentEntries(await browserStorageEntries(page))).toEqual([]);
+    await expectNoAxeViolations(page);
+
+    await page.getByLabel('Sign-in name').fill('admin');
+    await page.getByLabel('Password').fill(SIMULATED_PASSWORD);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page).not.toHaveURL(/\/sign-in/);
+    await page.goto(`/matches/${match.id}`);
+    await expect(rows(page)).toHaveCount(5);
+  });
+
+  test('a 401 of the list shows no stale list, error, or empty state in the area', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    api.segmentSwitches.set('listMaterializedSegments', 401);
+    await page.goto(`/matches/${match.id}`);
+    await expect(area(page).getByRole('table')).toHaveCount(0);
+    await expect(area(page).getByText(/no video segments yet|could not be loaded/)).toHaveCount(0);
+    await expect(area(page).getByRole('button', { name: 'Purge unused segments' })).toHaveCount(0);
+  });
+
+  test('after sign-out and after leaving the match page no segment data remains in browser storage', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto(`/matches/${match.id}`);
+    await expect(rows(page)).toHaveCount(5);
+    await page.evaluate(() => {
+      window.history.pushState({}, '', '/teams');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await expect(page).toHaveURL(/\/teams$/);
+    await expect(page.getByText(/00000000-0000-4000-8000-000000000a01|segment-media-undecodable/)).toHaveCount(0);
+    expect(segmentEntries(await browserStorageEntries(page))).toEqual([]);
+
+    await page.goto(`/matches/${match.id}`);
+    await expect(rows(page)).toHaveCount(5);
+    await page.goto('/account');
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page).toHaveURL(/\/sign-in$/);
+    await expect(page.getByRole('table')).toHaveCount(0);
+    expect(segmentEntries(await browserStorageEntries(page))).toEqual([]);
   });
 });
