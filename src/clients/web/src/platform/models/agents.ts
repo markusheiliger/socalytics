@@ -81,6 +81,8 @@ export interface EnabledAgent {
   domain: string;
 }
 
+export type ConversationStateFilter = 'active' | 'archived';
+
 export interface ConversationParticipant {
   agentId: string;
   addedAt: string;
@@ -186,6 +188,7 @@ export type TriageOutcome =
   | { kind: 'agentNotParticipant' }
   | { kind: 'participantExists' }
   | { kind: 'runNotEligible' }
+  | { kind: 'conversationArchived' }
   | { kind: 'invalidQuestion'; fieldErrors: FieldError[] }
   | { kind: 'notPermitted' }
   | { kind: 'staleVersion' }
