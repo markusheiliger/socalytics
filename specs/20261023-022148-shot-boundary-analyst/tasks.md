@@ -102,7 +102,7 @@ known truth.
 ### Tests for User Story 2
 
 - [ ] T021 [P] [US2] Create `<cap>/tests/test_rules.py`: static scene with sensor-like noise yields no fact, steady pan yields no fact (SC-002), a low-contrast cut below the fixed threshold but large relative to its surroundings yields one `adaptive-cut` fact carrying `adaptiveFloor`, `adaptiveRatio`, and `contextMean`, a very high-contrast cut yields one `hard-cut` fact and never two facts for the same cut, and the adaptive context excludes the pair itself and pairs outside the nominal window
-- [ ] T022 [P] [US2] Create `<cap>/tests/test_min_shot_length.py`: two cuts closer than `MIN_SHOT_LENGTH_MS` report only the first and leave no trace of the second, a suppressed boundary does not move the reference point, and the first boundary of a segment is never suppressed
+- [x] T022 [P] [US2] Create `<cap>/tests/test_min_shot_length.py`: two cuts closer than `MIN_SHOT_LENGTH_MS` report only the first and leave no trace of the second, a suppressed boundary does not move the reference point, and the first boundary of a segment is never suppressed
 
 **Checkpoint**: User Stories 1 and 2 pass all Python tests.
 
