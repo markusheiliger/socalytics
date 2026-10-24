@@ -132,6 +132,15 @@ internal static class AgentConversationEndpoints
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
 			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
+		members.MapDelete("/agent-conversations/{conversationId:guid}", DeleteAsync)
+			.WithName("deleteAgentConversation")
+			.WithTags("Agent conversations")
+			.Produces(StatusCodes.Status204NoContent)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		members.MapGet("/agent-conversations/{conversationId:guid}", GetConversationAsync)
 			.WithName("getAgentConversation")
 			.WithTags("Agent conversations")
@@ -245,6 +254,19 @@ internal static class AgentConversationEndpoints
 
 		var result = await handler.HandleAsync(new UnarchiveAgentConversationCommand(conversationId, expected.Value), cancellationToken);
 		return LifecycleResult(http, result);
+	}
+
+	private static async Task<IResult> DeleteAsync(
+		Guid conversationId, HttpContext http, DeleteAgentConversationHandler handler, CancellationToken cancellationToken)
+	{
+		var expected = IfMatchHeader.Parse(http.Request);
+		if (!expected.IsSuccess)
+		{
+			return ProblemResults.From(expected.Failure);
+		}
+
+		var result = await handler.HandleAsync(new DeleteAgentConversationCommand(conversationId, expected.Value), cancellationToken);
+		return result.IsSuccess ? Results.NoContent() : ProblemResults.From(result.Failure);
 	}
 
 	private static IResult LifecycleResult(HttpContext http, OperationResult<AgentConversationView> result)
