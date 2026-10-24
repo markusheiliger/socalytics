@@ -239,7 +239,7 @@ requested from the Segment Service.
   re-resolution and the `rematerializing` state, not found, rate limited, keyboard operation, and axe checks for every
   state
   (SC-005, SC-006; FR-017–FR-021)
-- [ ] T024 [P] [US3] Add `src/clients/web/tests/e2e/platform/evidence-playback.spec.ts` and chain it after the analysis
+- [x] T024 [P] [US3] Add `src/clients/web/tests/e2e/platform/evidence-playback.spec.ts` and chain it after the analysis
   review project in `src/clients/web/playwright.config.ts`: upload and finalize a `syntheticVideo.ts` recording, open
   the completed run's review, choose "Play evidence" on a fact, and observe playback reaching the fact's window
   within one frame of the expected media time (SC-001, SC-005; FR-024)
