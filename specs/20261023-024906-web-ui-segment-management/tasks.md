@@ -194,7 +194,7 @@ for each and, after the condition clears and the Club Admin retries, shows the l
 
 **Purpose**: Documentation that matches the merged state and final verification.
 
-- [ ] T016 Make `docs/architecture/` describe the implemented state (FR-020, plan `## Architecture Updates`): in
+- [x] T016 Make `docs/architecture/` describe the implemented state (FR-020, plan `## Architecture Updates`): in
   `docs/architecture/client-applications.md` (Web UI) add the Club Admin segments area as implemented, connected,
   online only, memory-only data, with `simulated` and `platform` browser tests; in
   `docs/architecture/match-data-pipeline.md` (On-Demand Video Segmentation) name the Web UI's segments area as a way to

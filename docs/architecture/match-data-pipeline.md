@@ -235,7 +235,9 @@ media time to match time. A segmentation-policy digest is bound to the policy
 version and duration of its first validated request, and a conflicting reuse is
 rejected. The manual purge is a Club Admin operation per match that deletes
 the objects of every materialized segment not pinned by a waiting, ready, or
-claimed job and returns it to `absent`. A member's evidence resolution (see
+claimed job and returns it to `absent`; Club Admins run it from the API or
+from the segments area on the Web UI's match page (a list of the match's
+segments and a confirmed purge; development evidence, online only). A member's evidence resolution (see
 [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access))
 requests the materialization of `absent` segments it needs as another
 requester, without pinning them against the purge; a purged segment is then
