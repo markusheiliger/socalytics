@@ -49,7 +49,7 @@ public sealed class RequestAnalysisRunHandler(
         var decision = await authorizer.AuthorizeTeamResourceAsync(new("match", command.MatchId), TeamPermission.Write, cancellationToken);
         if (!decision.IsGranted)
         {
-            return decision.IsForbidden ? OperationFailure.Forbidden() : OperationFailure.NotFound();
+            return decision.Kind == AccessDecisionKind.Forbidden ? OperationFailure.Forbidden() : OperationFailure.NotFound();
         }
 
         if (decision.Scope!.SeasonState == SeasonState.Archived)
