@@ -1,0 +1,70 @@
+{
+  "contractVersion": "1.2.0",
+  "messageId": "msg-0001",
+  "readinessOccurrenceId": "ready-0001",
+  "readinessSequence": 1,
+  "runId": "run-0001",
+  "nodeId": "node-0001",
+  "nodeKey": "detect-players",
+  "logicalJobId": "job-0001",
+  "teamId": "team-0001",
+  "matchId": "match-0001",
+  "recordingSetVersionId": "rsv-0001",
+  "capability": {
+    "id": "player-detection",
+    "version": "1.0.0"
+  },
+  "tier": "low-level",
+  "schemaVersion": "1.0.0",
+  "executionScope": "segment",
+  "segment": {
+    "recordingSetVersionId": "rsv-0001",
+    "recordingVersionId": "rv-0001",
+    "timelineMappingDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000001",
+    "segmentationPolicyDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000002",
+    "segmentNumber": 1
+  },
+  "segmentWindow": {
+    "segmentId": "seg-0001",
+    "startMs": 0,
+    "endMs": 60000
+  },
+  "segmentMedia": {
+    "videoPolicy": "forbidden",
+    "manifestChecksum": "sha-256:0000000000000000000000000000000000000000000000000000000000000008"
+  },
+  "workflow": {
+    "id": "default-analysis",
+    "version": "1.0.0"
+  },
+  "inputs": [],
+  "pinned": {
+    "analystProfileId": "profile-detect",
+    "analystProfileDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000003",
+    "imageDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000004",
+    "modelDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000005",
+    "policies": [
+      {
+        "policyId": "retention",
+        "version": "1.0.0"
+      }
+    ]
+  },
+  "resources": {
+    "cpuMillicores": 1000,
+    "memoryMebibytes": 2048,
+    "scratchDiskMebibytes": 1024
+  },
+  "attemptBudget": {
+    "maxAttempts": 3
+  },
+  "timeouts": {
+    "leaseSeconds": 60,
+    "staleTimeoutSeconds": 120,
+    "executionTimeoutSeconds": 3600
+  },
+  "createdAt": "2026-10-05T13:00:00Z",
+  "correlation": {
+    "correlationId": "corr-0001"
+  }
+}

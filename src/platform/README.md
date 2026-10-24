@@ -183,7 +183,13 @@ evidence (migration `0019_identityaccess_email_notifications.sql`):
 
 The durable analysis workflow is implemented as development evidence (outbox,
 NATS JetStream publication, run creation from finalized recording sets,
-readiness, fenced attempts, Analyst job and completion contracts). Result
+readiness, fenced attempts, member-initiated run cancellation
+(`POST /api/v1/analysis/runs/{runId}/cancellation`, `cancelAnalysisRun`;
+migration `0026_analysis_run_cancellation.sql`), automatic supersession of
+older runs by the run of a newer recording-set version (migration
+`0027_analysis_run_supersession.sql`; additive `isCurrent`, `supersededBy`,
+`supersededAt`, and `cancellationCause` fields of the run reads), Analyst job and completion
+contracts). Result
 write grants and validated result acceptance are implemented against the
 simulated Analyst as development evidence (migrations
 `0017_analysis_result_manifests.sql` and
@@ -235,14 +241,32 @@ lineage under `/api/v1`); the initiating user alone reads them.
 - The outbox publishes content-free `agent-invocation-ready` notifications to a
   JetStream work queue; the attempt monitor (lease expiry, deadlines, scope
   loss) and the reconciliation worker run in the API host. Options:
-  `AgentOrchestration:Agents:Enabled`, `Execution` (attempt, lease, history,
-  length, and unfinished-invocation limits), `Workloads`, and `Monitor`; the
+  `Execution` (attempt, lease, history,
+  length, and unfinished-invocation limits), `Workloads`, and `Monitor` (enabled
+  agents come from the Agent Catalog enablement, not configuration); the
   values are development values, not adopted production values.
 - `Tests/SocAlytics.Platform.SimulatedAgentWorkload` is the Development and Test
   simulated agent workload that stands in for Hermes with deterministic advice;
   the AppHost starts it with an ephemeral key. It is not an agent runtime.
 - Hermes, consultations, Coach Agents, MCP tools, lifecycle operations, the
   Web UI, and production values remain deferred.
+
+The agent catalog registry is implemented as development evidence (migration
+`0028_agentorchestration_agent_catalog.sql`, a `Catalog` folder in each layer):
+Club Admins register immutable, content-addressed artifacts (prompt template,
+model selection, tool policy, safety policy, dimension set, philosophy profile,
+modifier policy) and agent versions, approve and retire versions, and enable one
+approved version per agent identifier under `/api/v1/agent-catalog`; records are
+validated against the `contracts/agent-catalog/` schemas, and approval,
+retirement, and enablement changes are audited with identifiers and digests
+only. Submission pins the enabled version and every artifact digest into the
+invocation (`agent_invocation_pins`), the claim's execution envelope carries the
+references, and the workload reads the pinned artifacts through the
+attempt-scoped `readPinnedAgentArtifacts` operation with the current fencing
+token. In Development and Test a seed registers and enables the two direct
+Specialist Agents with a simulated model provider. Evaluation gates, Coach Agent
+enablement, Hermes, MCP tools, the Web UI's catalog administration, and
+production values remain deferred.
 
 Partial-coverage match barriers are implemented as development evidence
 against the simulated Analyst. A match-scoped capability declares partial
@@ -256,6 +280,42 @@ acceptance rejects a manifest whose `inputCoverage` differs
 (`result-coverage-mismatch`), and the run status read reports input coverage
 counts per node. A run that bridged failed or blocked segments ends
 `PartiallyCompleted`.
+
+The Segment Service (the `Segments` folders of the layers) is implemented as
+development evidence. A leased background worker in the API host materializes
+the segments that run creation requests for nodes whose pinned video policy is
+`required` or `optional`: it extracts the primary video stream of the requested
+interval by stream copy with the `ffmpeg` and `ffprobe` found through
+`Segments:Toolchain` (`FfmpegPath`, `FfprobePath`, `ExpectedVersionPrefix`;
+Development expects `n8.1`), writes the media and a manifest under
+candidate-specific object keys, verifies the stored digest, and publishes one
+association per identity in the versioned `materialized_segments` table.
+Readiness waits for the segments and pins the association into the job's input
+snapshot; a failed segment fails `required` jobs with `segment-unavailable` and
+readies `optional` jobs without media. A missing or mismatched toolchain fails
+materialization with a sanitized, non-retryable reason and does not stop other
+work.
+
+- `Segments:Materialization` (development values): `PollInterval` 5 seconds,
+  `LeaseDuration` 5 minutes, `MaxConcurrentPerInstance` 2, `MaxAttempts` 3,
+  `RetryDelay` 30 seconds, `ExecutionTimeout` 10 minutes, `MaxSegmentBytes`
+  2 GiB, and `WorkingDirectory`; invalid values stop the host at start.
+- `getAnalysisSegmentMedia` (`GET /api/v1/analysis/attempts/{attemptId}/segment-media`,
+  Manager authentication) returns the pinned association's per-object read
+  grants for the Manager's own active attempt; they expire no later than the
+  attempt lease, and stale, fenced, foreign, and not-applicable requests are
+  refused and audited. No operation reads or relays media bytes. Contracts:
+  `contracts/segments/segment-manifest/v1/`, `contracts/analysis/segment-media/v1/`,
+  and `contracts/analysis/analyst-job/v1/` 1.2.0 (`segmentMedia`).
+- `listMaterializedSegments` and `purgeMaterializedSegments`
+  (`GET` and `POST …/purge` under `/api/v1/matches/{matchId}/materialized-segments`)
+  let Club Admins of the owning club list a match's segments and purge them;
+  segments in use by a non-final run are kept, and a purged segment
+  rematerializes for a later run. There is no automatic eviction.
+- Managers older than the first build that stages media (`0.1.0`) are kept
+  from new work through `Registry:ManagerVersion:Minimum`, not by the Segment
+  Service. Storage cost, policy migration at scale, `POL-004`, and production
+  toolchain and storage values remain unresolved.
 
 Real Analyst execution is implemented on the Manager's `docker-desktop`
 profile and verified against a Linux engine; Docker Desktop on Windows awaits
@@ -355,7 +415,10 @@ readiness.
 ## Development
 
 A running Docker-compatible container runtime is required to run the AppHost
-and the Host and Integration tests. Run the supported workflow from the
+and the Host and Integration tests. The API host and the tests that materialize
+segments (Integration and end-to-end) also need `ffmpeg` and `ffprobe` 8.1 on
+`PATH` or at the paths of `SOCALYTICS_FFMPEG_PATH` and `SOCALYTICS_FFPROBE_PATH`
+(see `Segments:Toolchain`). Run the supported workflow from the
 repository root:
 
 ```powershell
@@ -407,6 +470,23 @@ Configuration is read only from environment variables. The API takes its existin
 Migrator Contract. The API image contains no Migrator or DbUp, and neither image contains secret or development
 values. The images are not deployment support or production readiness; `dotnet test
 src/platform/Tests/SocAlytics.Platform.Images.Tests` (Docker required) is their evidence.
+
+## Evaluation Composition
+
+`deploy/compose/` holds a Docker Compose definition (`compose.yaml`, `stamp.env.template`, and its
+[README](deploy/compose/README.md)) that runs one self-hosted stamp for evaluation from the three images above:
+PostgreSQL, NATS, S3-compatible storage, the one-off Migrator, the API, and the Web UI, of which only the Web UI
+publishes a port, on `127.0.0.1`. `SocAlytics.Platform.StampSetup` is the setup console that writes a stamp
+directory (`stamp.env`, `nats.conf`) outside any Git working tree and generates every secret. The evidence project is
+`Tests/SocAlytics.Platform.Compose.Tests` (Docker with the Compose v2 plugin required):
+
+```powershell
+dotnet run --project src/platform/SocAlytics.Platform.StampSetup -- --output <new directory outside a Git working tree>
+dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests
+```
+
+The composition is not deployment support or production readiness: it is not a production profile and passes no
+production preflight.
 
 ## Migrator Contract
 

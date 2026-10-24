@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "dimension-set",
+  "id": "coach-philosophy-dimensions",
+  "version": "1.0.0",
+  "dimensions": [
+    { "id": "pressing-intensity", "meaning": "Priority given to pressing participation, timing, zones, duration, and outcomes", "acceptedEvidence": ["find_pressing_phases"] },
+    { "id": "possession-control", "meaning": "Priority given to possession stability, losses, recoveries, and control of phases", "acceptedEvidence": ["find_turnovers", "get_tactical_phases"] },
+    { "id": "positional-structure", "meaning": "Priority given to phase-conditioned shape, spacing, roles, and structural stability", "acceptedEvidence": ["get_formations", "get_tactical_phases"] },
+    { "id": "spatial-compactness", "meaning": "Priority given to team width, depth, occupation, and compact collective distances", "acceptedEvidence": ["get_heatmap"] },
+    { "id": "transition-threat", "meaning": "Priority given to recovery-to-progression speed, numerical context, and transition outcome", "acceptedEvidence": ["find_counter_attacks", "find_turnovers"] },
+    { "id": "set-play-leverage", "meaning": "Priority given to attacking and defending restarts and their execution", "acceptedEvidence": ["find_set_plays", "find_ball_actions"] },
+    { "id": "vertical-progression", "meaning": "Priority given to progressive passes, carries, and direct advancement", "acceptedEvidence": ["find_ball_actions"] },
+    { "id": "game-state-adaptation", "meaning": "Priority given to changes required by score, time, player-number state, phase, and opponent behavior", "acceptedEvidence": ["get_match", "get_tactical_phases"] }
+  ]
+}

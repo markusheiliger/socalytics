@@ -54,15 +54,14 @@ test('follows the Spec Kit order: specify, clarify, plan, tasks, analyze', () =>
   assert.equal(nextAuthoringStep({ ...tasked, archived: true }), 'done');
 });
 
-test('reports publish blockers for stage, checklists, markers, and the specs overview', () => {
-  const facts = { folder: 'f', hasSpec: true, artifacts: ['spec.md', 'plan.md'], tasksMarkdown: null, openChecklistItems: 2, openClarificationMarkers: 1, listedInSpecsReadme: false };
+test('reports publish blockers for stage, checklists, and markers, but not for specs/README.md', () => {
+  const facts = { folder: 'f', hasSpec: true, artifacts: ['spec.md', 'plan.md'], tasksMarkdown: null, openChecklistItems: 2, openClarificationMarkers: 1 };
   const reasons = publishBlockers(facts);
-  assert.equal(reasons.length, 4);
+  assert.equal(reasons.length, 3);
   assert.match(reasons[0], /stage `planned`/);
   assert.match(reasons[1], /2 checklist item/);
   assert.match(reasons[2], /NEEDS CLARIFICATION/);
-  assert.match(reasons[3], /specs\/README\.md/);
-  assert.deepEqual(publishBlockers({ ...facts, artifacts: ['spec.md', 'plan.md', 'tasks.md'], tasksMarkdown: TASKS, openChecklistItems: 0, openClarificationMarkers: 0, listedInSpecsReadme: true }), []);
+  assert.deepEqual(publishBlockers({ ...facts, artifacts: ['spec.md', 'plan.md', 'tasks.md'], tasksMarkdown: TASKS, openChecklistItems: 0, openClarificationMarkers: 0 }), []);
 });
 
 test('reads the Architecture Updates section of a plan', () => {
@@ -75,7 +74,7 @@ test('reads the Architecture Updates section of a plan', () => {
 });
 
 test('blocks publishing without the Architecture Updates section or its documentation task', () => {
-  const ready = { folder: 'f', hasSpec: true, artifacts: ['spec.md', 'plan.md', 'tasks.md'], tasksMarkdown: TASKS, openChecklistItems: 0, openClarificationMarkers: 0, listedInSpecsReadme: true };
+  const ready = { folder: 'f', hasSpec: true, artifacts: ['spec.md', 'plan.md', 'tasks.md'], tasksMarkdown: TASKS, openChecklistItems: 0, openClarificationMarkers: 0 };
   const [missing] = publishBlockers({ ...ready, architecture: { present: false, none: false } });
   assert.match(missing, /Architecture Updates/);
   const [noTask] = publishBlockers({ ...ready, architecture: { present: true, none: false } });
@@ -87,8 +86,7 @@ test('blocks publishing without the Architecture Updates section or its document
   assert.equal(publishBlockers(planned).some((reason) => /docs\/architecture\//.test(reason)), false);
 });
 
-test('collects facts from the folder, its checklists, specs/README.md, and git', () => withRepo({
-  'specs/README.md': '| [F](f/spec.md) |\n',
+test('collects facts from the folder, its checklists, and git', () => withRepo({
   'specs/f/spec.md': SPEC,
   'specs/f/plan.md': '# Plan\n',
   'specs/f/tasks.md': TASKS,
@@ -98,7 +96,7 @@ test('collects facts from the folder, its checklists, specs/README.md, and git',
   assert.deepEqual(facts.artifacts, ['spec.md', 'plan.md', 'tasks.md']);
   assert.equal(facts.clarificationSessions, 1);
   assert.deepEqual(facts.checklists, [{ name: 'requirements.md', open: 1 }]);
-  assert.equal(facts.listedInSpecsReadme, true);
+  assert.equal('listedInSpecsReadme' in facts, false, 'no spec needs a row in specs/README.md');
   assert.deepEqual(facts.architecture, { present: false, none: false });
   assert.deepEqual(facts.git, { currentBranch: 'main', defaultBranch: 'main', upstream: 'origin/main', uncommitted: ['specs/f/tasks.md'], unpushedCommits: 0, published: false });
 }));

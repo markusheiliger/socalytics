@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using NATS.Client.Core;
+using NATS.Client.JetStream;
 using Shouldly;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Registry;
@@ -54,6 +56,49 @@ public sealed class WorkflowAvailabilityTests(
         return false;
     }
 
+    // Evidenced cause: the NATS container is shared by the whole NatsFaultInjection collection, and its
+    // SOCALYTICS_EVENTS stream and durable finalization consumer keep notifications that earlier NatsFaultInjection
+    // tests left behind for recording sets that do not exist in this test's database. After recovery this test's
+    // consumer fetched them first, added receipts, and consumed fetch windows before the one expected notification,
+    // so the assertions on run and receipt counts raced with that leftover state. Deleting the stream (and with it
+    // the consumer) gives the test its own notification state; the topology recreates both when the platform starts.
+    // The fixed delay before the unresolvable assertions was replaced by a wait on NotificationHeldBackAsync.
+    // Reproduction: the failure is intermittent and did not recur in the verification runs below, so the cause is
+    // established from the shared stream and durable consumer state, which outlive each test's database, not from a
+    // captured failing log.
+    // Verification (after the wait replaced the delay): 20 of 20 solo runs of this test and 5 of 5 runs of this class
+    // under CPU load (one busy loop per core, 4 cores) passed. A probe that made the workflow resolvable right after
+    // the held-back state and a probe that finalized a second recording set after recovery each failed the test on
+    // its receipt and run count assertions; both probes were removed.
+    private async Task ResetEventsStreamAsync(CancellationToken ct)
+    {
+        await using var connection = new NatsConnection(new NatsOpts { Url = nats.ConnectionString });
+        try
+        {
+            await new NatsJSContext(connection).DeleteStreamAsync("SOCALYTICS_EVENTS", ct);
+        }
+        catch (NatsJSApiException ex) when (ex.Error.Code == 404)
+        {
+        }
+    }
+
+    // True once the events stream holds the finalization notification and the durable consumer reports it pending
+    // (not yet fetched, or delivered and negatively acknowledged) with nothing acknowledged, which is the state the
+    // platform keeps while the workflow is unresolvable.
+    private async Task<bool> NotificationHeldBackAsync(CancellationToken ct)
+    {
+        await using var connection = new NatsConnection(new NatsOpts { Url = nats.ConnectionString });
+        var js = new NatsJSContext(connection);
+        var stream = await js.GetStreamAsync("SOCALYTICS_EVENTS", cancellationToken: ct);
+        if (stream.Info.State.Messages < 1)
+        {
+            return false;
+        }
+
+        var consumer = await js.GetConsumerAsync("SOCALYTICS_EVENTS", "analysis-scheduler-recordings-finalized", ct);
+        return consumer.Info.AckFloor.StreamSeq == 0 && consumer.Info.NumPending + (ulong)consumer.Info.NumAckPending >= 1;
+    }
+
     [Fact]
     public async Task Missing_definition_reports_unhealthy_and_keeps_alive()
     {
@@ -77,6 +122,7 @@ public sealed class WorkflowAvailabilityTests(
     {
         var ct = TestContext.Current.CancellationToken;
         var flag = new Switch { Down = true };
+        await ResetEventsStreamAsync(ct);
         await using var s = await SocAlytics.Platform.Integration.Tests.Recordings.Support.FinalizationSetup.StartAsync(
             postgres, rustFs, ct, extraSettings: Settings(), configureServices: services =>
             {
@@ -87,7 +133,7 @@ public sealed class WorkflowAvailabilityTests(
             });
         await SocAlytics.Platform.Integration.Tests.Recordings.Support.RecordingFinalizationHelper.FinalizeAsync(s.Coach, s.Hierarchy.MatchId, 1, ct);
         (await WaitAsync(async () => await s.ScalarAsync("SELECT count(*) FROM socalytics.outbox_messages WHERE message_type = 'matches.recordings-finalized' AND state = 'published'", ct) == 1, ct)).ShouldBeTrue();
-        await Task.Delay(TimeSpan.FromSeconds(4), ct);
+        (await WaitAsync(() => NotificationHeldBackAsync(ct), ct)).ShouldBeTrue();
         (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct)).ShouldBe(0);
         (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(0);
 
@@ -96,7 +142,10 @@ public sealed class WorkflowAvailabilityTests(
             .ShouldBe(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy);
 
         flag.Down = false;
-        (await WaitAsync(async () => await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct) == 1, ct)).ShouldBeTrue();
+        (await WaitAsync(async () =>
+            await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct) >= 1
+            && await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct) >= 1, ct)).ShouldBeTrue();
+        (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(1);
         (await health.CheckHealthAsync(r => r.Name == "analysis-workflow", ct)).Status
             .ShouldBe(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy);
         (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct)).ShouldBe(1);

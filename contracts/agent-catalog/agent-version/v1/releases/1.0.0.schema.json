@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-catalog/agent-version/v1/agent-version.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent version v1",
+  "description": "An agent version of the agent catalog: the immutable composition of one prompt template, one model selection, one tool policy, one safety policy, and, for Coach Agents, one philosophy profile and one modifier policy, each pinned by identifier, version, and content digest. Coach Agent versions carry the simulation disclosure. The record holds no secrets; the model selection names the provider and deployment only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "agentId", "group", "displayName", "artifacts"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "kind": { "const": "agent-version" },
+    "agentId": {
+      "enum": [
+        "coach-jurgen-klopp",
+        "coach-pep-guardiola",
+        "coach-jose-mourinho",
+        "specialist-fitness",
+        "specialist-goalkeeping",
+        "specialist-tactics",
+        "specialist-video-analysis",
+        "specialist-scouting",
+        "specialist-player-development"
+      ]
+    },
+    "group": { "enum": ["coach", "specialist"] },
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["promptTemplate", "modelSelection", "toolPolicy", "safetyPolicy"],
+      "properties": {
+        "promptTemplate": { "$ref": "#/$defs/artifactReference" },
+        "modelSelection": { "$ref": "#/$defs/artifactReference" },
+        "toolPolicy": { "$ref": "#/$defs/artifactReference" },
+        "safetyPolicy": { "$ref": "#/$defs/artifactReference" },
+        "philosophyProfile": { "$ref": "#/$defs/artifactReference" },
+        "modifierPolicy": { "$ref": "#/$defs/artifactReference" }
+      }
+    },
+    "disclosure": {
+      "description": "The simulation disclosure of a Coach Agent; required for the coach group.",
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 1000
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "group": { "const": "coach" } },
+        "required": ["group"]
+      },
+      "then": { "required": ["disclosure"] }
+    }
+  ],
+  "$defs": {
+    "artifactReference": {
+      "description": "A pinned catalog artifact version.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "digest"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "minLength": 3, "maxLength": 100 },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "digest": { "type": "string", "pattern": "^sha-256:[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

@@ -128,6 +128,12 @@ public sealed class SimulatedAttempt : IAttemptExecution
                 outcomeKind = SimulatedOutcome.Fail;
             }
 
+            if (outcomeKind == SimulatedOutcome.Succeed && !SimulatedResultWriter.HasRequiredMedia(Launch))
+            {
+                outcome.TrySetResult(AttemptOutcome.Failure("segment-media-missing"));
+                return;
+            }
+
             switch (outcomeKind)
             {
                 case SimulatedOutcome.Succeed:

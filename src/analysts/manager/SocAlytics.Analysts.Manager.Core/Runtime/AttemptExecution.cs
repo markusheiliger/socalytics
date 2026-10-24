@@ -4,7 +4,8 @@ public sealed record AttemptResources(double Cpus, long MemoryBytes, IReadOnlyLi
 
 /// <summary>Everything the Platform pinned for one attempt; the Manager never chooses images, models, or preprocessing.</summary>
 /// <remarks><see cref="InputsDirectory"/> is the staged upstream data the runtime mounts read-only; null for jobs without upstream dependencies.
-/// <see cref="JobFile"/>, <see cref="ResultDirectory"/>, and <see cref="ScratchDirectory"/> lie in the attempt directory, which the Manager deletes when the attempt ends.</remarks>
+/// <see cref="MediaDirectory"/> is the verified materialized segment media the runtime mounts read-only; null for jobs without <c>segmentMedia</c>.
+/// <see cref="JobFile"/>, <see cref="AttemptFile"/>, <see cref="ResultDirectory"/>, and <see cref="ScratchDirectory"/> lie in the attempt directory, which the Manager deletes when the attempt ends.</remarks>
 public sealed record AttemptLaunch(
     string AttemptId,
     string LogicalJobId,
@@ -20,7 +21,9 @@ public sealed record AttemptLaunch(
     string? ResultDirectory = null,
     string? InputsDirectory = null,
     string? JobFile = null,
-    string? ScratchDirectory = null);
+    string? ScratchDirectory = null,
+    string? AttemptFile = null,
+    string? MediaDirectory = null);
 
 public sealed record AttemptOutcome
 {

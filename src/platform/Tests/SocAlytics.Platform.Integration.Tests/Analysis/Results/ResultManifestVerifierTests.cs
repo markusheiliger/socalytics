@@ -263,7 +263,7 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
     {
         var now = DateTimeOffset.UtcNow;
         var run = new AnalysisRunRecord(
-            s.RunId, s.TeamId, s.MatchId, s.SetId, "default-workflow", "1", ["player-detection"], "all", AnalysisRunState.Running, null, now, now, null, now, 1);
+            s.RunId, s.TeamId, s.MatchId, s.SetId, DateTimeOffset.UtcNow, "default-workflow", "1", ["player-detection"], "all", AnalysisRunState.Running, null, now, now, null, now, 1);
         var scope = s.MatchScope ? ExecutionScope.Match : ExecutionScope.Segment;
         var node = new WorkflowNodeRecord(
             s.NodeId, "detect", "player-detection", "1", CapabilityTier.LowLevel, scope, 0, WorkflowNodeState.Active, null, now,
@@ -918,6 +918,9 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
 
         public virtual ObjectUploadGrant PresignPutObject(string objectKey, long contentLength, Sha256Digest digest, DateTimeOffset expiresAt) =>
             inner.PresignPutObject(objectKey, contentLength, digest, expiresAt);
+
+        public virtual Task PutObjectAsync(string objectKey, string contentType, Stream content, long contentLength, Sha256Digest digest, CancellationToken cancellationToken) =>
+            inner.PutObjectAsync(objectKey, contentType, content, contentLength, digest, cancellationToken);
 
         public virtual ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt) =>
             inner.PresignGetObject(objectKey, expiresAt);

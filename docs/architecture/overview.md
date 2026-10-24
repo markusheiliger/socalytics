@@ -92,7 +92,9 @@ Python Analyst Containers, and Hermes as a separate Python OCI service are
 planned. Source
 remains in one monorepo. The platform API, the Migrator, and the Web UI exist
 as cloud-neutral OCI images; their registry, publication, and production
-readiness remain unresolved.
+readiness remain unresolved. A self-hosted Docker Compose evaluation
+composition of one stamp runs them as development evidence; it is not a
+production profile.
 
 The canonical technologies, boundaries, and required evidence are defined in
 the [Platform Implementation Profile](platform-implementation.md).

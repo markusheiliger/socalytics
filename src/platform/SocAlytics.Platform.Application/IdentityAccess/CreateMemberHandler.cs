@@ -1,5 +1,6 @@
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.IdentityAccess.Invitations;
 using SocAlytics.Platform.Domain.IdentityAccess;
 
 namespace SocAlytics.Platform.Application.IdentityAccess;
@@ -9,6 +10,7 @@ public sealed class CreateMemberHandler(
     IAccessAuthorizer authorizer,
     IAccountCredentialService credentials,
     IMemberAccountStore members,
+    IMemberInvitationStore invitations,
     IRequestContext requestContext,
     IAuditTrail audit,
     Microsoft.Extensions.Options.IOptions<IdentityAccessOptions> options)
@@ -46,7 +48,8 @@ public sealed class CreateMemberHandler(
             return OperationFailure.Validation(new FieldViolation("accountName", error));
         }
 
-        if (await members.FindAccountIdByNameAsync(name, cancellationToken) is not null)
+        if (await members.FindAccountIdByNameAsync(name, cancellationToken) is not null
+            || await invitations.IsAccountNameTakenAsync(name.Normalized, cancellationToken))
         {
             return OperationFailure.Conflict("account-name-taken");
         }

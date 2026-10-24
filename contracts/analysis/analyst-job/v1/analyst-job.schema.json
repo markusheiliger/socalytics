@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://socalytics.invalid/contracts/analysis/analyst-job/v1/analyst-job.schema.json",
-  "x-socalytics-version": "1.0.0",
+  "x-socalytics-version": "1.2.0",
   "title": "Analyst job (ready-work message) v1",
   "description": "Hardware-neutral snapshot of one ready Logical Job, published at least once to the stamp-local analysis job subjects. Possession of this message confers no authority: an Analyst Manager must claim the Logical Job through the platform API (POST /api/v1/analysis/logical-jobs/{logicalJobId}/claims with this message's readinessOccurrenceId and messageId and a Manager-chosen Idempotency-Key) and acknowledges the delivery only after the platform returns a successful claim (201, or 200 for a replay of the same key) or a deterministically obsolete outcome (404, or 409 claim-obsolete). If a claim response is lost, the Manager retries the claim with the same Idempotency-Key and receives the same attempt, lease, and fencing token while that attempt is still current. The payload never selects a Manager, host, container runtime product, accelerator model, or preprocessing strategy, and never carries a stamp or club discriminator, credentials, URLs, broker connection details, or media.",
   "type": "object",
@@ -68,6 +68,37 @@
     "segment": {
       "description": "Present exactly for segment-scoped jobs. Match-scoped jobs carry no synthetic segment.",
       "$ref": "../../../common/v1/common.schema.json#/$defs/analysisSegmentReference"
+    },
+    "segmentWindow": {
+      "description": "Present only for segment-scoped jobs: the platform's segment identity and the half-open nominal window that result acceptance compares.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["segmentId", "startMs", "endMs"],
+      "properties": {
+        "segmentId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "startMs": { "type": "integer", "minimum": 0 },
+        "endMs": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "segmentMedia": {
+      "description": "Present only for segment-scoped jobs that became ready with materialized segment media.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["videoPolicy", "manifestChecksum"],
+      "properties": {
+        "videoPolicy": { "enum": ["required", "optional"] },
+        "manifestChecksum": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" }
+      }
+    },
+    "workflow": {
+      "description": "Workflow definition the run was created from.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "version": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" }
+      }
     },
     "inputs": {
       "description": "Input snapshot recorded when the Logical Job first became ready. Every declared dependency appears exactly once.",
@@ -141,6 +172,14 @@
       "if": { "properties": { "executionScope": { "const": "segment" } } },
       "then": { "required": ["segment"] },
       "else": { "not": { "required": ["segment"] } }
+    },
+    {
+      "if": { "properties": { "executionScope": { "const": "match" } } },
+      "then": { "not": { "required": ["segmentWindow"] } }
+    },
+    {
+      "if": { "properties": { "executionScope": { "const": "match" } } },
+      "then": { "not": { "required": ["segmentMedia"] } }
     }
   ],
   "$defs": {

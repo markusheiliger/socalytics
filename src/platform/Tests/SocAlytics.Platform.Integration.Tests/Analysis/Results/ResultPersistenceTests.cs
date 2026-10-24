@@ -40,7 +40,7 @@ public sealed class ResultPersistenceTests(PostgresContainerFixture postgres)
 	{
 		var high = Guid.CreateVersion7();
 		var run = new NewAnalysisRun(
-			Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "wf", "1", ["cap.high"], "all-requested-capabilities",
+			Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, "wf", "1", ["cap.high"], "all-requested-capabilities",
 			AnalysisRunState.Running, null, new AnalysisRunSnapshotRecord("""{"workflow":"wf"}""", DigestA),
 			[new WorkflowNodeRecord(high, "high", "cap.high", "1", CapabilityTier.HighLevel, ExecutionScope.Match, 0, WorkflowNodeState.Active, null, default, """{"n":"high"}""")],
 			[]);

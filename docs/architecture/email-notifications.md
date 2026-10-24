@@ -5,8 +5,8 @@ transactional messages to club members. Member email addresses, their
 verification, notification preferences, outbox-backed delivery, and the
 pending-request notification of Analyst Manager registration requests are
 implemented as development evidence against a local mail catcher, and so is
-self-service password recovery. Invitations are not implemented, and production
-delivery values remain **Open / Blocking** (see
+self-service password recovery, and so are member invitations by email.
+Production delivery values remain **Open / Blocking** (see
 [Production Values](#production-values)).
 
 ## Purpose And Scope
@@ -19,9 +19,9 @@ Email carries only transactional account and workflow messages:
   [Fleet Visibility In The Web UI](analyst-manager.md#fleet-visibility-in-the-web-ui)).
 - **Account messages**: verification of a member's email address,
   self-service password recovery (see [Password Recovery](#password-recovery);
-  implemented as development evidence), and, through its own later
-  specification, invitations. Invitations are decided as described in
-  [Member Invitations](#member-invitations) and not yet implemented.
+  implemented as development evidence), and invitations (see
+  [Member Invitations](#member-invitations); implemented as development
+  evidence).
 
 The platform never sends marketing, newsletters, digests, or bulk messages.
 Every message type is introduced by the specification that needs it; this
@@ -53,7 +53,7 @@ document defines the rules all of them follow.
   verified, and each member can turn each type off and on again.
 - Account messages (address verification and password recovery; see
   [Password Recovery](#password-recovery)) are always sent and
-  cannot be turned off. Invitations (decided, not yet implemented; see
+  cannot be turned off. Invitations (see
   [Member Invitations](#member-invitations)) are always sent as well, but they
   address a person who is not yet a member, so they never appear among a
   member's preferences.
@@ -97,7 +97,7 @@ document defines the rules all of them follow.
   identity, and a message recorded as sent is never sent again; only a crash
   between the relay accepting a message and the platform recording it may cause one duplicate.
 - The platform keeps only minimal delivery records (message identity, type,
-  recipient member (for invitations, once implemented, the invitation), state,
+  recipient member (for invitations, the invitation), state,
   and timestamps) and does not retain rendered message
   bodies after delivery.
 - Coalescing of repeated notifications and per-recipient rate limits are
@@ -151,7 +151,7 @@ unchanged.
 
 ## Member Invitations
 
-Invitations by email are decided as follows and not yet implemented. They are
+Invitations by email are implemented as development evidence, as follows. They are
 an account message through which a Club Admin offers membership to a person;
 creating a member directly with a handed-over set-password or link credential
 (see [API And Identity](platform-implementation.md#api-and-identity)) stays
@@ -224,7 +224,8 @@ These values are **Open / Blocking** for production and are recorded in the
   requests, and the recovery message and client limits (development values
   exist; see [Password Recovery](#password-recovery))
 - the invitation link lifetime, the resend limit per invitation, and the
-  per-client limit of invitation link checks and acceptances (decided, not yet
-  implemented; see [Member Invitations](#member-invitations))
+  per-client limit of invitation link checks and acceptances (development
+  values exist in the `Invitations` options; see
+  [Member Invitations](#member-invitations))
 
 Return to the [architecture index](README.md).

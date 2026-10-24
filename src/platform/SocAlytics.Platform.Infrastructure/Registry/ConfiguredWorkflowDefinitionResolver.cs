@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Domain.Analysis;
 using SocAlytics.Platform.Domain.Recordings;
+using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Infrastructure.Registry;
 
@@ -72,7 +73,8 @@ internal sealed class ConfiguredWorkflowDefinitionResolver(IOptionsMonitor<Confi
             if (!AnalysisPersistedNames.TryParseCapabilityTier(n.Tier, out var tier)
                 || !AnalysisPersistedNames.TryParseExecutionScope(n.ExecutionScope, out var scope)
                 || !Sha256Digest.TryParse(n.AnalystProfileDigest, out var profileDigest)
-                || !Sha256Digest.TryParse(n.ImageDigest, out var imageDigest))
+                || !Sha256Digest.TryParse(n.ImageDigest, out var imageDigest)
+                || !VideoPolicies.IsKnown(n.VideoPolicy))
             {
                 return null;
             }
@@ -99,7 +101,8 @@ internal sealed class ConfiguredWorkflowDefinitionResolver(IOptionsMonitor<Confi
                 n.MaxAttempts,
                 n.LeaseSeconds,
                 n.StaleTimeoutSeconds,
-                n.ExecutionTimeoutSeconds));
+                n.ExecutionTimeoutSeconds,
+                n.VideoPolicy));
         }
 
         var edges = new List<ResolvedWorkflowEdge>();
@@ -192,6 +195,8 @@ internal sealed class ConfiguredNode
     public int StaleTimeoutSeconds { get; set; }
 
     public int ExecutionTimeoutSeconds { get; set; }
+
+    public string VideoPolicy { get; set; } = VideoPolicies.Optional;
 }
 
 internal sealed class ConfiguredEdge

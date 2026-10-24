@@ -1,0 +1,5 @@
+{
+  "missing-grants.json": "required",
+  "write-grant-name.json": "enum",
+  "single-grant.json": "minItems"
+}

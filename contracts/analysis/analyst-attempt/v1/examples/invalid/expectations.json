@@ -1,0 +1,5 @@
+{
+  "missing-attempt-number.json": "required",
+  "carries-fencing-token.json": "additionalProperties",
+  "zero-attempt-number.json": "minimum"
+}

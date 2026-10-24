@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Dapper;
+using SocAlytics.Platform.Application.Analysis;
 using SocAlytics.Platform.Application.Analysis.Results;
 using SocAlytics.Platform.Domain.Analysis;
 
@@ -61,8 +62,7 @@ internal sealed class UpstreamResultReader(IDbSession session) : IUpstreamResult
         var snapshotJson = await connection.QuerySingleAsync<string>(new CommandDefinition(
             "SELECT snapshot::text FROM socalytics.analysis_run_snapshots WHERE run_id = @runId",
             new { runId = job.RunId }, session.Transaction, cancellationToken: cancellationToken));
-        using var snapshot = JsonDocument.Parse(snapshotJson);
-        var durationMs = snapshot.RootElement.GetProperty("segmentationPolicy").GetProperty("durationSeconds").GetInt32() * 1000L;
+        var durationMs = SegmentWindows.DurationMs(snapshotJson);
 
         var upstreamJobs = (await connection.QueryAsync<UpstreamJobRow>(new CommandDefinition(
             """
@@ -162,7 +162,7 @@ internal sealed class UpstreamResultReader(IDbSession session) : IUpstreamResult
     }
 
     private static string? SegmentIdOf(UpstreamJobRow job) =>
-        job.SegmentNumber is { } n ? $"{job.RecordingVersionId}-{n}" : null;
+        job.SegmentNumber is { } n ? SegmentWindows.SegmentId(job.RecordingVersionId, n) : null;
 
     private static bool InSelection(UpstreamJobRow job, UpstreamReadRequest request, long durationMs)
     {
@@ -173,8 +173,8 @@ internal sealed class UpstreamResultReader(IDbSession session) : IUpstreamResult
 
         if (request.MatchStartMs is { } start && request.MatchEndMs is { } end && job.SegmentNumber is { } n)
         {
-            var windowStart = (n - 1) * durationMs;
-            return windowStart < end && windowStart + durationMs > start;
+            var (windowStart, windowEnd) = SegmentWindows.Window(n, durationMs);
+            return windowStart < end && windowEnd > start;
         }
 
         return true;
@@ -189,8 +189,8 @@ internal sealed class UpstreamResultReader(IDbSession session) : IUpstreamResult
             return new UpstreamResultItem(r.Id, null, null, null, r.ManifestReference, r.ManifestChecksum, manifest);
         }
 
-        var start = (n - 1) * durationMs;
-        return new UpstreamResultItem(r.Id, SegmentIdOf(job), start, start + durationMs, r.ManifestReference, r.ManifestChecksum, manifest);
+        var (start, end) = SegmentWindows.Window(n, durationMs);
+        return new UpstreamResultItem(r.Id, SegmentIdOf(job), start, end, r.ManifestReference, r.ManifestChecksum, manifest);
     }
 
     private static string WriteToken(Position position) =>

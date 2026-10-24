@@ -1,0 +1,330 @@
+name: Spec Kit author
+
+# Authors a new spec for the cause of a stopped Spec Kit implementation that lies outside its spec (code or tests of
+# another feature on the base branch, or the environment actions) and proposes it as a pull request against the default
+# branch; the stopped spec depends on it once it is merged. Reworks it after consistency findings (fix) or a person's
+# feedback (revise). Started by `/speckit author` (Spec Kit commands) and by the spec pull request lifecycle (Spec Kit
+# analyze, Spec Kit commands). No agent drives it: the decision step writes one validated decision.json, and the
+# deterministic Spec Kit workflow `author` (.specify/extension-src/gha/workflows/author/) writes the spec unattended,
+# its agent steps running Copilot CLI through the levels of models.json and the Spec Kit deny-list.
+#   author: read-only token; the decision (author mode), the Spec Kit workflow, and the result (a patch)
+#   land:   write token, never runs agent-written code; validates and publishes the result, then records it
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Spec twin issue number (labelled speckit:spec) of the stopped implementation
+        required: true
+        type: string
+      pull:
+        description: Implementation pull request number of the stopped implementation
+        required: true
+        type: string
+      folder:
+        description: author — the stopped spec's folder under specs/; fix and revise — the new spec's folder
+        required: true
+        type: string
+      guidance:
+        description: The guidance of the person who asked for the new spec (author), the findings to fix (fix), or the feedback (revise)
+        required: false
+        type: string
+      check_run:
+        description: Id of the check run that tracks this run
+        required: true
+        type: string
+      mode:
+        description: author (write a new spec), fix (consistency findings), or revise (a person's feedback)
+        required: false
+        type: string
+        default: author
+      amendment:
+        description: Spec pull request number (fix and revise)
+        required: false
+        type: string
+      branch:
+        description: The spec pull request's branch, speckit-spec/<folder> (fix and revise; empty for the earlier speckit-fix/<folder>)
+        required: false
+        type: string
+      round:
+        description: Correction round (fix)
+        required: false
+        type: string
+        default: "0"
+      stalls:
+        description: Correction rounds without progress so far (fix)
+        required: false
+        type: string
+        default: "0"
+      findings:
+        description: The tracked findings this correction round fixes, as JSON (fix)
+        required: false
+        type: string
+      stamp:
+        description: UTC time stamp (YYYYMMDD-HHMMSS) that starts the new spec's folder name (author)
+        required: false
+        type: string
+
+run-name: "Spec Kit author spec #${{ inputs.issue }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the new spec, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the new spec with review feedback' || 'Write a new spec that unblocks the implementation' }}"
+
+# One run per twin at a time; runs for different twins run side by side.
+concurrency:
+  group: speckit-author-${{ inputs.issue }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  refuse:
+    name: Refuse non-default-branch runs
+    if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse the run
+        run: |
+          echo "::error::Spec Kit workflows only run from the default branch, not ${GITHUB_REF}."
+          exit 1
+
+  author:
+    name: Author the spec
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+      copilot-requests: write
+    outputs:
+      spec: ${{ steps.issue.outputs.spec }}
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_TWIN: ${{ inputs.issue }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_FOLDER: ${{ inputs.folder }}
+      SPECKIT_MODE: ${{ inputs.mode }}
+      SPECKIT_AMENDMENT: ${{ inputs.amendment }}
+      SPECKIT_ROUND: ${{ inputs.round }}
+      SPECKIT_STALLS: ${{ inputs.stalls }}
+      SPECKIT_STAMP: ${{ inputs.stamp }}
+      SPECKIT_GUIDANCE: ${{ inputs.guidance }}
+      SPECKIT_TOOLING: ${{ github.workspace }}/tooling
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/workspace/.speckit-author
+      # Every Copilot CLI call of the Spec Kit workflow goes through speckit-copilot.mjs exec (models.json, deny-list).
+      SPECKIT_LEVEL: standard
+      SPECKIT_AI_CREDITS: ${{ vars.SPECKIT_AUTHOR_AI_CREDITS || '1000' }}
+      TZ: UTC
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      # A new spec starts from the default branch; a rework works on the spec pull request's branch.
+      - name: Check out the default branch or the spec branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.mode == 'author' && github.event.repository.default_branch || inputs.branch != '' && inputs.branch || format('speckit-fix/{0}', inputs.folder) }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare the workspace
+        working-directory: workspace
+        run: |
+          mkdir -p .speckit-author
+          printf '.speckit-author/\n' >> .git/info/exclude
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Without an upstream the author workflow treats the spec as unpublished, so a rework can start again.
+          git branch --unset-upstream 2>/dev/null || true
+          echo "SPECKIT_START=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Check the spec issue
+        id: issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_ISSUE: ${{ inputs.issue }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-issue.mjs" check
+
+      # The Spec Kit helper scripts (.specify/scripts/python) run as `python`.
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install the specify CLI
+        run: uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.0.13
+
+      - name: Install the Copilot CLI wrapper
+        run: |
+          npm install --global "@github/copilot@1.0.96" --no-audit --no-fund --loglevel=error
+          wrapper="$RUNNER_TEMP/speckit-copilot"
+          printf '#!/usr/bin/env bash\nexec node "%s/.github/scripts/speckit-copilot.mjs" exec "$@"\n' "$SPECKIT_TOOLING" > "$wrapper"
+          chmod +x "$wrapper"
+          echo "SPECKIT_INTEGRATION_COPILOT_EXECUTABLE=$wrapper" >> "$GITHUB_ENV"
+
+      # Optional, solution-owned extension point, so the plan's environment check and the agents see the toolchain.
+      - name: Set up the solution environment
+        continue-on-error: true
+        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Collect the evidence
+        if: inputs.mode == 'author'
+        working-directory: workspace
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_EVIDENCE_DIR: .speckit-author
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-fix.mjs" evidence
+
+      # The one judgement before the deterministic workflow: reuse an existing spec, refuse, or the feature description.
+      - name: Decide how to remove the cause
+        if: inputs.mode == 'author'
+        uses: ./tooling/.github/actions/speckit-copilot
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          level: standard
+          mode: agent
+          ai-credits: ${{ vars.SPECKIT_AUTHOR_AI_CREDITS || '1000' }}
+          working-directory: workspace
+          output-file: ${{ github.workspace }}/speckit-decide/agent.txt
+          prompt: >-
+            Read .speckit-author/evidence.md and .speckit-author/context.json: a Spec Kit implementation stopped, and its
+            diagnosis found the cause outside the stopped spec. Read the code, tests, and environment actions the
+            evidence names to understand the cause. Then decide, and write .speckit-author/decision.json as one JSON
+            object: {"decision": "reuse", "reuse": N, "summary": "..."} when one of the existing specs listed in the
+            evidence already removes the same cause (N is its pull request number); {"decision": "refuse",
+            "refused": "...", "summary": "..."} when no spec can remove it (for example an outage, missing permissions or
+            quotas, or a defect of the stopped spec itself); otherwise {"decision": "author", "feature": "...",
+            "summary": "..."}, where "feature" is the feature description for /speckit-specify: what has to change, where
+            it lives (the code, tests, or environment actions of the feature that owns it), why the stopped spec needs
+            it, the guidance of the person who asked, and that the spec named prerequisiteOf in context.json depends on
+            this spec. "summary" says in one or two sentences what the cause is and what the decision does about it.
+            Create or change no other file.
+
+      - name: Validate the decision
+        id: decide
+        if: inputs.mode == 'author'
+        working-directory: workspace
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-fix.mjs" decide
+
+      - name: Choose where the rework starts
+        id: inputs
+        if: inputs.mode != 'author'
+        working-directory: workspace
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-fix.mjs" inputs
+
+      - name: Run the Spec Kit workflow author
+        if: inputs.mode != 'author' || steps.decide.outputs.decision == 'author'
+        working-directory: workspace
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_STAGE: ${{ steps.inputs.outputs.stage }}
+        run: |
+          args=(-i mode=unattended -i publish=commit -i "tooling=$SPECKIT_TOOLING")
+          if [ "$SPECKIT_MODE" = "author" ]; then
+            args+=(-i "feature=$(cat .speckit-author/feature.txt)")
+            if [ -n "$SPECKIT_STAMP" ]; then args+=(-i "stamp=$SPECKIT_STAMP"); fi
+          else
+            args+=(-i "feature=$SPECKIT_FOLDER" -i "stage=$SPECKIT_STAGE" -i "feedback=$(cat .speckit-author/feedback.txt)")
+          fi
+          # The definition and its helper come from the trusted tooling checkout, not from the checked-out branch; the
+          # run works on the workspace. An empty standard input: the run never waits for a person.
+          specify workflow run "$SPECKIT_TOOLING/.specify/workflows/author/workflow.yml" --json "${args[@]}" < /dev/null > .speckit-author/run.json || true
+          cat .speckit-author/run.json
+
+      - name: Package the result
+        if: always() && steps.decide.outcome != 'failure' && steps.inputs.outcome != 'failure'
+        working-directory: workspace
+        env:
+          SPECKIT_STAGE: ${{ steps.inputs.outputs.stage }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-fix.mjs" package
+
+      - name: Upload the result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-author-result
+          path: |
+            workspace/.speckit-author/result.json
+            workspace/.speckit-author/changes.patch
+          retention-days: 7
+          if-no-files-found: ignore
+
+  land:
+    name: Publish and record the result
+    needs: author
+    # Publishes or records every outcome of the authoring, but only for a spec twin.
+    if: always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && needs.author.outputs.spec == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: write
+      checks: write
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_TWIN: ${{ inputs.issue }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_FOLDER: ${{ inputs.folder }}
+      SPECKIT_CHECK_RUN: ${{ inputs.check_run }}
+      SPECKIT_MODE: ${{ inputs.mode }}
+      SPECKIT_AMENDMENT: ${{ inputs.amendment }}
+      SPECKIT_ROUND: ${{ inputs.round }}
+      SPECKIT_STALLS: ${{ inputs.stalls }}
+      SPECKIT_FINDINGS: ${{ inputs.findings }}
+      SPECKIT_GUIDANCE: ${{ inputs.guidance }}
+      SPECKIT_AUTHOR_JOB: ${{ needs.author.result }}
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the default branch or the spec branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.mode == 'author' && github.event.repository.default_branch || inputs.branch != '' && inputs.branch || format('speckit-fix/{0}', inputs.folder) }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download the result
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: speckit-author-result
+          path: ${{ github.workspace }}/result
+
+      - name: Publish and record the result
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node tooling/.github/scripts/speckit-fix.mjs land

@@ -25,6 +25,14 @@ public interface IObjectStorage
 
     ObjectUploadGrant PresignPutObject(string objectKey, long contentLength, Sha256Digest digest, DateTimeOffset expiresAt);
 
+    /// <summary>
+    /// Streams <paramref name="content"/> (exactly <paramref name="contentLength"/> bytes) into one object with a full-object
+    /// SHA-256 checksum; the store rejects bytes that do not match the digest or the length
+    /// (<see cref="ObjectStorageRejectedException"/> with <see cref="ObjectStorageRejectionReason.BadDigest"/>) and stores nothing.
+    /// </summary>
+    Task PutObjectAsync(
+        string objectKey, string contentType, Stream content, long contentLength, Sha256Digest digest, CancellationToken cancellationToken);
+
     ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt);
 
     /// <summary>The full-object SHA-256 and length, or null when the object is missing or the store cannot attest a full-object checksum.</summary>

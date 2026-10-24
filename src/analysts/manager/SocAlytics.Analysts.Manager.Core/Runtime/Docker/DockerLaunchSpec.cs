@@ -9,7 +9,9 @@ public static class DockerLaunchSpec
 {
     public const string FixedUser = "65532:65532";
     public const string JobMount = "/socalytics/job.json";
+    public const string AttemptMount = "/socalytics/attempt.json";
     public const string InputsMount = "/socalytics/inputs";
+    public const string MediaMount = "/socalytics/media";
     public const string ResultMount = "/socalytics/result";
     public const string ScratchMount = "/socalytics/scratch";
     public const int PidsLimit = 512;
@@ -40,9 +42,19 @@ public static class DockerLaunchSpec
             binds.Add($"{job}:{JobMount}:ro");
         }
 
+        if (launch.AttemptFile is { } attemptFile)
+        {
+            binds.Add($"{attemptFile}:{AttemptMount}:ro");
+        }
+
         if (launch.InputsDirectory is { } inputs)
         {
             binds.Add($"{inputs}:{InputsMount}:ro");
+        }
+
+        if (launch.MediaDirectory is { } media)
+        {
+            binds.Add($"{media}:{MediaMount}:ro");
         }
 
         if (launch.ResultDirectory is { } result)

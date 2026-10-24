@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "safety-policy",
+  "id": "coach-without-rule",
+  "version": "1.0.0",
+  "group": "coach",
+  "routes": ["user-to-coach"],
+  "hardBoundaries": ["State that the coach is a simulation."],
+  "escalationCategories": [],
+  "refusalCategories": [],
+  "rules": ["simulation-disclosure", "non-impersonation"]
+}

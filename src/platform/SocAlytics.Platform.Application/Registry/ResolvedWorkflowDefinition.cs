@@ -26,7 +26,8 @@ public sealed record ResolvedWorkflowNode(
     int MaxAttempts,
     int LeaseSeconds,
     int StaleTimeoutSeconds,
-    int ExecutionTimeoutSeconds);
+    int ExecutionTimeoutSeconds,
+    string VideoPolicy);
 
 public sealed record ResolvedWorkflowEdge(
     string UpstreamNodeKey,

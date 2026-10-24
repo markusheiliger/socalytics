@@ -52,11 +52,27 @@
       "Cancelled": "Cancelled"
     },
     "stateLabel": "State: {{state}}",
+    "cancelledBy": "Cancelled · by {{name}}",
+    "cancelledSuperseded": "Cancelled (superseded)",
+    "current": "Current run",
+    "supersededBy": "Superseded by the run of the recording set finalized {{set}} · {{time}}",
+    "cancelAction": "Cancel run",
     "created": "Requested {{time}}",
     "started": "Started {{time}}",
     "ended": "Ended {{time}}",
     "failure": "Reason: {{reason}}",
+    "openReview": "Open analysis review",
     "loadFailed": "The analysis runs could not be loaded."
+  },
+  "cancelRun": {
+    "title": "Cancel this analysis run?",
+    "consequences": "Work in progress stops. Results that were already accepted remain. The cancellation cannot be undone.",
+    "reason": "Reason (optional)",
+    "hint": "{{count}} / {{max}} characters",
+    "tooLong": "The reason is too long: {{count}} of at most {{max}} characters. Shorten it to cancel the run.",
+    "dismiss": "Keep the run",
+    "confirm": "Cancel run",
+    "working": "Cancelling the run…"
   },
   "review": {
     "title": "Recording lineage",

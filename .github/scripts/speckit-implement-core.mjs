@@ -1,10 +1,17 @@
-import { artifactUrl, renderSpecLine, specDir } from './speckit-prepare-core.mjs';
+import { artifactUrl, isImplementRequested, parseTwinFolder, renderSpecLine, specDir } from './speckit-prepare-core.mjs';
 
 export const BRANCH_PREFIX = 'speckit/';
 export const CHECK_RUN_NAME = 'Spec Kit implementation';
 export const START_COMMENT_MARKER = '<!-- speckit-implement:start -->';
 export const RETRY_COMMENT_MARKER = '<!-- speckit-implement:retry -->';
 export const SYNC_COMMENT_MARKER = '<!-- speckit-implement:sync -->';
+// Leads a retry or sync comment that the diagnosis posted to continue automatically (speckit-diagnose.mjs). The comment
+// still counts as the restart that follows the marker: startsWithMarker skips it.
+export const AUTO_CONTINUE_MARKER = '<!-- speckit-implement:auto-continue -->';
+export function startsWithMarker(body, marker) {
+  const text = String(body ?? '');
+  return (text.startsWith(AUTO_CONTINUE_MARKER) ? text.slice(AUTO_CONTINUE_MARKER.length).replace(/^\r?\n/, '') : text).startsWith(marker);
+}
 const SYNC_BARRIER_PATTERN = /<!-- speckit-implement:sync-barrier (\{[^\n]*?\}) -->/;
 
 export function renderSyncComment(lead, guidance = '', state = null) {
@@ -16,7 +23,7 @@ export const renderSyncBarrierMarker = (state) => `<!-- speckit-implement:sync-b
 // Requests and acknowledgements live on the pull request, not in replaceable workflow inputs or head-bound checks.
 export function syncBarrier(comments, { includeReleased = false } = {}) {
   const trusted = comments.filter((comment) => comment.user?.login === BOT_LOGIN);
-  const request = trusted.filter((comment) => String(comment.body ?? '').startsWith(SYNC_COMMENT_MARKER)).at(-1);
+  const request = trusted.filter((comment) => startsWithMarker(comment.body, SYNC_COMMENT_MARKER)).at(-1);
   if (!request) return null;
   const id = String(request.id ?? request.created_at);
   let completion = null;
@@ -42,25 +49,49 @@ export const DONE_COMMENT_MARKER = '<!-- speckit-implement:done -->';
 const REPAIR_MARKER_PATTERN = /<!-- speckit-implement:repair ([A-Za-z0-9+/=]+) -->/;
 export const BOT_LOGIN = 'github-actions[bot]';
 export const MAX_TASK_ATTEMPTS = 2;
-// Default number of `[P]` tasks of one spec that run at the same time (repository variable SPECKIT_MAX_PARALLEL_TASKS).
-export const DEFAULT_MAX_PARALLEL_TASKS = 3;
 export const MAX_CONVERGE_ROUNDS = 3;
 // A merge check run still in progress after this long belongs to a cancelled or crashed run.
 export const MERGE_STALE_MS = 2 * 60 * 60 * 1000;
-// The per-spec implementation chain: every run of this workflow decides what comes next for one spec (a phase, the
-// convergence, a conflict resolution, or the merge), runs it, and starts the next run. A phase runs in the reusable
-// phase workflow, which runs the phase's tasks in order (consecutive `[P]` tasks in parallel) in the reusable task
-// workflow.
-export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement-spec.yml';
+// The per-spec implementation chain: every run decides one unit of work for one spec (a sequential or parallel group of
+// tasks, the verification of a finished phase, a repair, the convergence, a conflict resolution, or the merge), runs
+// it, and starts the next run. Each kind of work has its own workflow (IMPLEMENT_KIND_WORKFLOW_FILES); Spec Kit
+// implement (IMPLEMENT_WORKFLOW_FILE) starts a chain and reports stops. All of them prepare the run with the reusable
+// Spec Kit implement prepare, and every task, the convergence, a repair, and a conflict resolution run in the reusable
+// Spec Kit implement task (work, then land).
+export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement-decide.yml';
+// The workflow of each kind of work, by the action decideNext chose (the convergence and a conflict resolution are
+// groups of one).
+export const IMPLEMENT_KIND_WORKFLOW_FILES = Object.freeze({
+  tasks: 'speckit-implement-group.yml',
+  verify: 'speckit-implement-verify.yml',
+  repair: 'speckit-implement-repair.yml',
+  merge: 'speckit-implement-merge.yml',
+});
+// Every workflow whose runs make up a chain, for the scheduler and the diagnosis.
+export const IMPLEMENT_CHAIN_WORKFLOW_FILES = Object.freeze([IMPLEMENT_WORKFLOW_FILE, ...Object.values(IMPLEMENT_KIND_WORKFLOW_FILES)]);
+// The workflow that does a decision's work; Spec Kit implement decide for a decision without work (a stop, a wait, done).
+export function implementWorkflowFor(action) {
+  return IMPLEMENT_KIND_WORKFLOW_FILES[action] ?? IMPLEMENT_WORKFLOW_FILE;
+}
+// The chains before the workflows of each kind: Spec Kit implement spec (with its reusable phase, group, and task
+// workflows) and the single Spec Kit implement (speckit-implement.yml). Runs started on them finish on their own
+// commit; the scheduler counts them as active, and they share the concurrency group of the workflows of each kind, so
+// two runs never work on one spec at the same time.
+export const LEGACY_IMPLEMENT_WORKFLOW_FILES = Object.freeze(['speckit-implement-spec.yml', 'speckit-implement.yml']);
+// The verb that names the work of a Spec Kit implement task call (its input `kind` and its script
+// speckit-<verb>.mjs) for the kind of an attempt. Attempt markers keep the kind, so comments already on GitHub stay
+// readable.
+export const WORK_VERBS = Object.freeze({ task: 'implement', converge: 'converge', repair: 'repair', resolve: 'resolve' });
+
 export const IMPLEMENT_WORKFLOW_NAMES = Object.freeze({
   spec: 'Spec Kit implement spec',
-  phase: 'Spec Kit implement phase',
   task: 'Spec Kit implement task',
 });
-// Entries of the task order per phase run: the phase workflow's tasks job is a matrix with one job per entry (a task, or
-// consecutive `[P]` tasks in parallel), and GitHub runs at most 256 matrix jobs per run. A longer phase continues in
+// A group runs as one matrix job per task, and GitHub runs at most 256 matrix jobs per run; a longer group continues in
 // the next run.
 export const MAX_MATRIX_JOBS_PER_RUN = 256;
+// How many tasks of a parallel group run at the same time; a sequential group runs one at a time.
+export const MAX_PARALLEL_TASKS = 5;
 // Default number of specs the scheduler keeps implementing at the same time (repository variable SPECKIT_MAX_ACTIVE_SPECS).
 export const DEFAULT_MAX_ACTIVE_SPECS = 3;
 // Every reported outcome of an attempt carries this marker in its pull request comment; the comments are the attempt
@@ -88,18 +119,23 @@ export const CHECK_DIAGNOSED = 'speckit:diagnosed';
 export const DIAGNOSIS_STALE_MS = 60 * 60 * 1000;
 export const DIAGNOSE_WORKFLOW_FILE = 'speckit-diagnose.lock.yml';
 export const AMEND_BRANCH_PREFIX = 'speckit-amend/';
-// Prerequisite specs (`/speckit fix`): an ordinary spec, authored by an agent for a cause outside the stopped spec,
-// proposed as a pull request from speckit-spec/<folder> against the default branch. Pull requests opened earlier use
-// speckit-fix/<folder> and are still recognized until they are settled. Its own check run tracks the authoring on the
-// implementation pull request's head, apart from the implementation's check runs.
+// Specs authored by `/speckit author`: an ordinary spec, authored by the Spec Kit workflow `author` for a cause outside
+// the stopped spec, proposed as a pull request from speckit-spec/<folder> against the default branch. Pull requests
+// opened earlier use speckit-fix/<folder> and are still recognized until they are settled. Its own check run tracks the
+// authoring on the implementation pull request's head, apart from the implementation's check runs.
 export const SPEC_BRANCH_PREFIX = 'speckit-spec/';
 export const FIX_BRANCH_PREFIX = 'speckit-fix/';
 export const PREREQUISITE_BRANCH_PREFIXES = Object.freeze([SPEC_BRANCH_PREFIX, FIX_BRANCH_PREFIX]);
-export const FIX_WORKFLOW_FILE = 'speckit-fix.lock.yml';
-export const FIX_CHECK_NAME = 'Spec Kit fix spec';
+export const FIX_WORKFLOW_FILE = 'speckit-author.yml';
+export const FIX_CHECK_NAME = 'Spec Kit author';
 export const CHECK_FIX_AUTHORING = 'speckit:fix-authoring';
 export const CHECK_FIX_AUTHORED = 'speckit:fix-authored';
-export const FIX_TITLE_PREFIX = 'Fix spec: ';
+export const FIX_TITLE_PREFIX = 'Spec: ';
+// The title prefix of spec pull requests opened by earlier tooling; a rework renames them to FIX_TITLE_PREFIX, which
+// the rework's push requires.
+export const LEGACY_FIX_TITLE_PREFIX = 'Fix spec: ';
+// Architecture changes of a spec pull request may only come from the spec's design (docs/architecture/**).
+export const ARCHITECTURE_PREFIX = 'docs/architecture/';
 export const DIAGNOSIS_COMMENT_MARKER = '<!-- speckit-implement:diagnosis -->';
 
 export function diagnosisRunsUrl(env) {
@@ -198,6 +234,54 @@ export function baseOwnedChanges(comments) {
   }
   return [...files].sort();
 }
+
+// Tests that failed and passed on their one rerun in a verification (environment-verify's `flaky` output). Every
+// comment that reports a verification lists them and records them in a marker; the scheduler's flaky-test ledger
+// reads the markers of the workflow's comments only (parseFlakyMarkers). `<` and `>` are escaped in the JSON, so a test
+// name cannot end the comment.
+const FLAKY_MARKER_PATTERN = /<!-- speckit-implement:flaky (\{[^\n]*?\}) -->/g;
+const FLAKY_SPEC_PATTERN = /<!-- speckit-implement:flaky-spec (\{[^\n]*?\}) -->/g;
+const markerJson = (data) => JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+
+// The tests of a comma-separated list or an array, trimmed and without duplicates.
+export function parseFlakyList(value) {
+  const items = Array.isArray(value) ? value : String(value ?? '').split(',');
+  return [...new Set(items.map((item) => String(item ?? '').trim()).filter(Boolean))];
+}
+
+// The lines a verification comment adds for its flaky tests: the visible list and the marker; none without flaky tests.
+export function renderFlakyLines(value, { bullet = true } = {}) {
+  const tests = parseFlakyList(value);
+  if (tests.length === 0) return [];
+  const shown = tests.map((test) => `\`${neutralizeMarkers(test).replaceAll('`', "'")}\``).join(', ');
+  return [`${bullet ? '- ' : ''}Flaky (passed on rerun): ${shown}`, `<!-- speckit-implement:flaky ${markerJson({ tests })} -->`];
+}
+
+function workflowMarkers(comments, pattern) {
+  const found = [];
+  for (const comment of comments ?? []) {
+    if (comment.user?.login !== BOT_LOGIN) continue;
+    for (const match of String(comment.body ?? '').matchAll(pattern)) {
+      try {
+        found.push({ data: JSON.parse(match[1]), at: comment.created_at });
+      } catch {
+        // A damaged marker records nothing.
+      }
+    }
+  }
+  return found;
+}
+
+// Every flaky test the workflow's comments recorded, with the time of the comment (one record per occurrence).
+export function parseFlakyMarkers(comments) {
+  return workflowMarkers(comments, FLAKY_MARKER_PATTERN).flatMap(({ data, at }) => parseFlakyList(Array.isArray(data?.tests) ? data.tests.filter((test) => typeof test === 'string') : []).map((test) => ({ test, at })));
+}
+
+// A flaky test the scheduler started a spec for (on the implementation pull request it was flaky on most recently).
+export const renderFlakySpecMarker = (test) => `<!-- speckit-implement:flaky-spec ${markerJson({ test })} -->`;
+export function parseFlakySpecMarkers(comments) {
+  return workflowMarkers(comments, FLAKY_SPEC_PATTERN).map(({ data }) => data?.test).filter((test) => typeof test === 'string' && test);
+}
 // Paths the agent must never change; specs/<folder>/tasks.md may only receive the target task's tick.
 export const PROTECTED_PREFIXES = ['.github/', '.specify/', 'specs/'];
 // The solution's environment actions. Agents may change them, but only in a standalone environment spec, whose
@@ -294,7 +378,7 @@ export function fixBranch(folder, prefix = SPEC_BRANCH_PREFIX) {
   return `${prefix}${folder}`;
 }
 
-// Whether a branch carries a prerequisite spec pull request authored by `/speckit fix`, new or legacy.
+// Whether a branch carries a prerequisite spec pull request authored by `/speckit author` (earlier `/speckit fix`), new or legacy.
 export function isPrerequisiteBranch(branch) {
   const value = String(branch ?? '');
   return PREREQUISITE_BRANCH_PREFIXES.some((prefix) => value.startsWith(prefix) && value.length > prefix.length);
@@ -338,11 +422,6 @@ export function normalizeWriterGuidance(text) {
   return String(text ?? '').trim().replace(/\s+/g, ' ').slice(0, MAX_WRITER_GUIDANCE).trim();
 }
 
-export function appendWriterGuidance(prompt, guidance, label = 'Guidance from the person who retried this implementation') {
-  const value = normalizeWriterGuidance(guidance);
-  return value ? `${prompt} ${label}: ${value}` : prompt;
-}
-
 export function renderRepairMarker(repair) {
   return `<!-- speckit-implement:repair ${Buffer.from(JSON.stringify(repair), 'utf8').toString('base64')} -->`;
 }
@@ -363,18 +442,6 @@ export function unresolvedRepair(comments) {
     }
   }
   return [...repairs.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0] ?? null;
-}
-
-export function renderRepairPrompt({ repair, guidance, folder }) {
-  const tasks = Array.isArray(repair.tasks) && repair.tasks.length > 0 ? repair.tasks.join(', ') : 'the implemented scope';
-  const prompt = [
-    `Repair the already-landed implementation for ${tasks} in spec ${folder}.`,
-    `The ${repair.scope} verification failed after the related tasks were committed and checked in tasks.md.`,
-    'Do not untick, rewrite, or add tasks. Do not commit. Change only implementation or directly related tests needed to make the failed verification pass.',
-    repair.run ? `Failure evidence from workflow run ${repair.run}, if downloadable, is in .speckit-repair-evidence/ inside your working directory; inspect it directly and report if unavailable.` : '',
-    'If no code change is needed, leave the tree unchanged and explain why; a successful agent exit still requires separate reverification of the failed scope.',
-  ].filter(Boolean).join(' ');
-  return appendWriterGuidance(prompt, guidance, 'Writer-approved guidance');
 }
 
 // The comment that starts a new attempt window; it persists the retry, so a replaced run cannot lose
@@ -409,7 +476,7 @@ const renderRestartState = ({ head, base = null }) => `<!-- speckit-implement:re
 export function unchangedRestarts(comments, head) {
   const restarts = [];
   const ordered = [...comments]
-    .filter((comment) => comment.user?.login === BOT_LOGIN && RESTART_COMMENT_MARKERS.some((marker) => String(comment.body ?? '').startsWith(marker)))
+    .filter((comment) => comment.user?.login === BOT_LOGIN && RESTART_COMMENT_MARKERS.some((marker) => startsWithMarker(comment.body, marker)))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   for (const comment of ordered) {
     let state = null;
@@ -435,7 +502,7 @@ export function repeatedFailure(comments, head) {
   const ordered = [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
-  const verbOf = (body) => (String(body).startsWith(SYNC_COMMENT_MARKER) ? 'sync' : RESTART_COMMENT_MARKERS.some((marker) => String(body).startsWith(marker)) ? 'retry' : null);
+  const verbOf = (body) => (startsWithMarker(body, SYNC_COMMENT_MARKER) ? 'sync' : RESTART_COMMENT_MARKERS.some((marker) => startsWithMarker(body, marker)) ? 'retry' : null);
   const restartAt = ordered.findLastIndex((comment) => verbOf(comment.body) && RESTART_STATE_PATTERN.test(String(comment.body)));
   if (restartAt < 0) return null;
   let state = null;
@@ -580,24 +647,42 @@ export function nextTaskGroup(tasksMarkdown, max = 1) {
   return group;
 }
 
-// The task order of the phase of the first unticked task: consecutive unticked `[P]` tasks under one heading form one
-// entry (they run in parallel), every other unticked task is an entry of its own. At most `maxEntries` entries are
-// planned; `phaseEnd` tells whether they finish the phase, `lastIsParallel` whether the phase ends with `[P]` tasks,
-// whose combined result then gets the phase's full verification after it landed.
-export function planTasks(tasksMarkdown, { maxEntries = MAX_MATRIX_JOBS_PER_RUN } = {}) {
+// The next group of tasks: the first unticked task and the unticked tasks after it in the same phase that run with it.
+// A `[P]` task starts a parallel group of the consecutive unticked `[P]` tasks under its heading (also a single one);
+// any other task starts a sequential group of the consecutive unticked tasks without `[P]`, up to the next `[P]` task
+// or the end of the phase. Ticked tasks in between are skipped. At most `maxTasks` (GitHub's matrix limit); the rest
+// follows in the next group. `completesPhase` tells whether the group finishes its phase, which is then verified in
+// a run of its own.
+export function planGroup(tasksMarkdown, { maxTasks = MAX_MATRIX_JOBS_PER_RUN } = {}) {
   const tasks = tasksWithSections(tasksMarkdown);
   const start = tasks.findIndex((task) => !task.done);
-  if (start < 0) return { order: [], phaseEnd: false, lastIsParallel: false, phase: null };
-  const phase = tasks[start].phase;
-  const open = [];
-  for (const task of tasks.slice(start)) {
-    if (task.phase !== phase) break;
-    if (!task.done) open.push(task);
+  if (start < 0) return null;
+  const first = tasks[start];
+  const open = tasks.slice(start).filter((task) => task.phase === first.phase && !task.done);
+  const belongs = (task) => (first.parallel ? task.parallel && task.section === first.section : !task.parallel);
+  const group = [];
+  for (const task of open) {
+    if (group.length >= maxTasks || !belongs(task)) break;
+    group.push(task);
   }
-  const ordered = orderTasks(open, maxEntries);
-  const order = ordered.order.map((entry) => entry.map((task) => task.id));
-  const phaseEnd = ordered.covered >= open.length;
-  return { order, phaseEnd, lastIsParallel: phaseEnd && order.at(-1).length > 1, phase: headingText(phase) };
+  return {
+    mode: first.parallel ? 'parallel' : 'sequential',
+    tasks: group.map((task) => task.id),
+    phase: headingText(first.phase),
+    completesPhase: group.length === open.length,
+  };
+}
+
+// The phases of tasks.md in order, each with its name (the heading without "## ", null without phase headings), its
+// task IDs, and whether every task is ticked.
+export function listPhases(tasksMarkdown) {
+  const phases = [];
+  for (const task of tasksWithSections(tasksMarkdown)) {
+    if (phases.at(-1)?.key !== task.phase) phases.push({ key: task.phase, name: headingText(task.phase), tasks: [], done: true });
+    phases.at(-1).tasks.push(task.id);
+    if (!task.done) phases.at(-1).done = false;
+  }
+  return phases.map(({ name, tasks, done }) => ({ name, tasks, done }));
 }
 
 // Whether the next phase has not started yet: none of its tasks is ticked. Only then is the base branch merged before
@@ -607,7 +692,7 @@ export function phaseNotStarted(tasksMarkdown) {
   return Boolean(current) && current.done === 0;
 }
 
-// Every phase of tasks.md with the order its unticked tasks will run in, exactly as planTasks orders them, for
+// Every phase of tasks.md with the order its unticked tasks will run in (consecutive `[P]` tasks under one heading together, as planGroup groups them), for
 // reviewing `[P]` groups (speckit.gha.refine). Warnings name headings that do not separate groups: a heading deeper
 // than `####`, and a heading whose text repeats, so the `[P]` tasks under both copies form one group.
 export function describeParallelGroups(tasksMarkdown) {
@@ -633,12 +718,6 @@ export function describeParallelGroups(tasksMarkdown) {
     return { phase: headingText(key), done: list.length - open.length, open: open.length, order };
   });
   return { phases: result, warnings };
-}
-
-// Parses SPECKIT_MAX_PARALLEL_TASKS; anything but a positive integer falls back to the default.
-export function parseMaxParallel(value) {
-  const number = Number(String(value ?? '').trim());
-  return Number.isInteger(number) && number > 0 ? number : DEFAULT_MAX_PARALLEL_TASKS;
 }
 
 // Parses SPECKIT_MAX_ACTIVE_SPECS; anything but a positive integer falls back to the default.
@@ -668,15 +747,17 @@ export function taskProgress(tasksMarkdown) {
 }
 
 // Title of a run or job summary of the implementation workflows: the workflow's name, the twin, and what it works on,
-// for example "Spec Kit implement spec #35 · Recording Lineage and Upload", "Spec Kit implement phase #35 · Phase 3: …",
-// or "Spec Kit implement task #35 · T013 [P] [US1] Create …". Job names stay shorter (see taskJobName).
+// for example "Spec Kit implement spec #35 · Recording Lineage and Upload" or "Spec Kit implement task #35 · T013 [P] [US1]
+// Create …". Job names stay shorter (see taskJobName).
 export function renderImplementTitle(workflow, twin, subject = '') {
   return `${IMPLEMENT_WORKFLOW_NAMES[workflow]} #${twin}${subject ? ` · ${subject}` : ''}`;
 }
 
-// Run name of the implementation chain of a twin, with the spec title.
-export function renderImplementRunName(twin, specTitle = '') {
-  return renderImplementTitle('spec', twin, specTitle);
+// Run name of the implementation chain of a twin: the spec title and what the run works on (renderRunSubject), for
+// example "Spec Kit implement spec #35 · Recording Lineage and Upload · Phase 3: User Story 1 · T013 to T016 one after
+// another". The workflow's run-name renders the same from its inputs.
+export function renderImplementRunName(twin, specTitle = '', subject = '') {
+  return renderImplementTitle('spec', twin, [specTitle, subject].filter(Boolean).join(' · '));
 }
 
 export function isImplementRunOf(title, twin) {
@@ -687,7 +768,7 @@ export function isImplementRunOf(title, twin) {
 // Diagnose, analyze, and fix runs are named "<workflow> spec #<twin> · <why the run started>" like the implementation
 // chain (run-name in their workflow sources). Runs started earlier are named "<workflow> · spec #<twin> · …",
 // "[<workflow>] spec #<twin> · …", or "<workflow> #<twin> · …".
-const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze'], [FIX_WORKFLOW_FILE, 'Spec Kit fix']]);
+const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze'], [FIX_WORKFLOW_FILE, 'Spec Kit author']]);
 
 export function isTwinRunOf(workflowFile, title, twin) {
   const workflow = TWIN_RUN_NAMES.get(workflowFile);
@@ -735,16 +816,55 @@ export async function setBlocked(client, number, blocked, { explain = null } = {
   }
 }
 
-// Why an implementation waits for the open blocked-by dependencies of its twin (`blockers`, twin numbers), for
-// setBlocked.
-export function dependencyBlock(blockers) {
-  const numbers = [...new Set(blockers.map(Number))].sort((a, b) => a - b);
+// Why an implementation waits for the open blocked-by dependencies of its twin, for setBlocked. `blockers` are twin
+// numbers or the twin issues; an issue without an implementation request (isImplementRequested) never starts by
+// itself, so the explanation then recommends requesting it with `/speckit implement` on that twin. `pulls` maps a
+// blocker twin number to the number of its open implementation pull request (explainDependencyBlock); those pull
+// requests are listed as the work that has to be merged first, and are part of the key, so a blocker whose
+// implementation pull request opens later is explained again with it.
+export function dependencyBlock(blockers, { pulls = new Map() } = {}) {
+  const issues = new Map();
+  for (const blocker of blockers) {
+    const number = Number(typeof blocker === 'object' && blocker !== null ? blocker.number : blocker);
+    if (!issues.has(number) || typeof blocker === 'object') issues.set(number, typeof blocker === 'object' ? blocker : null);
+  }
+  const numbers = [...issues.keys()].sort((a, b) => a - b);
+  const unrequested = numbers.filter((number) => issues.get(number) && !isImplementRequested(issues.get(number)));
   const list = numbers.map((number) => `#${number}`).join(', ');
   const one = numbers.length === 1;
+  const [first, ...others] = unrequested;
+  const request = first
+    ? [
+      '',
+      `**Recommended next step**: Comment the following on spec twin #${first} to request its implementation.`,
+      '',
+      '```text',
+      '/speckit implement',
+      '```',
+      '',
+      `- **Why**: #${first} is not requested for implementation, so it never starts by itself, and this implementation waits for it.`,
+      `- **What it does**: Checks that #${first} is ready (\`tasked\`, checklists checked), records who requested it, and starts its implementation ahead of other specs. Running \`/speckit-implement <folder>\` locally for its folder does the same.`,
+      ...(others.length > 0 ? [`- ${others.map((number) => `#${number}`).join(', ')} ${others.length === 1 ? 'is' : 'are'} not requested either; comment the same there.`] : []),
+    ]
+    : [];
+  const pullOf = (number) => (Number.isInteger(pulls.get(number)) ? pulls.get(number) : null);
+  const blockingPulls = numbers.map(pullOf).filter((pull) => pull !== null);
+  const pullLines = blockingPulls.length > 0
+    ? [
+      '',
+      `**Implementation pull request${blockingPulls.length === 1 ? '' : 's'} to finish first**:`,
+      '',
+      ...numbers.map((number) => (pullOf(number) !== null
+        ? `- #${pullOf(number)} implements #${number}; this implementation resumes once it is merged.`
+        : `- #${number} has no open implementation pull request yet.`)),
+    ]
+    : [];
   return {
-    key: { blockers: numbers },
+    key: { blockers: numbers, ...(unrequested.length > 0 ? { unrequested } : {}), ...(blockingPulls.length > 0 ? { pulls: blockingPulls } : {}) },
     lines: [
-      `**Blocked** by prerequisite ${list}: the spec twin of this implementation depends on ${one ? 'it' : 'them'}, so this implementation waits instead of continuing. Nothing is needed on this pull request.`,
+      `**Blocked** by prerequisite ${list}: the spec twin of this implementation depends on ${one ? 'it' : 'them'}, so this implementation waits instead of continuing.${first ? '' : ' Nothing is needed on this pull request.'}`,
+      ...request,
+      ...pullLines,
       '',
       `- **Unblocks by itself** once ${list} ${one ? 'is' : 'are'} implemented: this implementation then continues with a fresh attempt count on its current phase base.`,
       `- **To follow the prerequisite**: watch ${list} and ${one ? 'its' : 'their'} implementation pull request; if that implementation stops, it asks for help there.`,
@@ -752,6 +872,24 @@ export function dependencyBlock(blockers) {
       '- If a prerequisite is closed without being implemented, the block is lifted and this pull request lists what you can do next.',
     ],
   };
+}
+
+// dependencyBlock for blocker twin issues, with the open implementation pull request of each (its `speckit/<folder>`
+// branch, from the twin's spec link line). A lookup that fails leaves that blocker without a pull request.
+export async function explainDependencyBlock(client, blockers) {
+  const pulls = new Map();
+  for (const blocker of blockers) {
+    if (typeof blocker !== 'object' || blocker === null) continue;
+    const folder = parseTwinFolder(blocker.body);
+    if (!folder) continue;
+    try {
+      const pull = (await client.listPullRequestsForHead(implementationBranch(folder))).find((item) => item.state === 'open');
+      if (pull) pulls.set(Number(blocker.number), pull.number);
+    } catch {
+      // The explanation still names the blocker twin.
+    }
+  }
+  return dependencyBlock(blockers, { pulls });
 }
 
 // The open blocked-by twins of a spec twin.
@@ -767,7 +905,7 @@ export async function maintainDependencyBlock(client, env, { implementation, twi
   const blockers = await client.listBlockedBy(twin);
   const open = blockers.filter((blocker) => blocker.state === 'open');
   if (open.length > 0) {
-    await setBlocked(client, implementation.number, true, { explain: dependencyBlock(open.map((blocker) => blocker.number)) });
+    await setBlocked(client, implementation.number, true, { explain: await explainDependencyBlock(client, open) });
     return { outcome: 'blocked', blocked: true, blockers: open.map((blocker) => blocker.number) };
   }
   if (hold) return { outcome: 'held', blocked: true, blockers: [] };
@@ -806,7 +944,7 @@ export async function maintainDependencyBlock(client, env, { implementation, twi
       : '**The block is lifted**: the spec twin has no open prerequisites anymore. The implementation retries with a fresh attempt count on its current phase base.',
   ].join('\n');
   const guidance = implemented.length > 0
-    ? `This implementation waited for the prerequisite spec twin(s) ${list(implemented)}, which are now implemented on the base branch. Continue as planned; do not work around what they provide in this spec.`
+    ? `This implementation waited for the spec twin(s) ${list(implemented)}, which are now implemented on the base branch. Continue as planned; do not work around what they provide in this spec.`
     : '';
   await client.createComment(pull.number, renderRetryComment(lead, guidance));
   await setBlocked(client, pull.number, false);
@@ -832,10 +970,20 @@ export function specTitleOfPull(pull) {
   return String(pull?.title ?? '').replace(/^Implement:\s*/, '').trim();
 }
 
-// What the phase workflow works on: the phase heading of tasks.md exactly as written (planTasks already removed the
+// The name of a phase in run names and reports: the phase heading of tasks.md exactly as written (planGroup already removed the
 // "## "); a tasks.md without phase headings has a single unnamed phase.
 export function phaseSubject(phase) {
   return String(phase ?? '').trim() || 'Tasks';
+}
+
+// The short name of a phase in run names, so the run's tasks stay visible: the heading up to an explanation after " - "
+// or " (" ("Phase 3: User Story 1" for "Phase 3: User Story 1 - A real … (Priority: P1)"), and only "Phase 3" when that
+// is still longer than 40 characters.
+export function shortPhaseSubject(phase) {
+  const full = phaseSubject(phase);
+  const short = full.split(/\s+[-–—]\s+|\s+\(/)[0].trim();
+  if (short.length <= 40) return short;
+  return full.match(/^Phase\s+\d+/i)?.[0] ?? `${short.slice(0, 39).trimEnd()}…`;
 }
 
 // What one call of the task workflow works on: a single task by its ID and generated title (summarizeTask), `[P]`
@@ -858,8 +1006,10 @@ export function taskJobName(entries) {
 
 // Starts (or queues) the next run of the implementation chain of a twin. GitHub keeps one pending run per spec, and a
 // replaced pending run is harmless, because every run decides from the state on GitHub. The run is named after the
-// spec title, which comes from the implementation pull request unless `title` is given.
-export async function dispatchImplementation(client, env, { twin, pull, title }) {
+// spec title, which comes from the implementation pull request unless `title` is given, and what it will work on,
+// decided now without changing anything (predictNextRun), which also selects the workflow of its kind; the run decides
+// again when it starts and hands over to the right workflow when the state changed in the meantime.
+export async function dispatchImplementation(client, env, { twin, pull, title, subject = undefined }) {
   let specTitle = title;
   if (!specTitle) {
     try {
@@ -868,13 +1018,23 @@ export async function dispatchImplementation(client, env, { twin, pull, title })
       specTitle = '';
     }
   }
-  await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, defaultBranchOf(env), { twin: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}) });
+  let next = subject;
+  let workflow = IMPLEMENT_WORKFLOW_FILE;
+  if (next === undefined) {
+    try {
+      ({ subject: next, workflow } = await (await import('./speckit-spec.mjs')).predictNextRun(client, env, { twin, pull }));
+    } catch {
+      next = '';
+    }
+  }
+  await client.dispatchWorkflow(workflow, defaultBranchOf(env), { issue: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}), ...(next ? { subject: next } : {}) });
 }
 
-// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, repair, converge, or resolve. `outcome`
-// is success, failure, requeue (redone from a newer head; not a failure), or attention (a person is needed).
-export function renderAttemptMarker({ kind, task = null, attempt, outcome }) {
-  return `<!-- speckit-implement:attempt ${JSON.stringify({ kind, task: task || null, attempt: Number(attempt), outcome })} -->`;
+// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, repair, converge, resolve, or verify
+// (the verification of a finished phase, named by `phase`). `outcome` is success, failure, requeue (redone from a
+// newer head; not a failure), or attention (a person is needed).
+export function renderAttemptMarker({ kind, task = null, attempt, outcome, phase = undefined }) {
+  return `<!-- speckit-implement:attempt ${JSON.stringify({ kind, task: task || null, attempt: Number(attempt), outcome, ...(phase !== undefined ? { phase } : {}) })} -->`;
 }
 
 // The attempt ledger of a pull request: the outcomes the workflow reported, oldest first. Only comments by the
@@ -888,8 +1048,8 @@ export function parseAttempts(comments) {
     try {
       const value = JSON.parse(match[1]);
       const kind = value.kind ?? value.step;
-      if (!['task', 'repair', 'converge', 'resolve'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
-      attempts.push({ kind, task: value.task ?? null, attempt: Number(value.attempt) || 0, outcome: value.outcome, at: comment.created_at });
+      if (!['task', 'repair', 'converge', 'resolve', 'verify'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
+      attempts.push({ kind, task: value.task ?? null, attempt: Number(value.attempt) || 0, outcome: value.outcome, at: comment.created_at, ...(kind === 'verify' ? { phase: value.phase ?? null } : {}) });
     } catch {
       // A malformed marker is ignored.
     }
@@ -903,48 +1063,8 @@ export function attemptCheckId({ kind, task = null, attempt }) {
 }
 
 export function parseAttemptCheckId(externalId) {
-  const match = String(externalId ?? '').match(/^speckit:attempt:(task|repair|converge|resolve):(T\d{3,})?:(\d+)$/);
+  const match = String(externalId ?? '').match(/^speckit:attempt:(task|repair|converge|resolve|verify):(T\d{3,})?:(\d+)$/);
   return match ? { kind: match[1], task: match[2] ?? null, attempt: Number(match[3]) } : null;
-}
-
-// The verification after the agent runs the full test suite; the agent running it as well doubled the time of a task.
-export const TASK_TEST_SCOPE = 'Build what you change and run only the tests that cover this task (the tests you add or change, for example through a test filter). Do not run the whole test suite: the full verification runs automatically after you, and its failures come back to the next attempt.';
-
-// The task is named together with its spec folder: task IDs repeat across specs, and an agent that searched the whole
-// repository for one picked another spec's task.
-export function renderTaskPrompt(taskId, folder, { archived = false } = {}) {
-  const where = folder ? ` of the spec in \`${specDir(folder, { archived })}/\` (its \`tasks.md\`); ignore the other specs` : '';
-  return `/speckit-implement Implement only task ${taskId}${where}. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`;
-}
-
-export function renderConvergePrompt() {
-  return '/speckit-converge Assess the implementation and append remaining work as new tasks if needed. Do not commit and do not push.';
-}
-
-export function renderResolvePrompt({ folder, files, base, forkPoint = null, archived = false, guidance = '' }) {
-  const spec = specDir(folder, { archived });
-  const own = forkPoint ? `\`git diff --name-only ${forkPoint} HEAD\`` : `\`git diff --name-only $(git merge-base HEAD MERGE_HEAD) HEAD\``;
-  const prompt = [
-    `The working tree is in the middle of merging the base branch \`${base}\` into the implementation branch of the spec \`${spec}\`.`,
-    `Git reported merge conflicts in these files: ${files.map((file) => `\`${file}\``).join(', ')}.`,
-    'Resolve every conflict: remove all conflict markers, and combine both sides so that the',
-    `intent of the spec and the changes from \`${base}\` are both kept. Use the spec, plan, and tasks in`,
-    `\`${spec}\` to understand the implementation side.`,
-    'The merged result must also build and pass its tests as a whole. Both sides can clash without a textual conflict,',
-    'for example two migrations with the same sequence number, an identifier both sides added, or implementation code',
-    `that uses something \`${base}\` renamed or removed. Fix such clashes on the implementation's side, keeping what`,
-    `\`${base}\` has as it is: besides the conflicted files you may change the files this implementation branch changed`,
-    `itself (${own}) and add new files, for example to renumber this implementation's migration to the next free number`,
-    `(rename it with \`git mv\`) and update every reference to it. Only when the merged result cannot pass otherwise, you`,
-    `may also make the smallest change to other files of \`${base}\` (for example add a setting this implementation`,
-    'made required to a test that the base branch added); never delete them, and never weaken a test, assertion, or',
-    'requirement on either side to make it pass. A person reviews such changes before the implementation merges. Do not',
-    `change anything under \`.github/\`, \`.specify/\`, or \`specs/\`, except conflicted files of \`${spec}\` itself: combine both sides there, keep every`,
-    'task of the implementation branch, and keep every checked box checked (a person reviews these files before the merge).',
-    'Build what the merge touches and run the tests that cover it;',
-    'the full verification runs after you. Do not run git commit, merge, checkout, reset, restore, stash, rebase, or push.',
-  ].join(' ');
-  return appendWriterGuidance(prompt, guidance);
 }
 
 // Number of convergence phases that /speckit-converge appended to a tasks.md.
@@ -964,7 +1084,7 @@ export function latestCheckRun(checkRuns) {
 // Creation times of workflow-authored comments that start with a marker; text inside other comments cannot forge them.
 export function markerTimes(comments, marker) {
   return comments
-    .filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(marker))
+    .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, marker))
     .map((comment) => comment.created_at);
 }
 
@@ -980,8 +1100,8 @@ const checkTime = (check) => Date.parse(check.started_at ?? check.created_at ?? 
 // `windowStart` starts the current attempt window (pull request, retry, or a person's push); `done` tells whether
 // the implementation was finalized for review; `resumedAt` is the latest restart time.
 // Order: a conflict resolution when merging the base branch before the next phase or the convergence conflicted on
-// this head (best effort, see MAX_SYNC_RESOLVE_ATTEMPTS) → the tasks of the phase of the next unticked task (planTasks)
-// → converge (until a successful convergence is newer than the last successful task) → merge, or resolve after a merge
+// this head (best effort, see MAX_SYNC_RESOLVE_ATTEMPTS) → the verification of a finished phase whose tasks this chain
+// landed after its last successful verification (verifyNeeded) → the next group of tasks (planGroup) → converge (until a successful convergence is newer than the last successful task) → merge, or resolve after a merge
 // (or merging the base branch before it) found conflicts on this head. Only failures
 // count against the attempt limit; all outcomes (including redos from a newer head) are capped separately so no-op
 // attempts cannot loop forever. A stop that needs a person (attempt limit, attention, or a diagnosis that runs or waits
@@ -1016,7 +1136,6 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   };
   const exceeded = ({ failures, total }) => failures >= MAX_TASK_ATTEMPTS || total >= MAX_TASK_ATTEMPTS * 2;
 
-  const plan = planTasks(tasksMarkdown, { maxEntries });
   // An already-current required sync can succeed without moving the head, leaving old conflict checks on it.
   const unresolved = (check) => !attempts.some((attempt) => attempt.kind === 'resolve' && attempt.outcome === 'success' && Date.parse(attempt.at) > checkTime(check));
   // Merging the base branch before a phase or the convergence conflicted on this head: resolve first, best effort.
@@ -1028,25 +1147,34 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
     const failures = list.filter((attempt) => attempt.outcome === 'failure').length;
     const handedOver = list.some((attempt) => attempt.outcome === 'attention');
     if (!handedOver && failures < MAX_SYNC_RESOLVE_ATTEMPTS && list.length < MAX_SYNC_RESOLVE_ATTEMPTS * 2) {
-      return { action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: list.length + 1 }]], phaseEnd: false, lastIsParallel: false, stale };
+      return { action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: list.length + 1 }]], stale };
     }
     syncGivenUp = syncConflict;
   }
   const givenUp = syncGivenUp ? { syncGivenUp } : {};
-  if (plan.order.length > 0) {
+  const verify = verifyNeeded(tasksMarkdown, attempts);
+  if (verify) {
+    const count = tally((attempt) => attempt.kind === 'verify' && attempt.phase === verify.name);
+    if (exceeded(count)) return { action: 'limit', kind: 'verify', phase: verify.name, attempts: count.total, stale };
+    return { action: 'verify', kind: 'verify', phase: verify.name, tasks: verify.tasks, attempt: count.total + 1, stale, ...givenUp };
+  }
+  const group = planGroup(tasksMarkdown, { maxTasks: maxEntries });
+  if (group) {
     const ofTask = (id) => tally((attempt) => attempt.kind === 'task' && attempt.task === id);
-    // Earlier attempts can only belong to the first entry: a run stops at the first entry that did not land.
-    for (const id of plan.order[0]) {
+    for (const id of group.tasks) {
       const count = ofTask(id);
       if (exceeded(count)) return { action: 'limit', kind: 'task', task: id, attempts: count.total, stale };
     }
+    const entries = group.tasks.map((id) => ({ task: id, attempt: ofTask(id).total + 1 }));
+    // The order of the run: a sequential group has one entry per task (run one after another), a parallel group one
+    // entry with all its tasks (run at the same time).
     return {
       action: 'tasks',
       kind: 'task',
-      order: plan.order.map((entry) => entry.map((id) => ({ task: id, attempt: ofTask(id).total + 1 }))),
-      phaseEnd: plan.phaseEnd,
-      lastIsParallel: plan.lastIsParallel,
-      phase: plan.phase,
+      mode: group.mode,
+      order: group.mode === 'parallel' ? [entries] : entries.map((entry) => [entry]),
+      phase: group.phase,
+      completesPhase: group.completesPhase,
       stale,
       ...givenUp,
     };
@@ -1073,12 +1201,48 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
     return { action: 'merge', kind: 'merge', attempt: merge.total + 1, stale, ...givenUp };
   }
   if (exceeded(count)) return { action: 'limit', kind, attempts: count.total, stale };
-  return { action: 'tasks', kind, order: [[{ task: null, attempt: count.total + 1 }]], phaseEnd: false, lastIsParallel: false, stale, ...(kind === 'converge' ? givenUp : {}) };
+  return { action: 'tasks', kind, order: [[{ task: null, attempt: count.total + 1 }]], stale, ...(kind === 'converge' ? givenUp : {}) };
+}
+
+// The first finished phase whose tasks this chain landed after the phase's last successful verification (attempt kind
+// verify), or null. Phases ticked before the chain ran (no successful task attempt) need no verification here; the
+// merge verifies everything.
+export function verifyNeeded(tasksMarkdown, attempts) {
+  const at = (attempt) => Date.parse(attempt.at);
+  for (const phase of listPhases(tasksMarkdown)) {
+    if (!phase.done) return null;
+    const ids = new Set(phase.tasks);
+    const landed = Math.max(0, ...attempts.filter((attempt) => attempt.kind === 'task' && attempt.outcome === 'success' && ids.has(attempt.task)).map(at));
+    const verified = Math.max(0, ...attempts.filter((attempt) => attempt.kind === 'verify' && attempt.outcome === 'success' && attempt.phase === phase.name).map(at));
+    if (landed > verified) return phase;
+  }
+  return null;
+}
+
+// What one run of the chain works on, for its name: the short phase name and the group's tasks ("Phase 3: User Story 1 ·
+// T010 to T014 one after another", "… · T015, T016 in parallel", "… · T010 Create the model" for a single task), the verification of a phase,
+// a repair, the convergence, a conflict resolution, the merge, or the stop the run reports; empty when the run has
+// nothing to do. `summaries` maps task IDs to their summarized text.
+export function renderRunSubject(decision, { summaries = new Map() } = {}) {
+  const clip = (text) => (text.length > 120 ? `${text.slice(0, 119).trimEnd()}…` : text);
+  if (decision.action === 'verify') return clip(`Verify ${shortPhaseSubject(decision.phase)}`);
+  if (decision.action === 'repair') return `Repair after the failed ${decision.repair?.scope ? `${decision.repair.scope} ` : ''}verification`;
+  if (decision.action === 'merge') return 'Merge';
+  if (decision.action === 'limit') return `Stop at the attempt limit of ${kindLabel(decision)}`;
+  if (decision.action === 'failed') return 'Diagnose the stop';
+  if (decision.action !== 'tasks') return '';
+  if (decision.requiredSync) return 'Required base synchronization';
+  if (decision.kind !== 'task') return kindLabel(decision).replace(/^./, (char) => char.toUpperCase());
+  const ids = decision.order.flat().map((entry) => entry.task);
+  const tasks = ids.length === 1
+    ? `${ids[0]} ${summaries.get(ids[0]) ?? ''}`.trim()
+    : `${ids.length <= 3 ? ids.join(', ') : `${ids[0]} to ${ids.at(-1)}`} ${decision.mode === 'parallel' ? 'in parallel' : 'one after another'}`;
+  return clip(`${shortPhaseSubject(decision.phase)} · ${tasks}`);
 }
 // Human-readable name of what an attempt works on, for comments and summaries.
 export function kindLabel({ kind, task }) {
   if (kind === 'task') return task;
-  return { converge: 'convergence', resolve: 'conflict resolution', merge: 'merge' }[kind] ?? kind;
+  return { converge: 'convergence', resolve: 'conflict resolution', merge: 'merge', verify: 'phase verification' }[kind] ?? kind;
 }
 
 // Reasons why a /speckit-converge change cannot be accepted. It may only append a convergence phase with new,
@@ -1170,10 +1334,9 @@ export function validateTaskChange({ folder, archived = false, taskId, before, a
     return was && now && was[2] === taskId && now[2] === taskId && was[1] === ' ' && now[1] !== ' '
       && beforeLines[index].replace(/\[ \]/, '[x]') === afterLines[index].replace(/\[[xX]\]/, '[x]');
   };
+  // An unchanged tasks.md is expected: the land job checks the task after verification (runLand).
   if (differing === null || differing.length > 1 || (differing.length === 1 && !ticked(differing[0]))) {
     reasons.push(`\`${tasksPath}\` may only change by checking ${taskId}`);
-  } else if (differing.length === 0) {
-    reasons.push(`${taskId} was not checked in \`${tasksPath}\`, so the task is not complete`);
   }
   return reasons;
 }
@@ -1247,9 +1410,10 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
   return result.length > GITHUB_BODY_LIMIT ? syncPullRequestTicks(text, tasksMarkdown) : result;
 }
 
-// The commands a person can comment on an implementation pull request, all in the form
-// `/speckit <command> [flags] [guidance]`; `flags` lists the flags each command supports. An amendment pull request
-// needs none: merging it applies the amendment, closing it discards it, and a comment or review asks for a rework.
+// The comment commands, all in the form `/speckit <command> [flags] [guidance]`; `flags` lists the flags each command
+// supports, and `scope` where it works: `pr` on an implementation pull request (or an amendment pull request of it),
+// `twin` on a spec twin issue, `any` on both. An amendment pull request needs none: merging it applies the amendment,
+// closing it discards it, and a comment or review asks for a rework.
 // This list is the single source for everything that names the commands: the command router and its help, and the
 // diagnosis (which commands it may recommend, for which categories, and the command reference in its evidence).
 // `recommend` marks commands a diagnosis may recommend; `categories` the diagnosis categories they fit;
@@ -1258,6 +1422,7 @@ export const PR_COMMANDS = [
   {
     name: 'retry',
     usage: '/speckit retry [--force] [guidance]',
+    scope: 'pr',
     flags: { [RESTART_FORCE_FLAG]: 'restart even after 2 restarts in a row that left the branch unchanged' },
     help: 'restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given',
     recommend: true,
@@ -1268,6 +1433,7 @@ export const PR_COMMANDS = [
   {
     name: 'sync',
     usage: '/speckit sync [guidance]',
+    scope: 'pr',
     flags: {},
     help: 'require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved',
     recommend: true,
@@ -1276,17 +1442,28 @@ export const PR_COMMANDS = [
     guidanceScope: 'the conflict resolution when the merge conflicts, otherwise the first prompted work after the clean merge (it is kept until that work succeeds)',
   },
   {
-    name: 'fix',
-    usage: '/speckit fix [guidance]',
+    name: 'author',
+    usage: '/speckit author [guidance]',
+    scope: 'pr',
     flags: {},
-    help: 'for a cause outside this spec: an agent authors a prerequisite spec and opens it against the base branch for your review; once it is merged, this spec depends on it, and once it is implemented, this implementation retries by itself',
+    help: 'author a new spec for a cause outside this spec with the Spec Kit workflow `author`; it is checked and merged to the default branch automatically, and this implementation waits until that spec is signed off with `/speckit implement` on its twin and implemented',
     recommend: true,
     categories: ['outside'],
     whenToRecommend: 'The cause lies in code, tests, or environment actions owned by another feature on the base branch and is not fixed there yet: the guidance says what to fix, where, and how.',
-    guidanceScope: 'the agent that authors the prerequisite spec',
+    guidanceScope: 'the decision step that turns the cause into the feature description of the new spec',
   },
-  { name: 'help', usage: '/speckit help', flags: {}, help: 'list these commands', recommend: false, categories: [] },
+  {
+    name: 'implement',
+    usage: '/speckit implement',
+    scope: 'twin',
+    flags: {},
+    help: 'request the implementation of this spec: checks that it is `tasked` with all checklists checked, records who requested it, and starts it on GitHub (it waits for open prerequisites)',
+    recommend: false,
+    categories: [],
+  },
+  { name: 'help', usage: '/speckit help', scope: 'any', flags: {}, help: 'list these commands', recommend: false, categories: [] },
 ];
+export const COMMAND_SCOPES = Object.freeze({ pr: 'implementation pull request', twin: 'spec twin issue', any: 'anywhere' });
 
 // The commands a diagnosis may recommend, and those that fit a category.
 export const recommendableCommands = (commands = PR_COMMANDS) => commands.filter((command) => command.recommend).map((command) => command.name);
@@ -1366,10 +1543,10 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
       return mergesAnyway
         ? `The implementation ${next}, ${attempts}. That work merges ${base} first at its normal synchronization boundary. ${guidance}`
         : `Does not merge ${base}: the implementation ${next} on the branch as it is, ${attempts}. ${guidance}`;
-    case 'fix':
+    case 'author':
       return [
-        `An agent authors a small prerequisite spec for the cause${argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and then waits for your review.`,
-        `Once you merge it, this spec depends on it, it is implemented like any spec, this implementation waits for it, and then retries by itself on its current phase base, ${attempts}.`,
+        `The Spec Kit workflow \`author\` writes a new spec for the cause${argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and merged automatically (a change of \`docs/architecture/\` or a person's push waits for your review instead).`,
+        `This spec then depends on it; it starts once someone with write access signs it off with \`/speckit implement\` on its spec twin, this implementation waits for it, and then retries by itself on its current phase base, ${attempts}.`,
       ].join(' ');
     default:
       return null;
@@ -1496,16 +1673,16 @@ export function renderAmendmentHowTo(implementationPull) {
   ];
 }
 
-// How a person handles a prerequisite spec pull request; shown in its description and referenced from the
-// implementation.
+// How a person handles a spec pull request authored by `/speckit author`; shown in its description and referenced
+// from the implementation.
 export function renderFixHowTo(implementationPull, baseBranch = null) {
   const base = baseBranch ? `\`${baseBranch}\`` : 'the default branch';
   return [
     '**How to proceed** (people with write access):',
     '',
-    `- **Merge** this pull request to add the prerequisite spec to ${base}. It becomes a spec twin that the stopped spec depends on, is requested for implementation on behalf of the person who asked for it, and is implemented like any spec. #${implementationPull} waits for it and retries by itself once it is implemented.`,
-    '- **Comment**, or **submit a review** with *Comment* or *Request changes* (line comments included), to have the prerequisite spec reworked with your feedback. It returns here, checked again, for your review.',
-    `- **Close** this pull request without merging to discard the prerequisite spec; #${implementationPull} stays stopped and lists what you can do next.`,
+    `- **Merge** this pull request to add the spec to ${base}. It becomes a spec twin that the stopped spec depends on; it is implemented once someone signs it off with \`/speckit implement\` on its twin. #${implementationPull} waits for it and retries by itself once it is implemented.`,
+    '- **Comment**, or **submit a review** with *Comment* or *Request changes* (line comments included), to have the spec reworked with your feedback. It returns here, checked again.',
+    `- **Close** this pull request without merging to discard the spec; #${implementationPull} stays stopped and lists what you can do next.`,
   ];
 }
 
@@ -1676,7 +1853,7 @@ export function renderStartComment({ twinNumber, folder, taskCount, base }) {
     START_COMMENT_MARKER,
     `Implementation workspace prepared for #${twinNumber} (\`specs/${folder}\`): ${taskCount} task(s) queued.`,
     '',
-    'The `Spec Kit implement spec` workflow implements them phase by phase, in order; `[P]` tasks of a phase run in parallel. Each task is verified, committed, and reported here.',
+    'The Spec Kit implement workflows implement them group by group, in order; consecutive `[P]` tasks run in parallel, and every finished phase is verified. Each task is verified, committed, and reported here.',
     `Then a convergence checks the result against the spec, and the implementation is merged into its base branch \`${base}\` once it converged and passed the full verification.`,
   ].join('\n');
 }

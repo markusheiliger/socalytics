@@ -159,7 +159,7 @@ public sealed class FactReadEndToEndTests
         var sp = scope.ServiceProvider;
         await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
         var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
-            hierarchy.TeamId, hierarchy.MatchId, recordingSetVersionId, "development-default", "1", [EndToEndHarness.MatchCapability], "all-requested-capabilities",
+            hierarchy.TeamId, hierarchy.MatchId, recordingSetVersionId, DateTimeOffset.UtcNow, "development-default", "1", [EndToEndHarness.MatchCapability], "all-requested-capabilities",
             AnalysisRunState.Requested, null,
             new AnalysisRunSnapshotRecord("{\"segmentationPolicy\":{\"durationSeconds\":300}}", Digest), [segment, match],
             [new DependencyEdgeRecord(segment.Id, match.Id, DependencyKind.Required, null)]), ct);

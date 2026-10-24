@@ -3,8 +3,8 @@ schema_version: "1.0"
 extension:
   id: gha
   name: "GitHub Actions implementation routing"
-  version: "1.8.0"
-  description: "Guide spec authoring through the full Spec Kit flow to specs that only need to be committed, one at a time or a batch of the next logical specs, interactively or in autopilot, keep docs/architecture in sync with each plan and implementation, route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow, refine the parallel task groups after /speckit-tasks, diagnose implementations that stopped, author prerequisite specs for causes outside the stopped spec, and archive implemented specs"
+  version: "2.3.0"
+  description: "Author a spec to ready-to-implement with the deterministic Spec Kit workflow author that this extension ships (workflows/author), on the developer's machine and on GitHub, implement one task, converge, repair, and resolve merge conflicts with the deterministic workflows implement-task, converge, repair, and resolve, keep docs/architecture in sync with each plan and implementation, route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow, refine the parallel task groups after /speckit-tasks, diagnose implementations that stopped, and archive implemented specs"
   author: socalytics
   repository: https://github.com/markusheiliger/socalytics
   license: MIT
@@ -17,16 +17,16 @@ requires:
       description: "Reads the spec folder from the remote default branch"
     - name: node
       required: true
-      description: "Runs .github/scripts/speckit-orchestrate.mjs, speckit-author.mjs, speckit-tasks-groups.mjs, and speckit-archive.mjs"
+      description: "Runs .github/scripts/speckit-orchestrate.mjs, speckit-author.mjs, speckit-author-flow.mjs (the decisions of the workflow author), speckit-tasks-groups.mjs, and speckit-archive.mjs"
     - name: gh
       required: true
-      description: "Provides the user's GitHub token for the implementation request"
+      description: "Provides the user's GitHub token to post the /speckit implement request on the twin"
 
 provides:
   commands:
     - name: speckit.gha.author
       file: commands/speckit.gha.author.md
-      description: "Guide specs from an idea, an architecture section, existing folders, or a request for the next N logical specs through specify, clarify, plan, tasks, analyze, and the publish checks until they only need to be committed; autopilot answers every decision with its recommended choice"
+      description: "Author one spec (or n with --repeat) until it is ready to implement by running the Spec Kit workflow author and answering its gates in Chat"
     - name: speckit.gha.route
       file: commands/speckit.gha.route.md
       description: "Choose between implementing locally and requesting implementation on GitHub"
@@ -36,9 +36,6 @@ provides:
     - name: speckit.gha.diagnose
       file: commands/speckit.gha.diagnose.md
       description: "Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause"
-    - name: speckit.gha.fix
-      file: commands/speckit.gha.fix.md
-      description: "Author or rework a prerequisite spec, an ordinary spec the stopped spec depends on, for the cause of a stopped implementation outside its spec"
     - name: speckit.gha.refine
       file: commands/speckit.gha.refine.md
       description: "Refine the parallel task groups of tasks.md so [P] tasks of one group never change the same files"

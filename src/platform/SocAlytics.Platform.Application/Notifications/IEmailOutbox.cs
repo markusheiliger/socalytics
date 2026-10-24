@@ -17,6 +17,12 @@ public interface IEmailOutbox
     /// instead of the account's current address, which the delivery processor checks before sending.
     /// </summary>
     Task<Guid> QueuePasswordRecoveryAsync(Guid accountId, string addressHash, Guid passwordRecoveryId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Queues a <c>member-invitation</c> message in the active unit of work, bound to the given address hash and invitation link,
+    /// without an account.
+    /// </summary>
+    Task<Guid> QueueMemberInvitationAsync(string addressHash, Guid invitationLinkId, CancellationToken cancellationToken);
 }
 
 internal sealed class EmailOutbox(IMemberEmailAddressStore addresses, IEmailMessageStore messages, TimeProvider timeProvider) : IEmailOutbox
@@ -47,6 +53,16 @@ internal sealed class EmailOutbox(IMemberEmailAddressStore addresses, IEmailMess
         var id = Guid.NewGuid();
         await messages.QueueAsync(
             new NewEmailMessage(id, NotificationTypes.PasswordRecoveryCode, accountId, addressHash, null, now, now, passwordRecoveryId),
+            cancellationToken);
+        return id;
+    }
+
+    public async Task<Guid> QueueMemberInvitationAsync(string addressHash, Guid invitationLinkId, CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        var id = Guid.NewGuid();
+        await messages.QueueAsync(
+            new NewEmailMessage(id, NotificationTypes.MemberInvitationCode, null, addressHash, null, now, now, InvitationRef: invitationLinkId),
             cancellationToken);
         return id;
     }

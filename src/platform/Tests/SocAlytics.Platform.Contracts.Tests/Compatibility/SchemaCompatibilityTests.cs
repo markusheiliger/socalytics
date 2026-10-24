@@ -11,9 +11,13 @@ public class SchemaCompatibilityTests
     private static readonly string[] AnalysisAndCommonSchemas =
     [
         "contracts/common/v1/common.schema.json",
-        "contracts/analysis/analyst-job/v1/analyst-job.schema.json",
         "contracts/analysis/attempt-completion/v1/attempt-completion.schema.json",
         "contracts/analysis/run-state-changed/v1/run-state-changed.schema.json",
+    ];
+
+    private static readonly (string Schema, string Version)[] ReleasedAtLaterVersion =
+    [
+        ("contracts/analysis/analyst-job/v1/analyst-job.schema.json", "1.2.0"),
     ];
 
     public static TheoryData<string> BreakingRevisions() =>
@@ -48,6 +52,16 @@ public class SchemaCompatibilityTests
             releases.ShouldContain(release);
             current.ShouldNotContain(release);
             File.ReadAllBytes(ContractCatalog.Releases.Single(r => r.RepositoryPath == release).FullPath)
+                .ShouldBe(File.ReadAllBytes(ContractCatalog.Schemas.Single(s => s.RepositoryPath == schema).FullPath));
+        }
+
+        foreach (var (schema, version) in ReleasedAtLaterVersion)
+        {
+            var folder = schema[..schema.LastIndexOf('/')] + "/releases/";
+            releases.ShouldContain(folder + "1.0.0.schema.json");
+            releases.ShouldContain(folder + version + ".schema.json");
+            current.ShouldNotContain(folder + version + ".schema.json");
+            File.ReadAllBytes(ContractCatalog.Releases.Single(r => r.RepositoryPath == folder + version + ".schema.json").FullPath)
                 .ShouldBe(File.ReadAllBytes(ContractCatalog.Schemas.Single(s => s.RepositoryPath == schema).FullPath));
         }
 

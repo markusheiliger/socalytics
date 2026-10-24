@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { IMPLEMENT_WORKFLOW_FILE, renderImplementRunName } from './speckit-implement-core.mjs';
+import { IMPLEMENT_CHAIN_WORKFLOW_FILES, renderImplementRunName } from './speckit-implement-core.mjs';
 
 // In-memory stand-in for GitHubClient used by the speckit tooling tests.
 export class FakeGitHub {
@@ -102,7 +102,16 @@ export class FakeGitHub {
 
   async createComment(number, body) {
     this.nextCommentId = (this.nextCommentId ?? 0) + 1;
-    this.comments.push({ id: this.nextCommentId, number, body, user: { login: this.commentAuthor ?? 'github-actions[bot]' }, created_at: this.tick() });
+    const comment = { id: this.nextCommentId, number, body, user: { login: this.commentAuthor ?? 'github-actions[bot]' }, created_at: this.tick(), html_url: `https://github.com/octo/repo/issues/${number}#issuecomment-${this.nextCommentId}` };
+    this.comments.push(comment);
+    return structuredClone(comment);
+  }
+
+  async updateComment(id, body) {
+    const comment = this.comments.find((item) => item.id === id);
+    comment.body = body;
+    comment.updated_at = this.tick();
+    return structuredClone(comment);
   }
 
   async listBlockedBy(number) {
@@ -192,9 +201,9 @@ export class FakeGitHub {
       workflow: workflowFile,
       ref,
       inputs: structuredClone(inputs),
-      display_title: workflowFile === IMPLEMENT_WORKFLOW_FILE
-        ? renderImplementRunName(inputs.twin, inputs.title)
-        : { 'speckit-diagnose.lock.yml': `Spec Kit diagnose spec #${inputs.twin} · ${inputs.mode ?? 'diagnose'}`, 'speckit-analyze.lock.yml': `Spec Kit analyze spec #${inputs.twin} · Check the amendment for consistency` }[workflowFile] ?? workflowFile,
+      display_title: IMPLEMENT_CHAIN_WORKFLOW_FILES.includes(workflowFile)
+        ? renderImplementRunName(inputs.issue, inputs.title, inputs.subject)
+        : { 'speckit-diagnose.lock.yml': `Spec Kit diagnose spec #${inputs.issue} · ${inputs.mode === 'diagnose' && inputs.stop ? inputs.stop : inputs.mode ?? 'diagnose'}`, 'speckit-analyze.lock.yml': `Spec Kit analyze spec #${inputs.issue} · Check the amendment for consistency` }[workflowFile] ?? workflowFile,
       status: 'queued',
       conclusion: null,
       created_at: this.tick(),
@@ -322,6 +331,10 @@ export class FakeGitHub {
 
   async listOpenPullRequests() {
     return structuredClone(this.repo.pulls.filter((pull) => pull.state === 'open'));
+  }
+
+  async listClosedPullRequestsSince(since) {
+    return structuredClone(this.repo.pulls.filter((pull) => pull.state === 'closed' && Date.parse(pull.updated_at ?? pull.closed_at ?? 0) >= Date.parse(since)));
   }
 
   async createPullRequest({ title, head, base, body, draft }) {

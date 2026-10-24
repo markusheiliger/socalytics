@@ -2,20 +2,37 @@ using System.Security.Cryptography;
 using System.Text;
 using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
+using SocAlytics.Platform.Application.Abstractions;
+using SocAlytics.Platform.Application.Analysis.Commands;
 using SocAlytics.Platform.Application.Analysis.Queries;
 
 namespace SocAlytics.Platform.Api.Analysis;
 
+internal sealed record AnalysisRunCancelledByDto(Guid MemberId, string AccountName);
+
+internal sealed record AnalysisRunSupersededByDto(Guid RunId, Guid RecordingSetVersionId, DateTimeOffset RecordingSetFinalizedAt);
+
+internal sealed record CancelAnalysisRunRequest(string? Reason);
+
 internal sealed record AnalysisRunSummaryDto(
 	Guid RunId, Guid TeamId, Guid MatchId, Guid RecordingSetVersionId, string WorkflowId, string WorkflowVersion, string State,
-	string? FailureReason, DateTimeOffset CreatedAt, DateTimeOffset? RunningAt, DateTimeOffset? TerminatedAt, long Version)
+	string? FailureReason, DateTimeOffset CreatedAt, DateTimeOffset? RunningAt, DateTimeOffset? TerminatedAt, long Version,
+	AnalysisRunCancelledByDto? CancelledBy, string? CancellationReason, string? CancellationCause, bool IsCurrent,
+	AnalysisRunSupersededByDto? SupersededBy, DateTimeOffset? SupersededAt)
 {
 	public static AnalysisRunSummaryDto From(AnalysisRunSummaryView v) => new(
 		v.RunId, v.TeamId, v.MatchId, v.RecordingSetVersionId, v.WorkflowId, v.WorkflowVersion, v.State, v.FailureReason,
-		v.CreatedAt, v.RunningAt, v.TerminatedAt, v.Version);
+		v.CreatedAt, v.RunningAt, v.TerminatedAt, v.Version, MapCancelledBy(v.CancelledBy), v.CancellationReason,
+		v.CancellationCause, v.IsCurrent, MapSupersededBy(v.SupersededBy), v.SupersededAt);
+
+	internal static AnalysisRunSupersededByDto? MapSupersededBy(AnalysisRunSupersededByView? v) =>
+		v is null ? null : new(v.RunId, v.RecordingSetVersionId, v.RecordingSetFinalizedAt);
+
+	internal static AnalysisRunCancelledByDto? MapCancelledBy(AnalysisRunCancelledByView? v) =>
+		v is null ? null : new(v.MemberId, v.AccountName);
 }
 
-internal sealed record AnalysisJobCountsDto(int Waiting, int Ready, int Claimed, int Completed, int Failed, int Blocked);
+internal sealed record AnalysisJobCountsDto(int Waiting, int Ready, int Claimed, int Completed, int Failed, int Blocked, int Cancelled);
 
 internal sealed record AnalysisNodeInputCoverageDto(
 	string UpstreamNodeKey, string CoverageMode, decimal? MinimumAcceptedFraction, int Accepted, int Failed, int Blocked, int Skipped,
@@ -28,6 +45,8 @@ internal sealed record AnalysisNodeStatusDto(
 internal sealed record AnalysisRunStatusDto(
 	Guid RunId, Guid TeamId, Guid MatchId, Guid RecordingSetVersionId, string WorkflowId, string WorkflowVersion, string State,
 	string? FailureReason, DateTimeOffset CreatedAt, DateTimeOffset? RunningAt, DateTimeOffset? TerminatedAt, long Version,
+	AnalysisRunCancelledByDto? CancelledBy, string? CancellationReason, string? CancellationCause, bool IsCurrent,
+	AnalysisRunSupersededByDto? SupersededBy, DateTimeOffset? SupersededAt,
 	IReadOnlyList<string> RequestedCapabilities, IReadOnlyList<AnalysisNodeStatusDto> Nodes)
 {
 	public static AnalysisRunStatusDto From(AnalysisRunStatusView s)
@@ -35,10 +54,12 @@ internal sealed record AnalysisRunStatusDto(
 		var r = s.Run;
 		return new(
 			r.RunId, r.TeamId, r.MatchId, r.RecordingSetVersionId, r.WorkflowId, r.WorkflowVersion, r.State, r.FailureReason,
-			r.CreatedAt, r.RunningAt, r.TerminatedAt, r.Version, s.RequestedCapabilities,
+			r.CreatedAt, r.RunningAt, r.TerminatedAt, r.Version,
+			AnalysisRunSummaryDto.MapCancelledBy(r.CancelledBy), r.CancellationReason,
+			r.CancellationCause, r.IsCurrent, AnalysisRunSummaryDto.MapSupersededBy(r.SupersededBy), r.SupersededAt, s.RequestedCapabilities,
 			[.. s.Nodes.Select(n => new AnalysisNodeStatusDto(
 				n.NodeId, n.NodeKey, n.CapabilityId, n.CapabilityVersion, n.Tier, n.ExecutionScope, n.State, n.BlockedByNodeKey,
-				new AnalysisJobCountsDto(n.Jobs.Waiting, n.Jobs.Ready, n.Jobs.Claimed, n.Jobs.Completed, n.Jobs.Failed, n.Jobs.Blocked),
+				new AnalysisJobCountsDto(n.Jobs.Waiting, n.Jobs.Ready, n.Jobs.Claimed, n.Jobs.Completed, n.Jobs.Failed, n.Jobs.Blocked, n.Jobs.Cancelled),
 				n.InputCoverage is null
 					? null
 					: [.. n.InputCoverage.Select(c => new AnalysisNodeInputCoverageDto(
@@ -68,7 +89,49 @@ internal static class AnalysisRunEndpoints
 			.ProducesProblem(StatusCodes.Status400BadRequest)
 			.ProducesProblem(StatusCodes.Status401Unauthorized)
 			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapPost("/analysis/runs/{runId:guid}/cancellation", CancelRunAsync)
+			.Accepts<CancelAnalysisRunRequest>(false, "application/json")
+			.WithName("cancelAnalysisRun")
+			.WithTags("Analysis runs")
+			.Produces<AnalysisRunStatusDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		return routes;
+	}
+
+	private static async Task<IResult> CancelRunAsync(Guid runId, HttpContext http, CancelAnalysisRunHandler handler, CancellationToken cancellationToken)
+	{
+		var version = IfMatchHeader.Parse(http.Request);
+		if (!version.IsSuccess)
+		{
+			return ProblemResults.From(version.Failure);
+		}
+
+		string? reason = null;
+		if (http.Request.ContentLength is > 0 || http.Request.Headers.ContainsKey("Transfer-Encoding"))
+		{
+			if (!http.Request.HasJsonContentType())
+			{
+				return ProblemResults.Problem(StatusCodes.Status415UnsupportedMediaType, "unsupported-media-type");
+			}
+
+			try
+			{
+				reason = (await http.Request.ReadFromJsonAsync<CancelAnalysisRunRequest>(cancellationToken))?.Reason;
+			}
+			catch (System.Text.Json.JsonException)
+			{
+				return ProblemResults.From(OperationFailure.Validation(new FieldViolation("reason", "invalid")));
+			}
+		}
+
+		var result = await handler.HandleAsync(new CancelAnalysisRunCommand(runId, version.Value, reason), cancellationToken);
+		return result.IsSuccess ? Results.Ok(AnalysisRunStatusDto.From(result.Value)) : ProblemResults.From(result.Failure);
 	}
 
 	private static async Task<IResult> GetRunAsync(Guid runId, HttpContext http, GetAnalysisRunHandler handler, CancellationToken cancellationToken)

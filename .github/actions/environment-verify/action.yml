@@ -16,16 +16,19 @@ description: >-
   run in every mode), covers only src/clients/web/ (API files stay covered by the platform scope), is active only
   while src/clients/web/package.json exists, and runs the steps install (npm ci without a browser download),
   playwright pin (the installed @playwright/test must be 1.63.0, the version environment-setup installs), build,
-  unit tests, and browser tests through the npm scripts build, test, and test:e2e, stopping at the first failure;
-  other paths under src/clients/ stay uncovered; "Analyst Python projects" runs the locked stages for the Analyst
-  Python projects (src/analysts/sdk, src/analysts/capabilities/<name>) the changes select; "Agent Python projects"
-  does the same for src/agents/<name> projects with the same convention and stages, runs when an agent project, a
-  folder directly under contracts/ named agent-*, contracts/common/, or an environment action folder changed or in
-  finalize mode, covers only the roots of existing valid agent projects (src/agents/pyproject.toml, nested manifests,
-  and unowned or deleted agent paths stay uncovered), and fails in every mode while an existing agent project is
-  invalid; agent projects never depend on Analyst projects or repeat their names; "Environment action tests" runs the Node test files of
+  unit tests, and browser tests through the npm scripts build, test, and test:e2e (with --retries=1), stopping at the
+  first failure; other paths under src/clients/ stay uncovered; "Analyst Python projects" runs the locked stages for the
+  Analyst Python projects (src/analysts/sdk, src/analysts/capabilities/<name>) the changes select; "Agent Python
+  projects" does the same for src/agents/<name> projects with the same convention and stages, runs when an agent
+  project, a folder directly under contracts/ named agent-*, contracts/common/, or an environment action folder
+  changed or in finalize mode, covers only the roots of existing valid agent projects (src/agents/pyproject.toml,
+  nested manifests, and unowned or deleted agent paths stay uncovered), and fails in every mode while an existing agent
+  project is invalid; agent projects never depend on Analyst projects or repeat their names; "Environment action
+  tests" runs the Node test files of
   environment-setup and environment-verify when either action folder changed or in finalize mode; "Markdown check"
-  follows.
+  follows. Every .NET test project runs with a TRX log; when it fails with at most 10 failed tests, only those run
+  once more, and a project whose rerun passes passes. Tests that passed only on their rerun (and Playwright's flaky
+  tests) are listed in the log, the step summary, and the flaky output.
 # Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
 # is reviewed and merged before the specs that need it start. For a new framework or source area, add one block below
 # that (1) adds its scope to COVERED only when its project exists, (2) runs only when the scope changed or in finalize
@@ -62,6 +65,11 @@ outputs:
   uncovered:
     description: Comma-separated changed files that no check covers; the workflows hold such changes for review
     value: ${{ steps.verify.outputs.uncovered }}
+  flaky:
+    description: >-
+      Comma-separated, deduplicated tests that failed and then passed on their one rerun (fully qualified .NET test
+      names, Playwright test lines); commas inside a name become semicolons
+    value: ${{ steps.verify.outputs.flaky }}
 runs:
   using: composite
   steps:
@@ -111,6 +119,13 @@ runs:
         [ -f "$WORKSPACE/$WEB_DIR/package.json" ] && COVERED+=("$WEB_SCOPE")
         mkdir -p "$(dirname "$LOG_FILE")"
         : > "$LOG_FILE"
+        # Test results (TRX logs) for the reruns of failed tests, and the tests that passed only on their rerun.
+        RESULTS_ROOT="$(mktemp -d)"
+        FLAKY_FILE="$RESULTS_ROOT/flaky.txt"
+        : > "$FLAKY_FILE"
+        results_count=0
+        # A test project with more failed tests than this is not rerun: so many failures are not flaky.
+        RERUN_LIMIT=10
         changed=""
         [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ] && changed="$(cat "$CHANGED_FILES")"
 
@@ -168,6 +183,77 @@ runs:
           return "$command_status"
         }
         sdk_pin() { node -e 'const s=require(process.argv[1]).sdk||{};console.log(JSON.stringify(Object.fromEntries(Object.entries(s).sort())))' "$PWD/$1" 2>/dev/null; }
+        # trx_failed <results directory>: the fully qualified names of the failed tests in its TRX logs, one per line
+        # (TestDefinitions className and name of each failed UnitTestResult; its testName when the definition is missing).
+        trx_failed() {
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const decode = (s) => s.replace(/&(lt|gt|quot|apos|amp|#x[0-9a-f]+|#\d+);/gi, (m, e) => ({ lt: "<", gt: ">", quot: "\"", apos: "\x27", amp: "&" })[e.toLowerCase()]
+              ?? String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1))));
+            const attributes = (text) => Object.fromEntries([...text.matchAll(/([\w:]+)="([^"]*)"/g)].map((m) => [m[1], decode(m[2])]));
+            const bare = (name) => String(name ?? "").replace(/\(.*$/s, "").trim();
+            const files = [];
+            const walk = (dir) => { for (const entry of fs.readdirSync(dir, { withFileTypes: true })) { const file = path.join(dir, entry.name); if (entry.isDirectory()) walk(file); else if (file.endsWith(".trx")) files.push(file); } };
+            if (fs.existsSync(process.argv[1])) walk(process.argv[1]);
+            const names = new Set();
+            for (const file of files) {
+              const xml = fs.readFileSync(file, "utf8");
+              const definitions = new Map();
+              for (const m of xml.matchAll(/<UnitTest\b([^>]*?)\/?>([\s\S]*?)<\/UnitTest>/g)) {
+                const method = m[2].match(/<TestMethod\b([^>]*?)\/?>/);
+                if (!method) continue;
+                const { className = "", name = "" } = attributes(method[1]);
+                const type = className.split(",")[0].trim();
+                const test = bare(name);
+                definitions.set(attributes(m[1]).id, type && !test.startsWith(`${type}.`) ? `${type}.${test}` : test);
+              }
+              for (const m of xml.matchAll(/<UnitTestResult\b([^>]*?)\/?>/g)) {
+                const result = attributes(m[1]);
+                if (result.outcome !== "Failed") continue;
+                const name = definitions.get(result.testId) || bare(result.testName);
+                if (name) names.add(name);
+              }
+            }
+            for (const name of names) console.log(name);
+          ' "$1" 2>/dev/null
+        }
+        # dotnet_test <project> [arguments]: runs one test project with a TRX log. When it fails with at most RERUN_LIMIT
+        # failed tests whose names the log gives, only those tests run once more; when they pass then, the project
+        # passes and they are recorded as flaky. Otherwise the project fails.
+        dotnet_test() {
+          local project="$1" results failed count filter
+          shift
+          results_count=$((results_count + 1))
+          results="$RESULTS_ROOT/$results_count"
+          step dotnet test "$project" --no-build "$@" --logger trx --results-directory "$results" && return 0
+          failed="$(trx_failed "$results")"
+          count="$(grep -c . <<< "$failed")"
+          if [ "$count" -eq 0 ]; then
+            echo "No rerun of $project: the test results name no failed test" | tee -a "$LOG_FILE"
+            return 1
+          fi
+          if [ "$count" -gt "$RERUN_LIMIT" ]; then
+            echo "No rerun of $project: $count tests failed (more than $RERUN_LIMIT)" | tee -a "$LOG_FILE"
+            return 1
+          fi
+          echo "Rerunning the $count failed test(s) of $project once: $(paste -sd, - <<< "$failed")" | tee -a "$LOG_FILE"
+          filter="$(sed 's/[\\()&|=!~]/\\&/g; s/^/FullyQualifiedName=/' <<< "$failed" | paste -sd'|' -)"
+          step dotnet test "$project" --no-build --filter "$filter" || return 1
+          echo "Flaky (passed on rerun): $(paste -sd, - <<< "$failed")" | tee -a "$LOG_FILE"
+          printf '%s\n' "$failed" >> "$FLAKY_FILE"
+        }
+        # playwright_flaky: the tests that Playwright's list or line reporter lists under "N flaky" in its summary.
+        playwright_flaky() {
+          node -e '
+            const lines = require("fs").readFileSync(0, "utf8").replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/);
+            let listing = false;
+            for (const line of lines) {
+              if (/^\s*\d+ flaky\s*$/.test(line)) { listing = true; continue; }
+              if (listing && line.includes("\u203a")) { console.log(line.trim().replace(/[\s\u2500]+$/, "")); continue; }
+              listing = false;
+            }
+          '
+        }
 
         checks=()
         status=0
@@ -184,17 +270,18 @@ runs:
         # run at the same time on the one daemon); a failing project does not stop the later ones. task: the always-run
         # test projects; the test classes declared in the changed .cs files of a test project; the whole test project
         # when other files of it changed (fixtures without a class, project files). A test project the task did not
-        # touch is skipped; the phase verification and the merge run it.
+        # touch is skipped; the phase verification and the merge run it. Each project runs through dotnet_test, which
+        # reruns a few failed tests once.
         run_tests() {
           local solution="$1" prefix="$2" always="$3" result=0 project rel files file found classes whole filter
           while IFS= read -r project; do
             [ -n "$project" ] || continue
             if [ "$MODE" != task ]; then
-              step dotnet test "$project" --no-build || result=1
+              dotnet_test "$project" || result=1
               continue
             fi
             if [ -n "$always" ] && grep -qE "$always" <<< "$project"; then
-              step dotnet test "$project" --no-build || result=1
+              dotnet_test "$project" || result=1
               continue
             fi
             rel="$prefix$(dirname "$project")/"
@@ -212,10 +299,10 @@ runs:
               fi
             done <<< "$files"
             if [ "$whole" -eq 1 ]; then
-              step dotnet test "$project" --no-build || result=1
+              dotnet_test "$project" || result=1
             elif [ -n "$classes" ]; then
               filter="$(grep -v '^$' <<< "$classes" | sort -u | sed 's/^/FullyQualifiedName~/' | paste -sd'|' -)"
-              step dotnet test "$project" --no-build --filter "$filter" || result=1
+              dotnet_test "$project" --filter "$filter" || result=1
             fi
           done < <(find "$(dirname "$solution")" -name '*Tests.csproj' -not -path '*/bin/*' -not -path '*/obj/*' | sed 's|^\./||' | sort)
           return "$result"
@@ -259,6 +346,15 @@ runs:
           echo "Web UI step: $name" | tee -a "$LOG_FILE"
           "$@" || { echo "Web UI step failed: $name" | tee -a "$LOG_FILE"; return 1; }
         }
+        # The browser tests retry a failed test once; the tests that passed on their retry are recorded as flaky.
+        web_browser_tests() {
+          local before result
+          before="$(wc -l < "$LOG_FILE")"
+          step npm run test:e2e -- --retries=1
+          result=$?
+          tail -n "+$((before + 1))" "$LOG_FILE" | playwright_flaky >> "$FLAKY_FILE"
+          return "$result"
+        }
         if [ "$status" -eq 0 ] && applies "$WEB_TRIGGER" && [ -f "$WEB_DIR/package.json" ]; then
           checks+=("Web UI build and tests")
           pushd "$WEB_DIR" > /dev/null
@@ -266,7 +362,7 @@ runs:
             web_step 'playwright pin' web_playwright_pin &&
             web_step build step npm run build &&
             web_step 'unit tests' step npm test &&
-            web_step 'browser tests' step npm run test:e2e; } || status=1
+            web_step 'browser tests' web_browser_tests; } || status=1
           popd > /dev/null
         fi
         # Analyst and agent Python projects: the environment owns the exact command sequence, run with the interpreter
@@ -351,7 +447,13 @@ runs:
         fi
         if [ "$status" -eq 0 ] && applies '\.md$'; then
           checks+=("Markdown check")
-          step node "$MARKDOWN_CHECK" || status=1
+          # A task or parallel group checks only the Markdown files it changed, so a broken file elsewhere on the base
+          # branch does not fail it; phase and finalize verification check the whole repository.
+          if [ "$MODE" = task ] && [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ]; then
+            step node "$MARKDOWN_CHECK" --files "$CHANGED_FILES" || status=1
+          else
+            step node "$MARKDOWN_CHECK" || status=1
+          fi
         fi
         popd > /dev/null
 
@@ -359,6 +461,18 @@ runs:
         if [ -n "$changed" ]; then
           uncovered="$(grep -vE "$(IFS='|'; echo "${COVERED[*]}")" <<< "$changed" | grep -v '^$' | paste -sd, -)"
         fi
+        # Commas would split a name in the comma-separated output.
+        flaky="$(grep -v '^$' "$FLAKY_FILE" | tr ',' ';' | awk '!seen[$0]++' | paste -sd, -)"
+        if [ -n "$flaky" ]; then
+          echo "Flaky tests (passed on rerun): $flaky" | tee -a "$LOG_FILE"
+          {
+            echo
+            echo "### Flaky tests (passed on rerun)"
+            grep -v '^$' "$FLAKY_FILE" | tr ',' ';' | awk '!seen[$0]++' | sed 's/^/- `/; s/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        rm -rf "$RESULTS_ROOT"
         (IFS=,; echo "checks=${checks[*]}") >> "$GITHUB_OUTPUT"
         echo "uncovered=${uncovered}" >> "$GITHUB_OUTPUT"
+        echo "flaky=${flaky}" >> "$GITHUB_OUTPUT"
         exit "$status"

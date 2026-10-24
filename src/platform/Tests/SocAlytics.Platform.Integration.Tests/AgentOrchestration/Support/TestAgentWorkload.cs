@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using SocAlytics.Platform.Integration.Tests.Registry.Support;
 
 namespace SocAlytics.Platform.Integration.Tests.AgentOrchestration.Support;
@@ -12,6 +13,7 @@ internal sealed class TestAgentWorkload : IDisposable
 	public const string AssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
 	private readonly TestAnalystManager _key;
+	private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Dictionary<string, string>> _pinnedDigests = new();
 
 	public TestAgentWorkload(string clientId = "workload-1")
 	{
@@ -114,9 +116,59 @@ internal sealed class TestAgentWorkload : IDisposable
 		HttpClient client, DateTimeOffset now, string? token, Guid attemptId, object report, CancellationToken ct) =>
 		SendAsync(client, now, token, HttpMethod.Post, $"/api/v1/agent-orchestration/attempts/{attemptId}/checkpoints", report, ct);
 
-	public Task<HttpResponseMessage> CompleteAsync(
-		HttpClient client, DateTimeOffset now, string? token, Guid attemptId, object report, CancellationToken ct) =>
-		SendAsync(client, now, token, HttpMethod.Post, $"/api/v1/agent-orchestration/attempts/{attemptId}/completion", report, ct);
+	public Task<HttpResponseMessage> ReadPinnedArtifactsAsync(
+		HttpClient client, DateTimeOffset now, string? token, Guid attemptId, string fencingToken, CancellationToken ct) =>
+		SendAsync(client, now, token, HttpMethod.Post, $"/api/v1/agent-orchestration/attempts/{attemptId}/pinned-artifacts", new { fencingToken }, ct);
+
+	// By default the report's prompt, tool policy, and safety policy references are replaced by the pinned digests read as the
+	// attempt; a report whose attempt cannot read them (stale, unknown) is sent unchanged.
+	public async Task<HttpResponseMessage> CompleteAsync(
+		HttpClient client, DateTimeOffset now, string? token, Guid attemptId, object report, CancellationToken ct,
+		bool pinnedReferences = true)
+	{
+		if (pinnedReferences && await WithPinnedReferencesAsync(client, now, token, attemptId, report, ct) is { } pinned)
+		{
+			report = pinned;
+		}
+
+		return await SendAsync(client, now, token, HttpMethod.Post, $"/api/v1/agent-orchestration/attempts/{attemptId}/completion", report, ct);
+	}
+
+	private async Task<JsonNode?> WithPinnedReferencesAsync(
+		HttpClient client, DateTimeOffset now, string? token, Guid attemptId, object report, CancellationToken ct)
+	{
+		if (JsonSerializer.SerializeToNode(report) is not JsonObject node
+			|| node["fencingToken"]?.ToString() is not { } fencingToken
+			|| node["executionReferences"] is not JsonObject references)
+		{
+			return null;
+		}
+
+		// Replays of an ended attempt reuse the digests read while it was current, so the request content stays identical.
+		if (!_pinnedDigests.TryGetValue(attemptId, out var digests))
+		{
+			using var response = await ReadPinnedArtifactsAsync(client, now, token, attemptId, fencingToken, ct);
+			if (!response.IsSuccessStatusCode)
+			{
+				return null;
+			}
+
+			var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+			digests = body.GetProperty("artifacts").EnumerateArray()
+				.ToDictionary(a => a.GetProperty("kind").GetString()!, a => a.GetProperty("digest").GetString()!);
+			_pinnedDigests[attemptId] = digests;
+		}
+
+		foreach (var (property, kind) in new[] { ("promptRef", "prompt-template"), ("toolPolicyRef", "tool-policy"), ("safetyPolicyRef", "safety-policy") })
+		{
+			if (digests.TryGetValue(kind, out var digest))
+			{
+				references[property] = digest;
+			}
+		}
+
+		return node;
+	}
 
 	public Task<HttpResponseMessage> FailAsync(
 		HttpClient client, DateTimeOffset now, string? token, Guid attemptId, object report, CancellationToken ct) =>

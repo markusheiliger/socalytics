@@ -17,8 +17,23 @@ describe('role-based navigation', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('offers a Club Admin club, seasons, teams, members, Analyst Managers, pairing, and account', async () => {
-    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Pair a Manager', 'Account']);
+  it('offers a Club Admin club, seasons, teams, members, Analyst Managers, Analyst Registry, Operations, Agent catalog, pairing, and account', async () => {
+    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Analyst Registry', 'Operations', 'Agent catalog', 'Pair a Manager', 'Account']);
+  });
+
+  it('places Operations directly after Analyst Registry for a Club Admin', async () => {
+    const links = await navLinks(['ClubAdmin'], []);
+    expect(links.indexOf('Operations')).toBe(links.indexOf('Analyst Registry') + 1);
+  });
+
+  it.each([
+    ['a Registrar', ['Registrar'] as ClubRole[], [] as TeamRole[]],
+    ['a Coach', [] as ClubRole[], [team]],
+    ['a Viewer', [] as ClubRole[], [{ ...team, role: 'Viewer' } as TeamRole]],
+  ])('offers %s no Operations entry and the not-permitted view for /operations', async (_name, clubRoles, teamRoles) => {
+    renderApp(fakeAdapter({ restore: vi.fn().mockResolvedValue(makeSession({ clubRoles, teamRoles })) }), '/operations');
+    expect(await screen.findByRole('alert')).toHaveTextContent('not permitted');
+    expect(screen.queryByRole('link', { name: 'Operations' })).not.toBeInTheDocument();
   });
 
   it('offers a team member only teams and account', async () => {
@@ -33,6 +48,20 @@ describe('role-based navigation', () => {
     renderApp(fakeAdapter({ restore: vi.fn().mockResolvedValue(makeSession({ teamRoles: [team] })) }), '/members');
     expect(await screen.findByRole('alert')).toHaveTextContent('not permitted');
     expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
+  });
+
+  it.each(['/registry', '/registry/images', '/registry/images/sha256:abc', '/registry/profiles', '/registry/profiles/p-1/versions/1', '/registry/workflows', '/registry/workflows/w-1/versions/1.0.0'])(
+    'shows the not-permitted view for %s to a member who is not a Club Admin',
+    async (path) => {
+      renderApp(fakeAdapter({ restore: vi.fn().mockResolvedValue(makeSession({ clubRoles: ['Registrar'], teamRoles: [team] })) }), path);
+      expect(await screen.findByRole('alert')).toHaveTextContent('not permitted');
+      expect(screen.queryByRole('link', { name: 'Analyst Registry' })).not.toBeInTheDocument();
+    },
+  );
+
+  it.each([['Coach'], ['Viewer'], ['Registrar']])('does not offer the Agent catalog to a %s', async (role) => {
+    const roles = role === 'Registrar' ? await navLinks(['Registrar'], []) : await navLinks([], [{ ...team, role: role as TeamRole['role'] }]);
+    expect(roles).not.toContain('Agent catalog');
   });
 
   it('shows the not-found view for unknown addresses', async () => {

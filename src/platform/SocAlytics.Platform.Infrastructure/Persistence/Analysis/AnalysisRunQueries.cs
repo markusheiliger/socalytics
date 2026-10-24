@@ -8,19 +8,34 @@ internal sealed class AnalysisRunQueries(IDbSession session) : IAnalysisRunQueri
 {
     private const string SummarySelect =
         """
-        SELECT id AS RunId, team_id AS TeamId, match_id AS MatchId, recording_set_version_id AS RecordingSetVersionId,
-               workflow_id AS WorkflowId, workflow_version AS WorkflowVersion, state AS State, failure_reason AS FailureReason,
-               created_at AS CreatedAt, running_at AS RunningAt, terminated_at AS TerminatedAt, version AS Version
-        FROM socalytics.analysis_runs
+        SELECT r.id AS RunId, r.team_id AS TeamId, r.match_id AS MatchId, r.recording_set_version_id AS RecordingSetVersionId,
+               r.workflow_id AS WorkflowId, r.workflow_version AS WorkflowVersion, r.state AS State, r.failure_reason AS FailureReason,
+               r.created_at AS CreatedAt, r.running_at AS RunningAt, r.terminated_at AS TerminatedAt, r.version AS Version,
+               r.cancelled_by_account_id AS CancelledByMemberId, a.account_name AS CancelledByAccountName,
+               r.cancellation_reason AS CancellationReason, r.cancellation_cause AS CancellationCause,
+               NOT EXISTS (
+                   SELECT 1 FROM socalytics.analysis_runs o
+                   WHERE o.match_id = r.match_id
+                     AND (o.recording_set_finalized_at, o.recording_set_version_id, o.created_at, o.id)
+                       > (r.recording_set_finalized_at, r.recording_set_version_id, r.created_at, r.id)) AS IsCurrent,
+               s.superseding_run_id AS SupersedingRunId, sr.recording_set_version_id AS SupersedingVersionId,
+               sr.recording_set_finalized_at AS SupersedingFinalizedAt, s.superseded_at AS SupersededAt
+        FROM socalytics.analysis_runs r
+        LEFT JOIN socalytics.member_account a ON a.id = r.cancelled_by_account_id
+        LEFT JOIN socalytics.analysis_run_supersessions s ON s.run_id = r.id
+        LEFT JOIN socalytics.analysis_runs sr ON sr.id = s.superseding_run_id
         """;
 
     private sealed record SummaryRow(
         Guid RunId, Guid TeamId, Guid MatchId, Guid RecordingSetVersionId, string WorkflowId, string WorkflowVersion,
-        string State, string? FailureReason, DateTime CreatedAt, DateTime? RunningAt, DateTime? TerminatedAt, long Version);
+        string State, string? FailureReason, DateTime CreatedAt, DateTime? RunningAt, DateTime? TerminatedAt, long Version,
+        Guid? CancelledByMemberId, string? CancelledByAccountName, string? CancellationReason, string? CancellationCause,
+        bool IsCurrent, Guid? SupersedingRunId, Guid? SupersedingVersionId, DateTime? SupersedingFinalizedAt, DateTime? SupersededAt);
 
     private sealed record NodeRow(
         Guid NodeId, string NodeKey, string CapabilityId, string CapabilityVersion, string Tier, string ExecutionScope,
-        string State, string? BlockedByNodeKey, int Waiting, int Ready, int Claimed, int Completed, int Failed, int Blocked);
+        string State, string? BlockedByNodeKey, int Waiting, int Ready, int Claimed, int Completed, int Failed, int Blocked,
+        int Cancelled);
 
     private sealed record InputRow(Guid NodeId, string Inputs);
 
@@ -37,13 +52,21 @@ internal sealed class AnalysisRunQueries(IDbSession session) : IAnalysisRunQueri
 
     private static AnalysisRunSummaryView ToView(SummaryRow r) => new(
         r.RunId, r.TeamId, r.MatchId, r.RecordingSetVersionId, r.WorkflowId, r.WorkflowVersion, r.State, r.FailureReason,
-        Utc(r.CreatedAt), Utc(r.RunningAt), Utc(r.TerminatedAt), r.Version);
+        Utc(r.CreatedAt), Utc(r.RunningAt), Utc(r.TerminatedAt), r.Version,
+        r.CancelledByMemberId is { } memberId ? new AnalysisRunCancelledByView(memberId, r.CancelledByAccountName ?? string.Empty) : null,
+        r.CancellationReason,
+        r.IsCurrent,
+        r.SupersedingRunId is { } supersedingRunId
+            ? new AnalysisRunSupersededByView(supersedingRunId, r.SupersedingVersionId!.Value, Utc(r.SupersedingFinalizedAt!.Value))
+            : null,
+        Utc(r.SupersededAt),
+        r.CancellationCause);
 
     public async Task<AnalysisRunStatusView?> GetStatusAsync(Guid runId, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);
         var run = await connection.QuerySingleOrDefaultAsync<SummaryRow>(
-            new CommandDefinition(SummarySelect + " WHERE id = @runId", new { runId }, session.Transaction, cancellationToken: cancellationToken));
+            new CommandDefinition(SummarySelect + " WHERE r.id = @runId", new { runId }, session.Transaction, cancellationToken: cancellationToken));
         if (run is null)
         {
             return null;
@@ -64,7 +87,8 @@ internal sealed class AnalysisRunQueries(IDbSession session) : IAnalysisRunQueri
                        count(*) FILTER (WHERE j.state = 'Claimed')::int AS Claimed,
                        count(*) FILTER (WHERE j.state = 'Completed')::int AS Completed,
                        count(*) FILTER (WHERE j.state = 'Failed')::int AS Failed,
-                       count(*) FILTER (WHERE j.state = 'Blocked')::int AS Blocked
+                       count(*) FILTER (WHERE j.state = 'Blocked')::int AS Blocked,
+                       count(*) FILTER (WHERE j.state = 'Cancelled')::int AS Cancelled
                 FROM socalytics.analysis_workflow_nodes n
                 LEFT JOIN socalytics.analysis_workflow_nodes b ON b.id = n.blocked_by_node_id
                 LEFT JOIN socalytics.analysis_logical_jobs j ON j.node_id = n.id
@@ -100,7 +124,7 @@ internal sealed class AnalysisRunQueries(IDbSession session) : IAnalysisRunQueri
             capabilities,
             [.. nodes.Select(n => new AnalysisNodeStatusView(
                 n.NodeId, n.NodeKey, n.CapabilityId, n.CapabilityVersion, n.Tier, n.ExecutionScope, n.State, n.BlockedByNodeKey,
-                new AnalysisJobCountsView(n.Waiting, n.Ready, n.Claimed, n.Completed, n.Failed, n.Blocked),
+                new AnalysisJobCountsView(n.Waiting, n.Ready, n.Claimed, n.Completed, n.Failed, n.Blocked, n.Cancelled),
                 coverageByNode.GetValueOrDefault(n.NodeId)))],
             basis);
     }
@@ -177,9 +201,9 @@ internal sealed class AnalysisRunQueries(IDbSession session) : IAnalysisRunQueri
             new CommandDefinition(
                 SummarySelect + """
 
-                 WHERE match_id = @matchId
-                   AND (@hasAfter = false OR (created_at, id) < (@afterCreated, @afterId))
-                 ORDER BY created_at DESC, id DESC
+                 WHERE r.match_id = @matchId
+                   AND (@hasAfter = false OR (r.created_at, r.id) < (@afterCreated, @afterId))
+                 ORDER BY r.created_at DESC, r.id DESC
                  LIMIT @limit
                  """,
                 new

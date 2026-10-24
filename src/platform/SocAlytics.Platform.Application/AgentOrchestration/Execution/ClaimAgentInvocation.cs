@@ -2,9 +2,12 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.AgentOrchestration.Catalog;
+using SocAlytics.Platform.Application.AgentOrchestration.Invocations;
 using SocAlytics.Platform.Application.AgentOrchestration.Workloads;
 using SocAlytics.Platform.Application.Telemetry;
 using SocAlytics.Platform.Domain.AgentOrchestration;
+using SocAlytics.Platform.Domain.AgentOrchestration.Catalog;
 
 namespace SocAlytics.Platform.Application.AgentOrchestration.Execution;
 
@@ -17,6 +20,7 @@ public sealed class ClaimAgentInvocationHandler(
     IUnitOfWork unitOfWork,
     IAgentInvocationStore invocations,
     IAgentAttemptStore attempts,
+    IAgentInvocationPinStore pins,
     IAgentWorkloadOperationStore operations,
     IContractValidator validator,
     IAuditTrail audit,
@@ -61,6 +65,14 @@ public sealed class ClaimAgentInvocationHandler(
                 cancellationToken);
             AgentOrchestrationMetrics.ClaimRecorded("refused");
             await scope.CommitAsync(cancellationToken);
+            return OperationFailure.Conflict(AgentExecutionCodes.ClaimObsolete);
+        }
+
+        if (invocation.AgentVersion is null || invocation.AgentVersionDigest is null)
+        {
+            await FailUnpinnedAsync(invocation, command.WorkloadClientId, now, cancellationToken);
+            await scope.CommitAsync(cancellationToken);
+            AgentOrchestrationMetrics.ClaimRecorded("refused");
             return OperationFailure.Conflict(AgentExecutionCodes.ClaimObsolete);
         }
 
@@ -110,6 +122,29 @@ public sealed class ClaimAgentInvocationHandler(
         return new AgentClaimGrant(envelope, false);
     }
 
+    // An invocation submitted before pinning existed has no agent version to execute; it ends instead of running unpinned.
+    private async Task FailUnpinnedAsync(
+        AgentInvocationRecord invocation, string clientId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var moved = await invocations.TransitionAsync(
+            invocation.Id, AgentInvocationState.Queued, invocation.Version, AgentInvocationState.Failed,
+            AgentFailureReason.AgentNotAvailable, now, cancellationToken);
+        if (moved.Outcome != VersionedWriteOutcome.Applied)
+        {
+            throw new InvalidOperationException("The locked invocation could not be moved to failed.");
+        }
+
+        await invocations.SetCurrentAttemptAsync(invocation.Id, null, invocation.AttemptsUsed, cancellationToken);
+        var reason = AgentPersistedNames.ToPersistedName(AgentFailureReason.AgentNotAvailable);
+        await invocations.AppendLineageAsync(
+            new NewAgentLineageEntry(
+                invocation.Id, "failed", null, JsonSerializer.Serialize(new { attemptId = (Guid?)null, reason, retryable = false }), now),
+            cancellationToken);
+        await audit.RecordAsync(
+            AgentOrchestrationAuditEvents.ClaimRefused(invocation.Id, invocation.TeamId, invocation.AgentId, clientId, reason),
+            cancellationToken);
+    }
+
     private async Task<string?> RefusalAsync(
         AgentInvocationRecord invocation, ExecutionPolicy policy, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -135,10 +170,12 @@ public sealed class ClaimAgentInvocationHandler(
     {
         var history = await invocations.ListSucceededTurnsBeforeAsync(
             invocation.ConversationId, invocation.SubmittedAt, policy.HistoryTurns, cancellationToken);
+        var pinned = await AgentPins.ReadAsync(pins, invocation, cancellationToken)
+            ?? throw new InvalidOperationException("The claimed invocation has no agent pin.");
         var envelope = JsonSerializer.SerializeToElement(
             new
             {
-                schemaVersion = "1.0.0",
+                schemaVersion = "1.1.0",
                 invocationId = invocation.Id,
                 conversationId = invocation.ConversationId,
                 attemptId = attempt.Id,
@@ -150,6 +187,15 @@ public sealed class ClaimAgentInvocationHandler(
                 correlationId = invocation.CorrelationId,
                 route = AgentPersistedNames.ToPersistedName(invocation.Route),
                 agentId = invocation.AgentId,
+                agent = new
+                {
+                    agentId = invocation.AgentId,
+                    version = pinned.Version,
+                    digest = pinned.Digest,
+                    artifacts = pinned.Artifacts
+                        .Select(a => new { kind = AgentCatalogRecordKinds.ToName(a.Kind), id = a.ArtifactId, version = a.ArtifactVersion, digest = a.Digest })
+                        .ToList(),
+                },
                 question = invocation.Question,
                 history = history
                     .Where(t => t.Advice is not null)

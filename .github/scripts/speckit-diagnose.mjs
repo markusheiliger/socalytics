@@ -5,18 +5,22 @@ import { pathToFileURL } from 'node:url';
 import { specDir } from './speckit-prepare-core.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, reportSpecPullFailure, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
+import { RETRY_EFFECT, requestSync, restartState, retryImplementation } from './speckit-commands.mjs';
 import {
+  AUTO_CONTINUE_MARKER,
   BOT_LOGIN,
   CATEGORY_MEANING,
   CHECK_AMEND_CHECKING,
   CHECK_AMEND_INCONSISTENT,
   CHECK_DIAGNOSED,
   CHECK_DIAGNOSING,
+  CHECK_LIMIT,
   CHECK_RUN_NAME,
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_COMMENT_MARKER,
   MAX_CORRECTION_ROUNDS,
-  IMPLEMENT_WORKFLOW_FILE,
+  IMPLEMENT_CHAIN_WORKFLOW_FILES,
+  LEGACY_IMPLEMENT_WORKFLOW_FILES,
   MAX_STALLED_ROUNDS,
   MAX_WRITER_GUIDANCE,
   PR_COMMANDS,
@@ -29,6 +33,8 @@ import {
   implementationBranch,
   isImplementRunOf,
   isTwinRunOf,
+  latestHumanCommit,
+  latestCheckRun,
   neutralizeMarkers,
   nextStepContext,
   nextTaskGroup,
@@ -74,9 +80,23 @@ const clip = (text, max) => {
 
 export class DiagnoseUsageError extends Error {}
 
+// Longest stop description in a diagnose run name.
+export const MAX_STOP_SUBJECT = 120;
+
+// What stopped the implementation, for the diagnose run name: the title of the latest stop check run (CHECK_LIMIT) on
+// `head`, such as "T013 reached the attempt limit" or "The phase verification failed"; empty when there is none.
+export async function stopSubject(client, head) {
+  try {
+    const stop = latestCheckRun((await client.listCheckRuns(head, CHECK_RUN_NAME)).filter((check) => check.external_id === CHECK_LIMIT));
+    return clip(String(stop?.output?.title ?? '').replace(/\s+/g, ' ').trim(), MAX_STOP_SUBJECT);
+  } catch {
+    return '';
+  }
+}
+
 // Starts a diagnosis of the implementation pull request `pull`: a check run on the head marks the implementation as
-// waiting for the diagnosis, and the agentic diagnose workflow is dispatched. A dispatch failure leaves an unfinished
-// diagnosis check so the implementation controller starts it again.
+// waiting for the diagnosis, and the agentic diagnose workflow is dispatched (its run is named after the stop). A
+// dispatch failure leaves an unfinished diagnosis check so the implementation controller starts it again.
 export async function startDiagnosis(client, env, { twin, pull, folder, head, guidance = '', previous = '', actor = null, auto = false }) {
   // A new diagnosis supersedes an earlier amendment; its branch must not exist when the new run proposes one.
   const superseded = await findAmendment(client, folder);
@@ -94,6 +114,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, gu
     auto ? 'Started automatically because the implementation stopped.' : `Started by @${actor}.`,
     ...(guidance ? ['', `Guidance: ${clip(guidance, 2000)}`] : []),
   ].join('\n');
+  const stop = await stopSubject(client, head);
   const check = await client.createCheckRun({
     name: CHECK_RUN_NAME,
     head_sha: head,
@@ -104,7 +125,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, gu
   });
   try {
     await client.dispatchWorkflow(DIAGNOSE_WORKFLOW_FILE, defaultBranchOf(env), {
-      twin: String(twin),
+      issue: String(twin),
       pull: String(pull),
       folder,
       guidance: clip(guidance, 4000),
@@ -113,6 +134,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, gu
       mode: 'diagnose',
       amendment: '',
       round: '0',
+      stop,
     });
     await setAttention(client, pull, false);
     return { started: true, check };
@@ -211,7 +233,7 @@ export async function runEvidence({ client, env, log }) {
         '',
         `The last \`/speckit ${repeated.verb}\` left the implementation branch at ${pull.head.sha} and stopped with the same reason as the stop before it: ${neutralizeMarkers(repeated.reason)}`,
         '',
-        `Do not recommend \`/speckit ${repeated.verb}\` again: it would repeat the failure. Recommend a command that changes something, such as \`/speckit fix\` for a cause outside this spec. A recommendation of \`/speckit ${repeated.verb}\` is replaced at publication.`,
+        `Do not recommend \`/speckit ${repeated.verb}\` again: it would repeat the failure. Recommend a command that changes something, such as \`/speckit author\` for a cause outside this spec. A recommendation of \`/speckit ${repeated.verb}\` is replaced at publication.`,
         '',
       );
     }
@@ -230,8 +252,18 @@ export async function runEvidence({ client, env, log }) {
   // A task that fails its verification is reported in the pull request comments above; failed jobs are crashes,
   // timeouts, and infrastructure problems.
   sections.push('## Failed jobs of recent implementation runs', '');
-  const runs = (await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, pull.created_at, 2))
+  // Runs of the chain before groups count too while implementations started on it are still open.
+  const listed = [];
+  for (const file of [...IMPLEMENT_CHAIN_WORKFLOW_FILES, ...LEGACY_IMPLEMENT_WORKFLOW_FILES]) {
+    try {
+      listed.push(...await client.listWorkflowRuns(file, pull.created_at, 2));
+    } catch {
+      // A removed workflow file may not be listed any more.
+    }
+  }
+  const runs = listed
     .filter((run) => isImplementRunOf(run.display_title, twin) && run.status === 'completed')
+    .sort((a, b) => Date.parse(b.created_at ?? 0) - Date.parse(a.created_at ?? 0))
     .slice(0, 5);
   for (const run of runs) {
     const failedJobs = (await client.listRunJobs(run.id)).filter((item) => item.conclusion === 'failure');
@@ -379,9 +411,9 @@ function readAgentItems(env, type) {
   }
 }
 
-// Diagnose reports its results as `speckit_diagnosis`; Spec Kit fix reports reworks of a prerequisite spec as `speckit_fix`.
+// Diagnose reports its results as `speckit_diagnosis`.
 function readAgentReports(env) {
-  return [...readAgentItems(env, 'speckit_diagnosis'), ...readAgentItems(env, 'speckit_fix')].map((item) => item.report ?? item);
+  return readAgentItems(env, 'speckit_diagnosis').map((item) => item.report ?? item);
 }
 
 // Whether the diagnose run tracked by a still-open diagnosis check run has ended without reporting (agent failure,
@@ -457,9 +489,9 @@ function defaultRecommendation(report) {
       };
     case 'outside':
       return {
-        title: 'Fix the cause in a prerequisite spec, then continue by itself',
+        title: 'Fix the cause in a new spec, then continue once it is implemented',
         why: `${report.summary} The cause lies outside this spec, so running the work here again cannot remove it.`,
-        command: `/speckit fix ${guidance}`,
+        command: `/speckit author ${guidance}`,
       };
     case 'artifacts':
       return {
@@ -576,6 +608,23 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
   return lines.join('\n');
 }
 
+// The outcome of a rework by the diagnose agent, from its agent output and the safe-output push job (recordRework).
+function reworkOutcome(env) {
+  const detection = String(env.SPECKIT_DETECTION ?? '').trim();
+  const withheld = detection && detection !== 'success';
+  const reports = withheld ? [] : readAgentReports(env);
+  const { reasons, report } = withheld
+    ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
+    : reports.length > 0 ? validateReport(reports.at(-1), { requireCategory: false }) : { reasons: ['the agent did not report'], report: null };
+  return {
+    reasons,
+    report,
+    pushed: String(env.SPECKIT_PUSH_SHA ?? '').trim(),
+    pushFailures: Number(env.SPECKIT_PUSH_FAILURES || 0),
+    incomplete: readAgentItems(env, 'report_incomplete').map((item) => String(item.reason ?? '').trim()).filter(Boolean),
+  };
+}
+
 // Custom safe-output job, after the agent and the built-in safe outputs. A diagnosis posts its findings on the
 // implementation pull request and marks its check run as waiting for a decision; a created amendment then goes into
 // the consistency check. A rework (`fix`, `revise`) reports on the amendment pull request and checks it again.
@@ -614,13 +663,15 @@ export async function runRecord({ client, env, log }) {
     ...context,
   }));
   const checkRun = Number(env.SPECKIT_CHECK_RUN);
+  const next = !repeat && !amendment && autoContinueEnabled(env) ? autoContinueCommand(usable, { amendment, repeated }) : null;
+  const continues = next !== null && !(await continuedSincePerson(client, pullNumber, comments));
   if (Number.isInteger(checkRun) && checkRun > 0) {
     await client.updateCheckRun(checkRun, {
       status: 'completed',
       conclusion: usable ? 'neutral' : 'failure',
       external_id: CHECK_DIAGNOSED,
       output: usable
-        ? { title: repeat ? `Diagnosis continues: ${usable.category}` : `Waiting for a decision: ${usable.category}`, summary: clip(usable.summary, 2000) }
+        ? { title: repeat ? `Diagnosis continues: ${usable.category}` : continues ? `Continued automatically: ${usable.category}` : `Waiting for a decision: ${usable.category}`, summary: clip(usable.summary, 2000) }
         : { title: 'Diagnosis without a usable report', summary: clip(reasons.join('; '), 2000) },
     });
   }
@@ -637,16 +688,68 @@ export async function runRecord({ client, env, log }) {
   } else if (amendment) {
     const implementation = await client.getPullRequest(pullNumber);
     await beginAmendment(client, env, { amendment, folder, implementation, twin });
+  } else if (continues) {
+    await autoContinue(client, env, { twin, pull: pullNumber, folder, command: next });
+    log(`Continued #${pullNumber} automatically with /speckit ${next.verb}.`);
   } else {
     await setAttention(client, pullNumber, true);
   }
   log(usable ? `Posted the diagnosis (${usable.category}) on #${pullNumber}.` : `Posted that the diagnosis had no usable report on #${pullNumber}.`);
-  return { exitCode: 0, report: usable, reasons };
+  return { exitCode: 0, report: usable, reasons, continued: continues ? next.verb : null };
+}
+
+// A diagnosis continues by itself (SPECKIT_AUTO_CONTINUE, on unless `false`) when its recommendation is a transient
+// one: `/speckit retry` for a `retry` diagnosis of high or medium confidence, or `/speckit sync` for an `outside` cause
+// already fixed on the base branch. Never with an amendment or after the same command already failed the same way.
+export function autoContinueEnabled(env) {
+  return String(env.SPECKIT_AUTO_CONTINUE ?? '').trim().toLowerCase() !== 'false';
+}
+
+// The recommended command a diagnosis continues with by itself ({ verb, guidance, … } of parseNextCommand), or null.
+export function autoContinueCommand(report, { amendment = null, repeated = null } = {}) {
+  if (!report || amendment || repeated) return null;
+  const option = recommendNextSteps(report, { amendment, repeated }).options.find((item) => item.recommended && item.command);
+  const command = parseNextCommand(option?.command);
+  if (!command) return null;
+  if (command.verb === 'retry' && report.category === 'retry' && ['high', 'medium'].includes(report.confidence)) return command;
+  if (command.verb === 'sync' && report.category === 'outside') return command;
+  return null;
+}
+
+// Whether a diagnosis already continued automatically since the last action of a person on the implementation pull
+// request (a `/speckit` comment by a person, or a push by a person): it continues once per person's action, so a
+// failure that keeps coming back stops for a person.
+export async function continuedSincePerson(client, pull, comments) {
+  const person = (comment) => comment.user?.login && comment.user.login !== BOT_LOGIN && !String(comment.user.login).endsWith('[bot]') && comment.user.type !== 'Bot';
+  const commands = comments.filter((comment) => person(comment) && /^\s*\/speckit\b/.test(String(comment.body ?? ''))).map((comment) => Date.parse(comment.created_at));
+  const pushed = Date.parse(latestHumanCommit(await client.listPullRequestCommits(pull)) ?? '') || 0;
+  const since = Math.max(0, pushed, ...commands);
+  return comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(AUTO_CONTINUE_MARKER) && Date.parse(comment.created_at) > since);
+}
+
+// Continues the implementation like the person's command would (speckit-commands.mjs), with a comment that starts with
+// AUTO_CONTINUE_MARKER.
+async function autoContinue(client, env, { twin, pull, folder, command }) {
+  const implementation = await client.getPullRequest(pull);
+  const guidance = neutralizeMarkers(command.guidance).slice(0, MAX_WRITER_GUIDANCE);
+  const options = {
+    lead: `Continued automatically with \`/speckit ${command.verb}\` as the diagnosis recommends`,
+    guidance,
+    prefix: `${AUTO_CONTINUE_MARKER}\n`,
+    suffix: ' Post another command or push to steer it.',
+  };
+  if (command.verb === 'sync') {
+    await requestSync(client, env, { implementation, twin }, options);
+  } else {
+    await retryImplementation(client, env, { implementation, twin, folder }, { ...options, effect: RETRY_EFFECT, state: await restartState(client, implementation) });
+  }
 }
 
 // Records a rework of an amendment (`fix` after the consistency check, `revise` after a person's feedback) and starts
-// the consistency check of the result.
-async function recordRework({ client, env, log, inputs }) {
+// the consistency check of the result. `outcome` is what the rework produced: its validated report (or the reasons
+// why there is none), the pushed commit, failed pushes, and why a push was refused. Diagnose reads it from its agent
+// output (reworkOutcome); Spec Kit author passes the result of its land job.
+export async function recordRework({ client, env, log, inputs, outcome }) {
   const { mode, amendment: number, round, stalls, findings } = inputs;
   const checkRun = Number(env.SPECKIT_CHECK_RUN);
   const complete = async (conclusion, title, summary) => {
@@ -671,12 +774,7 @@ async function recordRework({ client, env, log, inputs }) {
     const pending = await pendingFeedback(client, context.amendment);
     await presentAmendment(client, env, context, { consistent: false, problem, since: pending.since });
   };
-  const detection = String(env.SPECKIT_DETECTION ?? '').trim();
-  const withheld = detection && detection !== 'success';
-  const reports = withheld ? [] : readAgentReports(env);
-  const { reasons, report } = withheld
-    ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
-    : reports.length > 0 ? validateReport(reports.at(-1), { requireCategory: false }) : { reasons: ['the agent did not report'], report: null };
+  const { reasons, report, pushed, pushFailures, incomplete } = outcome ?? reworkOutcome(env);
   if (!report || !report.summary) {
     await complete('failure', mode === 'fix' ? `Correction round ${round} did not finish` : 'The rework did not finish', reasons.join('; '));
     const problem = `The ${mode === 'fix' ? `correction round ${round}` : 'rework'} did not produce a result: ${neutralizeMarkers(reasons.join('; ') || 'no report')}.`;
@@ -686,10 +784,7 @@ async function recordRework({ client, env, log, inputs }) {
     await setAttention(client, number, true);
     return { exitCode: 0, outcome: 'failed' };
   }
-  const pushFailures = Number(env.SPECKIT_PUSH_FAILURES || 0);
-  const pushed = String(env.SPECKIT_PUSH_SHA ?? '').trim();
   // A push the safe-output tool refused never reaches the push job; the agent reports it as incomplete instead.
-  const incomplete = readAgentItems(env, 'report_incomplete').map((item) => String(item.reason ?? '').trim()).filter(Boolean);
   if (pushFailures > 0 || (!pushed && incomplete.length > 0)) {
     const what = mode === 'fix' ? `Correction round ${round}` : 'The rework';
     const why = pushFailures > 0 ? `${pushFailures} push(es) to \`${context.amendment.head.ref}\` failed.` : `The push was refused: ${incomplete.join('; ')}`;

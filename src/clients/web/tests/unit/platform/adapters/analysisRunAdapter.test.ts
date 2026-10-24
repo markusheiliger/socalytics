@@ -1,5 +1,5 @@
 import { createAnalysisRunAdapter } from '../../../../src/platform/adapters/analysisRunAdapter';
-import { ids, ok, setup } from './support';
+import { bodyOf, header, ids, ok, problem, setup } from './support';
 
 const run = {
   runId: ids.run,
@@ -28,8 +28,123 @@ describe('analysisRunAdapter', () => {
     expect(page.items[0].runningAt).toBeInstanceOf(Date);
   });
 
+  it('cancels a run with If-Match and the reason and maps the cancellation', async () => {
+    const cancelled = { ...run, state: 'Cancelled', cancelledBy: { memberId: ids.team, accountName: 'coach' }, cancellationReason: 'wrong set', version: 3 };
+    const { api, calls } = setup(() => ok(200, cancelled));
+    const result = await createAnalysisRunAdapter(api).cancel(ids.run, 2, 'wrong set');
+    expect(calls[0].url).toContain(`/api/v1/analysis/runs/${ids.run}/cancellation`);
+    expect(calls[0].init.method).toBe('POST');
+    expect(header(calls[0], 'If-Match')).toBe('"2"');
+    expect(bodyOf(calls[0])).toEqual({ reason: 'wrong set' });
+    expect(result).toMatchObject({ state: 'Cancelled', version: 3, cancelledBy: { accountName: 'coach' }, cancellationReason: 'wrong set' });
+  });
+
+  it('maps the supersession fields of a current run sent as null', async () => {
+    const current = { ...run, isCurrent: true, supersededBy: null, supersededAt: null, cancellationCause: null };
+    const { api } = setup(() => ok(200, { items: [current] }));
+    const [item] = (await createAnalysisRunAdapter(api).listByMatch(ids.match)).items;
+    expect(item.isCurrent).toBe(true);
+    expect(item.supersededBy).toBeUndefined();
+    expect(item.supersededAt).toBeUndefined();
+    expect(item.cancellationCause).toBeUndefined();
+  });
+
+  it('defaults isCurrent to false and tolerates absent supersession fields', async () => {
+    const { api } = setup(() => ok(200, { items: [run] }));
+    const [item] = (await createAnalysisRunAdapter(api).listByMatch(ids.match)).items;
+    expect(item.isCurrent).toBe(false);
+    expect(item.supersededBy).toBeUndefined();
+    expect(item.cancellationCause).toBeUndefined();
+  });
+
+  it('maps a superseded run with its successor and cause', async () => {
+    const superseded = {
+      ...run,
+      state: 'Cancelled',
+      isCurrent: false,
+      cancellationCause: 'superseded',
+      supersededAt: '2026-10-02T08:00:00Z',
+      supersededBy: { runId: ids.version, recordingSetVersionId: ids.set, recordingSetFinalizedAt: '2026-10-02T07:59:00Z' },
+    };
+    const { api } = setup(() => ok(200, { items: [superseded] }));
+    const [item] = (await createAnalysisRunAdapter(api).listByMatch(ids.match)).items;
+    expect(item.cancellationCause).toBe('superseded');
+    expect(item.supersededAt).toBeInstanceOf(Date);
+    expect(item.supersededBy).toMatchObject({ runId: ids.version, recordingSetVersionId: ids.set });
+    expect(item.supersededBy?.recordingSetFinalizedAt).toBeInstanceOf(Date);
+  });
+
+  it('passes the member cancellation cause through, maps it on cancel, and drops unknown causes', async () => {
+    const cancelled = { ...run, state: 'Cancelled', cancellationCause: 'member', isCurrent: false, version: 3 };
+    const { api } = setup(() => ok(200, cancelled));
+    expect((await createAnalysisRunAdapter(api).cancel(ids.run, 2)).cancellationCause).toBe('member');
+    const other = setup(() => ok(200, { items: [{ ...run, cancellationCause: 'other' }] }));
+    expect((await createAnalysisRunAdapter(other.api).listByMatch(ids.match)).items[0].cancellationCause).toBeUndefined();
+  });
+
+  it('maps a refused cancellation to a failure', async () => {
+    const { api } = setup(() => problem(409, 'conflict'));
+    await expect(createAnalysisRunAdapter(api).cancel(ids.run, 1)).rejects.toMatchObject({ kind: 'conflict' });
+  });
+
   it('refuses a run without a state as incompatible', async () => {
     const { api } = setup(() => ok(200, { items: [{ ...run, state: null }] }));
     await expect(createAnalysisRunAdapter(api).listByMatch(ids.match)).rejects.toMatchObject({ kind: 'incompatible' });
+  });
+
+  describe('getRun', () => {
+    const jobs = { waiting: 1, ready: 2, claimed: 3, completed: 4, failed: 5, blocked: 6 };
+    const node = {
+      nodeId: ids.version,
+      nodeKey: 'detect',
+      capabilityId: 'ball-detection',
+      capabilityVersion: '1.0',
+      tier: 'Match',
+      executionScope: 'Recording',
+      state: 'Running',
+      blockedByNodeKey: null,
+      jobs,
+    };
+    const status = { ...run, requestedCapabilities: ['ball-detection'], nodes: [node] };
+
+    it('maps the run status with its nodes and job counts', async () => {
+      const { api, calls } = setup(() => ok(200, status));
+      const outcome = await createAnalysisRunAdapter(api).getRun(ids.run);
+      expect(calls[0].url).toContain(`/api/v1/analysis/runs/${ids.run}`);
+      expect(outcome.kind).toBe('found');
+      if (outcome.kind !== 'found') return;
+      expect(outcome.run).toMatchObject({ runId: ids.run, teamId: ids.team, matchId: ids.match, state: 'Running', requestedCapabilities: ['ball-detection'] });
+      expect(outcome.run.failureReason).toBeUndefined();
+      expect(outcome.run.createdAt).toBeInstanceOf(Date);
+      expect(outcome.run.nodes).toEqual([
+        { nodeKey: 'detect', capabilityId: 'ball-detection', capabilityVersion: '1.0', tier: 'Match', executionScope: 'Recording', state: 'Running', blockedByNodeKey: undefined, jobs },
+      ]);
+    });
+
+    it('keeps the failure reason and blocking node', async () => {
+      const failed = { ...status, state: 'Failed', failureReason: 'node-failed', nodes: [{ ...node, state: 'Blocked', blockedByNodeKey: 'prepare' }] };
+      const { api } = setup(() => ok(200, failed));
+      const outcome = await createAnalysisRunAdapter(api).getRun(ids.run);
+      expect(outcome).toMatchObject({ kind: 'found', run: { failureReason: 'node-failed', nodes: [{ blockedByNodeKey: 'prepare' }] } });
+    });
+
+    it('answers runNotFound for a 404', async () => {
+      const { api } = setup(() => problem(404, 'not-found'));
+      await expect(createAnalysisRunAdapter(api).getRun(ids.run)).resolves.toEqual({ kind: 'runNotFound' });
+    });
+
+    it('throws notPermitted for a 403', async () => {
+      const { api } = setup(() => problem(403, 'forbidden'));
+      await expect(createAnalysisRunAdapter(api).getRun(ids.run)).rejects.toMatchObject({ kind: 'notPermitted', status: 403 });
+    });
+
+    it('refuses a missing required field or node count as incompatible', async () => {
+      const noState = setup(() => ok(200, { ...status, state: null }));
+      await expect(createAnalysisRunAdapter(noState.api).getRun(ids.run)).rejects.toMatchObject({ kind: 'incompatible' });
+      const noNodes = setup(() => ok(200, { ...status, nodes: null }));
+      await expect(createAnalysisRunAdapter(noNodes.api).getRun(ids.run)).rejects.toMatchObject({ kind: 'incompatible' });
+      const noCount = setup(() => ok(200, { ...status, nodes: [{ ...node, jobs: { ...jobs, failed: null } }] }));
+      await expect(createAnalysisRunAdapter(noCount.api).getRun(ids.run)).rejects.toMatchObject({ kind: 'incompatible' });
+    });
   });
 });

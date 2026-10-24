@@ -276,7 +276,7 @@ the spec's clarifications.
   `agent-catalog-consultations.spec.ts` with routes in `simulatedApi.ts`; the platform agent catalog test asserts the
   seeded consultation policies referenced by the enabled Coach Agent versions.
 - **Rationale**: FR-031 to FR-035; the Agent Catalog area must list every artifact kind
-  ([Web UI Agent Catalog Administration](../20261018-103316-web-ui-agent-catalog/spec.md), FR-006 there).
+  ([Web UI Agent Catalog Administration](../archive/20261018-103316-web-ui-agent-catalog/spec.md), FR-006 there).
 - **Alternatives considered**: Showing consultations only in the lineage (the architecture requires visible
   attribution and influence next to the synthesis).
 

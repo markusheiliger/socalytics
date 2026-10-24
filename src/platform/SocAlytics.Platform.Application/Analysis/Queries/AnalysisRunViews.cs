@@ -1,5 +1,9 @@
 namespace SocAlytics.Platform.Application.Analysis.Queries;
 
+public sealed record AnalysisRunCancelledByView(Guid MemberId, string AccountName);
+
+public sealed record AnalysisRunSupersededByView(Guid RunId, Guid RecordingSetVersionId, DateTimeOffset RecordingSetFinalizedAt);
+
 public sealed record AnalysisRunSummaryView(
     Guid RunId,
     Guid TeamId,
@@ -12,9 +16,15 @@ public sealed record AnalysisRunSummaryView(
     DateTimeOffset CreatedAt,
     DateTimeOffset? RunningAt,
     DateTimeOffset? TerminatedAt,
-    long Version);
+    long Version,
+    AnalysisRunCancelledByView? CancelledBy,
+    string? CancellationReason,
+    bool IsCurrent,
+    AnalysisRunSupersededByView? SupersededBy,
+    DateTimeOffset? SupersededAt,
+    string? CancellationCause);
 
-public sealed record AnalysisJobCountsView(int Waiting, int Ready, int Claimed, int Completed, int Failed, int Blocked);
+public sealed record AnalysisJobCountsView(int Waiting, int Ready, int Claimed, int Completed, int Failed, int Blocked, int Cancelled);
 
 public sealed record AnalysisNodeInputCoverageView(
     string UpstreamNodeKey,

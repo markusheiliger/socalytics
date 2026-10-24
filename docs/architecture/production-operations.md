@@ -9,7 +9,8 @@ The architecture remains **Provisional / Blocking production**. Docker Compose
 is the selected initial profile and Azure Container Apps the Provisional target
 cloud profile, but no profile is production-ready until its owners, values,
 approvals, and live exercise evidence are complete. This topic does not provide
-deployment manifests.
+deployment manifests; the self-hosted evaluation composition lives with the
+platform source and is not a production profile.
 
 ## Scope and Invariants
 
@@ -54,7 +55,7 @@ Each stamp references one immutable profile version. A profile records:
 | Network | Ingress, internal networks, egress, DNS, TLS, exposed and denied endpoints |
 | Configuration | Non-secret source, schema/version, validation, reload or restart behavior |
 | Secrets | Source, scope, delivery, rotation, revocation, recovery, and audit behavior |
-| Email | Relay endpoint and credentials, relay residency, sender domain and address, SPF/DKIM/DMARC, bounce and complaint handling, delivery-record retention, rate limits, and the password-recovery link lifetime, minimum answer duration, and limits (development values exist), and the invitation link lifetime, resend limit, and link-check limit (decided, not yet implemented) (see [Email Notifications](email-notifications.md#production-values)) |
+| Email | Relay endpoint and credentials, relay residency, sender domain and address, SPF/DKIM/DMARC, bounce and complaint handling, delivery-record retention, rate limits, and the password-recovery link lifetime, minimum answer duration, and limits (development values exist), and the invitation link lifetime, resend limit, and link-check limit (development values exist) (see [Email Notifications](email-notifications.md#production-values)) |
 | Persistence | Volume, authority, durability, encryption, capacity, residency, retention, backup and recovery |
 | Objectives | Numeric value, unit, window, signal, owner, approval, alert and evidence |
 | Evidence | Preflight, restore, failure, capacity, upgrade, rollback and incident exercise references |
@@ -83,8 +84,8 @@ one-shot service that every API service depends on with
 `condition: service_completed_successfully`, so migrations complete once per
 deployment before any API replica starts.
 
-A self-hosted evaluation composition of one stamp (decided, not yet
-implemented; see
+A self-hosted evaluation composition of one stamp (implemented as development
+evidence; see
 [Platform Implementation](platform-implementation.md#source-and-runtime-baseline))
 applies these fixed architecture choices but approves no profile value: its
 loopback-only ingress without TLS, secrets in an operator-held environment
@@ -437,7 +438,8 @@ They cannot satisfy live recovery, capacity, objective, production-readiness,
 or production-acceptance gates.
 
 Production acceptance requires serious evaluation of deployment and recovery
-alternatives, a real Compose deployment, approved
+alternatives, a real production Compose deployment (the evaluation
+composition does not count), approved
 data-governance policy values (`DAT-008`, `POL-008`, and related authorities in
 [Security and Data Governance](security-and-data-governance.md)) and operational
 owners, measured objectives and capacity, and successful live preflight,

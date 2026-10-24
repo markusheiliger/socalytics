@@ -13,7 +13,7 @@ the [architecture overview](overview.md) for the system topology.
   infrastructure may be shared between stamps.
 - **Club:** the organizational root represented by a stamp. Club administrators
   manage club settings, users, seasons, teams, grants, and all stamp content.
-  They add club users directly or, once implemented, by email invitation (see
+  They add club users directly or by email invitation (see
   [Member Invitations](email-notifications.md#member-invitations)).
 - **Registrar:** a club-level role that may initiate Analyst Manager
   registration. Club administrators inherit this capability. Activation still
@@ -98,8 +98,9 @@ the [architecture overview](overview.md) for the system topology.
 Both Analyst tiers use the same OCI packaging and Analyst Manager execution
 model. Neither tier receives database credentials. High-level ACs obtain facts
 through match-scoped API queries performed on their behalf by the Analyst
-Manager, which stages accepted upstream results, and obtain video only through short-lived
-presigned object-storage references.
+Manager, which stages accepted upstream results, and obtain video only as
+segment media the Analyst Manager stages read-only into the attempt's mount
+through short-lived presigned object-storage grants.
 
 Coach and Specialist Agents may use general football methods for interpretation,
 but every current match, team, or player claim requires authorized MCP/API

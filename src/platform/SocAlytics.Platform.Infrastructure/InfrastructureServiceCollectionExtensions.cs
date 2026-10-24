@@ -40,7 +40,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<IRecordingLineageQueries, RecordingLineageQueries>();
         services.TryAddScoped<IRecordingSetLookup, RecordingSetLookup>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Analysis.IAnalysisSegmentSource, SocAlytics.Platform.Infrastructure.Analysis.LineageAnalysisSegmentSource>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Segments.ISegmentStore, SocAlytics.Platform.Infrastructure.Persistence.Segments.SegmentStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Segments.ISegmentSourceLookup, SocAlytics.Platform.Infrastructure.Segments.SegmentSourceLookup>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IAnalysisRunStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IRunSupersessionStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.RunSupersessionStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.ILogicalJobStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.LogicalJobStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IExecutionAttemptStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.ExecutionAttemptStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IAcceptedResultStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AcceptedResultStore>();
@@ -86,6 +89,11 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IAgentAttemptStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentAttemptStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IAgentWorkloadOperationStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentWorkloadOperationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IAgentWorkloadTokenStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentWorkloadTokenStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentCatalogArtifactStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentCatalogArtifactStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentVersionStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentVersionStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentEnablementStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentEnablementStore>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Enablement.ICatalogEnvironment, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.HostCatalogEnvironment>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentInvocationPinStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentInvocationPinStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisRunQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.IFactQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.FactQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisOperationalQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisOperationalQueries>();
@@ -99,6 +107,8 @@ public static class InfrastructureServiceCollectionExtensions
             .Validate(static o => !string.IsNullOrWhiteSpace(o.Bucket), "ObjectStorage:Bucket is required.")
             .ValidateOnStart();
         services.TryAddSingleton<IObjectStorage, S3ObjectStorage>();
+        services.TryAddSingleton<SocAlytics.Platform.Infrastructure.Segments.ToolchainProbe>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Segments.ISegmentExtractor, SocAlytics.Platform.Infrastructure.Segments.FfmpegSegmentExtractor>();
         services.AddHostedService<DevelopmentBucketInitializer>();
         services.AddHostedService<UploadSessionExpiryWorker>();
 
@@ -141,6 +151,7 @@ public static class InfrastructureServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowOptions.SectionName);
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionResolver, SocAlytics.Platform.Infrastructure.Registry.RegistryWorkflowDefinitionResolver>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowSeeder>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.AgentOrchestration.Catalog.AgentCatalogSeeder>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionAvailability, SocAlytics.Platform.Infrastructure.Registry.WorkflowDefinitionAvailability>();
         services.AddSingleton<SocAlytics.Platform.Infrastructure.Registry.AnalysisWorkflowHealthCheck>();
         services.AddOptions<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckServiceOptions>()
@@ -160,6 +171,7 @@ public static class InfrastructureServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.AnalysisNotificationOptions.SectionName);
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.RecordingsFinalizedConsumerWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.LeaseExpiryWorker>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.SegmentMaterializationWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentAttemptMonitorWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentWorkReconciliationWorker>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IPublicationReconciliationStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.PublicationReconciliationStore>();
@@ -171,6 +183,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.IEmailConfirmationStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.EmailConfirmationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.INotificationPreferenceStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.NotificationPreferenceStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.IPasswordRecoveryStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.PasswordRecoveryStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Invitations.IMemberInvitationStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.MemberInvitationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.IEmailMessageStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.EmailMessageStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.INotificationRecipientStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.NotificationRecipientStore>();
         services.AddOptions<SocAlytics.Platform.Infrastructure.Email.EmailOptions>()
