@@ -61,6 +61,7 @@ description: "Task list for Explicit Analysis Run Request"
 - [x] T008 [US1] Implement the `RequestAnalysisRun` command, result, and handler (the creation path: authorize `TeamPermission.Write` through `IAccessAuthorizer` and `ITeamScopeSource` with 401, 403, 404, and `season-archived` 409 refusals; validate the `Idempotency-Key` of 1 to 255 characters from `U+0021` to `U+007E`; read the current finalized set with `GetCurrentForMatchAsync`; resolve the default workflow as the finalization path does; call `AnalysisRunCreator`; in one unit of work write the run, the `analysis-requested` receipt with a fresh version 7 `message_id = request_id` and outcome `run-created`, the `analysis_run_requests` record, and exactly one `analysis.run.request` audit event) in `PLATFORM/SocAlytics.Platform.Application/Analysis/Commands/RequestAnalysisRun.cs`, and register the handler in `PLATFORM/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`
 - [x] T009 [US1] Add the `POST /api/v1/matches/{matchId}/analysis-runs` route (`requestAnalysisRun`, tag `Analysis runs`, `MapMemberApi()`, required `Idempotency-Key` header, no body, no `If-Match`) with `AnalysisRunRequestAcceptedDto` (`runId`, `created`, `state`, `currentRunId`, `recordingSetVersionId`, `workflowId`, `workflowVersion`, `statusLink`), `202 Accepted` with `Location: /api/v1/analysis/runs/{runId}`, and `ProblemResults` mapping in `PLATFORM/SocAlytics.Platform.Api/Analysis/AnalysisRunEndpoints.cs`
 - [x] T010 [US1] Create `ITESTS/Analysis/ExplicitAnalysisRequestTests.cs` with the User Story 1 scenarios: Club Admin and Coach get `202` with a new run in state `Requested` or later for the current recording-set version and resolved workflow version; snapshot, complete graph, segment requests, and readiness equal those of the finalization path for the same inputs; older runs are superseded with the new run as successor; exactly one `analysis.run.request` audit event; a single request on the standard test fixture (one match with one finalized recording set and the seeded default workflow) is answered synchronously within a generous fixed ceiling of 10 seconds (SC-001); a Viewer gets 403, a member without a role gets 404, an unauthenticated caller gets 401, and none of these creates a run, receipt, or audit event; a request with a valid session but a missing or invalid anti-forgery token is refused and creates no run, receipt, request record, or audit event (FR-002); a finalized set followed by an unfinalized later revision is analyzed as the finalized version; a newer finalized version is used instead of an older one; a request before the finalization notification is processed creates the run and the later notification returns it as run-exists; rejection of a segment request records the same per-job reason as the finalization path
+- [ ] T023 [US1] Refresh the committed OpenAPI snapshot for the new `requestAnalysisRun` operation and `AnalysisRunRequestAcceptedDto` schema with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests` (the Phase 3 verification runs `OpenApiSnapshotTests` and fails while the snapshot lacks the route that T009 added), then run the test again without the variable and run `npm run build` in `src/clients/web` so the regenerated Kiota client builds; change only `src/platform/SocAlytics.Platform.Api/openapi/v1.json` (the Kiota client is a gitignored build-time output and is not committed)
 
 **Checkpoint**: User Story 1 works and passes independently (the MVP).
 
@@ -88,6 +89,7 @@ description: "Task list for Explicit Analysis Run Request"
 - [ ] T013 [US3] Extend `PLATFORM/SocAlytics.Platform.Application/Analysis/Commands/RequestAnalysisRun.cs` with the refusal paths: no finalized set records a `rejected` receipt and request record with category `no-finalized-recording-set` and refuses `409 no-finalized-recording-set`; an unresolvable default workflow (`not-configured`, `invalid-definition`) records `rejected` with that category and refuses `409 workflow-unresolvable` with the category in the problem extension; a Registry or lineage read failure refuses `503 analysis-dependency-unavailable` with no receipt and no request record; a replayed `rejected` key rebuilds the same problem from the stored `rejection_category`; a graph that fails run-creation validation ends as the `Failed` run of the shared creator and is answered with that run
 - [ ] T014 [US3] Map the problem codes `no-finalized-recording-set`, `workflow-unresolvable`, `idempotency-key-reused`, and `analysis-dependency-unavailable` (retryable) and the `400` violation on `Idempotency-Key` through `OperationFailure` and `ProblemResults` in `PLATFORM/SocAlytics.Platform.Api/Analysis/AnalysisRunEndpoints.cs`
 - [ ] T015 [US3] Extend `ITESTS/Analysis/ExplicitAnalysisRequestTests.cs` with the User Story 3 scenarios: no finalized set and a match with uploaded but not finalized recordings are refused with a `rejected` receipt; no, retired, or unapproved default workflow is refused with the category and a `rejected` receipt; missing or malformed key is `400` with no receipt; unknown match is `404`; an unavailable Registry is `503` with no receipt and a safe repeat with the same key; a replayed `rejected` key returns the original refusal after the cause was fixed while a new key succeeds; a failing graph validation yields a `Failed` run with supersession as in the finalization path; a request for a match of an archived season is refused `409 season-archived` and creates no run, receipt, request record, or audit event; no refusal creates or changes a run or records an `analysis.run.request` audit event, including the recorded `rejected` outcomes (SC-003)
+- [ ] T024 [US3] Refresh the committed OpenAPI snapshot again with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests` by first running `OpenApiSnapshotTests` without the variable and confirming it passes (the Phase 5 verification runs it); only when it fails because the problem mappings of T014 changed the OpenAPI document, refresh it with the variable and run the test again without it, then run `npm run build` in `src/clients/web`; a passing test is the completed outcome and needs no change
 
 **Checkpoint**: User Stories 1 to 3 work independently.
 
@@ -114,7 +116,7 @@ description: "Task list for Explicit Analysis Run Request"
 
 ### Contract snapshot
 
-- [ ] T018 Refresh the committed OpenAPI snapshot with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests`, confirm the diff contains `requestAnalysisRun`, its `Idempotency-Key` parameter, the `202` response, and the problem results of contracts/request-analysis-run.md, and run the test again without the variable; then run `npm run build` in `src/clients/web` so the regenerated Kiota client builds
+- [ ] T018 Confirm the committed OpenAPI snapshot (refreshed in T023 and T024 as each phase changed the contract) is current: run `dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests` without the variable and confirm it passes and that the committed snapshot already contains `requestAnalysisRun`, its `Idempotency-Key` parameter, the `202` response, and the problem results of contracts/request-analysis-run.md; only if the test shows a difference, refresh it with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1` and run the test again without the variable; then run `npm run build` in `src/clients/web` so the regenerated Kiota client builds
 
 ### Documentation
 
@@ -132,11 +134,11 @@ description: "Task list for Explicit Analysis Run Request"
 
 - **Setup (Phase 1)**: no dependencies; T001 and T002 run in parallel.
 - **Foundational (Phase 2)**: needs Phase 1; T003 first, then T004 to T007 in parallel. It blocks every user story.
-- **User Story 1 (Phase 3)**: needs Phase 2; T008 → T009 → T010.
+- **User Story 1 (Phase 3)**: needs Phase 2; T008 → T009 → T010 → T023.
 - **User Story 2 (Phase 4)**: needs User Story 1 (it extends the same handler and test file); T011 → T012.
-- **User Story 3 (Phase 5)**: needs User Story 2; T013 → T014 → T015.
+- **User Story 3 (Phase 5)**: needs User Story 2; T013 → T014 → T015 → T024.
 - **User Story 4 (Phase 6)**: needs User Story 3 for the rejected outcome; T016 and T017 run in parallel.
-- **Polish (Phase 7)**: T018 needs all endpoint work; T019 to T021 in parallel after the behavior is final; T022 last.
+- **Polish (Phase 7)**: T018 needs all endpoint work (the snapshot is also refreshed by T023 and T024 so each phase verification passes); T019 to T021 in parallel after the behavior is final; T022 last.
 
 ### Parallel Opportunities
 
@@ -149,7 +151,7 @@ description: "Task list for Explicit Analysis Run Request"
 
 ### MVP First
 
-Complete Phases 1 and 2, then User Story 1 (T008 to T010) and validate: a Coach's request creates a run, supersedes older runs, and is audited. Do not ship before User Stories 2 and 3, because duplicate protection and clear refusals are part of the minimum correct behavior (all three are P1).
+Complete Phases 1 and 2, then User Story 1 (T008 to T010 and T023) and validate: a Coach's request creates a run, supersedes older runs, and is audited. Do not ship before User Stories 2 and 3, because duplicate protection and clear refusals are part of the minimum correct behavior (all three are P1).
 
 ### Incremental Delivery
 
