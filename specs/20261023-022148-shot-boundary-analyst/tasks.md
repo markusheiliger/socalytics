@@ -48,7 +48,7 @@ FR-016, SC-001 to SC-006).
 
 ### Foundational tests
 
-- [ ] T008 [P] Create `<cap>/tests/test_support.py` verifying the generated clips and mounts (frame counts, cut positions, offsets) and `<cap>/tests/test_frames.py` verifying timestamp and frame pairing, constant-size streaming, and the `media-decode-failed` and `media-no-video-stream` reasons
+- [x] T008 [P] Create `<cap>/tests/test_support.py` verifying the generated clips and mounts (frame counts, cut positions, offsets) and `<cap>/tests/test_frames.py` verifying timestamp and frame pairing, constant-size streaming, and the `media-decode-failed` and `media-no-video-stream` reasons
 - [x] T009 [P] Create `<cap>/tests/test_measure.py` verifying the measure for identical frames (0), a full-scale change, a color-only change, three-decimal `ROUND_HALF_EVEN` quantization, and independence of thread count
 
 **Checkpoint**: Frame acquisition and the measure work; stories can start.
