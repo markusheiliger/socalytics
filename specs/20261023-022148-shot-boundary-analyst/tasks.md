@@ -156,7 +156,7 @@ dependency set; a dependency without a record or with a disallowed license fails
 
 ### Image evidence
 
-- [ ] T035 [US4] Create `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ShotBoundaryImageTests.cs` following `ReferenceAnalystImageTests.cs`: labels equal the manifest, the model digest is the no-model digest, no model weight files in the image, the image completes a job as a non-root user on a read-only root file system without network, and the installed Python distributions in the image match `audit/dependency-audit.json` (SC-006)
+- [x] T035 [US4] Create `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ShotBoundaryImageTests.cs` following `ReferenceAnalystImageTests.cs`: labels equal the manifest, the model digest is the no-model digest, no model weight files in the image, the image completes a job as a non-root user on a read-only root file system without network, and the installed Python distributions in the image match `audit/dependency-audit.json` (SC-006)
 - [ ] T036 [US4] Extend `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/ShotBoundaryImageTests.cs` with the resource test: generate a one-minute 1080p clip with the pinned `ffmpeg`, run the image on it in a restricted container, read the container's peak memory from its cgroup, and fail above 2 GiB or when its wall time exceeds 300 seconds (the manifest's `minExecutionTimeoutSeconds`); for the few-second evidence segment fail when its wall time exceeds 30 seconds (SC-005)
 - [ ] T037 [US4] Add the audit evidence section to `<cap>/README.md`: what `audit/` contains, how `scripts/generate_audit.py` regenerates it, the allowed license set, and that it starts but does not complete the catalog's independent license and provenance audit (FR-013)
 
