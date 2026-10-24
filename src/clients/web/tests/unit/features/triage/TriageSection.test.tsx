@@ -98,7 +98,7 @@ describe('TriageSection', () => {
   it('says so when there are no conversations and offers no start to viewers', async () => {
     listConversations.mockResolvedValue([]);
     renderSection(false);
-    expect(await screen.findByText('You have no triage conversations for this match yet.')).toBeInTheDocument();
+    expect(await screen.findByText('You have no active triage conversations for this match.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Start triage conversation' })).not.toBeInTheDocument();
     expect(screen.queryByText('Triage needs a finished analysis of this match first.')).not.toBeInTheDocument();
   });

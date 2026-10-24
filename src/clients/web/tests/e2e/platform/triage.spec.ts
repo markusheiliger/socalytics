@@ -58,7 +58,7 @@ test('shows the empty triage section and the not-found view for an unknown conve
   await expect(page.getByRole('heading', { level: 2, name: opponent })).toBeVisible();
 
   const triage = page.getByRole('region', { name: 'Triage conversations' });
-  await expect(triage.getByText('You have no triage conversations for this match yet.')).toBeVisible({ timeout: 15_000 });
+  await expect(triage.getByText('You have no active triage conversations for this match.')).toBeVisible({ timeout: 15_000 });
   await expect(triage.getByText('Triage needs a finished analysis of this match first.')).toBeVisible({ timeout: 15_000 });
   await expect(triage.getByRole('button', { name: 'Start triage conversation' })).toHaveCount(0);
 

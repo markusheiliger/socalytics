@@ -1,5 +1,8 @@
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
@@ -9,6 +12,7 @@ import { useConnectivity } from '../../connectivity/useConnectivity';
 import { createAgentConversationAdapter } from '../../platform/adapters/agentConversationAdapter';
 import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAdapter';
 import { toPlatformFailure } from '../../platform/failure';
+import type { ConversationStateFilter } from '../../platform/models/agents';
 import { useSession } from '../../session/sessionContext';
 import { loadAllRuns, RUNS_KEY } from '../lineage/AnalysisRunStates';
 import { formatKickoff } from '../matches/MatchForm';
@@ -31,9 +35,10 @@ export function TriageSection({ matchId, canStart }: TriageSectionProps) {
   const adapter = useMemo(() => createAgentConversationAdapter(platform), [platform]);
   const runAdapter = useMemo(() => createAnalysisRunAdapter(platform), [platform]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [stateFilter, setStateFilter] = useState<ConversationStateFilter>('active');
   const conversations = useQuery({
-    queryKey: triageKeys.conversations(matchId),
-    queryFn: () => adapter.listConversations(matchId),
+    queryKey: triageKeys.conversations(matchId, stateFilter),
+    queryFn: () => adapter.listConversations(matchId, stateFilter),
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -71,7 +76,20 @@ export function TriageSection({ matchId, canStart }: TriageSectionProps) {
           }}
         />
       )}
-      {conversations.data && items.length === 0 && <Typography>{t('section.empty')}</Typography>}
+      <ToggleButtonGroup
+        exclusive
+        size="small"
+        value={stateFilter}
+        aria-label={t('lifecycle.filter.label')}
+        onChange={(_event, value: ConversationStateFilter | null) => {
+          if (value) setStateFilter(value);
+        }}
+        sx={{ mb: 1 }}
+      >
+        <ToggleButton value="active">{t('lifecycle.filter.active')}</ToggleButton>
+        <ToggleButton value="archived">{t('lifecycle.filter.archived')}</ToggleButton>
+      </ToggleButtonGroup>
+      {conversations.data && items.length === 0 && <Typography>{t(`lifecycle.empty.${stateFilter}`)}</Typography>}
       {items.length > 0 && (
         <ul aria-label={t('section.listLabel')}>
           {items.map((conversation) => {
@@ -83,6 +101,16 @@ export function TriageSection({ matchId, canStart }: TriageSectionProps) {
                   {t('section.createdAt', { time: formatKickoff(new Date(conversation.createdAt)) })}
                 </Link>
                 {` · ${runTime ? t('section.boundRun', { time: formatKickoff(runTime) }) : t('section.boundRunId', { id: conversation.analysisRunId })}`}
+                {` · `}
+                <Chip
+                  size="small"
+                  component="span"
+                  label={
+                    conversation.state === 'active' || conversation.state === 'archived'
+                      ? t(`lifecycle.state.${conversation.state}`)
+                      : t('lifecycle.state.unknown', { state: conversation.state })
+                  }
+                />
                 {!conversation.analysisRunIsCurrent && ` · ${t('section.notCurrentRun')}`}
                 {` · ${names ? t('section.participants', { names }) : t('section.noParticipants')}`}
               </li>
