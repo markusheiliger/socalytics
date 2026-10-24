@@ -169,9 +169,9 @@ public sealed class CompleteAttemptHandler(
             if (verification.Status == ResultVerificationStatus.Rejected)
             {
                 reason = verification.Reason;
-                AnalysisMetrics.CompletionRejected(reason!);
+                AnalysisMetrics.CompletionRejected(ResultRejectionReasons.Code(reason!));
                 await CloseAsync(attempt, ExecutionAttemptState.Failed, reason, job.Id, ReadinessCause.AttemptFailed, cancellationToken);
-                await audit.RecordAsync(AnalysisAuditEvents.ResultRejected(attempt.Id, job.Id, run.Id, run.TeamId, manager.ManagerId, reason!), cancellationToken);
+                await audit.RecordAsync(AnalysisAuditEvents.ResultRejected(attempt.Id, job.Id, run.Id, run.TeamId, manager.ManagerId, ResultRejectionReasons.Code(reason!)), cancellationToken);
                 outcome = FailedOutcome;
             }
             else

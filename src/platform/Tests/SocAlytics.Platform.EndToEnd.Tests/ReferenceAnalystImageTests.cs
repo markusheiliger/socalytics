@@ -19,16 +19,22 @@ namespace SocAlytics.Platform.EndToEnd.Tests;
 public sealed class ReferenceAnalystImageTests
 {
     private const string Prefix = "analysts/";
-    private const string ManifestFile = "src/analysts/capabilities/reference-media-probe/analyst-manifest.json";
     private const string UnknownUser = "54321:54321";
 
     [Fact]
-    public async Task The_registry_accepts_the_image_and_it_runs_under_the_Manager_restrictions()
+    public Task The_registry_accepts_the_image_and_it_runs_under_the_Manager_restrictions() =>
+        VerifyAsync(ReferenceAnalystImage.Baseline);
+
+    [Fact]
+    public Task The_registry_accepts_the_payload_validated_image_and_it_runs_under_the_Manager_restrictions() =>
+        VerifyAsync(ReferenceAnalystImage.PayloadValidated);
+
+    private static async Task VerifyAsync(ReferenceAnalystVariant variant)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         var ct = cts.Token;
 
-        var manifestBytes = await File.ReadAllBytesAsync(Path.Combine(ReferenceAnalystImage.FindRepositoryRoot(), ManifestFile), ct);
+        var manifestBytes = await File.ReadAllBytesAsync(Path.Combine(ReferenceAnalystImage.FindRepositoryRoot(), variant.ManifestPath), ct);
         var manifest = JsonNode.Parse(manifestBytes)!;
 
         var registry = new OciRegistryContainerFixture();
@@ -49,9 +55,9 @@ public sealed class ReferenceAnalystImageTests
             }
 
             await using var harness = started;
-            image = await ReferenceAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct);
+            image = await ReferenceAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct, variant);
 
-            await AssertRegisteredAsync(harness, image.Reference(registry.RegistryHost), image.Digest, manifest, ct);
+            await AssertRegisteredAsync(harness, image.Reference(registry.RegistryHost), image.Digest, manifest, variant.CapabilityVersion, ct);
 
             using var docker = new DockerEngine();
             await AssertImageAsync(docker, image.LocalName, manifest, manifestBytes, ct);
@@ -68,7 +74,7 @@ public sealed class ReferenceAnalystImageTests
         }
     }
 
-    private static async Task AssertRegisteredAsync(EndToEndHarness harness, string reference, string digest, JsonNode manifest, CancellationToken ct)
+    private static async Task AssertRegisteredAsync(EndToEndHarness harness, string reference, string digest, JsonNode manifest, string version, CancellationToken ct)
     {
         using var response = await harness.Admin.SendAsync(HttpMethod.Post, "/api/v1/registry/analyst-images", new { reference }, ct);
         var text = await response.Content.ReadAsStringAsync(ct);
@@ -78,10 +84,10 @@ public sealed class ReferenceAnalystImageTests
         body.GetProperty("imageDigest").GetString().ShouldBe(digest);
         var capability = body.GetProperty("capability");
         capability.GetProperty("id").GetString().ShouldBe(ReferenceAnalystImage.CapabilityId);
-        capability.GetProperty("version").GetString().ShouldBe("1.0.0");
+        capability.GetProperty("version").GetString().ShouldBe(version);
         body.GetProperty("modelDigest").GetString().ShouldBe(ReferenceAnalystImage.ModelDigest);
         JsonNode.DeepEquals(JsonNode.Parse(body.GetProperty("manifest").GetRawText()), manifest)
-            .ShouldBeTrue("The stored capability declaration differs from analyst-manifest.json.");
+            .ShouldBeTrue("The stored capability declaration differs from the manifest file the image carries.");
     }
 
     private static async Task AssertImageAsync(DockerEngine docker, string localName, JsonNode manifest, byte[] manifestBytes, CancellationToken ct)

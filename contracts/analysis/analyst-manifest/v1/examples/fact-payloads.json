@@ -1,0 +1,165 @@
+[
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "player-detection",
+    "payload": {
+      "playerId": 7,
+      "team": "home",
+      "confidence": 0.93,
+      "box": { "x": 10, "y": 20, "width": 40, "height": 80 },
+      "keypoints": [{ "x": 1.5, "y": 2.5 }]
+    },
+    "valid": true,
+    "at": null
+  },
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "player-detection",
+    "payload": {
+      "playerId": 7,
+      "box": { "x": 10, "y": 20, "width": 40, "height": 80 },
+      "confidence": 0.5
+    },
+    "valid": true,
+    "at": null
+  },
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "player-detection",
+    "payload": {
+      "playerId": 7,
+      "confidence": 0.93
+    },
+    "valid": false,
+    "at": ""
+  },
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "player-detection",
+    "payload": {
+      "playerId": 7,
+      "confidence": "high",
+      "box": { "x": 10, "y": 20, "width": 40, "height": 80 }
+    },
+    "valid": false,
+    "at": "/confidence"
+  },
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "frame-quality",
+    "payload": { "sharpness": 0.4, "unexpected": true },
+    "valid": false,
+    "at": ""
+  },
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "player-detection",
+    "payload": {
+      "playerId": 7,
+      "team": "referee",
+      "confidence": 0.93,
+      "box": { "x": 10, "y": 20, "width": 40, "height": 80 }
+    },
+    "valid": false,
+    "at": "/team"
+  },
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "frame-quality",
+    "payload": { "sharpness": 1.5 },
+    "valid": false,
+    "at": "/sharpness"
+  },
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "player-detection",
+    "payload": {
+      "playerId": -1,
+      "confidence": 0.93,
+      "box": { "x": 10, "y": 20, "width": 40, "height": 80 }
+    },
+    "valid": false,
+    "at": "/playerId"
+  },
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "player-detection",
+    "payload": {
+      "playerId": 7,
+      "confidence": 0.93,
+      "box": { "x": 10, "y": 20, "width": 40, "height": 80 },
+      "keypoints": [
+        { "x": 0, "y": 0 }, { "x": 0, "y": 0 }, { "x": 0, "y": 0 }, { "x": 0, "y": 0 },
+        { "x": 0, "y": 0 }, { "x": 0, "y": 0 }, { "x": 0, "y": 0 }, { "x": 0, "y": 0 },
+        { "x": 0, "y": 0 }, { "x": 0, "y": 0 }, { "x": 0, "y": 0 }, { "x": 0, "y": 0 },
+        { "x": 0, "y": 0 }, { "x": 0, "y": 0 }, { "x": 0, "y": 0 }, { "x": 0, "y": 0 },
+        { "x": 0, "y": 0 }, { "x": 0, "y": 0 }
+      ]
+    },
+    "valid": false,
+    "at": "/keypoints"
+  },
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "player-detection",
+    "payload": {
+      "playerId": 7,
+      "confidence": 0.93,
+      "box": { "x": 10, "y": 20, "width": 0, "height": 80 }
+    },
+    "valid": false,
+    "at": "/box/width"
+  },
+  {
+    "manifest": "valid/segment-with-payload-schemas.json",
+    "kind": "player-detection",
+    "payload": {
+      "playerId": 7,
+      "confidence": 0.93,
+      "box": { "x": 10, "y": 20, "width": 40, "height": 80 },
+      "keypoints": [{ "x": 1, "y": 2 }, { "x": "left", "y": 2 }]
+    },
+    "valid": false,
+    "at": "/keypoints/1/x"
+  },
+  {
+    "manifest": "valid/match-with-payload-schemas.json",
+    "kind": "pressing-sequence",
+    "payload": {
+      "intensity": 6.5,
+      "phase": "high-press",
+      "players": [3, 5, 9],
+      "recovered": true
+    },
+    "valid": true,
+    "at": null
+  },
+  {
+    "manifest": "valid/match-with-payload-schemas.json",
+    "kind": "pressing-sequence",
+    "payload": { "intensity": 6.5, "players": [] },
+    "valid": false,
+    "at": "/players"
+  },
+  {
+    "manifest": "valid/match-with-payload-schemas.json",
+    "kind": "pressing-sequence",
+    "payload": { "intensity": 11, "players": [3] },
+    "valid": false,
+    "at": "/intensity"
+  },
+  {
+    "manifest": "valid/match-with-payload-schemas.json",
+    "kind": "pressing-summary",
+    "payload": { "sequences": 4, "note": "steady" },
+    "valid": true,
+    "at": null
+  },
+  {
+    "manifest": "valid/match-with-payload-schemas.json",
+    "kind": "pressing-summary",
+    "payload": { "note": "no count" },
+    "valid": false,
+    "at": ""
+  }
+]

@@ -21,6 +21,7 @@ ANALYSIS_CONTRACTS = (
     "result-manifest",
     "upstream-results",
     "fact-artifact",
+    "analyst-manifest",
 )
 
 SEGMENT_CONTRACTS = ("segment-manifest",)

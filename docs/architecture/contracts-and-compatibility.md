@@ -82,9 +82,11 @@ workflow and the segment window. Materialized
 Video Segments added the segment manifest contract under
 `contracts/segments/segment-manifest/v1/`, the Manager-facing
 `analysis/segment-media` response, and the additive Analyst job version 1.2.0
-with the pinned segment media. The remaining documented Analyst workflow
-contracts (capability declarations) will follow and extend the same
-directory, index, and contract command. It excludes service implementation, unrelated administration and
+with the pinned segment media. Fact Payload Schemas released the Analyst
+manifest `1.2.0`, which adds the optional `output.factPayloadSchemas`
+(a restricted JSON Schema 2020-12 subset per fact kind) and its shared payload
+examples. Further documented Analyst workflow contracts will follow and extend
+the same directory, index, and contract command. It excludes service implementation, unrelated administration and
 identity APIs, deployment contracts, production SDK adapters, and AsyncAPI.
 
 The accepted logical-segment architecture is an input. The segment manifest

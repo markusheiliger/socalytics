@@ -83,7 +83,7 @@ def main():
     if mode == "no-manifest":
         return
 
-    media_facts = read_media(job) if mode == "media" else None
+    media_facts = read_media(job) if mode in ("media", "payload-invalid") else None
     if media_facts is not None:
         artifact_name, media_type = "facts.json", "application/vnd.socalytics.facts+json"
         artifact = json.dumps(media_facts["facts"], sort_keys=True).encode()

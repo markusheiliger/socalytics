@@ -2,7 +2,7 @@
 
 **Branch**: `20261023-010826-fact-payload-schemas` | **Date**: 2026-10-23 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261023-010826-fact-payload-schemas/spec.md`
+**Input**: Feature specification from `/specs/archive/20261023-010826-fact-payload-schemas/spec.md`
 
 ## Summary
 
@@ -21,7 +21,7 @@ Decisions are in [research.md](research.md).
 **Primary Dependencies**: existing only: `JsonSchema.Net` 8.0.5 (Infrastructure, Contracts tests), `jsonschema` 4.x
 (SDK), DbUp not touched
 
-**Storage**: PostgreSQL, no migration unless T020 finds that the completion-outcome reason column blocks the 256-character bounded reason (research.md R4), then one forward-only migration widens it: the declaration `manifest` `jsonb` and the node snapshot JSON carry the schemas
+**Storage**: PostgreSQL, no migration unless the T020 round-trip test finds that the completion-outcome reason column blocks the 256-character bounded reason (research.md R4, confirmed unbounded `text`), then one forward-only migration widens it: the declaration `manifest` `jsonb` and the node snapshot JSON carry the schemas
 
 **Testing**: xUnit (Contracts, Integration, EndToEnd, architecture tests), pytest (SDK, reference capability)
 
@@ -49,7 +49,7 @@ No NEEDS CLARIFICATION remain.
 | II. Source-area ownership | Platform code under `src/platform`, SDK and capability under `src/analysts`, contracts in root `contracts/`; no new `src` child |
 | III. API-first | JSON Schema 2020-12 contract is authoritative; no new endpoint; no video bytes involved |
 | IV. Evidence | Contract, integration, SDK, and Docker-backed end-to-end tests defined in [quickstart.md](quickstart.md) |
-| V. Minimal changes | No migration unless T020 finds that the completion-outcome reason column blocks the 256-character bounded reason (research.md R4), then one forward-only migration widens it, no new dependency, no new table; reference 1.0.0 untouched |
+| V. Minimal changes | No migration unless T020 finds that the completion-outcome reason column blocks the 256-character bounded reason (research.md R4, confirmed unbounded `text`), then one forward-only migration widens it, no new dependency, no new table; reference 1.0.0 untouched |
 | Environment | Provided by existing `environment-setup` and `environment-verify`; no environment spec needed |
 
 No violations; Complexity Tracking is empty.
@@ -59,7 +59,7 @@ No violations; Complexity Tracking is empty.
 ### Documentation (this feature)
 
 ```text
-specs/20261023-010826-fact-payload-schemas/
+specs/archive/20261023-010826-fact-payload-schemas/
 ├── plan.md
 ├── research.md
 ├── data-model.md
@@ -92,7 +92,7 @@ src/platform/
 │   └── Persistence/Migrations/NNNN_analysis_<description>.sql  # conditional (T020), only if the reason column blocks 256 characters
 └── Tests/                                          # Contracts, Integration, EndToEnd (reference 1.1.0)
 
-src/analysts/sdk/                                   # result.py, errors.py, manifest loading, contract copy, tests
+src/analysts/sdk/                                   # result.py, errors.py, manifest loading, contract copy (sync_contracts.py gains analyst-manifest), tests
 src/analysts/capabilities/reference-media-probe/    # analyst-manifest.payload-validated.json, Dockerfile.payload-validated, tests
 
 docs/architecture/, README.md files, AGENTS.md      # status corrections
@@ -103,10 +103,10 @@ Application port, Infrastructure implementation); `functional areas` stay folder
 
 ## Architecture Updates
 
-- **Narratives**: [Analysts, Models, and Hardware](../../docs/architecture/analysts-models-and-hardware.md) (packaging
+- **Narratives**: [Analysts, Models, and Hardware](../../../docs/architecture/analysts-models-and-hardware.md) (packaging
   convention, result validation, and fact indexing paragraphs),
-  [Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md) (capability declaration carried in
-  the manifest), and [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md) (contract
+  [Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md) (capability declaration carried in
+  the manifest), and [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md) (contract
   release history).
 - **Design updates**: applied now to `analysts-models-and-hardware.md`, worded as decided but not implemented (the
   implementation turns it into present tense): the manifest declares fact payload schemas per kind as a restricted,

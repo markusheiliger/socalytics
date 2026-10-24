@@ -4,6 +4,7 @@ import json
 import math
 import os
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from fixtures.mounts import (
@@ -17,6 +18,7 @@ from fixtures.mounts import (
 from socalytics_analyst import errors
 from socalytics_analyst.context import load_documents
 from socalytics_analyst.models.facts import FACTS_MEDIA_TYPE, Fact
+from socalytics_analyst.models.manifest import AnalystManifest
 from socalytics_analyst.result import ResultWriter
 
 MountFactory = Callable[..., Mount]
@@ -352,3 +354,119 @@ def test_canonical_validation_rejects_a_tampered_manifest(segment_mount: Mount) 
     manifest["factCount"] = "many"
     with pytest.raises(AssertionError):
         validate_canonical("result-manifest", manifest)
+
+
+MANIFEST_EXAMPLE = (
+    Path(__file__).resolve().parents[4]
+    / "contracts"
+    / "analysis"
+    / "analyst-manifest"
+    / "v1"
+    / "examples"
+    / "valid"
+    / "segment-with-payload-schemas.json"
+)
+SECRET = "payload-secret-value"
+
+
+def payload_manifest() -> AnalystManifest:
+    return AnalystManifest.model_validate(json.loads(MANIFEST_EXAMPLE.read_text(encoding="utf-8")))
+
+
+def schema_writer(mount: Mount, manifest: object) -> ResultWriter:
+    job, attempt = load_documents(mount.root)
+    return ResultWriter(job, attempt, "foundational-facts", root=mount.root, manifest=manifest)
+
+
+def quality_fact(payload: dict[str, object], kind: str = "frame-quality") -> Fact:
+    return Fact(kind=kind, start_ms=0, end_ms=1000, confidence=0.9, payload=payload)
+
+
+@pytest.mark.parametrize("as_object", [False, True], ids=["model", "json-object"])
+def test_conforming_facts_are_written(segment_mount: Mount, as_object: bool) -> None:
+    document = json.loads(MANIFEST_EXAMPLE.read_text(encoding="utf-8"))
+    writer = schema_writer(segment_mount, document if as_object else payload_manifest())
+    writer.add_fact(quality_fact({"sharpness": 0.5, "label": "ok"}))
+    writer.add_fact(
+        quality_fact(
+            {"playerId": 7, "confidence": 0.8, "box": {"x": 1, "y": 2, "width": 3, "height": 4}}, "player-detection"
+        )
+    )
+    writer.set_confidence(0.5)
+    writer.finalize()
+
+    facts = validate_written_json("fact-artifact", segment_mount.result / "facts.json")
+    assert [entry["kind"] for entry in facts["facts"]] == ["frame-quality", "player-detection"]
+    assert facts["facts"][0]["payload"] == {"sharpness": 0.5, "label": "ok"}
+
+
+def test_nonconforming_fact_raises_and_writes_no_result(segment_mount: Mount) -> None:
+    writer = schema_writer(segment_mount, payload_manifest())
+    writer.add_fact(quality_fact({"sharpness": 0.5}))
+    with pytest.raises(errors.ResultError) as excinfo:
+        writer.add_fact(quality_fact({"sharpness": 2, "label": SECRET}))
+    assert category(excinfo) == errors.FACT_PAYLOAD_INVALID
+    assert excinfo.value.exit_code == 1
+    assert "frame-quality" in str(excinfo.value)
+    assert SECRET not in str(excinfo.value)
+    assert writer.fact_count == 1
+    assert segment_mount.result_entries() == []
+
+
+def test_unexpected_property_and_wrong_type_are_nonconforming(segment_mount: Mount) -> None:
+    writer = schema_writer(segment_mount, payload_manifest())
+    for payload in ({"sharpness": 0.5, "extra": 1}, {"sharpness": "high"}, {}):
+        with pytest.raises(errors.ResultError) as excinfo:
+            writer.add_fact(quality_fact(payload))
+        assert category(excinfo) == errors.FACT_PAYLOAD_INVALID
+    assert writer.fact_count == 0
+
+
+def test_undeclared_kind_raises_when_schemas_exist(segment_mount: Mount) -> None:
+    writer = schema_writer(segment_mount, payload_manifest())
+    with pytest.raises(errors.ResultError) as excinfo:
+        writer.add_fact(quality_fact({"sharpness": 0.5}, "not-declared"))
+    assert category(excinfo) == errors.FACT_KIND_UNDECLARED
+    assert "not-declared" in str(excinfo.value)
+    assert segment_mount.result_entries() == []
+
+
+def test_manifest_without_schemas_behaves_as_before(segment_mount: Mount) -> None:
+    document = json.loads(MANIFEST_EXAMPLE.read_text(encoding="utf-8"))
+    del document["output"]["factPayloadSchemas"]
+    document["manifestVersion"] = "1.1.0"
+    for manifest in (None, AnalystManifest.model_validate(document), document):
+        writer = schema_writer(segment_mount, manifest)
+        writer.add_fact(quality_fact({"anything": [1, 2]}, "any-kind"))
+        assert writer.fact_count == 1
+
+
+def test_manifest_location_and_errors_through_the_entry_point(
+    segment_mount: Mount, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from socalytics_analyst import context, entrypoint
+
+    def analyse(ctx: object) -> None:
+        ctx.result.add_fact(quality_fact({"sharpness": 3}))  # type: ignore[attr-defined]
+
+    monkeypatch.setenv(context.MANIFEST_ENVIRONMENT_VARIABLE, str(MANIFEST_EXAMPLE))
+    with pytest.raises(SystemExit) as exited:
+        entrypoint.run(analyse, output_type="foundational-facts", root=segment_mount.root)
+    assert exited.value.code == 1
+    assert segment_mount.result_entries() == []
+
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json", encoding="utf-8")
+    monkeypatch.setenv(context.MANIFEST_ENVIRONMENT_VARIABLE, str(broken))
+    with pytest.raises(SystemExit) as exited:
+        entrypoint.run(analyse, output_type="foundational-facts", root=segment_mount.root)
+    assert exited.value.code == 2
+
+    def analyse_unchecked(ctx: object) -> None:
+        ctx.result.add_fact(quality_fact({"sharpness": 3}))  # type: ignore[attr-defined]
+        ctx.result.set_confidence(0.5)  # type: ignore[attr-defined]
+
+    monkeypatch.setenv(context.MANIFEST_ENVIRONMENT_VARIABLE, str(tmp_path / "absent.json"))
+    with pytest.raises(SystemExit) as exited:
+        entrypoint.run(analyse_unchecked, output_type="foundational-facts", root=segment_mount.root)
+    assert exited.value.code == 0

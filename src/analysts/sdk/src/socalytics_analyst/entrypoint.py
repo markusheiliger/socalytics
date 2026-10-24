@@ -38,7 +38,8 @@ def run(
         job, attempt = context_module.load_documents(root)
         inputs = load_inputs(root, job)
         media = load_media(root, job)
-        writer = ResultWriter(job, attempt, output_type, root, inputs)
+        manifest = context_module.load_manifest()
+        writer = ResultWriter(job, attempt, output_type, root, inputs, manifest)
         analyst(context_module.build_context(root, job, attempt, writer, inputs, media))
         writer.finalize()
         summary = f"socalytics-analyst: finalized facts={writer.fact_count} artifacts={writer.artifact_count}"

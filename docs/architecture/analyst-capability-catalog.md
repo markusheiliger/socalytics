@@ -38,7 +38,11 @@ traceable. Floating package, image, model, or profile names are forbidden.
 
 Each capability declaration is carried in the versioned
 `analyst-manifest.json` embedded in its digest-pinned GHCR image. Registration
-imports that metadata into the control-plane cache keyed by image digest. Model
+imports that metadata into the control-plane cache keyed by image digest. The
+declaration includes the payload schema of each fact kind the capability emits
+(manifest `1.2.0`; implemented as development evidence, see
+[Analysts, Models, and Hardware](analysts-models-and-hardware.md#result-manifest-and-lineage)),
+but no catalog capability declares them yet. Model
 weights are bundled in the first implementation while retaining an independent
 model digest. An approved Analyst profile binds one capability version to one
 OCI image digest and one model digest plus compatible runtime, hardware, and

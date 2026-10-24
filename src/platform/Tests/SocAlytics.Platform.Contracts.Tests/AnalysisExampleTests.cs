@@ -189,6 +189,31 @@ public class AnalysisExampleTests
     }
 
     [Fact]
+    public void Analyst_manifest_1_2_0_is_same_major_compatible_with_its_earlier_releases()
+    {
+        var dir = Path.Combine(AnalysisRoot, "analyst-manifest", "v1");
+        var currentFile = Path.Combine(dir, "analyst-manifest.schema.json");
+        var current = JsonNode.Parse(File.ReadAllText(currentFile))!;
+        current["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.2.0");
+        File.ReadAllBytes(Path.Combine(dir, "releases", "1.2.0.schema.json")).ShouldBe(File.ReadAllBytes(currentFile));
+
+        foreach (var release in new[] { "1.0.0", "1.1.0" })
+        {
+            var baseline = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "releases", release + ".schema.json")))!;
+            current["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order()
+                .ShouldBe(baseline["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order(), release);
+            foreach (var property in baseline["properties"]!.AsObject().Select(p => p.Key))
+            {
+                current["properties"]!.AsObject().ContainsKey(property).ShouldBeTrue($"analyst-manifest: property {property} removed since {release}");
+            }
+        }
+
+        var output = current["properties"]!["output"]!;
+        output["properties"]!.AsObject().ContainsKey("factPayloadSchemas").ShouldBeTrue();
+        output["required"]!.AsArray().Select(n => n!.GetValue<string>()).ShouldNotContain("factPayloadSchemas");
+    }
+
+    [Fact]
     public void Evaluating_the_corpus_twice_gives_identical_outcomes()
     {
         var first = Evaluate();

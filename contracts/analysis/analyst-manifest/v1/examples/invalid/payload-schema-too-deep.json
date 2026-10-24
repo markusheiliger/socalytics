@@ -1,0 +1,49 @@
+{
+  "manifestVersion": "1.2.0",
+  "capability": {
+    "id": "player-detection",
+    "version": "1.2.0",
+    "tier": "low-level",
+    "executionScope": "segment"
+  },
+  "upstream": [],
+  "videoAccess": "required",
+  "output": {
+    "schemaVersion": "1.0.0",
+    "factPayloadSchemas": {
+      "player-box": {
+        "type": "object",
+        "properties": {
+          "l1": { "type": "object", "properties": {
+            "l2": { "type": "object", "properties": {
+              "l3": { "type": "object", "properties": {
+                "l4": { "type": "object", "properties": {
+                  "l5": { "type": "object", "properties": {
+                    "l6": { "type": "object", "properties": {
+                      "l7": { "type": "object", "properties": {
+                        "l8": { "type": "object", "properties": {
+                          "l9": { "type": "string" }
+                        } }
+                      } }
+                    } }
+                  } }
+                } }
+              } }
+            } }
+          } }
+        }
+      }
+    }
+  },
+  "compatibleProfiles": ["gpu-standard"],
+  "model": { "digest": "sha-256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+  "runtime": { "constraints": ["linux-amd64"], "accelerators": ["cuda"] },
+  "resources": { "memory": "8Gi", "cpu": "4" },
+  "requirements": {
+    "minMaxAttempts": 3,
+    "minLeaseSeconds": 60,
+    "minStaleTimeoutSeconds": 120,
+    "minExecutionTimeoutSeconds": 900
+  },
+  "determinism": { "deterministic": true, "idempotent": true }
+}
