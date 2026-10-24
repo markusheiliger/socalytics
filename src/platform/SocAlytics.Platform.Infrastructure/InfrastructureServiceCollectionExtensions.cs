@@ -174,6 +174,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.SegmentMaterializationWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentAttemptMonitorWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentWorkReconciliationWorker>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentConversationPurgeWorker>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IPublicationReconciliationStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.PublicationReconciliationStore>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.PublicationReconciliationWorker>();
         services.TryAddScoped<SocAlytics.Platform.Application.Messaging.IOutboxRetentionStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.OutboxRetentionStore>();
