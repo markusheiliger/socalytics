@@ -41,7 +41,7 @@ dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build 
 node .github/scripts/check-markdown.mjs
 ```
 
-The snapshot is refreshed (T023 after the endpoint, T024 after the problem mappings, T018 finally), outside the verification environment, with
+The snapshot is refreshed (T023 after the endpoint, T024 after the problem mappings only if the test fails, T018 as a final confirmation), outside the verification environment, with
 `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests`.
 The Web UI build and unit tests (`npm ci`, `npm run build`, `npm test` in `src/clients/web`) must stay green after the
 snapshot changes.

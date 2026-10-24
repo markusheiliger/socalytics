@@ -111,9 +111,11 @@ All Technical Context items are resolved. Each decision names what was chosen, w
 ## R10. Contract artifacts and clients
 
 - **Decision**: the machine-readable contract is the committed OpenAPI snapshot, refreshed with
-  `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests`.
+  `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests`
+  in three steps so each phase verification passes: T023 after the endpoint, T024 after the problem mappings (a
+  no-op when the snapshot test already passes), and T018 as a final confirmation that refreshes only on a difference.
   No new JSON Schema under `contracts/` is added (no new event, message, or Manager/Analyst interface), so the
-  Contracts.Tests project needs no change. The Web UI gets no control; its generated Kiota client may gain the
+  Contracts.Tests project needs no change. The Web UI gets no control; its generated Kiota client (gitignored, a build-time output) gains the
   operation when its build regenerates from the snapshot, which the Web UI build and unit tests must keep green.
 - **Alternatives**: a `contracts/analysis/run-request` schema (rejected: HTTP request has no body, and the response is
   OpenAPI-described).
