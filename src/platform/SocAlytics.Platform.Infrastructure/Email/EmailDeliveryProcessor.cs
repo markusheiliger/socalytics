@@ -5,6 +5,7 @@ using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Club;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Application.IdentityAccess.Email;
+using SocAlytics.Platform.Application.IdentityAccess.Invitations;
 using SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery;
 using SocAlytics.Platform.Application.Notifications;
 using SocAlytics.Platform.Domain.IdentityAccess;
@@ -18,6 +19,7 @@ internal sealed class EmailDeliveryProcessor(
     IMemberEmailAddressStore addresses,
     IEmailConfirmationStore confirmations,
     IPasswordRecoveryStore recoveries,
+    IMemberInvitationStore invitations,
     IAuditTrail audit,
     INotificationPreferenceStore preferences,
     IMemberAccountStore accounts,
@@ -27,6 +29,7 @@ internal sealed class EmailDeliveryProcessor(
     IOptions<EmailOptions> emailOptions,
     IOptions<NotificationOptions> notificationOptions,
     IOptions<PasswordRecoveryOptions> recoveryOptions,
+    IOptions<InvitationOptions> invitationOptions,
     TimeProvider timeProvider,
     ILogger<EmailDeliveryProcessor> logger)
 {
@@ -81,9 +84,21 @@ internal sealed class EmailDeliveryProcessor(
 
     private async Task<OutboundEmail?> PrepareAsync(StoredEmailMessage message, DateTimeOffset now, EmailOptions settings, CancellationToken cancellationToken)
     {
+        if (message.NotificationType == NotificationTypes.MemberInvitationCode)
+        {
+            return await PrepareInvitationAsync(message, now, cancellationToken);
+        }
+
+        // Only member invitations are addressed without an account.
+        if (message.AccountId is not { } accountId)
+        {
+            await DiscardAsync(message, cancellationToken);
+            return null;
+        }
+
         var type = NotificationTypes.Find(message.NotificationType);
-        var snapshot = await accounts.GetAccessSnapshotAsync(message.AccountId, cancellationToken);
-        var stored = await addresses.FindAsync(message.AccountId, cancellationToken);
+        var snapshot = await accounts.GetAccessSnapshotAsync(accountId, cancellationToken);
+        var stored = await addresses.FindAsync(accountId, cancellationToken);
 
         var eligible = type is not null
             && snapshot is { Status: MembershipStatus.Active }
@@ -101,7 +116,7 @@ internal sealed class EmailDeliveryProcessor(
             };
             if (eligible)
             {
-                var preference = await preferences.FindAsync(message.AccountId, type.Code, cancellationToken);
+                var preference = await preferences.FindAsync(accountId, type.Code, cancellationToken);
                 eligible = preference?.Enabled ?? type.DefaultEnabled;
             }
         }
@@ -158,10 +173,10 @@ internal sealed class EmailDeliveryProcessor(
                 return null;
             }
 
-            var current = recovery.AccountId == message.AccountId
+            var current = recovery.AccountId == accountId
                 && recovery.State is PendingState or IssuedState
                 && recovery.AddressHash == message.AddressHash
-                && await HasLocalPasswordAsync(message.AccountId, recoveryAddress.Normalized, cancellationToken);
+                && await HasLocalPasswordAsync(accountId, recoveryAddress.Normalized, cancellationToken);
             if (!current)
             {
                 if (recovery.State is PendingState or IssuedState)
@@ -189,7 +204,7 @@ internal sealed class EmailDeliveryProcessor(
                     EventType = PasswordRecoveryIssuedEventType,
                     Action = "issue-password-recovery",
                     Outcome = AuditOutcome.Succeeded,
-                    Resource = new AuditResource("member", message.AccountId.ToString()),
+                    Resource = new AuditResource("member", accountId.ToString()),
                     Details = new Dictionary<string, string> { ["maskedAddress"] = recoveryAddress.Masked },
                     ActorOverride = new AuditActorOverride(AuditActorKind.System, null),
                 },
@@ -200,6 +215,58 @@ internal sealed class EmailDeliveryProcessor(
         {
             var rendered = renderer.Render(type.Code, new EmailRenderModel(clubName, link, lifetime));
             return new OutboundEmail(message.Id.ToString("D"), stored!.Address, rendered.Subject, rendered.TextBody, rendered.HtmlBody);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            await messages.MarkFailedAsync(message.Id, EmailErrorCategories.Permanent, cancellationToken);
+            LogState(message, EmailMessageStates.Failed);
+            return null;
+        }
+    }
+
+    private async Task<OutboundEmail?> PrepareInvitationAsync(StoredEmailMessage message, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var link = message.InvitationRef is { } linkId ? await invitations.FindLinkAsync(linkId, cancellationToken) : null;
+        var stored = link is { State: PendingState or IssuedState }
+            ? await invitations.FindForUpdateAsync(link.InvitationId, cancellationToken)
+            : null;
+
+        if (link is null
+            || stored is not { Invitation.State: InvitationState.Pending }
+            || stored.AddressHash != message.AddressHash
+            || !EmailAddress.TryCreate(stored.Invitation.Address, out var address, out _))
+        {
+            await DiscardAsync(message, cancellationToken);
+            return null;
+        }
+
+        // Each attempt issues a fresh token, so a link of an earlier attempt stops working.
+        var token = ConfirmationTokens.Generate();
+        var lifetime = invitationOptions.Value.LinkLifetime;
+        if (!await invitations.IssueLinkAsync(link.Id, ConfirmationTokens.Hash(token), now, now + lifetime, cancellationToken))
+        {
+            await DiscardAsync(message, cancellationToken);
+            return null;
+        }
+
+        await audit.RecordAsync(
+            new AuditEvent
+            {
+                EventType = InvitationAuditEvents.Issued,
+                Action = "issue",
+                Outcome = AuditOutcome.Succeeded,
+                Resource = new AuditResource("invitation", stored.Invitation.Id.ToString()),
+                Details = new Dictionary<string, string> { ["maskedAddress"] = address.Masked },
+                ActorOverride = new AuditActorOverride(AuditActorKind.System, null),
+            },
+            cancellationToken);
+
+        var url = notificationOptions.Value.LinkTo(NotificationTypes.MemberInvitation.LinkPath) + "#token=" + token;
+        var clubName = (await clubs.GetClubAsync(cancellationToken))?.DisplayName.Value;
+        try
+        {
+            var rendered = renderer.Render(NotificationTypes.MemberInvitationCode, new EmailRenderModel(clubName, url, lifetime));
+            return new OutboundEmail(message.Id.ToString("D"), stored.Invitation.Address, rendered.Subject, rendered.TextBody, rendered.HtmlBody);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {

@@ -28,6 +28,7 @@ builder.Services.AddAgentWorkloadSecurity();
 builder.Services.AddEmailRateLimiting();
 builder.Services.AddPasswordRecoveryRateLimiting();
 builder.Services.AddEvidenceRateLimiting();
+builder.Services.AddInvitationRateLimiting();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure();
 builder.Services.AddHttpContextAccessor();
@@ -54,6 +55,7 @@ builder.Services.AddOpenApi("v1", options =>
 		return Task.CompletedTask;
 	});
 	options.AddDocumentTransformer<OpenApiSecuritySchemesTransformer>();
+	options.AddSchemaTransformer(AgentCatalogDocumentSchemas.TransformAsync);
 });
 
 builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
@@ -85,6 +87,7 @@ app.MapSeasonEndpoints();
 app.MapTeamEndpoints();
 app.MapMatchEndpoints();
 app.MapMemberEndpoints();
+app.MapInvitationEndpoints();
 app.MapCredentialEndpoints();
 app.MapRecordingEndpoints();
 app.MapAnalysisRunEndpoints();

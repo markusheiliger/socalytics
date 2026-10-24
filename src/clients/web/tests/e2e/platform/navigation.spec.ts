@@ -9,7 +9,7 @@ const MEMBER_PASSWORD = 'E2e-Member-Password-0003!';
 
 // contracts/routes-and-roles.md: Club Admin sees every route, Coach and Viewer only Home, Teams, and Account.
 const NAVIGATION = {
-  ClubAdmin: ['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Analyst Registry', 'Operations', 'Pair a Manager', 'Account'],
+  ClubAdmin: ['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Analyst Registry', 'Operations', 'Agent catalog', 'Pair a Manager', 'Account'],
   Coach: ['Home', 'Teams', 'Account'],
   Viewer: ['Home', 'Teams', 'Account'],
 } as const;

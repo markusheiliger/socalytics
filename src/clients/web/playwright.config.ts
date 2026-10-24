@@ -151,11 +151,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
+      name: 'platform-invitations',
+      testDir: './tests/e2e/platform',
+      testMatch: /invitations\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-triage'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
       name: 'platform',
       testDir: './tests/e2e/platform',
       testMatch: /manager-fleet\.spec\.ts$/,
       fullyParallel: false,
-      dependencies: ['platform-triage'],
+      dependencies: ['platform-invitations'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     // Runs last because it changes the default workflow.
@@ -173,6 +181,15 @@ export default defineConfig({
       testMatch: /operations\.spec\.ts$/,
       fullyParallel: false,
       dependencies: ['platform-registry'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    // Runs after the last platform project because it changes the enabled version of a specialist.
+    {
+      name: 'platform-agent-catalog',
+      testDir: './tests/e2e/platform',
+      testMatch: /agent-catalog\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-operations'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
   ],

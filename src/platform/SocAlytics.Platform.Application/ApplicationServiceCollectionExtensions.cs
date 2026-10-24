@@ -125,6 +125,16 @@ public static class ApplicationServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions.SectionName)
             .Validate(SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions.IsValid, "PasswordRecovery:LinkLifetime, MaxMessagesPerHour, RequestsPerMinute, TokenAttemptsPerMinute, and MinimumResponseDuration must be greater than zero.")
             .ValidateOnStart();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Invitations.CreateInvitationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Invitations.CheckInvitationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Invitations.AcceptInvitationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Invitations.ListInvitationsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Invitations.ResendInvitationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Invitations.RevokeInvitationHandler>();
+        services.AddOptions<SocAlytics.Platform.Application.IdentityAccess.Invitations.InvitationOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.IdentityAccess.Invitations.InvitationOptions.SectionName)
+            .Validate(SocAlytics.Platform.Application.IdentityAccess.Invitations.InvitationOptions.IsValid, "Invitations:LinkLifetime, MaxResendsPerHour, and TokenAttemptsPerMinute must be greater than zero.")
+            .ValidateOnStart();
         services.AddOptions<SocAlytics.Platform.Application.Notifications.NotificationOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Notifications.NotificationOptions.SectionName)
             .ValidateOnStart();

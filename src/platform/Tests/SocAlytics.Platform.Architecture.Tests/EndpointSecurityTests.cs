@@ -18,7 +18,7 @@ public sealed class EndpointSecurityTests
     private const string ApiPrefix = "/api/v1";
     private const string SessionScheme = "SocAlyticsSession";
 
-    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "confirmEmail", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken", "listIdentityProviders", "startExternalSignIn", "completeExternalSignIn", "requestPasswordRecovery", "checkPasswordRecovery", "completePasswordRecovery", "issueAgentWorkloadToken" };
+    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "confirmEmail", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken", "listIdentityProviders", "startExternalSignIn", "completeExternalSignIn", "requestPasswordRecovery", "checkPasswordRecovery", "completePasswordRecovery", "checkInvitation", "acceptInvitation", "issueAgentWorkloadToken" };
 
     private const string ManagerScheme = "AnalystManagerDPoP";
     private const string WorkloadScheme = "AgentWorkloadDPoP";

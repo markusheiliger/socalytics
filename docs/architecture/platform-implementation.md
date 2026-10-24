@@ -487,8 +487,8 @@ password-recovery account message (implemented as development evidence; see
 [Email Notifications](email-notifications.md#password-recovery)). Recovery
 never creates a local password, changes external identity links, grants roles,
 or reactivates an account, and completing it ends every session of the member.
-Club Admins will also be able to invite a person by email instead of handing
-over a credential (decided, not yet implemented; see
+Club Admins also invite a person by email instead of handing
+over a credential (implemented as development evidence; see
 [Email Notifications](email-notifications.md#member-invitations)): an
 invitation is a pending record that reserves an account name and address, and
 the member account, its verified address, and its team roles are created only
@@ -501,9 +501,9 @@ types they receive. The API sends transactional notifications and account
 messages through a dedicated transactional email outbox table and a delivery
 worker that submits them with MailKit by authenticated, TLS-protected SMTP to
 the stamp's configured relay; the Aspire AppHost and tests use a Mailpit
-mail-catcher container. Self-service password recovery uses this channel;
-invitations may use it through their own specification. The channel and
-password recovery are implemented as development evidence against
+mail-catcher container. Self-service password recovery and member
+invitations use this channel. The channel, password recovery, and invitations
+are implemented as development evidence against
 Mailpit; see [Email Notifications](email-notifications.md).
 
 Analyst Manager registration uses browser device-code pairing initiated by a
@@ -567,10 +567,10 @@ and recovery contract is defined by
 [Intelligence and Agents](intelligence-and-agents.md#agent-orchestration-authority).
 The Web UI's direct Specialist Agent triage conversations exist as development
 evidence. The agent catalog registry, pinning at submission, and the
-attempt-scoped artifact read exist as development evidence (see below); prompt
-and profile rendering, MCP tools, model execution, the Web UI's catalog
-administration, and the Web UI's Coach Agent and consultation workflows remain
-future implementation work.
+attempt-scoped artifact read exist as development evidence (see below), as does
+the Web UI's catalog administration for Club Admins; prompt and profile
+rendering, MCP tools, model execution, and the Web UI's Coach Agent and
+consultation workflows remain future implementation work.
 
 The first slice is implemented as development evidence: an `AgentOrchestration`
 folder in each platform layer stores conversations, participants, invocations,
@@ -597,8 +597,8 @@ catalog enablement replaces the former configured list of enabled specialists, a
 Development and Test a seed registers and enables `specialist-tactics` and
 `specialist-video-analysis` from the catalog's first-draft prompts with a
 simulated model provider. Club Admins operate the catalog through the `/api/v1`
-agent catalog operations and will operate it from the Web UI's Agent Catalog
-area (decided, not yet implemented; see
+agent catalog operations and from the Web UI's Agent Catalog
+area (implemented as development evidence; see
 [Client Applications → Web UI](client-applications.md#web-ui)). See
 [Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance).
 
@@ -822,8 +822,8 @@ current and non-current migration states; and
   from NATS outage, restart, and duplicate notifications; and
 - integration, host, and browser tests cover member email addresses and their
   verification, notification preferences, transactional email delivery through
-  the dedicated outbox including a relay outage, and the pending-request
-  notification, using the Mailpit mail catcher; and
+  the dedicated outbox including a relay outage, the pending-request
+  notification, self-service password recovery, and member invitations, using the Mailpit mail catcher; and
 - end-to-end tests cover run cancellation during an active simulated attempt:
   the attempt is closed without consuming budget, its later calls are refused
   as obsolete, and the Analyst Manager cleans up, and run supersession
@@ -881,7 +881,15 @@ current and non-current migration states; and
   the workflow operations area for Club Admins (the summary with its
   observation time, filtered and paged outgoing messages and receipts, message
   detail without payload, and confirmed reconciliation with its outcome) in
-  the `simulated` and `platform` projects; and
+  the `simulated` and `platform` projects; and the agent catalog
+  administration for Club Admins (browsing agents, versions, and artifacts;
+  registering artifacts and agent versions with the platform's validation shown
+  next to each field; confirmed approval, retirement, and enablement changes;
+  and the versions that triage conversations offer) in the `simulated` and
+  `platform-agent-catalog` projects; and
+- a Host test verifies that the agent catalog operations' record documents carry
+  OpenAPI schemas equal to the `contracts/agent-catalog/` contracts, from which
+  the Web UI client is generated (`AgentCatalogOpenApiTests`); and
 - a Host test verifies that every Registry operation carries OpenAPI schemas
   from which the Web UI client is generated (`AnalystRegistryOpenApiTests`);
   and
@@ -937,7 +945,8 @@ choice or reveals a material operational tradeoff:
   fact reads are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views,
-  the Analyst Registry administration views, the workflow operations area for
+  the Analyst Registry administration views, the workflow operations area and
+  the agent catalog administration for
   Club Admins, the match workflow with recording
   upload and finalization, the connected analysis review of a run's status and
   indexed facts, and the match

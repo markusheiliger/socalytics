@@ -12,7 +12,8 @@ through approved changes.
 - [`src/clients/`](src/clients/README.md) contains the executable
     Web UI foundation (without offline mode), including its installable PWA shell and the
     match triage conversations with Specialist Agents, the Analyst Registry
-    administration, and the workflow operations area for Club Admins, under
+    administration, the workflow operations area, and the agent catalog
+    administration for Club Admins, under
     `src/clients/web/`; the offline mode for coaches is planned.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.

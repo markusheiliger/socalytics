@@ -63,12 +63,13 @@ The React Web UI supports connected platform and club workflows, including:
 - club, season, and team management
 - club-user and team-role management, including invitations by email that
   Club Admins create, resend, and revoke in the members area and that invitees
-  accept on a public invitation page (decided, not yet implemented; see
+  accept on a public invitation page at `/invitations/accept` (implemented as
+  development evidence; see
   [Email Notifications](email-notifications.md#member-invitations))
 - platform configuration and administration: the Analyst Registry
-  administration and the workflow operations area for Club Admins are
-  implemented (connected workflows; see below); the agent catalog
-  administration for Club Admins is decided, not yet implemented
+  administration, the workflow operations area, and the agent catalog
+  administration for Club Admins are implemented (connected workflows; see
+  below)
 - Analyst Manager pairing for Registrars and the fleet view for Club Admins
   (implemented): registration approval, rejection, and revocation, and each
   Manager's connectivity, operating state, and activity (see
@@ -201,11 +202,11 @@ accepted state (see
 and they see its outcome. The area offers no per-message retry, edit, or
 deletion, no automatic refresh, charts, or alerts, and is online only.
 
-The agent catalog administration is decided as follows and not yet
-implemented. Club Admins, who operate the agent catalog until a stamp-operator
+The agent catalog administration is implemented as a connected workflow as
+follows. Club Admins, who operate the agent catalog until a stamp-operator
 role exists (see
 [Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance)),
-open an Agent Catalog area that lists the catalog's agents with their kind,
+open an Agent Catalog area under `/agent-catalog` that lists the catalog's agents with their kind,
 enabled version, version states, and what triage conversations offer as the
 platform's available-agents read reports it. They read agent versions with
 every artifact reference and digest and each artifact read-only: prompt text
