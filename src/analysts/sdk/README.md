@@ -27,6 +27,14 @@ Analyst: no network, no environment variables, no credentials.
 Facts outside the half-open nominal window (`startMs` inclusive, `endMs` exclusive) are refused. `manifest.json` is
 written last; after any failure the result mount holds no manifest.
 
+When the Analyst's own manifest (`/opt/socalytics/analyst-manifest.json`, or the path in `SOCALYTICS_ANALYST_MANIFEST`;
+manifest `1.2.0`) declares `output.factPayloadSchemas`, `add_fact` validates every payload against the schema of its kind
+and always fails the write on a violation: `fact-payload-invalid` for a payload that violates its schema and
+`fact-kind-undeclared` for a kind without a declared schema (both exit `1`, never carrying a payload value). Without a
+declared schema, payloads are not checked by the SDK. The platform validates the same payloads again at acceptance, and
+the shared cases `contracts/analysis/analyst-manifest/v1/examples/fact-payloads.json` give both the same verdicts. This is
+development evidence; payloads are not interpreted.
+
 ## Minimal example
 
 [`examples/minimal_analyst.py`](examples/minimal_analyst.py):
@@ -101,7 +109,8 @@ Every SDK error derives from `AnalystSdkError` and has a `category`:
 
 - Exit `2` (`InputError`): `input-missing`, `input-invalid`, `unsupported-contract-version`,
   `job-context-incomplete`, `input-staging-mismatch`, `input-artifact-mismatch`.
-- Exit `1` (`ResultError`): `fact-out-of-window`, `fact-invalid`, `artifact-invalid`, `validity-window-missing`,
+- Exit `1` (`ResultError`): `fact-out-of-window`, `fact-invalid`, `fact-payload-invalid`, `fact-kind-undeclared`,
+  `artifact-invalid`, `validity-window-missing`,
   `validity-window-invalid`, `confidence-missing`, `result-value-invalid`, `result-unexpected-file`,
   `result-already-finalized`, `output-invalid`.
 - Exit `1` for any other exception of the Analyst's code: `analyst-failed`.

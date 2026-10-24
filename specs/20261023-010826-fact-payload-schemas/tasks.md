@@ -263,7 +263,7 @@ unchanged.
   `docs/architecture/contracts-and-compatibility.md` (manifest `1.2.0` release); correct any other planned,
   future-tense, or unimplemented wording this feature falsifies and keep the remaining gaps explicit (no catalog
   capability, production limit values, no payload interpretation or quality metrics)
-- [ ] T038 [P] Update the status statements in `AGENTS.md` ("capability-specific payload validation deferred" becomes
+- [x] T038 [P] Update the status statements in `AGENTS.md` ("capability-specific payload validation deferred" becomes
   payload schema validation as development evidence), `README.md`, `contracts/README.md` (manifest `1.2.0`, shared
   payload examples), `src/platform/README.md`, `src/analysts/sdk/README.md`, and
   `src/analysts/capabilities/reference-media-probe/README.md` (the 1.1.0 variant and its build command)

@@ -203,8 +203,15 @@ simulated Analyst as development evidence (migrations
   checksum, schema, scope, provenance, lineage, artifacts, validity window).
   A rejected manifest ends the attempt as failed with a named reason under the
   normal retry rules and writes the `analysis.result-rejected` audit event;
-  accepted results get an immutable manifest record. Fact indexing remains
-  future work.
+  accepted results get an immutable manifest record. When the capability's
+  Analyst manifest (`1.2.0`) declares `output.factPayloadSchemas`, the API
+  also validates every fact payload against the schema pinned in the node
+  snapshot before the accepting transaction: a violation ends the attempt as
+  failed with `result-payload-invalid`, `result-payload-kind-undeclared`, or
+  `result-payload-validation-bound` (never carrying a payload value) and leaves
+  no visible fact. The bound is `Analysis:Results:PayloadValidation:MaxDuration`
+  (a development value). No catalog capability declares payload schemas, and
+  payloads are neither interpreted nor turned into quality metrics.
 - `Analysis:Results` options (development defaults, not production values):
   `GrantLifetime` 10 minutes, `MaxObjectsPerAttempt` 16, `MaxObjectBytes`
   100 MiB, `MaxAttemptBytes` 1 GiB, and `MaxManifestBytes` 1 MiB.

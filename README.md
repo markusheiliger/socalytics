@@ -299,7 +299,10 @@ uv run --no-sync python scripts/sync_contracts.py --check
 
 On Windows use `.venv\Scripts\python.exe` for the build. The SDK carries a copy
 of the canonical schemas; `scripts/sync_contracts.py` refreshes it after a
-contract change. This is development evidence, not a published package or
+contract change. When an Analyst manifest (`1.2.0`) declares fact payload
+schemas, the SDK validates every fact payload and the platform validates it again at result
+acceptance (development evidence; the reference Analyst's `1.1.0` variant declares one, built from its
+`Dockerfile.payload-validated`). This is development evidence, not a published package or
 production readiness.
 
 ### Reference Analyst capability
