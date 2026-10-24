@@ -134,7 +134,7 @@ reports zero purged.
 
 ### Purge action and simulated evidence
 
-- [ ] T011 [US2] Extend `src/clients/web/src/features/segments/SegmentsSection.tsx` with the purge action offered only
+- [x] T011 [US2] Extend `src/clients/web/src/features/segments/SegmentsSection.tsx` with the purge action offered only
   while `purgeable > 0` (otherwise the "nothing to purge" reason), purge and refresh disabled while a purge is pending
   or the browser is offline, a list re-read after the purge ends, on success and on failure, and the area note that
   purged segments are rematerialized on demand; extend

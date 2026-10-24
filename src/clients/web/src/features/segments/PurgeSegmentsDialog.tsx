@@ -6,7 +6,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import { useMutation } from '@tanstack/react-query';
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConnectivity } from '../../connectivity/useConnectivity';
 import { createSegmentAdapter } from '../../platform/adapters/segmentAdapter';
@@ -21,10 +21,12 @@ interface Props {
   onClose: () => void;
   /** Called once when a purge request ends, on success and on failure, so the list can be read again. */
   onFinished?: () => void;
+  /** Reports whether a purge request is pending, so the list area can disable its own controls. */
+  onPendingChange?: (pending: boolean) => void;
 }
 
 /** Confirms and sends exactly one purge request per confirmation, then shows its outcome or failure (FR-010 to FR-015). */
-export function PurgeSegmentsDialog({ open, matchId, opponent, onClose, onFinished }: Props) {
+export function PurgeSegmentsDialog({ open, matchId, opponent, onClose, onFinished, onPendingChange }: Props) {
   const { t } = useTranslation('segments');
   const { t: ts } = useTranslation('shell');
   const { isUnreachable } = useConnectivity();
@@ -36,6 +38,7 @@ export function PurgeSegmentsDialog({ open, matchId, opponent, onClose, onFinish
     retry: false,
     onSettled: () => onFinished?.(),
   });
+  useEffect(() => onPendingChange?.(mutation.isPending), [mutation.isPending, onPendingChange]);
   const failure = mutation.error ? toPlatformFailure(mutation.error) : undefined;
 
   const send = () => {

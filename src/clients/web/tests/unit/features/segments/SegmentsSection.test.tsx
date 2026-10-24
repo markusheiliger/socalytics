@@ -24,18 +24,19 @@ const segment = (over: Partial<MaterializedSegment> = {}): MaterializedSegment =
 });
 
 let listFn: Mock<() => Promise<SegmentList>>;
+let purgeFn: Mock<() => Promise<{ purged: number; inUse: number }>>;
 const listOf = (...segments: MaterializedSegment[]): SegmentList => ({ matchId: 'm1', segments });
 
 vi.mock('../../../../src/session/sessionContext', () => ({ useSession: () => ({ platform: {} }) }));
 vi.mock('../../../../src/platform/adapters/segmentAdapter', () => ({
-  createSegmentAdapter: () => ({ list: () => listFn(), purge: vi.fn() }),
+  createSegmentAdapter: () => ({ list: () => listFn(), purge: () => purgeFn() }),
 }));
 
 function renderSection(client = new QueryClient(), unreachable = false, enabled = true) {
   const view = render(
     <QueryClientProvider client={client}>
       <ConnectivityContext.Provider value={{ isUnreachable: unreachable } as never}>
-        <SegmentsSection matchId="m1" enabled={enabled} />
+        <SegmentsSection matchId="m1" enabled={enabled} opponent="FC Gegner" />
       </ConnectivityContext.Provider>
     </QueryClientProvider>,
   );
@@ -123,6 +124,63 @@ describe('SegmentsSection', () => {
     renderSection(new QueryClient(), true);
     expect(screen.getByText(/needs a connection/)).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Refresh' })).toBeDisabled();
+  });
+
+  it('states the on-demand rematerialization in the area note', async () => {
+    listFn = vi.fn(async () => listOf());
+    renderSection();
+    expect(await screen.findByText(/rematerialized on demand/)).toBeInTheDocument();
+  });
+
+  it('offers the purge only while something is purgeable', async () => {
+    listFn = vi.fn(async () => listOf(segment({ inUse: true }), segment({ segmentNumber: 4, state: 'absent' }), segment({ segmentNumber: 5, state: 'materializing' })));
+    renderSection();
+    await screen.findByRole('table');
+    expect(screen.queryByRole('button', { name: 'Purge unused segments' })).not.toBeInTheDocument();
+    expect(screen.getByText('Nothing to purge: every segment is in use or already absent.')).toBeInTheDocument();
+  });
+
+  it('offers the purge for an unused available or failed segment', async () => {
+    listFn = vi.fn(async () => listOf(segment(), segment({ segmentNumber: 4, state: 'failed', failureReason: 'x', inUse: false })));
+    renderSection();
+    expect(await screen.findByRole('button', { name: 'Purge unused segments' })).toBeEnabled();
+    expect(screen.queryByText(/Nothing to purge/)).not.toBeInTheDocument();
+  });
+
+  it('disables purge and refresh while offline', async () => {
+    listFn = vi.fn(async () => listOf(segment()));
+    renderSection(new QueryClient(), true);
+    expect(await screen.findByRole('button', { name: 'Purge unused segments' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+  });
+
+  it('disables purge and refresh while a purge is pending and reads the list again after it succeeds', async () => {
+    let release: (value: { purged: number; inUse: number }) => void = () => undefined;
+    purgeFn = vi.fn(() => new Promise((r) => (release = r)));
+    listFn = vi.fn().mockResolvedValueOnce(listOf(segment())).mockResolvedValue(listOf(segment({ state: 'absent', mediaSizeBytes: undefined, availableAt: undefined })));
+    renderSection();
+    await userEvent.click(await screen.findByRole('button', { name: 'Purge unused segments' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/FC Gegner/)).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Purge' }));
+    expect(await within(dialog).findByText('Purging the unused segments…')).toBeInTheDocument();
+    expect(purgeFn).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Purge unused segments', hidden: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh', hidden: true })).toBeDisabled();
+    release({ purged: 1, inUse: 0 });
+    expect(await within(dialog).findByText('1 segments purged, 0 kept because they are in use.')).toBeInTheDocument();
+    await vi.waitFor(() => expect(listFn).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('1 segments, 1 absent, 0 in use')).toBeInTheDocument();
+  });
+
+  it('reads the list again after a failed purge', async () => {
+    purgeFn = vi.fn().mockRejectedValue(new PlatformFailure('unexpected'));
+    listFn = vi.fn(async () => listOf(segment()));
+    renderSection();
+    await userEvent.click(await screen.findByRole('button', { name: 'Purge unused segments' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Purge' }));
+    expect(await screen.findByText(/The segments could not be purged/)).toBeInTheDocument();
+    await vi.waitFor(() => expect(listFn).toHaveBeenCalledTimes(2));
   });
 
   it('sends no request when disabled', () => {

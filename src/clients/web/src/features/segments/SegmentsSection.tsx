@@ -4,7 +4,7 @@ import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConnectivity } from '../../connectivity/useConnectivity';
 import { createSegmentAdapter } from '../../platform/adapters/segmentAdapter';
@@ -14,6 +14,7 @@ import { useSession } from '../../session/sessionContext';
 import { FailureAlert } from '../shared/FailureAlert';
 import { CopyableValue } from '../operations/CopyableValue';
 import { formatSegmentSize, formatSegmentTime, shortenId } from './formatSegments';
+import { PurgeSegmentsDialog } from './PurgeSegmentsDialog';
 import { segmentsKey } from './segmentKeys';
 import { summarizeSegments } from './segmentSummary';
 
@@ -23,10 +24,12 @@ interface SegmentsSectionProps {
   matchId: string;
   /** False for everyone but the Club Admin of the owning club: no request is sent. */
   enabled?: boolean;
+  /** The opponent's name, which identifies the match in the purge confirmation. */
+  opponent?: string;
 }
 
 /** The materialized video segments of one match with a summary and an explicit refresh (FR-003 to FR-008). */
-export function SegmentsSection({ matchId, enabled = true }: SegmentsSectionProps) {
+export function SegmentsSection({ matchId, enabled = true, opponent = '' }: SegmentsSectionProps) {
   const { t, i18n } = useTranslation('segments');
   const { t: ts } = useTranslation('shell');
   const { platform } = useSession();
@@ -42,11 +45,15 @@ export function SegmentsSection({ matchId, enabled = true }: SegmentsSectionProp
     gcTime: 0,
   });
 
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purging, setPurging] = useState(false);
+
   if (!enabled) return null;
 
   const failure = query.error ? toPlatformFailure(query.error) : undefined;
   const segments = query.data?.segments;
   const fetching = query.isFetching;
+  const purgeable = segments ? summarizeSegments(segments).purgeable : 0;
 
   return (
     <section aria-labelledby="segments-heading">
@@ -80,11 +87,17 @@ export function SegmentsSection({ matchId, enabled = true }: SegmentsSectionProp
       {segments && (
         <>
           <Stack direction="row" spacing={2} alignItems="center" sx={{ my: 1 }}>
-            <Button variant="outlined" disabled={fetching || isUnreachable} onClick={() => void query.refetch()}>
+            <Button variant="outlined" disabled={fetching || purging || isUnreachable} onClick={() => void query.refetch()}>
               {fetching ? t('refreshing') : t('refresh')}
             </Button>
+            {purgeable > 0 && (
+              <Button variant="outlined" disabled={purging || isUnreachable} onClick={() => setPurgeOpen(true)}>
+                {t('purge.action')}
+              </Button>
+            )}
             {segments.length > 0 && <Summary segments={segments} />}
           </Stack>
+          {purgeable === 0 && segments.length > 0 && <Typography>{t('purge.nothingToPurge')}</Typography>}
           {segments.length === 0 ? (
             <Typography>{t('empty')}</Typography>
           ) : (
@@ -94,6 +107,14 @@ export function SegmentsSection({ matchId, enabled = true }: SegmentsSectionProp
           )}
         </>
       )}
+      <PurgeSegmentsDialog
+        open={purgeOpen}
+        matchId={matchId}
+        opponent={opponent}
+        onClose={() => setPurgeOpen(false)}
+        onFinished={() => void query.refetch()}
+        onPendingChange={setPurging}
+      />
     </section>
   );
 }

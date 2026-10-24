@@ -142,7 +142,7 @@ export function MatchPage() {
           </Button>
           <RecordingsSection matchId={m.id} teamId={m.teamId} canUpload={canEdit} />
           <AnalysisRunStates matchId={m.id} teamId={m.teamId} />
-          {showSegments && <SegmentsSection matchId={m.id} />}
+          {showSegments && <SegmentsSection matchId={m.id} opponent={m.opponentName} />}
           <TriageSection matchId={m.id} canStart={editor} />
           <LineageSection matchId={m.id} />
         </>
