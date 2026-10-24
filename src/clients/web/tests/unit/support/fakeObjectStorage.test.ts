@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startFakeObjectStorage, type FakeObjectStorage } from '../../e2e/support/fakeObjectStorage.mjs';
 
 const ORIGIN = 'http://127.0.0.1:4173';
@@ -20,7 +20,14 @@ const control = (action: string, body?: unknown) =>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 const state = async () =>
-  (await (await control('state')).json()) as { parts: { partNumber: number; size: number }[]; requests: unknown[] };
+  (await (await control('state')).json()) as {
+    parts: { partNumber: number; size: number }[];
+    requests: unknown[];
+    inFlight: number;
+  };
+const inFlight = async () => (await state()).inFlight;
+const untilInFlight = (check: (count: number) => void) =>
+  vi.waitFor(async () => check(await inFlight()), { timeout: 2000, interval: 20 });
 
 beforeAll(async () => {
   store = await startFakeObjectStorage({ allowedOrigin: ORIGIN });
@@ -89,5 +96,61 @@ describe('fake object storage', () => {
     const started = Date.now();
     await put(1, Buffer.from('one'));
     expect(Date.now() - started).toBeGreaterThanOrEqual(140);
+  });
+
+  describe('in-flight counter', () => {
+    it('is 0 when idle and after a response', async () => {
+      expect(await inFlight()).toBe(0);
+      await put(1, Buffer.from('one'));
+      expect(await inFlight()).toBe(0);
+    });
+
+    it('is greater than 0 while a delayed part request is handled and 0 after its response', async () => {
+      await control('faults', { delayMs: 400 });
+      const pending = put(1, Buffer.from('one'));
+      await untilInFlight((count) => expect(count).toBeGreaterThan(0));
+      expect((await pending).status).toBe(200);
+      expect(await inFlight()).toBe(0);
+    });
+
+    it('returns to 0 after a request aborted by the client', async () => {
+      await control('faults', { delayMs: 1000 });
+      const controller = new AbortController();
+      const pending = fetch(`${store.origin}/bucket/recording/1?partNumber=1`, {
+        method: 'PUT',
+        headers: { origin: ORIGIN },
+        body: new Uint8Array(Buffer.from('one')),
+        signal: controller.signal,
+      }).catch((error: unknown) => error);
+      await untilInFlight((count) => expect(count).toBeGreaterThan(0));
+      controller.abort();
+      await pending;
+      await untilInFlight((count) => expect(count).toBe(0));
+    });
+
+    it('is not changed by reset', async () => {
+      await control('faults', { delayMs: 400 });
+      const pending = put(1, Buffer.from('one'));
+      await untilInFlight((count) => expect(count).toBeGreaterThan(0));
+      const before = await inFlight();
+      await control('reset');
+      expect(await inFlight()).toBe(before);
+      await pending;
+      expect(await inFlight()).toBe(0);
+    });
+
+    it('does not count preflights', async () => {
+      await control('faults', { delayMs: 400 });
+      const preflight = await fetch(`${store.origin}/bucket/recording/1`, {
+        method: 'OPTIONS',
+        headers: {
+          origin: ORIGIN,
+          'access-control-request-method': 'PUT',
+          'access-control-request-headers': 'x-amz-checksum-sha256',
+        },
+      });
+      expect(preflight.status).toBe(204);
+      expect(await inFlight()).toBe(0);
+    });
   });
 });

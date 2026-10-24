@@ -4,6 +4,9 @@
 //
 // Part uploads:   PUT /<anything>/<n>?partNumber=<n>   (the part number is the query value or the last path segment)
 // Control:        GET /__control/health | GET /__control/state | POST /__control/reset | POST /__control/faults
+// State:          { parts, requests, faults, inFlight }; `inFlight` is the live count of part (PUT) requests whose handler started and
+//                 whose response has not finished or whose connection has not closed (preflights and control requests are not counted;
+//                 `reset` does not change it).
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
@@ -28,6 +31,7 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
   let parts = [];
   let requests = [];
   let faults = emptyFaults();
+  let inFlight = 0;
 
   const allowedOrigins = new Set(allowedOrigin.split(',').map((o) => o.trim()));
   const cors = (origin) =>
@@ -54,7 +58,7 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
   async function control(req, res, url) {
     const action = url.pathname.slice(CONTROL.length);
     if (req.method === 'GET' && action === 'health') return sendJson(res, 200, { status: 'ok' });
-    if (req.method === 'GET' && action === 'state') return sendJson(res, 200, { parts, requests, faults });
+    if (req.method === 'GET' && action === 'state') return sendJson(res, 200, { parts, requests, faults, inFlight });
     if (req.method === 'POST' && action === 'reset') {
       parts = [];
       requests = [];
@@ -100,6 +104,16 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
     }
 
     if (req.method !== 'PUT') return send(res, 405, cors(origin), xmlError('MethodNotAllowed', 'Only PUT is accepted'));
+
+    inFlight += 1;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      inFlight -= 1;
+    };
+    res.once('finish', release);
+    res.once('close', release);
 
     const body = await readBody(req);
     const segments = url.pathname.split('/').filter(Boolean);
