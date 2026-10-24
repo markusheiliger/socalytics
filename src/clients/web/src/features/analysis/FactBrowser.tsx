@@ -4,8 +4,10 @@ import Typography from '@mui/material/Typography';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConnectivity } from '../../connectivity/useConnectivity';
+import type { AnalysisEvidenceAdapter } from '../../platform/adapters/analysisEvidenceAdapter';
 import type { AnalysisFactAdapter } from '../../platform/adapters/analysisFactAdapter';
 import type { AnalysisRunStatus, Fact, FactSelection } from '../../platform/models/analysis';
+import { EvidencePlayerDialog } from './EvidencePlayerDialog';
 import { CoverageList } from './CoverageList';
 import { FactRangeForm } from './FactRangeForm';
 import type { FactRange } from './FactRangeForm';
@@ -17,9 +19,10 @@ import { useFactPages } from './useFactPages';
 
 const percent = new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 0 });
 
-function FactItem({ fact }: { fact: Fact }) {
+function FactItem({ fact, runId, capability, evidenceAdapter }: { fact: Fact; runId: string; capability: string; evidenceAdapter?: AnalysisEvidenceAdapter }) {
   const { t } = useTranslation('analysis');
   const [open, setOpen] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const id = useId();
   const range = formatMatchRange(fact.startMs, fact.endMs);
 
@@ -46,6 +49,22 @@ function FactItem({ fact }: { fact: Fact }) {
       <Button size="small" aria-expanded={open} aria-controls={`${id}-payload`} onClick={() => setOpen((value) => !value)}>
         {open ? t('facts.hidePayload') : t('facts.showPayload')}
       </Button>
+      {evidenceAdapter && (
+        <>
+          <Button size="small" sx={{ ml: 1 }} aria-label={`${t('evidence.play')}: ${range.label}`} onClick={() => setPlaying(true)}>
+            {t('evidence.play')}
+          </Button>
+          {playing && (
+            <EvidencePlayerDialog
+              adapter={evidenceAdapter}
+              runId={runId}
+              capability={capability}
+              fact={{ acceptedResultId: fact.acceptedResultId, ordinal: fact.ordinal, startMs: fact.startMs, endMs: fact.endMs }}
+              onClose={() => setPlaying(false)}
+            />
+          )}
+        </>
+      )}
       {open && (
         <pre id={`${id}-payload`} aria-label={t('facts.payloadLabel')} style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
           {fullPayloadText(fact.payload)}
@@ -57,12 +76,13 @@ function FactItem({ fact }: { fact: Fact }) {
 
 interface FactBrowserProps {
   adapter: AnalysisFactAdapter;
+  evidenceAdapter?: AnalysisEvidenceAdapter;
   selection: FactSelection;
   onRangeChange: (range: FactRange) => void;
 }
 
 /** Facts of the selected stream with range, paging, provenance, and coverage; exactly one state of `contracts/review-states.md` shows at a time and all platform text renders as text (FR-008, FR-009, FR-011, FR-012, FR-014, FR-015, FR-020). */
-export function FactBrowser({ adapter, selection, onRangeChange }: FactBrowserProps) {
+export function FactBrowser({ adapter, evidenceAdapter, selection, onRangeChange }: FactBrowserProps) {
   const { t } = useTranslation('analysis');
   const { isUnreachable } = useConnectivity();
   const paging = useFactPages(adapter, selection);
@@ -123,7 +143,13 @@ export function FactBrowser({ adapter, selection, onRangeChange }: FactBrowserPr
               {view.incomplete && <Typography>{t('facts.incompleteNote')}</Typography>}
               <ul aria-label={t('facts.listLabel')}>
                 {page.items.map((fact) => (
-                  <FactItem key={`${fact.acceptedResultId}-${fact.ordinal}`} fact={fact} />
+                  <FactItem
+                    key={`${fact.acceptedResultId}-${fact.ordinal}`}
+                    fact={fact}
+                    runId={selection.runId}
+                    capability={selection.stream.capabilityId}
+                    evidenceAdapter={evidenceAdapter}
+                  />
                 ))}
               </ul>
               <nav aria-label={t('facts.pageLabel')}>

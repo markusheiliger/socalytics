@@ -169,6 +169,23 @@ describe('fetch routing', () => {
     }
   });
 
+  it('leaves a GET with Range to the object-store origin unhandled', () => {
+    const objectStoreOrigin = 'http://objects.test:9000';
+    const urls = [
+      `${objectStoreOrigin}/recordings/segment.mp4?X-Amz-Signature=abc`,
+      `${objectStoreOrigin}/evidence/clip.mp4`,
+    ];
+    for (const url of urls) {
+      for (const mode of ['cors', 'no-cors', 'navigate']) {
+        for (const range of ['bytes=0-', 'bytes=0-1023', 'bytes=-500']) {
+          const request = new Request(url, { method: 'GET', headers: { Range: range } });
+          expect(request.headers.get('Range')).toBe(range);
+          expect(classifyRequest({ method: request.method, mode, url: request.url }, origin), `${mode} ${range} ${url}`).toBeUndefined();
+        }
+      }
+    }
+  });
+
   it('serves navigations from the cached index.html and falls back to the network', async () => {
     const { caches } = fakeCaches();
     const match = vi.mocked(caches.match);

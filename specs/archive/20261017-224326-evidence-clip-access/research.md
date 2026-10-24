@@ -15,7 +15,7 @@ versioned member resource.
 session anti-forgery filter (`SessionAntiforgeryFilter`) fits the member API conventions. The run is the scope that
 carries team authorization (`analysis-run` team scope), the recording-set version, and the pinned segmentation policy,
 so the route sits under the run like the fact reads of
-[Accepted Fact Indexing](../archive/20261017-175648-fact-indexing-queries/contracts/member-fact-api.md). A future MCP
+[Accepted Fact Indexing](../20261017-175648-fact-indexing-queries/contracts/member-fact-api.md). A future MCP
 `get_video_clip()` tool can call the same Application handler.
 
 **Alternatives considered**: `GET` with query parameters (rejected: it has side effects and responses must never be
@@ -36,9 +36,9 @@ overlap. A fact range is first extended by the requested context (clipped at zer
 `MaxDuration` when longer; an explicit range longer than `MaxDuration` is rejected.
 
 **Rationale**: Implements the clarified "first recording in the set's order" rule and the
-[Segment Contract](../../docs/architecture/match-data-pipeline.md#segment-contract) windows exactly; splitting at span
+[Segment Contract](../../../docs/architecture/match-data-pipeline.md#segment-contract) windows exactly; splitting at span
 boundaries makes each part's media offsets a single linear translation. The segment window arithmetic reuses the
-Domain calculator that [Materialized Video Segments](../archive/20261017-222433-materialized-segments/plan.md) adds
+Domain calculator that [Materialized Video Segments](../20261017-222433-materialized-segments/plan.md) adds
 (`SegmentWindowCalculator`), so evidence and analysis agree on numbering.
 
 **Alternatives considered**: Returning every covering recording (rejected by clarification: more UI scope, no player
@@ -134,7 +134,7 @@ digests of the granted parts, and the latest link expiry. Refusals use the exist
 audited separately, consistent with the run and fact reads.
 
 **Rationale**: Implements artifact-authorization evidence for `DAT-004` access per
-[Audit Events](../../docs/architecture/security-and-data-governance.md#audit-events) without durable presigned URLs.
+[Audit Events](../../../docs/architecture/security-and-data-governance.md#audit-events) without durable presigned URLs.
 
 **Alternatives considered**: One event per part (rejected: noisier with no added authority information); auditing
 every resolution including those without links (rejected: no artifact authorization happened).
@@ -207,7 +207,7 @@ playback); a separate media origin variable (rejected: one development store).
 **Decision**: Playwright's Chromium decodes neither H.264 nor MPEG-4 Part 2, so browser tests use a short synthetic VP9
 recording in MP4 (`testsrc2`, 64×64, 10 seconds, keyframe every second, `libvpx-vp9`, `+faststart`) generated at test
 time with the pinned FFmpeg of the
-[Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md), whose LGPL
+[Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md), whose LGPL
 build includes the BSD-licensed libvpx. The simulated tests seed it into the fake object store; the platform test
 uploads it through the existing upload flow, and the Segment Service's stream copy keeps VP9. Platform integration
 tests reuse spec 9's synthetic recording helper, since they do not decode in a browser.

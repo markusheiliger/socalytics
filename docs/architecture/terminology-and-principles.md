@@ -174,8 +174,7 @@ Video traffic flows between clients, the Segment Service, Analyst Managers
 (which stage segment media and store results on behalf of Analysts), and
 object storage; Analysts read staged media from their mounts and have no
 network access. The API issues presigned access but does not proxy video bytes.
-Browsers are decided, but not yet implemented, to also read evidence media
-from object storage through short-lived links the API issues (see
+Browsers also read evidence media from object storage through short-lived links the API issues (see
 [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access)).
 
 ```mermaid

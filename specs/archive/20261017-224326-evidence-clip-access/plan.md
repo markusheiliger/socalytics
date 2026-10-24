@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-224326-evidence-clip-access` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-224326-evidence-clip-access/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-224326-evidence-clip-access/spec.md`
 
 ## Summary
 
@@ -59,7 +59,7 @@ dialog with an adapter and a state machine, CSP and fake-store changes.
 | III. API-first control plane | Pass: the Web UI uses an API operation; the API issues presigned access and never proxies video | Pass: only metadata and the manifest document are read; media flows between object storage and the browser; the member operation is described in the OpenAPI document |
 | IV. Evidence over claims | Pass: domain, integration, host, end-to-end, unit, and browser tests required | Pass: development values only; production values stay explicitly unresolved |
 | V. Focused changes | Pass: no MCP tool, downloads, sharing, encodes, or whole-recording playback | Pass: no table, no new contract schema, no new dependency |
-| Environment prerequisite | Pass: [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) (#143) provides the pinned FFmpeg and ffprobe (LGPL with libvpx); .NET, Docker, Node.js, Kiota, and Playwright Chromium are already provided | Pass: no other framework, SDK, or tool is needed; R12 records the `libvpx-vp9` check |
+| Environment prerequisite | Pass: [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) (#143) provides the pinned FFmpeg and ffprobe (LGPL with libvpx); .NET, Docker, Node.js, Kiota, and Playwright Chromium are already provided | Pass: no other framework, SDK, or tool is needed; R12 records the `libvpx-vp9` check |
 
 No violation; Complexity Tracking is empty.
 
@@ -67,20 +67,20 @@ No violation; Complexity Tracking is empty.
 
 **Narratives**:
 
-- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access)
+- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access)
   (member evidence-media operation).
-- [Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md) (the `get_video_clip()` sentence
+- [Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md) (the `get_video_clip()` sentence
   after the catalog table).
-- [Intelligence and Agents → MCP Tools](../../docs/architecture/intelligence-and-agents.md#mcp-tools)
+- [Intelligence and Agents → MCP Tools](../../../docs/architecture/intelligence-and-agents.md#mcp-tools)
   (`get_video_clip()` bullet).
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui) (analysis review and evidence
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui) (analysis review and evidence
   playback).
-- [Match Data Pipeline → Segment Contract](../../docs/architecture/match-data-pipeline.md#segment-contract) (the
+- [Match Data Pipeline → Segment Contract](../../../docs/architecture/match-data-pipeline.md#segment-contract) (the
   Segment Service paragraph: evidence demand and purge).
-- [Terminology and Principles → 4. Control Plane Never Touches Video](../../docs/architecture/terminology-and-principles.md#4-control-plane-never-touches-video).
-- [Security and Data Governance → Audit Events](../../docs/architecture/security-and-data-governance.md#audit-events)
+- [Terminology and Principles → 4. Control Plane Never Touches Video](../../../docs/architecture/terminology-and-principles.md#4-control-plane-never-touches-video).
+- [Security and Data Governance → Audit Events](../../../docs/architecture/security-and-data-governance.md#audit-events)
   and the Web UI security baseline in
-  [Accepted Web UI Offline Local-Data Boundary](../../docs/architecture/security-and-data-governance.md#accepted-web-ui-offline-local-data-boundary)
+  [Accepted Web UI Offline Local-Data Boundary](../../../docs/architecture/security-and-data-governance.md#accepted-web-ui-offline-local-data-boundary)
   (Content Security Policy).
 
 **Design updates applied now** (worded as decided, not yet implemented; the documentation task turns them into present
@@ -138,7 +138,7 @@ test media prerequisite).
 ### Documentation (this feature)
 
 ```text
-specs/20261017-224326-evidence-clip-access/
+specs/archive/20261017-224326-evidence-clip-access/
 ├── spec.md
 ├── plan.md
 ├── research.md
