@@ -87,7 +87,7 @@ neither the area nor causes any request.
   `src/clients/web/tests/unit/features/segments/SegmentsSection.test.tsx` (loading, empty, every state, absent values,
   summary, refresh keeps the previous list, offline, no storage writes, locale-specific size and time formatting, and
   that after sign-out or a `401` no segment data remains in the query cache)
-- [ ] T006 [P] [US1] Add the scripted segment API to `src/clients/web/tests/e2e/support/simulatedApi.ts` (list handler
+- [x] T006 [P] [US1] Add the scripted segment API to `src/clients/web/tests/e2e/support/simulatedApi.ts` (list handler
   and fixtures with segments in every state, in use and not in use, and a purge handler with scripted outcomes and
   refusals, usable by all three stories; request counters so tests can assert that no request was sent)
 
