@@ -204,3 +204,9 @@ dependency set; a dependency without a record or with a disallowed license fails
   proves it end to end; US4 adds the provenance evidence; Polish corrects the documentation.
 - Stop and report instead of working around an environment gap (a locked wheel that cannot be installed, or a disallowed
   license); never change the environment actions, the SDK, or the platform in this feature.
+
+---
+
+## Phase 8: Convergence
+
+- [ ] T042 Update the `src/analysts` bullet of the source-area list in `docs/architecture/platform-implementation.md`, which today says "the development reference capability `reference-media-probe` exists under `src/analysts/capabilities/reference-media-probe`, and the catalog's Analyst capability implementations across their required runtimes remain future". It must also say that the first catalog-named capability, `media-context-classification`, exists under `src/analysts/capabilities/media-context-classification` as a shot-boundary baseline only (development evidence, fixed rules without a model, no catalog gate met, never in a production workflow), and that the rest of the catalog's Analyst capability implementations (including shot type, live, replay, graphics, quality, and usable intervals of media context) remain future; change only that document per Constitution I and FR-020 (partial)
