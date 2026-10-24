@@ -97,7 +97,7 @@ known truth.
 
 ### Adaptive rule and minimum shot length
 
-- [ ] T020 [US2] Extend `<cap>/src/media_context_classification/detector.py` with the adaptive rule (`measure >= ADAPTIVE_FLOOR` and `measure >= ADAPTIVE_RATIO * mean(surrounding measures)`, window of `ADAPTIVE_WINDOW` pairs on each side inside the nominal window, exact arithmetic, hard rule tested first) and the minimum shot length (a boundary is reported only when its start is at least `MIN_SHOT_LENGTH_MS` after the previous reported boundary's start); keep memory bounded by the window (research.md R-04)
+- [x] T020 [US2] Extend `<cap>/src/media_context_classification/detector.py` with the adaptive rule (`measure >= ADAPTIVE_FLOOR` and `measure >= ADAPTIVE_RATIO * mean(surrounding measures)`, window of `ADAPTIVE_WINDOW` pairs on each side inside the nominal window, exact arithmetic, hard rule tested first) and the minimum shot length (a boundary is reported only when its start is at least `MIN_SHOT_LENGTH_MS` after the previous reported boundary's start); keep memory bounded by the window (research.md R-04)
 
 ### Tests for User Story 2
 
