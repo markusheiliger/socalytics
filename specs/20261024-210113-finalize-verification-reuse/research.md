@@ -35,7 +35,7 @@ All Technical Context items are resolved; the decisions below fix the open desig
     or an **ignored** path exists that is not a known generated or dependency folder.
   - Ignored paths are listed with `git ls-files --others --ignored --exclude-standard --directory`. A path is accepted
     only when a path component is one of `bin`, `obj`, `node_modules`, `.venv`, `venv`, `__pycache__`, `dist`, `build`,
-    `TestResults`, `test-results`, `playwright-report`, `.vs`, `.pytest_cache`, or `.uv-cache`, or the path ends with `src/clients/web/src/generated` (the Web UI build's generated client, matched as a path suffix, never as a bare component `generated`), or the path ends with `.specify/workflows/runs` (the Spec Kit run folder of the `resolve` workflow that precedes the verification of a conflict resolution: `.specify/.gitignore` ignores it, the composite action removes the run folder after collecting it, but the empty parent folder can remain and is then listed; matched as a path suffix); any other ignored file (for example
+    `TestResults`, `test-results`, `playwright-report`, `.vs`, `.pytest_cache`, or `.uv-cache`, or the path ends with `src/clients/web/src/generated` (the Web UI build's generated client, matched as a path suffix, never as a bare component `generated`), or the path ends with `.specify/workflows/runs` (the Spec Kit run folder of the `resolve` workflow that precedes the verification of a conflict resolution: `.specify/.gitignore` ignores it, the composite action removes the run folder after collecting it, but the empty parent folder can remain and is then listed; matched as a path suffix), or the path ends with `.specify/feature.json`, `.specify/.workflow-install.lock`, or `.specify/extensions/<name>/local-config.yml` (Spec Kit housekeeping that `.specify/.gitignore` lists; tooling state outside the build, matched as path suffixes); any other ignored file (for example
     an ignored configuration or source file) makes the identity uncertain because it could affect the build without
     being part of the tree.
   - The identity is computed at the start (`S`) and again after the checks (`E`); a result is recorded only when
@@ -84,6 +84,9 @@ All Technical Context items are resolved; the decisions below fix the open desig
   the finalize run in the job), exit 0.
 - **Nested runs**: when `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING` is set (the action's own tests), the script never reads
   or writes a record, so fixtures cannot interact with the job's real record.
+- **Residual risk**: the self-test of the synchronized workspace copy of the action is satisfied by the earlier trusted
+  result, so it does not execute a changed `environment-verify` script or its tests; the environment action tests of the
+  first finalize run (which cover both action folders) are the evidence for the synchronized copy.
 - **Rationale**: Every read failure falls through to a full run (FR-004); there is no input that turns a failure into a
   pass.
 

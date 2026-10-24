@@ -279,6 +279,8 @@ as before.
   copy that produced it: the self-test of the synchronized environment verification intentionally accepts the earlier
   trusted result of the same job even when it runs the workspace copy of the action, so a changed action script or its
   tests are not executed again by the self-test.
+- The root `README.md` and `AGENTS.md` wording of the finalize mode (every check with all tests) stays unchanged by this
+  environment-only spec; the action README is the authority for the finalize reuse and the reduced scope.
 - The workflow files that call the action are protected and stay unchanged, so the action alone provides the behavior,
   and the callers need no new input.
 - Out of scope: any change to workflows, to the setup action, to product code or documentation outside the action
