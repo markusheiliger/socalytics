@@ -35,10 +35,6 @@ description: "Task list for Agent Evidence Tools API"
 - [x] T004 [P] Split the fact reads in `src/platform/SocAlytics.Platform.Application/Analysis/Facts/`: add `IRunFactStreamReader.cs` and `IRunFactReader.cs` with internal implementations that take an already-authorized run scope and contain all selection validation, ordering, pagination, continuation, coverage, and provenance logic, and make `ListRunFactStreams.cs` and `ListRunFacts.cs` member handlers that authorize through `IAccessAuthorizer` and call the cores, with unchanged member behavior (FR-010, FR-011; research R6)
 - [x] T005 [P] Split the evidence media resolution in `src/platform/SocAlytics.Platform.Application/Analysis/Evidence/`: add `IEvidenceMediaResolver.cs` with an internal implementation that takes an already-authorized run scope and an audit actor and contains planning, segment states, materialization demand, integrity checks, and link issuance, and make `ResolveEvidenceMedia.cs` the member handler that authorizes and records the member grant audit through it, with unchanged member behavior (FR-012, FR-013; research R6)
 
-### Read-core registration
-
-- [ ] T006 Register `IRunFactStreamReader`, `IRunFactReader`, and `IEvidenceMediaResolver` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs` and run the existing fact-read and evidence-media integration tests unchanged to confirm member behavior is preserved (FR-010–FR-012; research R6)
-
 ### Tool-call abstractions, audit, and metrics
 
 - [ ] T007 Add in `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Tools/`: `AgentToolOptions.cs` (`AgentOrchestration:Tools` with `MaxCallsPerAttempt` and `MaxClipResolutionsPerAttempt`, validated at start, no production defaults), `IAgentToolCallStore.cs` (reserve, count calls and clip resolutions per attempt, find reservations without a lineage entry), `ToolCallLineage.cs` (canonical-JSON `sha-256:` digests of arguments and of results "with every `media.url` and `media.expiresAt` removed", the `tool-call` lineage payload of data-model.md, and the append command that assigns the next sequence under the invocation lock and is idempotent per attempt and call identifier, so the first entry for a call stands and a later append is skipped), and `AgentToolAuditEvents.cs` (`agent.tool.call.refused` with reasons `caller-not-workload`, `attempt-stale`, `not-permitted`, `call-id-reused`, `limit-reached`; `agent.tool.call.scope-lost`; `agent.tool.evidence-media.granted` with media digests and latest expiry, never links); add `src/platform/SocAlytics.Platform.Application/Telemetry/AgentToolMetrics.cs` with the meter `SocAlytics.Platform.AgentTools` and the counter `agent_tool_calls_total` tagged `tool` and `outcome` (FR-007a, FR-007b, FR-016–FR-018b; research R9–R11)
@@ -152,7 +148,7 @@ description: "Task list for Agent Evidence Tools API"
 
 ### Within Phases
 
-- Phase 1: T001–T005 run in parallel; T006 registers the read cores of T004 and T005; T007 adds the abstractions; T008, T009, and T010 run in parallel; T011 registers what they created.
+- Phase 1: T001–T005 run in parallel; T004 and T005 register their read cores themselves and run the unchanged member tests; T006 was removed as redundant; T007 adds the abstractions; T008, T009, and T010 run in parallel; T011 registers what they created.
 - Phase 2: T012 and T013 run in parallel; T014 maps them and refreshes the snapshot; T015 adds the test client; T016 and T017 run in parallel.
 - Phase 3: T018, then T019.
 - Phase 4: T020–T022 run in parallel; T023 maps the nine operations and refreshes the snapshot; T024 makes the simulated workload call the tools only after every tool it calls is mapped (it is hosted by existing orchestration tests); T025–T028 run in parallel.
