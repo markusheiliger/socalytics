@@ -51,7 +51,9 @@ export function SegmentsSection({ matchId, enabled = true, opponent = '' }: Segm
   if (!enabled) return null;
 
   const failure = query.error ? toPlatformFailure(query.error) : undefined;
-  const segments = query.data?.segments;
+  // A refusal or an ended session must leave no earlier segment data on screen.
+  const dataWithdrawn = failure?.kind === 'notPermitted' || failure?.kind === 'sessionEnded';
+  const segments = dataWithdrawn ? undefined : query.data?.segments;
   const fetching = query.isFetching;
   const purgeable = segments ? summarizeSegments(segments).purgeable : 0;
 
@@ -68,7 +70,7 @@ export function SegmentsSection({ matchId, enabled = true, opponent = '' }: Segm
       )}
       {query.isPending && !failure && <Typography role="status">{t('loading')}</Typography>}
       {failure?.kind === 'notPermitted' && <Typography role="alert">{t('notPermitted')}</Typography>}
-      {failure && failure.kind !== 'notPermitted' && (
+      {failure && failure.kind !== 'notPermitted' && failure.kind !== 'sessionEnded' && (
         <Stack spacing={1} alignItems="flex-start" sx={{ my: 1 }}>
           {failure.kind === 'sessionProblem' ? (
             <FailureAlert failure={failure} />

@@ -119,6 +119,58 @@ describe('SegmentsSection', () => {
     expect(await screen.findByText('Only Club Admins can see and manage the video segments of a match.')).toBeInTheDocument();
   });
 
+  it('shows the not-permitted state inside the area without data, purge, or retry', async () => {
+    listFn = vi.fn().mockRejectedValue(new PlatformFailure('notPermitted', { status: 403 }));
+    renderSection();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only Club Admins can see and manage the video segments of a match.');
+    expect(screen.getByRole('heading', { name: 'Video segments' })).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Purge unused segments' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/no video segments yet/)).not.toBeInTheDocument();
+  });
+
+  it('shows no segment data, error, or empty list for an ended session', async () => {
+    listFn = vi.fn().mockRejectedValue(new PlatformFailure('sessionEnded', { status: 401 }));
+    renderSection();
+    await vi.waitFor(() => expect(listFn).toHaveBeenCalled());
+    await vi.waitFor(() => expect(screen.queryByText('Loading the video segments…')).not.toBeInTheDocument());
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText(/no video segments yet/)).not.toBeInTheDocument();
+    expect(screen.queryByText('The video segments could not be loaded.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Purge unused segments' })).not.toBeInTheDocument();
+  });
+
+  it('withdraws a stale list when a later refresh is refused or the session ended', async () => {
+    listFn = vi.fn().mockResolvedValueOnce(listOf(segment())).mockRejectedValueOnce(new PlatformFailure('sessionEnded', { status: 401 }));
+    renderSection();
+    await screen.findByRole('table');
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await vi.waitFor(() => expect(screen.queryByRole('table')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Purge unused segments' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['a network failure', new PlatformFailure('unreachable')],
+    ['a server error', new PlatformFailure('unexpected', { status: 500 })],
+  ])('shows an error with a retry, never an empty list, for %s', async (_name, failure) => {
+    listFn = vi.fn().mockRejectedValueOnce(failure).mockResolvedValueOnce(listOf(segment()));
+    renderSection();
+    expect(await screen.findByRole('alert')).toHaveTextContent('The video segments could not be loaded.');
+    expect(screen.queryByText(/no video segments yet/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('disables the retry while offline', async () => {
+    listFn = vi.fn().mockRejectedValue(new PlatformFailure('unreachable'));
+    renderSection(new QueryClient(), true);
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeDisabled();
+    expect(screen.getByText(/needs a connection/)).toBeInTheDocument();
+  });
+
   it('states the offline condition and disables refresh', async () => {
     listFn = vi.fn(async () => listOf(segment()));
     renderSection(new QueryClient(), true);

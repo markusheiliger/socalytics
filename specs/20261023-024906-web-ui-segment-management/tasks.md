@@ -178,7 +178,7 @@ for each and, after the condition clears and the Club Admin retries, shows the l
 
 ### Refusal and failure states
 
-- [ ] T014 [US3] Extend `src/clients/web/src/features/segments/SegmentsSection.tsx` with the not-permitted state for a
+- [x] T014 [US3] Extend `src/clients/web/src/features/segments/SegmentsSection.tsx` with the not-permitted state for a
   `403` (explanation, no segment data, no purge, inside the area and not the whole-page view), the error state with a
   retry action for network and `5xx` failures that is never an empty list, and the `401` path that follows the existing
   session-ended flow and leaves no stale data; extend
