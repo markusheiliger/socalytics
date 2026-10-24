@@ -71,10 +71,10 @@ internal static class AgentCatalogEndpoints
 			.AddEndpointFilter<JsonOnlyFilter>()
 			.WithName("registerAgentCatalogArtifact")
 			.WithTags("Agent catalog")
-			.Accepts<JsonElement>("application/json")
+			.Accepts<AgentCatalogRecordDocument>("application/json")
 			.Produces<AgentCatalogArtifactDto>(StatusCodes.Status201Created)
 			.Produces<AgentCatalogArtifactDto>()
-			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.Produces<AgentCatalogValidationProblemDto>(StatusCodes.Status400BadRequest, "application/problem+json")
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict);
@@ -95,10 +95,10 @@ internal static class AgentCatalogEndpoints
 			.AddEndpointFilter<JsonOnlyFilter>()
 			.WithName("registerAgentVersion")
 			.WithTags("Agent catalog")
-			.Accepts<JsonElement>("application/json")
+			.Accepts<AgentVersionDocument>("application/json")
 			.Produces<AgentVersionDto>(StatusCodes.Status201Created)
 			.Produces<AgentVersionDto>()
-			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.Produces<AgentCatalogValidationProblemDto>(StatusCodes.Status400BadRequest, "application/problem+json")
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status409Conflict);
 		members.MapGet("/agent-catalog/agent-versions", ListAgentVersionsAsync)
@@ -147,7 +147,7 @@ internal static class AgentCatalogEndpoints
 			.ProducesProblem(StatusCodes.Status400BadRequest)
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound)
-			.ProducesProblem(StatusCodes.Status409Conflict)
+			.Produces<AgentCatalogRefusalProblemDto>(StatusCodes.Status409Conflict, "application/problem+json")
 			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
 			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		return routes;

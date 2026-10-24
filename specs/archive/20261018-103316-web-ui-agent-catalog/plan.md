@@ -2,14 +2,14 @@
 
 **Branch**: `20261018-103316-web-ui-agent-catalog` | **Date**: 2026-10-18 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261018-103316-web-ui-agent-catalog/spec.md`
+**Input**: Feature specification from `specs/archive/20261018-103316-web-ui-agent-catalog/spec.md`
 
 ## Summary
 
 Add a connected Agent Catalog area for Club Admins to the Web UI at `src/clients/web/`, over the agent catalog member
-operations of [Agent Catalog Registry](../archive/20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md), with
+operations of [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md), with
 the navigation, page, confirmation, refusal, and response-metadata patterns of
-[Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/plan.md).
+[Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/plan.md).
 
 - **Platform (OpenAPI description only)**: where the snapshot describes record documents as free-form objects,
   schema-only DTO records add per-kind document schemas (discriminator `kind`) as `Accepts`/`Produces` metadata; request
@@ -88,7 +88,7 @@ namespace, 1 schema-only API contracts file, 3 simulated browser specs, 1 platfo
 
 | Principle | Status | Evidence |
 | --- | --- | --- |
-| I. Architecture is the design authority | Pass | Implements "platform configuration and administration" of [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui) for the agent catalog and the operator side of [Prompt And Advice Governance](../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance) and [Adding Or Revising A Coach Agent](../../docs/architecture/intelligence-agent-catalog.md#adding-or-revising-a-coach-agent); stays online only per [Offline Mode](../../docs/architecture/client-applications.md#offline-mode). Design updates applied now (see Architecture Updates). |
+| I. Architecture is the design authority | Pass | Implements "platform configuration and administration" of [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui) for the agent catalog and the operator side of [Prompt And Advice Governance](../../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance) and [Adding Or Revising A Coach Agent](../../../docs/architecture/intelligence-agent-catalog.md#adding-or-revising-a-coach-agent); stays online only per [Offline Mode](../../../docs/architecture/client-applications.md#offline-mode). Design updates applied now (see Architecture Updates). |
 | II. Source-area ownership | Pass | Web UI code under `src/clients/web/`; API metadata under `src/platform/SocAlytics.Platform.Api/AgentOrchestration/`; no new `src/` child. |
 | III. API-first control plane | Pass | The Web UI uses only `/api/v1` agent catalog operations through the generated client behind an adapter; the platform decides every rule; the OpenAPI document gains the schemas the client needs, kept equal to the authoritative contracts. |
 | IV. Evidence over claims | Pass | Host, unit, simulated browser, and platform browser tests (FR-023); approval is presented as an accountable decision, not evaluation evidence; nothing claims production readiness. |
@@ -101,18 +101,18 @@ Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 
 ### Narratives
 
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): "platform configuration and
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): "platform configuration and
   administration" gains the agent catalog administration for Club Admins.
-- [Client Applications → Offline Mode](../../docs/architecture/client-applications.md#offline-mode): unchanged rule
+- [Client Applications → Offline Mode](../../../docs/architecture/client-applications.md#offline-mode): unchanged rule
   (online only; no user data in the service worker) that the area follows.
-- [Intelligence Agent Catalog → Prompt And Advice Governance](../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance)
+- [Intelligence Agent Catalog → Prompt And Advice Governance](../../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance)
   (the agent catalog registry paragraph) and
-  [Adding Or Revising A Coach Agent](../../docs/architecture/intelligence-agent-catalog.md#adding-or-revising-a-coach-agent):
+  [Adding Or Revising A Coach Agent](../../../docs/architecture/intelligence-agent-catalog.md#adding-or-revising-a-coach-agent):
   the operator side (registering, approving, retiring, and enabling versions; the profile table and distance review)
   gains a Web UI path; the governance rules are unchanged.
-- [Platform Implementation → Agent Runtime](../../docs/architecture/platform-implementation.md#agent-runtime): the
+- [Platform Implementation → Agent Runtime](../../../docs/architecture/platform-implementation.md#agent-runtime): the
   catalog paragraph and the list of remaining future work.
-- [Platform Implementation](../../docs/architecture/platform-implementation.md) Acceptance Evidence and Architecture
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md) Acceptance Evidence and Architecture
   Reassessment: Web UI evidence and the OpenAPI snapshot from which the client is generated.
 
 ### Design updates (applied now, worded as decided but not implemented)
@@ -168,7 +168,7 @@ the rewrites above are examples, not the whole job.
 ### Documentation (this feature)
 
 ```text
-specs/20261018-103316-web-ui-agent-catalog/
+specs/archive/20261018-103316-web-ui-agent-catalog/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output
@@ -239,10 +239,13 @@ src/clients/web/
     ├── unit/
     │   ├── platform/adapters/agentCatalogAdapter.test.ts
     │   ├── features/agent-catalog/fixtures.ts      # shared view-test fixtures and fake adapter
+    │   ├── i18n/keys.test.ts                       # shell.nav key list gains agentCatalog
     │   ├── features/agent-catalog/*.test.ts(x)
     │   └── serviceWorker/shellWorker.test.ts       # agent catalog paths stay unhandled
     └── e2e/
         ├── support/simulatedApi.ts                 # agent catalog routes and state
+        ├── simulated/navigation.spec.ts            # Club Admin list gains Agent catalog
+        ├── platform/navigation.spec.ts             # Club Admin list gains Agent catalog
         ├── simulated/agent-catalog.spec.ts
         ├── simulated/agent-catalog-coach.spec.ts
         ├── simulated/agent-catalog-access.spec.ts

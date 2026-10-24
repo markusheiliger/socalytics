@@ -146,6 +146,29 @@ describe('fetch routing', () => {
     }
   });
 
+  it('does not handle Agent Catalog API paths for any method', () => {
+    const id = '4a7c3b2e-0000-4000-8000-000000000004';
+    const paths = [
+      '/api/v1/agent-catalog/baseline',
+      '/api/v1/agent-catalog/agents',
+      '/api/v1/agent-catalog/agents?pageSize=20',
+      '/api/v1/agent-catalog/agent-versions',
+      '/api/v1/agent-catalog/agent-versions/specialist-agent/versions/1.0.0',
+      '/api/v1/agent-catalog/agent-versions/specialist-agent/versions/1.0.0/approval',
+      '/api/v1/agent-catalog/agent-versions/specialist-agent/versions/1.0.0/retirement',
+      '/api/v1/agent-catalog/artifacts/prompt',
+      `/api/v1/agent-catalog/artifacts/prompt/${id}/versions/1.0.0`,
+      '/api/v1/agent-catalog/enablements',
+      '/api/v1/agent-catalog/enablements/specialist-agent',
+    ];
+    for (const path of paths) {
+      for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
+        expect(classify(path, 'cors', method), `${method} ${path}`).toBeUndefined();
+        expect(classify(path, 'navigate', method), `${method} ${path} (navigate)`).toBeUndefined();
+      }
+    }
+  });
+
   it('serves navigations from the cached index.html and falls back to the network', async () => {
     const { caches } = fakeCaches();
     const match = vi.mocked(caches.match);
