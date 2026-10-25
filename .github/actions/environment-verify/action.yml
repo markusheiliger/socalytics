@@ -82,7 +82,7 @@ runs:
         LOG_FILE: ${{ inputs.log-file }}
         MARKDOWN_CHECK: ${{ github.action_path }}/../../scripts/check-markdown.mjs
         ANALYST_PROJECTS: ${{ github.action_path }}/analyst-projects.py
-        ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs
+        ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs ${{ github.action_path }}/../environment-setup/dotnet-resolve.test.mjs
       run: |
         # GitHub runs `shell: bash` with `-e`; this script handles failures itself (status) and must always write its
         # outputs, so a non-matching grep (for example when every changed file is covered) must not end it early.

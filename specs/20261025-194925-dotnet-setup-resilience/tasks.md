@@ -29,7 +29,7 @@
 
 - [x] T001 Create `.github/actions/environment-setup/dotnet-resolve.mjs` as a Node ES module (built-ins only, no npm dependency) exporting the named limit constants of research R4 (alternative feed: one attempt, 240-second timeout counted over its install-script download and install together, with a 30-second request timeout for the download; a 30-second per-command timeout for the injected command runner that runs `dotnet --version` and `dotnet --list-sdks`, and one shared 120-second deadline for all such commands of one run), the alternative feed URL `https://ci.dot.net/public`, and placeholder exports `parseRequirement`, `satisfies`, `acceptable`, `decide`, `formatFailure`, `formatSummary`, with a `main` that runs only when the file is executed directly (so tests can import it without side effects)
 - [x] T002 Create `.github/actions/environment-setup/dotnet-resolve.test.mjs` using `node:test` and `node:assert/strict`, importing the helper exports of T001, with a shared fixture builder for `global.json` contents (version, `rollForward`, `allowPrerelease`) and for simulated source adapters (success, transient failure, persistent failure, unavailable)
-- [ ] T003 In `.github/actions/environment-verify/action.yml` add `${{ github.action_path }}/../environment-setup/dotnet-resolve.test.mjs` to the `ENVIRONMENT_TESTS` value so verification runs the new offline tests; change nothing else and remove, skip, or relax no check (FR-012)
+- [x] T003 In `.github/actions/environment-verify/action.yml` add `${{ github.action_path }}/../environment-setup/dotnet-resolve.test.mjs` to the `ENVIRONMENT_TESTS` value so verification runs the new offline tests; change nothing else and remove, skip, or relax no check (FR-012)
 
 ---
 
