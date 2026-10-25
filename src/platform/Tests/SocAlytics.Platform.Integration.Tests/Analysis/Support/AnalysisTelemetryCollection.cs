@@ -47,4 +47,9 @@ and was restored afterwards (git diff shows no change under SocAlytics.Platform.
 - Counting it with a different outcome (instead of the documented code): measurements.Count(x => x.Outcome == code) should be 1 but was 0.
 - Adding a payload value as a metric tag (socalytics.analysis.runs_blocked:capability=PAYLOAD-VALUE-MUST-NOT-LEAK):
   measurements.ShouldAllBe(x => !x.Tags.Contains(Sentinel, StringComparison.Ordinal)) failed.
+
+Stability of the named test alone (T009, SC-001): 30 consecutive runs of
+dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~FactPayloadTelemetryTests",
+one after another in a single shell loop that stopped at the first failure. Result: 30 of 30 runs passed (each run: Passed 2,
+Failed 0, both theory rows).
 */
