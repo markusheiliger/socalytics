@@ -75,6 +75,33 @@ Discovery always validates the existing manifests. A malformed or unsupported pr
 
 The check "Environment action tests" runs `node --test` over [`analyst-projects.test.mjs`](analyst-projects.test.mjs) and [`../environment-setup/toolchain.test.mjs`](../environment-setup/toolchain.test.mjs). It runs when a file under `.github/actions/environment-setup/` or `.github/actions/environment-verify/` changed, and in `finalize` mode, whether or not an Analyst Python project exists. It uses the Node.js that the caller provides. The marker `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING` makes a nested run of the action skip this check, so the test fixtures never start the self-test again. The tests stub external commands and never connect to a database. They use isolated fixtures, not product projects.
 
+## Finalize reuse and reduced scope
+
+Only `finalize` mode reuses a result or reduces its scope. The `task` and `phase` modes never read or write a record and never reduce their scope. The inputs and outputs do not change.
+
+### Reuse of a finalize result
+
+A finalize run that passes completely records its result. A later finalize run in the same job reuses that result, and runs no check, only when all of these are identical to its own:
+
+- the workspace state identity: a hash of the checked-out commit and of every committed and uncommitted file that Git does not ignore, except the `log-file` and the `changed-files` list, so a change to any single file makes a different state;
+- the mode (`finalize`);
+- the content of the changed-files list: the paths with `\r` removed and blank lines dropped, sorted and unique, so the same paths in another order or with other line endings are identical;
+- the scope that ran (`full` or `environment`, see below).
+
+The record is one small JSON file, `$RUNNER_TEMP/socalytics-environment-verify/finalize-<run id>-<attempt>-<job>.json`, built from `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, and `GITHUB_JOB`. It lives only in the runner's temporary folder, never in the repository or an artifact, and dies with the job. It holds the identity, the mode, the changed-files hash, the scope, the `checks`, `uncovered`, and `flaky` values, and the run it came from. It names no copy of the action, so a self-test that runs another copy of the action in the same job (for example the merge's self-test of the changed actions) reuses the earlier result when the workspace state, the changed files, and the scope are identical.
+
+A reused run reports "Reused result" and the earlier run in its log and step summary, passes, and writes the `checks`, `uncovered`, and `flaky` outputs of the earlier run.
+
+Reuse is not possible, and the run executes every check of its scope in full, when `RUNNER_TEMP`, the run id, the attempt, or the job id is missing or empty, when the workspace is not the top level of a Git work tree, when Git cannot answer, or when an ignored path exists that is not a known build output, dependency folder, generated client, or Spec Kit housekeeping path (the log then says that reuse was not possible, and nothing is read or written). A nested run inside the Environment action tests (`SOCALYTICS_ENVIRONMENT_TESTS_RUNNING`) never reads or writes a record either.
+
+A failed, cancelled, missing, unreadable, damaged, incomplete, or mismatching earlier result is never reused: the run repeats every check of its scope in full and reports its own result. A failing run deletes an existing record, and a passing run whose workspace state changed during the run writes none, so a failure or an absent result never becomes a pass.
+
+### Reduced `environment` scope
+
+A finalize run whose changed files all lie directly inside `.github/actions/environment-setup/` or `.github/actions/environment-verify/` runs the `environment` scope: only the Environment action tests and the Markdown check. The Analyst Python projects check is skipped, and the platform, Analyst Manager, and Web UI checks do not apply to these paths. The `checks` output lists only the checks that ran, and `uncovered` is computed from what these checks cover. The log and the step summary say that the scope was reduced to the environment actions and why.
+
+The full scope runs, with every check as described above, when any changed file lies outside the two folders, when the changed-files list is empty or missing, or when a path cannot be classified with certainty: a path that only shares a name prefix with a folder, that leaves it with `..`, that is absolute, that contains a backslash, or that has an empty or `.` component. A reduced run fails when any of its checks fails.
+
 ## Check order and coverage
 
 Checks run in this order and stop at the first failing check: platform build and tests, Analyst Manager build and tests, Web UI build and tests, Analyst Python projects, Environment action tests, and Markdown check. The `checks` output lists the checks that ran, and after a failure the last one failed.
