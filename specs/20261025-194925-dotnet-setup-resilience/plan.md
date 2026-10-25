@@ -24,7 +24,7 @@ The first step of `.github/actions/environment-setup`, `actions/setup-dotnet@v5`
 
 **Performance Goals**: Primary success path adds no download and negligible overhead (one helper run of well under a second plus two `dotnet --version` calls)
 
-**Constraints**: Development limits (R4): at most 3 `setup-dotnet` attempts of 3 minutes each with pauses of 10 s and 30 s, then the runner SDK check (seconds) and one alternative-feed install of at most 4 minutes: a hard outage fails the run in about 14 minutes at the very worst and in about 2 minutes for fast-failing responses such as HTTP 409. No secrets, no new permissions, no new credentials, cloud-neutral
+**Constraints**: Development limits (R4): at most 3 `setup-dotnet` attempts of 3 minutes each with pauses of 10 s and 30 s, then the runner SDK check (seconds, each `dotnet` command bounded by a 30-second timeout) and one best-effort alternative-feed install of at most 4 minutes: all `dotnet` commands of one run share a 120-second deadline and the alternative-feed script download has a 30-second request timeout inside the 240-second budget: a hard outage fails the run in about 16 minutes at the very worst (3 x 3 min + 10 s + 30 s + 120 s + 240 s) and in about 1 minute for fast-failing responses such as HTTP 409. No secrets, no new permissions, no new credentials, cloud-neutral
 
 **Scale/Scope**: One action, one new helper script, one new test file, README section, one list entry in `environment-verify`
 

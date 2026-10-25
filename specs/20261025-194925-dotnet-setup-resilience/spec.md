@@ -14,6 +14,8 @@
 
 - Q: When the runner already has an SDK that satisfies both pinned SDK files, should setup use it before contacting the primary download source, or only after the primary source has failed its bounded attempts? → A: Primary source first; an already available satisfying SDK is used only as a fallback after the primary source fails its bounded attempts.
 - Q: Must a fallback source supply the exact SDK version pinned in the platform's global.json, or may it supply any newer SDK that the pinned roll-forward and prerelease policy allows? → A: Any SDK that satisfies both pinned files under their roll-forward and prerelease policy is accepted, and the resolved version is reported.
+- Q: Review feedback of the spec pull request (@markusheiliger, 2026-10-25T20:23:56Z) asks to rework the spec to resolve the outstanding consistency findings and failures, preserve the requirements and tests, explain any finding that cannot be resolved, and run the full spec-folder consistency check again. How is this recorded? → A: No requirement, scenario, success criterion, or test is removed or weakened by this feedback; the spec's requirements (FR-001 to FR-014) and success criteria (SC-001 to SC-007) stay as they are, and any finding the correction cannot resolve is explained in the correction's report instead of being dropped.
+- Q: After the primary download source has failed all its bounded attempts, in which order should setup try the remaining sources: the alternative official download source first and then a toolchain already on the runner or in a cache, or the already available toolchain first and then the alternative download source? → A: B) Already available cached or installed toolchain first (no download), then the alternative official download source.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -30,7 +32,7 @@ An implementation or verification run starts its environment setup while the pri
 **Acceptance Scenarios**:
 
 1. **Given** the primary source fails transiently and then succeeds, **When** setup runs, **Then** it succeeds within the bounded attempts, pauses between attempts, and every attempt honours the SDK requirement of the platform's pinned SDK file.
-2. **Given** the primary source fails persistently on every bounded attempt, **When** setup runs, **Then** it moves on to an alternative source or an available cached toolchain and continues instead of failing.
+2. **Given** the primary source fails persistently on every bounded attempt, **When** setup runs, **Then** it moves on, first to an SDK already installed on the runner (no download; no SDK cache is added) and then, only if that yields no satisfying SDK, to the alternative official download source, and continues instead of failing.
 3. **Given** the primary source works, **When** setup runs, **Then** the primary source is used (even when the runner already has a satisfying SDK), no fallback is attempted, and the run takes no longer than before beyond negligible overhead.
 4. **Given** setup succeeded through a fallback, **When** the run summary and logs are read, **Then** they state that the fallback was used, which source supplied the SDK, and the resolved SDK version.
 
@@ -72,9 +74,9 @@ A maintainer sees a clear, single failure when neither the primary source, the a
 ### Edge Cases
 
 - The primary source fails with a non-transient response (for example a persistent conflict response): the bounded attempts end and the fallback starts; setup does not retry indefinitely.
-- The runner already has an SDK that satisfies both pinned files: it is not used before the primary source; it is used only as a fallback after the primary source has failed its bounded attempts, only through the same validation as any other source, and its use is reported.
+- The runner already has an SDK that satisfies both pinned files: it is not used before the primary source; it is the first fallback, used after the primary source has failed its bounded attempts and before the alternative official download source is contacted, only through the same validation as any other source, and its use is reported.
 - A fallback source supplies a newer SDK than the pinned version: it is accepted when it satisfies both pinned files under their roll-forward and prerelease policy, and the resolved version is reported; an exact match of the pinned version is not required.
-- A cached toolchain is stale or does not satisfy the pinned files: it is rejected, never used.
+- An SDK already installed on the runner is stale or does not satisfy the pinned files: it is rejected, never used.
 - The alternative source offers the SDK but with a corrupted or truncated download: the download fails its integrity check or its version check and counts as a failed source.
 - The pinned SDK files change to a version no source offers: setup fails visibly rather than loosening the version.
 - Pinned SDK files whose requirements no single SDK can satisfy together: setup fails visibly and names both files.
@@ -86,7 +88,7 @@ A maintainer sees a clear, single failure when neither the primary source, the a
 ### Functional Requirements
 
 - **FR-001**: Setup MUST retry the .NET installation a bounded number of times with a pause between attempts, and every attempt MUST honour the platform's pinned SDK file (version, roll-forward policy, prerelease policy).
-- **FR-002**: Setup MUST try the primary download source first, even when the runner already has a satisfying SDK. Only when the primary source keeps failing after its bounded attempts MUST setup fall back to an alternative official download source or to an already available cached or installed toolchain (including an SDK already on the runner).
+- **FR-002**: Setup MUST try the primary download source first, even when the runner already has a satisfying SDK. Only when the primary source keeps failing after its bounded attempts MUST setup fall back, in this order: first to an SDK already installed on the runner (no download; no SDK cache is added), and only if that yields no satisfying SDK, to an alternative official download source.
 - **FR-003**: Setup MUST accept an SDK from any source only if it satisfies both the platform's pinned SDK file and the Analyst Manager's pinned SDK file under their roll-forward and prerelease policy, and MUST reject and report any other SDK. A fallback SDK need not equal the exact pinned version; any satisfying SDK is accepted and its resolved version reported (FR-005, FR-007).
 - **FR-004**: Setup MUST NOT loosen, bypass, or rewrite any pinned SDK file, roll-forward policy, or prerelease policy to make a source succeed.
 - **FR-005**: Setup MUST keep the `dotnet-version` output, holding the resolved SDK version, so the existing dependency cache keys keep working unchanged.
@@ -103,7 +105,7 @@ A maintainer sees a clear, single failure when neither the primary source, the a
 ### Key Entities
 
 - **SDK requirement**: The version, roll-forward policy, and prerelease policy declared in the platform's pinned SDK file and in the Analyst Manager's pinned SDK file; the single acceptance rule for any source.
-- **Download source**: The primary source, an alternative official source, or an already available cached or installed toolchain, tried in a documented order with the primary source always first.
+- **Download source**: The primary source, a toolchain already installed on the runner (no cache is added), or an alternative official source, tried in this documented order with the primary source always first and the alternative official source last.
 - **Setup attempt**: One try of one source, with its outcome, cause on failure, and the pause before the next try.
 - **Resolved SDK**: The SDK version that satisfied the requirement, reported through the `dotnet-version` output and the run summary.
 
@@ -111,7 +113,7 @@ A maintainer sees a clear, single failure when neither the primary source, the a
 
 ### Measurable Outcomes
 
-- **SC-001**: With the primary source failing on every attempt, setup still ends with a satisfying SDK whenever an alternative source or cached toolchain provides one, in 100% of simulated cases.
+- **SC-001**: With the primary source failing on every attempt, setup still ends with a satisfying SDK whenever an alternative source or a toolchain already installed on the runner provides one, in 100% of simulated cases.
 - **SC-002**: With the primary source working, setup uses it with no fallback in 100% of simulated cases, including cases where the runner already has a satisfying SDK.
 - **SC-003**: No SDK that fails either pinned SDK file is ever accepted, in 100% of simulated version cases.
 - **SC-004**: When no source yields a satisfying SDK, setup fails in 100% of simulated cases within the documented time bound, with each tried source named and one recommended action.

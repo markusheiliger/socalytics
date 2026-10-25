@@ -36,7 +36,7 @@ Environment read:
 Effects:
 
 - Cross-check: after a candidate passes `acceptable`, the helper runs `dotnet --version` in each pinned folder (for the alternative source and for a runner SDK under another root with the candidate's install directory first on `PATH` and `DOTNET_ROOT` set to it in the child environment, so the muxer that is cross-checked is the one later steps will use); the reported version must satisfy every requirement through `acceptable` (it may be a higher satisfying patch than the candidate) and is the resolved version; otherwise the candidate is rejected with a cause naming the folder.
-- Success: writes `dotnet-version=<resolved version>` to `GITHUB_OUTPUT`; appends the `.NET SDK` table to `GITHUB_STEP_SUMMARY`; for the alternative source also appends the install directory to `GITHUB_PATH` and `DOTNET_ROOT=<dir>` to `GITHUB_ENV`; exit code 0.
+- Success: writes `dotnet-version=<resolved version>` to `GITHUB_OUTPUT`; appends the `.NET SDK` table to `GITHUB_STEP_SUMMARY`; for the alternative source and for a runner SDK that is not the one the `dotnet` on `PATH` reports (and for no other runner SDK) also appends the install directory to `GITHUB_PATH` and `DOTNET_ROOT=<dir>` to `GITHUB_ENV`; exit code 0.
 - Failure: prints the failure block (every source tried, its cause, and one `Recommended action`) to stderr and appends it to the summary; writes no `dotnet-version`; exit code 1.
 
 The summary table columns: `Source`, `Fallback used`, `Attempts`, `Resolved SDK`; followed by one line per rejected or failed attempt with its cause.
