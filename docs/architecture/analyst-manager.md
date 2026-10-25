@@ -394,6 +394,23 @@ identity only after proving possession of both the registered old key and the
 replacement key. A lost key cannot be recovered, escrowed, or rebound by an
 administrator; the old registration is revoked and the host registers anew.
 
+Rotation is a decided, not yet implemented, operation of the Manager's own
+machine-authenticated registration. One request carries a proof of the
+registered key and a proof of the replacement key, each a short-lived,
+audience-bound client assertion with a unique identifier that names the other
+key. The platform validates both, refuses a replacement that equals the
+registered key, another registration's key, or a key this registration retired
+earlier, applies the stamp's software-key policy as at registration, and then
+switches the key atomically under optimistic concurrency. From the switch,
+tokens, proofs, and queue credentials of the old key are refused without a
+grace period. The Manager creates the replacement in the same protected store
+provider, records a pending rotation in its signed local file before the
+request, and after any interruption converges on the key the platform accepts
+(replacement-key authentication, or a same-proofs retry within a short window)
+without re-registration. Rotation is rate-limited per registration, audited with
+identifiers and fingerprints only, not blocked by the minimum Manager version,
+and served by the running Manager through local control only.
+
 The AM stores its Manager identity, endpoint, stamp binding, key reference,
 and last operating intent in a local file readable only by the user's account
 and signed with the device key, and restores them across restart and
