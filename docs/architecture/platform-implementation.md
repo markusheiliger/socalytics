@@ -545,6 +545,14 @@ restricted to Club Admins and audited when they change state. Club Admins use
 them from the Web UI's Operations area (implemented as a connected workflow; see
 [Client Applications → Web UI](client-applications.md#web-ui)).
 
+Until an audit-reviewer or stamp-operator role exists, the read-only audit
+evidence operation `GET /api/v1/audit/events` is restricted to Club Admins
+(decided, not yet implemented; development evidence). It reads the security
+audit table through ordered indexes, returns minimized fields, records every
+read as an `audit.evidence-read` audit event in the reading transaction, and is
+rate limited per member (see
+[Security and Data Governance](security-and-data-governance.md#audit-events)).
+
 ### Agent Runtime
 
 Agent Orchestration uses the same Dapper, PostgreSQL, DbUp, logical CQRS,
