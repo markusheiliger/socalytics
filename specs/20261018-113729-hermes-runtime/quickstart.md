@@ -1,7 +1,7 @@
 # Quickstart: Hermes Agent Runtime
 
 Validation guide for the feature. Commands run from the repository root; the agent project commands are those of the
-[agent project convention](../20261018-110526-agents-python-environment/contracts/environment-interface.md).
+[agent project convention](../archive/20261018-110526-agents-python-environment/contracts/environment-interface.md).
 
 ## Prerequisites
 
