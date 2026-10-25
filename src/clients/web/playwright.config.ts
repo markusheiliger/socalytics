@@ -166,13 +166,22 @@ export default defineConfig({
       dependencies: ['platform-invitations'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
-    // Runs last because it changes the default workflow.
+    // Runs before the registry spec, while the seeded default workflow (with the e2e video policy) is still the default.
+    {
+      name: 'platform-segments',
+      testDir: './tests/e2e/platform',
+      testMatch: /segments\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    // Runs after the segments spec because it changes the default workflow.
     {
       name: 'platform-registry',
       testDir: './tests/e2e/platform',
       testMatch: /registry\.spec\.ts$/,
       fullyParallel: false,
-      dependencies: ['platform'],
+      dependencies: ['platform-segments'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {

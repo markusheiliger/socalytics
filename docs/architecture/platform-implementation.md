@@ -34,8 +34,13 @@ SocAlytics uses one `src` root with these first-level ownership areas:
   executable under `src/analysts/manager`, and the Analyst SDK, executable
   under `src/analysts/sdk`; the development reference capability
   `reference-media-probe` exists under `src/analysts/capabilities/reference-media-probe`,
-  and the catalog's Analyst capability implementations across their required
-  runtimes remain future
+  and the first catalog-named capability, `media-context-classification`,
+  exists under `src/analysts/capabilities/media-context-classification` as a
+  shot-boundary baseline only (development evidence, fixed rules without a
+  model, no catalog gate met, never in a production workflow); the rest of the
+  catalog's Analyst capability implementations (including shot type, live,
+  replay, graphics, quality, and usable intervals of media context) across
+  their required runtimes remain future
 
 The executable platform projects are peers under `src/platform`, except for the
 test projects grouped under `src/platform/Tests`:
@@ -881,7 +886,10 @@ current and non-current migration states; and
   the workflow operations area for Club Admins (the summary with its
   observation time, filtered and paged outgoing messages and receipts, message
   detail without payload, and confirmed reconciliation with its outcome) in
-  the `simulated` and `platform` projects; and the agent catalog
+  the `simulated` and `platform` projects; and the Club Admin segments area
+  of the match page (the match's materialized segments and the confirmed
+  manual purge with its purged and in-use counts) in the `simulated` and
+  `platform-segments` projects; and the agent catalog
   administration for Club Admins (browsing agents, versions, and artifacts;
   registering artifacts and agent versions with the platform's validation shown
   next to each field; confirmed approval, retirement, and enablement changes;
@@ -947,7 +955,7 @@ choice or reveals a material operational tradeoff:
   evidence, including the Analyst Manager pairing, approval, and fleet views,
   the Analyst Registry administration views, the workflow operations area and
   the agent catalog administration for
-  Club Admins, the match workflow with recording
+  Club Admins, the segments area of the match page for Club Admins, the match workflow with recording
   upload and finalization, the connected analysis review of a run's status and
   indexed facts, and the match
   triage conversations with Specialist Agents. External

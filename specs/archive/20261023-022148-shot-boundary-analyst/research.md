@@ -83,7 +83,7 @@ capability version 1.0.0, not calibrated or production values; a change to any o
   (equal millisecond after flooring) becomes `start + 1`, never beyond the window end. Confidence is the fixed value
   `0.5`, documented as "rule-based, uncalibrated". The payload shape is in [contracts/shot-boundary-fact.md](
   contracts/shot-boundary-fact.md). Payload schema validation: the open
-  [Capability Fact Payload Schemas](../archive/20261023-010826-fact-payload-schemas/spec.md) feature has not merged, so this
+  [Capability Fact Payload Schemas](../20261023-010826-fact-payload-schemas/spec.md) feature has not merged, so this
   plan does not declare the schema in the manifest or depend on it; the capability ships
   `schemas/shot-boundary.payload.schema.json`, validated in its own tests with `jsonschema`, exactly like the
   reference capability's schema. Declaring it in the manifest is a follow-up that a later version would make.

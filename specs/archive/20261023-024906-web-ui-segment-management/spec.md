@@ -11,10 +11,10 @@
 ## User Scenarios & Testing *(mandatory)*
 
 The actor is the Club Admin of the club that owns a match. The platform already lists and purges the materialized
-segments of one match for Club Admins ([Materialized Video Segments and Analyst Input Staging](../archive/20261017-222433-materialized-segments/spec.md),
-[On-Demand Video Segmentation](../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation)); today that
+segments of one match for Club Admins ([Materialized Video Segments and Analyst Input Staging](../20261017-222433-materialized-segments/spec.md),
+[On-Demand Video Segmentation](../../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation)); today that
 is only reachable by calling the API by hand. This feature adds the area to the match page of the Web UI
-([Web UI](../../docs/architecture/client-applications.md#web-ui)). It changes no platform operation or contract.
+([Web UI](../../../docs/architecture/client-applications.md#web-ui)). It changes no platform operation or contract.
 
 ### User Story 1 - See the materialized segments of a match (Priority: P1)
 
@@ -245,6 +245,6 @@ area shows the distinct state for each and, after the condition clears and the C
 - The simulated browser project provides a scripted platform for every state; the platform browser project drives real
   segment states created through the connected workflows.
 - Depends on the implemented
-  [Materialized Video Segments and Analyst Input Staging](../archive/20261017-222433-materialized-segments/spec.md),
-  [Web UI Foundation](../archive/20261012-150657-web-ui-foundation/spec.md), and
-  [Web UI Match Workflow and Recording Upload](../archive/20261013-112844-web-ui-match-upload/spec.md).
+  [Materialized Video Segments and Analyst Input Staging](../20261017-222433-materialized-segments/spec.md),
+  [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md), and
+  [Web UI Match Workflow and Recording Upload](../20261013-112844-web-ui-match-upload/spec.md).

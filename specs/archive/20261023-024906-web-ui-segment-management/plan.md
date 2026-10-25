@@ -2,7 +2,7 @@
 
 **Branch**: `20261023-024906-web-ui-segment-management` | **Date**: 2026-10-23 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261023-024906-web-ui-segment-management/spec.md`
+**Input**: Feature specification from `specs/archive/20261023-024906-web-ui-segment-management/spec.md`
 
 ## Summary
 
@@ -51,7 +51,7 @@ changed platform operation, contract, or OpenAPI document (FR-018); memory-only 
 
 | Principle | Gate | Result |
 | --- | --- | --- |
-| I. Architecture Is the Design Authority | Conforms to [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui) and [Match Data Pipeline → On-Demand Video Segmentation](../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation); `## Architecture Updates` names narratives, design updates, and status statements | Pass |
+| I. Architecture Is the Design Authority | Conforms to [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui) and [Match Data Pipeline → On-Demand Video Segmentation](../../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation); `## Architecture Updates` names narratives, design updates, and status statements | Pass |
 | II. Respect Source-Area Ownership | Web UI code and tests in `src/clients/web`; one AppHost e2e configuration value in `src/platform`; no new first-level area | Pass |
 | III. API-First Control Plane | Only existing operations through an adapter over the generated client; the platform decides in-use, purge, and refusals; no media bytes are read | Pass |
 | IV. Evidence Over Claims | Vitest, Playwright `simulated` and `platform`; no production-readiness claim; `POL-004` stays unresolved | Pass |
@@ -65,7 +65,7 @@ Post-design re-check: Pass (the design adds no operation, dependency, or persist
 ### Documentation (this feature)
 
 ```text
-specs/20261023-024906-web-ui-segment-management/
+specs/archive/20261023-024906-web-ui-segment-management/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output (client view models)
@@ -110,16 +110,16 @@ enabled so non-admins cause no request.
 
 ### Narratives
 
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): the Web UI description gains the
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): the Web UI description gains the
   Club Admin segments area (implemented, connected, online only, memory-only data, `simulated` and `platform` browser
   tests).
-- [Match Data Pipeline → On-Demand Video Segmentation](../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation):
+- [Match Data Pipeline → On-Demand Video Segmentation](../../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation):
   the manual purge names the Web UI's segments area as a way to run it; unchanged rules the area shows (purge keeps
   segments pinned by waiting, ready, or claimed jobs; purged segments are rematerialized on demand; `POL-004` stays
   unresolved).
-- [Client Applications → Offline Mode](../../docs/architecture/client-applications.md#offline-mode): unchanged rule
+- [Client Applications → Offline Mode](../../../docs/architecture/client-applications.md#offline-mode): unchanged rule
   (online only, no user data in the service worker) that the area follows.
-- [Platform Implementation](../../docs/architecture/platform-implementation.md) (Architecture Reassessment and
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md) (Architecture Reassessment and
   Acceptance Evidence): Web UI evidence lists gain the segments area.
 
 ### Design updates (applied now)
