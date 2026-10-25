@@ -38,7 +38,7 @@ description: "Task list for Deterministic Fact Payload Telemetry Test"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T002 Create `AnalysisTelemetryCollection` in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Support/AnalysisTelemetryCollection.cs`: a `public sealed class` in the namespace `SocAlytics.Platform.Integration.Tests.Analysis.Support` with `[CollectionDefinition(Name, DisableParallelization = true)]` and `public const string Name = "AnalysisTelemetry"`, following `IdentityAccess/Support/TimingCollection.cs`; no other member and no fixture
+- [x] T002 Create `AnalysisTelemetryCollection` in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Support/AnalysisTelemetryCollection.cs`: a `public sealed class` in the namespace `SocAlytics.Platform.Integration.Tests.Analysis.Support` with `[CollectionDefinition(Name, DisableParallelization = true)]` and `public const string Name = "AnalysisTelemetry"`, following `IdentityAccess/Support/TimingCollection.cs`; no other member and no fixture
 
 **Checkpoint**: The collection exists; no test uses it yet.
 
