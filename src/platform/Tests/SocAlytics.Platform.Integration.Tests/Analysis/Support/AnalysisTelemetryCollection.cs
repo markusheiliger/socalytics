@@ -40,4 +40,11 @@ own instrument, raised by a test collection running in parallel, can break. Pres
   matching measurement exists (ShouldContain), which a foreign measurement cannot break.
 - Registry/MinimumVersionEnforcementTests: defective. It listens to socalytics.analysis.manager_version_refusals and asserts the exact
   list ["claim"], ["queue-credentials"], and an empty list, which a foreign refusal breaks.
+
+Probes (T008, SC-003): each probe changed CompleteAttempt.cs, was run with --filter "FullyQualifiedName~FactPayloadTelemetryTests",
+and was restored afterwards (git diff shows no change under SocAlytics.Platform.Application). Both theory rows failed each time.
+- Counting the rejection a second time: measurements.Count(x => x.Outcome == code) should be 1 failed (the rejection was counted twice).
+- Counting it with a different outcome (instead of the documented code): measurements.Count(x => x.Outcome == code) should be 1 but was 0.
+- Adding a payload value as a metric tag (socalytics.analysis.runs_blocked:capability=PAYLOAD-VALUE-MUST-NOT-LEAK):
+  measurements.ShouldAllBe(x => !x.Tags.Contains(Sentinel, StringComparison.Ordinal)) failed.
 */
