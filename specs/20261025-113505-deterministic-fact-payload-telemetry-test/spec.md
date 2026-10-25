@@ -26,7 +26,7 @@ The analysis instruments live on one process-wide meter, `SocAlytics.Platform.An
 
 Suspected causes, to be confirmed by evidence before they are fixed:
 
-- **Shared, process-wide meter observed without scope** (most likely): measurements of tests that run in parallel are recorded by the unscoped listener. Candidates named in the report are `ValidatedAcceptanceTests`, `AnalysisTelemetryTests`, `RunSupersessionTests`, and `PartialCoverageReadinessTests`; the implementation determines which tests actually overlap and which of the others listen the same way.
+- **Shared, process-wide meter observed without scope** (most likely): measurements of tests that run in parallel are recorded by the unscoped listener. Candidates named in the report are, for example, `ValidatedAcceptanceTests`, `AnalysisTelemetryTests`, `RunSupersessionTests`, `PartialCoverageReadinessTests`, and `MinimumVersionEnforcementTests`; the implementation determines which tests actually overlap and which of the others listen the same way.
 - **Metric recorded after the response**: the rejection could be counted after the HTTP response is returned, so the assertion would read before the measurement exists (a missing measurement rather than an extra one). The implementation rules this in or out from the code of the completion path.
 - **Ordering and shared state**: leftover state from a previous test in the same process, or measurements recorded by background workers of the test's own host (for example a monitor or retention worker raising a different rejection outcome).
 - **External dependencies**: asynchronous publication or container startup that a wait does not observe.
@@ -41,7 +41,7 @@ A maintainer running the integration tests, or the verification of any implement
 
 **Why this priority**: The test failed in the verifications of three implementations that pass only on a rerun and report a flaky test none of them caused; the stopped implementation of #294 needs it reliable.
 
-**Independent Test**: Run the named test repeatedly alone, together with the whole analysis test group in parallel, and under CPU load; every run passes. Then break the behavior with a probe (for example a second rejection count for one completion, or a payload value in a tag) and confirm the test still fails on its assertions.
+**Independent Test**: Run the named test repeatedly alone, together with the whole analysis test group in one run (the isolated collection runs after the parallel collections), and under CPU load; every run passes. Then break the behavior with a probe (for example a second rejection count for one completion, or a payload value in a tag) and confirm the test still fails on its assertions.
 
 **Acceptance Scenarios**:
 
@@ -72,7 +72,7 @@ A maintainer running the integration tests, or the verification of any implement
 
 ### Measurable Outcomes
 
-- **SC-001**: The named test passes in 100% of at least 30 consecutive runs alone and in at least 10 consecutive runs together with the other analysis tests in parallel (including those that reject completions with the same reason codes). If the failure does not reproduce naturally, the evidence additionally contains a deliberate reproduction (a concurrent rejection raised by another host during the window) in which the old test fails and the new test passes.
+- **SC-001**: The named test passes in 100% of at least 30 consecutive runs alone and in at least 10 consecutive runs together with the other analysis tests in one run (the isolated collection runs after the parallel collections; those tests include the ones that reject completions with the same reason codes). The deliberate reproduction (a concurrent rejection raised by another host during the window) in which the old test fails and the new test passes is the proof of isolation; if the failure does not reproduce naturally, it is the required evidence.
 - **SC-002**: Every other test changed by this fix passes in the same consecutive runs, and the tests of the integration project that were not changed still pass.
 - **SC-003**: Each of three probes (a second rejection count for one completion, a rejection counted with a different outcome, and a payload value in a metric tag) makes the named test fail on its assertions; the probes are removed afterward.
 - **SC-004**: The code comment and the `## Evidence` section of `research.md` name the evidenced cause, and the change touches only the files the cause lives in plus this spec folder; no assertion is textually removed and no fixed wait or retry is added.
