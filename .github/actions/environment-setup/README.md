@@ -16,6 +16,10 @@ The toolchain is build-environment tooling only. It is not a product dependency,
 
 Setup installs only these distributions. A different CPython, uv, FFmpeg, or ffprobe on the runner never satisfies setup, and no Python project file is read to select them.
 
+## Agent Python Projects
+
+The installed `SOCALYTICS_PYTHON` and `uv` also serve the agent Python projects directly under `src/agents/<name>/` that [`environment-verify`](../environment-verify/README.md) checks. Setup installs nothing additional for them and reads no agent project file.
+
 ## Scope
 
 - Supported host: Linux x64 (`Linux` and `x86_64`). Any other host fails with the detected and the supported host named.

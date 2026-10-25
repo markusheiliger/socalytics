@@ -5,7 +5,7 @@
 - **Decision**: One independent uv project at `src/agents/mcp-server/` with the distribution name
   `socalytics-mcp-server`, the import package `socalytics_mcp_server` (src layout), `requires-python = ">=3.12,<3.13"`,
   the `hatchling` build backend and `pytest` in a locked `dev` dependency group, and a committed `uv.lock`, exactly as the
-  agent project convention of [Agents Python Verification Environment](../20261018-110526-agents-python-environment/contracts/environment-interface.md)
+  agent project convention of [Agents Python Verification Environment](../archive/20261018-110526-agents-python-environment/contracts/environment-interface.md)
   requires. It has no local path dependency. Runtime dependencies: `mcp==2.3.0` (official MCP Python SDK; it brings
   Starlette, uvicorn, the `httpx2` HTTP client, `jsonschema`, `pydantic`, and `pyjwt[crypto]`), declared directly as
   `uvicorn`, `starlette`, `httpx2`, `jsonschema`, and `pyjwt[crypto]` with lower bounds compatible with the lock, so the
@@ -213,7 +213,7 @@
 
 - **Decision**: No tool beyond the environment: the project uses the CPython 3.12.15 and uv 0.13.1 of the merged
   Analyst and Media Verification Environment, recognized and verified for `src/agents/<name>/` by
-  [Agents Python Verification Environment](../20261018-110526-agents-python-environment/spec.md) (must merge first);
+  [Agents Python Verification Environment](../archive/20261018-110526-agents-python-environment/spec.md) (must merge first);
   the image test uses .NET 10 and Docker, which the platform verification already provides. External dependencies
   ship wheels for CPython 3.12 on Linux.
 - **Rationale**: Constitution, Technology and Tooling Constraints.
