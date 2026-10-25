@@ -901,6 +901,174 @@ exit 0
         expectReused(finalize(root, env, { changed: ['notes.txt'] }));
       });
     }
+
+    describe('finalize scope', () => {
+      const setupFile = '.github/actions/environment-setup/toolchain.sh';
+      const verifyFile = '.github/actions/environment-verify/action.yml';
+      const envChecks = 'Environment action tests,Markdown check';
+      const fullChecks = 'Analyst Python projects,Environment action tests,Markdown check';
+
+      // Fixture Node test files count their runs and fail on demand; the Markdown check stub does the same.
+      function fixture({ failTests = false, failMarkdown = false } = {}) {
+        const dir = path.join(temporary, `scope-${counter++}`);
+        mkdirSync(dir);
+        const testRuns = path.join(dir, 'tests.txt');
+        const markdownRuns = path.join(dir, 'markdown.txt');
+        const testFile = path.join(dir, 'fixture.test.mjs');
+        writeFileSync(testFile, `import { appendFileSync } from 'node:fs';
+import { it } from 'node:test';
+import assert from 'node:assert/strict';
+it('fixture', () => {
+  appendFileSync(${JSON.stringify(testRuns)}, 'x\\n');
+  assert.ok(!${failTests});
+});
+`);
+        const markdown = path.join(dir, 'markdown.mjs');
+        writeFileSync(markdown, `import { appendFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(markdownRuns)}, 'x\\n');
+process.exit(${failMarkdown ? 1 : 0});
+`);
+        const count = (file) => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0);
+        return {
+          env: { ENVIRONMENT_TESTS: testFile, MARKDOWN_CHECK: markdown },
+          tests: () => count(testRuns),
+          markdown: () => count(markdownRuns),
+        };
+      }
+
+      const expectReduced = (result, tests) => {
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.calls.length, 0);
+        assert.equal(result.outputs.checks, envChecks);
+        assert.equal(result.outputs.uncovered, '');
+        assert.match(result.log, /Scope reduced to the environment actions: every changed file lies in \.github\/actions\/environment-setup\/ or \.github\/actions\/environment-verify\/, so only the Environment action tests and the Markdown check run/);
+        assert.match(result.summary, /### Reduced scope/);
+        if (tests) assert.equal(tests.tests(), 1);
+      };
+
+      const expectFullScope = (result, tests) => {
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.calls.length, stages.length);
+        assert.equal(result.outputs.checks, fullChecks);
+        assert.doesNotMatch(result.log, /Scope reduced/);
+        assert.doesNotMatch(result.summary, /Reduced scope/);
+        if (tests) assert.equal(tests.tests(), 1);
+      };
+
+      it('runs only the Environment action tests and the Markdown check for changes in the two action folders', () => {
+        const tests = fixture();
+        const result = finalize(gitRepository(), reuseEnv(), { changed: [setupFile, verifyFile], env: tests.env });
+        expectReduced(result, tests);
+        assert.equal(tests.markdown(), 1);
+      });
+
+      it('runs only the environment checks for a change in one action folder', () => {
+        for (const changed of [setupFile, verifyFile]) {
+          const tests = fixture();
+          expectReduced(finalize(gitRepository(), reuseEnv(), { changed: [changed], env: tests.env }), tests);
+        }
+      });
+
+      it('fails and names the check for a failing environment action test', () => {
+        const tests = fixture({ failTests: true });
+        const result = finalize(gitRepository(), reuseEnv(), { changed: [verifyFile], env: tests.env });
+        assert.equal(result.status, 1);
+        assert.equal(result.calls.length, 0);
+        assert.equal(result.outputs.checks, 'Environment action tests');
+        assert.match(result.log, /Environment action tests failed/);
+        assert.equal(tests.markdown(), 0);
+      });
+
+      it('fails and names the check for a failing Markdown check', () => {
+        const tests = fixture({ failMarkdown: true });
+        const result = finalize(gitRepository(), reuseEnv(), { changed: [verifyFile], env: tests.env });
+        assert.equal(result.status, 1);
+        assert.equal(result.calls.length, 0);
+        assert.equal(result.outputs.checks, envChecks);
+        assert.equal(tests.tests(), 1);
+        assert.equal(tests.markdown(), 1);
+      });
+
+      const fullScopeLists = {
+        'a file outside the folders': [verifyFile, 'src/other/x.py'],
+        'a lookalike folder prefix': ['.github/actions/environment-setup-x/file'],
+        'a path with a parent component': ['.github/actions/environment-verify/../x'],
+        'an absolute path': ['/.github/actions/environment-verify/action.yml'],
+        'a backslash path': ['.github/actions/environment-verify\\action.yml'],
+        'a file directly in the actions folder': ['.github/actions/environment-verify'],
+        'an empty list': [],
+      };
+      for (const [name, changed] of Object.entries(fullScopeLists)) {
+        it(`keeps the full scope for ${name}`, () => {
+          const tests = fixture();
+          expectFullScope(finalize(gitRepository(), reuseEnv(), { changed, env: tests.env }), tests);
+        });
+      }
+
+      it('keeps the full scope for a missing changed-files list', () => {
+        const tests = fixture();
+        expectFullScope(finalize(gitRepository(), reuseEnv(), { changed: [], env: { ...tests.env, CHANGED_FILES: path.join(temporary, 'no-such-list.txt') } }), tests);
+      });
+
+      for (const mode of ['task', 'phase']) {
+        it(`does not reduce the scope in ${mode} mode`, () => {
+          const tests = fixture();
+          const result = run(gitRepository(), { mode, changed: [setupFile, verifyFile], env: tests.env });
+          assert.equal(result.status, 0, result.log);
+          assert.doesNotMatch(result.log, /Scope reduced/);
+          assert.doesNotMatch(result.summary, /Reduced scope/);
+          assert.equal(result.outputs.uncovered, '');
+          assert.match(result.outputs.checks, /Environment action tests/);
+          if (mode === 'phase') assert.match(result.outputs.checks, /Analyst Python projects/);
+        });
+      }
+
+      it('reuses a reduced run only for a later reduced run and records its scope', () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        const tests = fixture();
+        expectReduced(finalize(root, env, { changed: [verifyFile], env: tests.env }), tests);
+        assert.equal(readRecord(env).scope, 'environment');
+        const again = finalize(root, env, { changed: [verifyFile], env: tests.env });
+        assert.equal(again.status, 0, again.log);
+        assert.match(again.log, /Reused result/);
+        assert.match(again.log, /scope \(environment\)/);
+        assert.equal(again.calls.length, 0);
+        assert.equal(again.outputs.checks, envChecks);
+        assert.equal(tests.tests(), 1);
+        assert.equal(tests.markdown(), 1);
+      });
+
+      it('does not reuse a reduced record for a full-scope run and the reverse', () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        const tests = fixture();
+        expectReduced(finalize(root, env, { changed: [verifyFile], env: tests.env }));
+        const full = finalize(root, env, { changed: [verifyFile, 'a.txt'], env: tests.env });
+        assert.equal(full.status, 0, full.log);
+        assert.equal(full.calls.length, stages.length);
+        assert.equal(full.outputs.checks, fullChecks);
+        assert.equal(readRecord(env).scope, 'full');
+        const reduced = finalize(root, env, { changed: [verifyFile], env: tests.env });
+        assert.equal(reduced.status, 0, reduced.log);
+        assert.doesNotMatch(reduced.log, /Reused result/);
+        assert.equal(reduced.outputs.checks, envChecks);
+        assert.equal(readRecord(env).scope, 'environment');
+      });
+
+      it('runs every check of the reduced scope for a record that claims the full scope', () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        const tests = fixture();
+        expectReduced(finalize(root, env, { changed: [verifyFile], env: tests.env }));
+        writeFileSync(recordPath(env), JSON.stringify({ ...readRecord(env), scope: 'full' }));
+        const result = finalize(root, env, { changed: [verifyFile], env: tests.env });
+        assert.doesNotMatch(result.log, /Reused result/);
+        assert.equal(result.outputs.checks, envChecks);
+        assert.equal(tests.tests(), 2);
+        assert.equal(readRecord(env).scope, 'environment');
+      });
+    });
   });
 
   describe('cross-check regression', () => {
