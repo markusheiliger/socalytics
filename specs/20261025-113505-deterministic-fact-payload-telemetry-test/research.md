@@ -18,4 +18,4 @@
 
 ## Evidence
 
-Filled in by the implementation (FR-001): the build baseline of T001, the code path above, the deliberate concurrent-rejection reproduction with the old and new test results, the per-class defect check, the consecutive run counts of SC-001 and SC-002, and the probe results of SC-003.
+The implementation cannot edit files under `specs/` (the task validator protects them), so it keeps the evidence of FR-001 in the block comment headed `Evidence record` in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Support/AnalysisTelemetryCollection.cs`: the build baseline of T001, the deliberate concurrent-rejection reproduction with the old and new test results, the per-class defect check, the consecutive run counts of SC-001 and SC-002, the probe results of SC-003, and the architecture confirmation. The code path is described above.
