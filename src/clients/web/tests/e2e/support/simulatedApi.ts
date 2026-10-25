@@ -942,6 +942,48 @@ export type SimulatedEvidenceAnswer =
   | { abort: true };
 
 /** Answers `/api/v1/**` with typed fixtures. Tests may override any route with `on`. */
+export type SegmentState = 'absent' | 'materializing' | 'available' | 'failed';
+
+/** Mirrors `MaterializedSegmentDto`; dates serialize through JSON. */
+export interface SimulatedSegment {
+  recordingVersionId: string;
+  timelineMappingDigest: string;
+  segmentationPolicyDigest: string;
+  segmentNumber: number;
+  state: SegmentState | string;
+  mediaSizeBytes: number | null;
+  failureReason: string | null;
+  availableAt: Date | null;
+  inUse: boolean;
+}
+
+export type SegmentOperation = 'listMaterializedSegments' | 'purgeMaterializedSegments';
+
+export type SegmentRefusalStatus = 401 | 403 | 404 | 503;
+
+/** Scripted answer of one purge: a refusal, or counts (the segments change only when `apply` is true). */
+export type SegmentPurgeScript =
+  | { kind: 'refusal'; status: SegmentRefusalStatus }
+  | { kind: 'outcome'; purged: number; inUse: number; apply?: boolean };
+
+const segmentDigest = (letter: string) => `sha-256:${letter.repeat(64)}`;
+
+/** One segment per state, in use and not in use, in a fixed platform order. */
+export function segmentFixtures(): SimulatedSegment[] {
+  const base = {
+    recordingVersionId: '00000000-0000-4000-8000-000000000a01',
+    timelineMappingDigest: segmentDigest('a'),
+    segmentationPolicyDigest: segmentDigest('b'),
+  };
+  return [
+    { ...base, segmentNumber: 0, state: 'available', mediaSizeBytes: 1_572_864, failureReason: null, availableAt: later(1), inUse: false },
+    { ...base, segmentNumber: 1, state: 'available', mediaSizeBytes: 2_048_000, failureReason: null, availableAt: later(2), inUse: true },
+    { ...base, segmentNumber: 2, state: 'failed', mediaSizeBytes: null, failureReason: 'segment-media-undecodable', availableAt: null, inUse: false },
+    { ...base, segmentNumber: 3, state: 'materializing', mediaSizeBytes: null, failureReason: null, availableAt: null, inUse: true },
+    { ...base, segmentNumber: 4, state: 'absent', mediaSizeBytes: null, failureReason: null, availableAt: null, inUse: false },
+  ];
+}
+
 export class SimulatedApi {
   private current: { role: SimulatedRole; passwordChangeRequired: boolean } | null = null;
   private readonly overrides = new Map<string, Handler>();
@@ -980,6 +1022,17 @@ export class SimulatedApi {
   readonly operationsSwitches = new Map<OperationsOperation, OperationsSwitch>();
   /** Reconciliation requests received, including refused ones. */
   reconciliationRequests = 0;
+
+  /** Segments behind `/matches/{matchId}/materialized-segments`, by match identifier; the default match has `segmentFixtures()`. */
+  readonly segments = new Map<string, SimulatedSegment[]>([[match.id as string, segmentFixtures()]]);
+  /** Per-operation refusal that replaces the data. */
+  readonly segmentSwitches = new Map<SegmentOperation, SegmentRefusalStatus>();
+  /** Scripted purge answers, used one per request before the default behaviour. */
+  readonly segmentPurgeScript: SegmentPurgeScript[] = [];
+  /** Delay of every purge answer in milliseconds, so tests can observe the in-flight state. */
+  segmentPurgeDelayMs = 0;
+  /** Requests received per operation, including refused ones, so tests can assert that none was sent. */
+  readonly segmentRequests: Record<SegmentOperation, number> = { listMaterializedSegments: 0, purgeMaterializedSegments: 0 };
 
   constructor(private readonly page: Page) {
     this.resetCatalog();
@@ -2728,6 +2781,9 @@ export class SimulatedApi {
     if (path.startsWith('/operations/')) {
       return this.handleOperations(method, path, new URL(request.url()).searchParams, role, json);
     }
+    if (/^\/matches\/[^/]+\/materialized-segments(\/purge)?$/.test(path)) {
+      return this.handleSegments(method, path, role, json);
+    }
     const evidence = method === 'POST' ? /^\/analysis\/runs\/([^/]+)\/evidence-media$/.exec(path) : null;
     if (evidence) {
       return this.handleEvidenceResolution(route, evidence[1], role, json);
@@ -2851,6 +2907,49 @@ export class SimulatedApi {
       if (result) return result;
     }
     return json(404, problem(404, 'Not found'));
+  }
+
+  /** The two segment operations: Club Admin only, scripted purge outcomes, and a default purge that mirrors the platform. */
+  private async handleSegments(
+    method: string,
+    path: string,
+    role: SimulatedRole,
+    json: (status: number, body: unknown) => Promise<void>,
+  ) {
+    const matchId = path.split('/')[2];
+    const purge = path.endsWith('/purge');
+    if (method !== (purge ? 'POST' : 'GET')) return json(405, problem(405, 'Method not allowed'));
+    const operation: SegmentOperation = purge ? 'purgeMaterializedSegments' : 'listMaterializedSegments';
+    this.segmentRequests[operation] += 1;
+    const titles: Record<SegmentRefusalStatus, string> = {
+      401: 'Unauthorized',
+      403: 'Forbidden',
+      404: 'Not found',
+      503: 'Service unavailable',
+    };
+    const refuse = (status: SegmentRefusalStatus) => json(status, problem(status, titles[status]));
+
+    if (role !== 'ClubAdmin') return refuse(403);
+    const mode = this.segmentSwitches.get(operation);
+    if (mode) return refuse(mode);
+    if (!this.matches.some((m) => m.id === matchId)) return refuse(404);
+    const segments = this.segments.get(matchId) ?? [];
+    if (!purge) return json(200, { matchId, segments });
+
+    if (this.segmentPurgeDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.segmentPurgeDelayMs));
+    const scripted = this.segmentPurgeScript.shift();
+    if (scripted?.kind === 'refusal') return refuse(scripted.status);
+    if (scripted?.kind === 'outcome' && !scripted.apply) {
+      return json(200, { matchId, purged: scripted.purged, inUse: scripted.inUse });
+    }
+    let purged = 0;
+    for (const segment of segments) {
+      if (segment.inUse || (segment.state !== 'available' && segment.state !== 'failed')) continue;
+      Object.assign(segment, { state: 'absent', mediaSizeBytes: null, failureReason: null, availableAt: null });
+      purged += 1;
+    }
+    const inUse = segments.filter((s) => s.inUse).length;
+    return json(200, scripted ? { matchId, purged: scripted.purged, inUse: scripted.inUse } : { matchId, purged, inUse });
   }
 
   /** The five workflow operations: Club Admin only, filters and opaque continuation tokens like the platform. */

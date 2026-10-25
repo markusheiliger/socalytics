@@ -37,7 +37,8 @@ npx playwright test --project platform-segments
 ```
 
 Expected (the chained projects before it run first): after finalizing an uploaded recording set the area shows real
-`failed` and `available` segments, purge returns the unused ones to `absent` and reports the counts, a repeated purge
+`failed` and `available` segments, the `available` one is `In use` and kept by a purge while the run is active, and after
+the run is cancelled a purge returns the unused ones to `absent` and reports the counts, a repeated purge
 reports zero, and the area stays online-only.
 
 ## 4. Confirm nothing platform-side changed

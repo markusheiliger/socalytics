@@ -51,8 +51,11 @@
   projects' expectations (simulated Analyst) hold.
 - **Rationale**: FR-019 requires real segment states without creating platform operations; the segment worker, toolchain,
   and the policy knob already exist as development evidence. The `in use` state of a waiting, ready, or claimed job is
-  covered by the simulated project and by the platform project only if the scripted Manager holds a job (otherwise the
-  platform test asserts the unpinned paths and the simulated project covers pinned ones).
+  covered by the simulated project and also by the platform project: the real `available` segment is pinned into the
+  waiting job of the run the finalized upload created (no Manager completes it), so it is `In use` until the test
+  cancels the run on the match page; the platform test asserts the `In use` marker and the kept count first, then
+  cancels the run, refreshes, and asserts `Not in use` before the purge. Refined after the first platform run, which
+  found the available segment `In use` where the test had assumed it unused.
 - **Alternatives considered**: Inserting rows into `materialized_segments` from the test (rejected: tests must not
   bypass the platform and the database is not exposed to browser tests); changing the global Development seed (rejected:
   affects non-e2e development and the Docker-backed tests); a new platform seeding operation (rejected: FR-018).
