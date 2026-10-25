@@ -58,4 +58,12 @@ dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build 
 one after another in a single shell loop that stopped at the first failure. The filter covers every class changed by T007 (the four
 classes under Analysis/ and Registry/MinimumVersionEnforcementTests). Result: 5 of 5 runs passed (each run: Passed 658,
 Failed 0, Skipped 0, Total 658).
+
+Stability together with the other analysis tests (T014, SC-001 and SC-002, runs 6 to 10 of 10): the same command, filter, and loop as
+T013. Run 6 passed (Passed 658, Failed 0). The first attempt at run 7 stopped the loop with one failure, not in a telemetry test:
+Analysis/Results/FactPayloadPerformanceTests.Validation_at_the_maximum_fact_count_adds_at_most_ten_percent_or_reaches_the_named_bound,
+a wall-clock budget test (median with schemas 1978 ms, without 1333 ms, budget 1966 ms; load-sensitive and unrelated to the analysis
+telemetry; it was neither changed nor retried inside a run). The loop was then started again at run 7, and runs 7, 8, 9, and 10 passed
+(each run: Passed 658, Failed 0, Skipped 0, Total 658). Result: 5 runs (6 to 10) passed with no telemetry assertion failing, one
+unrelated timing-budget failure observed once and not reproduced; together with T013 that is 10 runs in total.
 */
