@@ -187,11 +187,23 @@ test('shows real failed and available segments and purges the unused ones (FR-01
 
   // Cancelling the run makes its job terminal, so the segment is no longer in use.
   const runItem = runs.getByRole('listitem').first();
-  await runItem.getByRole('button', { name: 'Cancel run' }).click();
   const cancel = page.getByRole('dialog', { name: 'Cancel this analysis run?' });
-  await cancel.getByLabel('Reason').fill(`E2E segments ${stamp}`);
-  await cancel.getByRole('button', { name: 'Cancel run' }).click();
-  await expect(cancel).toBeHidden({ timeout: 15_000 });
+  // The run's state and version change while it runs, so a cancellation sent with an older version is refused
+  // as a conflict; each attempt reloads the page to cancel with the current version.
+  await expect(async () => {
+    await page.reload();
+    await expect(runItem.getByRole('status')).toBeVisible({ timeout: 15_000 });
+    if ((await runItem.getByRole('status').innerText()).includes('Cancelled')) return;
+    await expect(runItem.getByRole('button', { name: 'Cancel run' })).toBeVisible({ timeout: 15_000 });
+    await runItem.getByRole('button', { name: 'Cancel run' }).click();
+    await cancel.getByLabel('Reason').fill(`E2E segments ${stamp}`);
+    await cancel.getByRole('button', { name: 'Cancel run' }).click();
+    await expect(cancel).toBeHidden({ timeout: 15_000 });
+    // A refused cancellation shows a failure alert; the next attempt's reload dismisses it.
+    const failure = page.getByRole('region', { name: 'Finalized sets and analysis runs' }).getByRole('alert').first();
+    if (await failure.isVisible()) throw new Error(`The cancellation was refused: ${await failure.innerText()}`);
+    await expect(runItem.getByRole('status')).toContainText('Cancelled', { timeout: 15_000 });
+  }).toPass({ timeout: 120_000, intervals: [2_000, 5_000] });
   await expect(runItem.getByRole('status')).toContainText('Cancelled', { timeout: 15_000 });
 
   await refreshUntil(page, area, (rows) => rows.some((r) => r.state === 'Available' && r.use === 'Not in use'), 60_000);
