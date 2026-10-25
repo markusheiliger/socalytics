@@ -66,4 +66,12 @@ a wall-clock budget test (median with schemas 1978 ms, without 1333 ms, budget 1
 telemetry; it was neither changed nor retried inside a run). The loop was then started again at run 7, and runs 7, 8, 9, and 10 passed
 (each run: Passed 658, Failed 0, Skipped 0, Total 658). Result: 5 runs (6 to 10) passed with no telemetry assertion failing, one
 unrelated timing-budget failure observed once and not reproduced; together with T013 that is 10 runs in total.
+
+Rest of the project (T015): the whole project in one run with
+dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build. The first run had 2 failures of 1946 tests, neither
+a telemetry test: Analysis/SegmentFailureReadinessTests.FailedSegmentMakesTheOptionalJobReadyWithoutMedia ("Sequence contains no
+elements" while preparing the failed segment) and Analysis/Evidence/EvidencePartStateTests.Purged_segment_is_rematerializing_beside_available_parts_until_the_worker_ran.
+Both passed when run again in isolation (10 of 10 passed with their classes), so they are load-sensitive and unrelated to the analysis
+telemetry; they were neither changed nor retried inside a run. The whole project was then run once more in one run. Result: Passed 1945,
+Failed 0, Skipped 1 (LargeRecordingUploadTests, skipped by design), Total 1946; every test passes.
 */
