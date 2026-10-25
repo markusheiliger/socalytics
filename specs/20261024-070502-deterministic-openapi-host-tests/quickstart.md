@@ -10,6 +10,10 @@ dotnet build src/platform/SocAlytics.Platform.slnx --no-restore
 
 ## 1. Establish the cause (before changing anything)
 
+The "Evidence" section of [research.md](research.md) already records the baseline from the first T001 attempt
+(H1 proved, H2 ruled out, so the "not reproducible" path does not apply); T001 only confirms it with one run of
+the single test. The longer procedure below is how the evidence was gathered.
+
 Run the flaky test 20 consecutive times alone and the whole project 5 consecutive times under processor
 load (`stress-ng --cpu $(nproc)`, or `$(nproc)` busy-loop processes as the fallback), each driven by one shell
 loop that stops at the first failure, and record the failures and the elapsed times (see

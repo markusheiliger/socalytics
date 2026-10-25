@@ -1,8 +1,9 @@
 # Research: Deterministic OpenAPI Document Host Tests
 
-No `NEEDS CLARIFICATION` remains. The cause is deliberately not asserted here: FR-001 requires the
-implementation to prove or rule out each hypothesis with evidence. This file fixes the method and the
-design that follows from each outcome.
+No `NEEDS CLARIFICATION` remains. FR-001 requires each hypothesis to be proved or ruled out with evidence.
+The [Evidence](#evidence) section records the baseline from the first T001 attempt (H1 proved, H2 ruled
+out), so the "not reproducible" path below no longer applies; the hypotheses table and decisions document
+the method and the design that follows from each outcome.
 
 ## Observed Facts (from the code)
 
