@@ -574,6 +574,75 @@ exit 0
       assert.equal(result.outputs.checks, 'Analyst Python projects,Markdown check');
       assert.ok(existsSync(path.join(env.RUNNER_TEMP, 'socalytics-environment-verify', 'finalize-1001-1-verify.json')));
     });
+
+    // A Git repository whose Web UI browser tests report one flaky test, so the first run has a flaky output.
+    const flakyOutput = ['Running 2 tests using 1 worker', '', '  1 flaky', '    [simulated] › tests/a.spec.ts:1:1 › retries', '  1 passed (1s)', ''].join('\\n');
+    function flakyBin() {
+      const bin = stubBin();
+      writeFileSync(path.join(bin, 'npm'), `#!/bin/bash
+echo "$PWD|npm|$*" >> "$UV_CALLS"
+if [ "$*" = "run test:e2e -- --retries=1" ]; then printf '%b' "${flakyOutput}"; fi
+exit 0
+`, { mode: 0o755 });
+      return bin;
+    }
+    function webRepository() {
+      const root = repository();
+      project(root, sdkRoot, { name: 'sdk' });
+      mkdirSync(path.join(root, 'src/clients/web'), { recursive: true });
+      writeFileSync(path.join(root, 'src/clients/web/package.json'), '{}');
+      mkdirSync(path.join(root, 'src/clients/web/node_modules/@playwright/test'), { recursive: true });
+      writeFileSync(path.join(root, 'src/clients/web/node_modules/@playwright/test/package.json'), '{"version":"1.63.0"}');
+      git(root, 'init', '-q');
+      git(root, 'config', 'user.name', 'Test');
+      git(root, 'config', 'user.email', 'test@example.invalid');
+      git(root, 'config', 'commit.gpgsign', 'false');
+      git(root, 'add', '-A');
+      git(root, 'commit', '-q', '-m', 'baseline');
+      return root;
+    }
+
+    it('reuses a passing finalize run without executing any command and reports the same outputs', () => {
+      const root = webRepository();
+      const env = reuseEnv();
+      const changed = ['src/other/x.py', 'src/clients/web/a.ts'];
+      const first = finalize(root, env, { changed, bin: flakyBin() });
+      assert.equal(first.status, 0, first.log);
+      assert.ok(first.calls.length > 0);
+      assert.equal(first.outputs.uncovered, 'src/other/x.py');
+      assert.equal(first.outputs.flaky, '[simulated] › tests/a.spec.ts:1:1 › retries');
+      assert.doesNotMatch(first.log, /Reused result/);
+
+      const second = finalize(root, env, { changed, bin: flakyBin() });
+      assert.equal(second.status, 0, second.log);
+      assert.equal(second.calls.length, 0);
+      assert.match(second.log, /Reused result/);
+      assert.match(second.log, /Earlier run: run 1001, attempt 1, job verify, recorded at \S+, sequence 1/);
+      assert.match(second.summary, /### Reused result/);
+      assert.match(second.summary, /Earlier run: run 1001, attempt 1, job verify/);
+      for (const key of ['checks', 'uncovered', 'flaky']) assert.equal(second.outputs[key], first.outputs[key], key);
+      assert.match(second.outputs.checks, /Web UI build and tests/);
+    });
+
+    for (const [name, changed] of [
+      ['another order', ['b.txt', 'a.txt']],
+      ['CRLF line endings', ['a.txt\r', 'b.txt\r']],
+      ['blank lines', ['', 'a.txt', '', '', 'b.txt', '']],
+    ]) {
+      it(`reuses the result for a changed-files list with the same files in ${name}`, () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        const first = finalize(root, env, { changed: ['a.txt', 'b.txt'] });
+        assert.equal(first.status, 0, first.log);
+        assert.equal(first.calls.length, stages.length);
+        const second = finalize(root, env, { changed });
+        assert.equal(second.status, 0, second.log);
+        assert.equal(second.calls.length, 0);
+        assert.match(second.log, /Reused result/);
+        assert.equal(second.outputs.checks, first.outputs.checks);
+        assert.equal(second.outputs.uncovered, first.outputs.uncovered);
+      });
+    }
   });
 
   describe('cross-check regression', () => {
