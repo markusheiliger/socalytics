@@ -127,7 +127,7 @@ export async function checkAmendment(client, { folder, amendment, kind = 'amend'
   return { changedPaths, ...validateAmendment({ folder, archived, changedPaths, beforeTasks, afterTasks }) };
 }
 
-// Resolves a spec pull request to its open implementation pull request and twin: an amendment (head
+// Resolves a spec pull request to its implementation pull request and twin: an amendment requires an open origin (head
 // speckit-amend/<folder>, the implementation of the same folder) or a prerequisite spec (head speckit-spec/<folder> or
 // legacy speckit-fix/<folder>, the implementation it was authored for). `kind` is `amend` or `fix`; `folder` is
 // the spec folder the pull request changes.
@@ -141,9 +141,9 @@ export async function resolveAmendment(client, env, number) {
   if (kind === 'fix') {
     const { authoredFor } = await import('./speckit-fix.mjs');
     const target = await authoredFor(client, amendment);
-    if (!target) return { reason: 'no open implementation pull request recorded this authored spec', amendment, folder, kind };
+    if (!target) return { reason: 'no implementation pull request recorded this authored spec', amendment, folder, kind };
     listed = await client.getPullRequest(target);
-    if (listed.state !== 'open') return { reason: `the implementation pull request #${target} is not open`, amendment, folder, kind };
+    if (listed.state !== 'open' && !listed.merged_at) return { reason: `the implementation pull request #${target} is not open or merged`, amendment, folder, kind };
   } else {
     listed = (await client.listPullRequestsForHead(implementationBranch(folder))).find((pull) => pull.state === 'open');
     if (!listed) return { reason: `there is no open implementation pull request for \`specs/${folder}\``, amendment, folder, kind };
@@ -542,7 +542,7 @@ export async function presentAmendment(client, env, context, { consistent, analy
     ? `✅ **Consistent**: an independent \`/speckit-analyze\` of \`specs/${folder}/\` found no CRITICAL, HIGH, or MEDIUM inconsistencies${findings.length > 0 ? ` (${findings.length} LOW finding(s)${corrected ? ' that the correction rounds left as they are, listed for information; nothing needs fixing by hand' : ', listed in the comments'})` : ''}.`
     : `⚠️ **Not consistent**: ${problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`}. Review the findings in the comments; merging is possible but not recommended.`;
   const link = amendment.html_url ? `[#${amendment.number}](${amendment.html_url})` : `#${amendment.number}`;
-  const unlinked = kind === 'fix' && parseFixEvents(await client.listIssueComments(implementation.number)).some((event) => event.event === 'created' && event.pull === current.number && event.link === false);
+  const unlinked = kind === 'fix' && (implementation.state !== 'open' || parseFixEvents(await client.listIssueComments(implementation.number)).some((event) => event.event === 'created' && event.pull === current.number && event.link === false));
   const recommendation = renderSpecPullNextSteps({ ...context, amendment: current }, { consistent, held, unlinked });
   const alternatives = ['<details><summary>Other options</summary>', '', ...howTo(context), '', '</details>'];
   await client.updatePullRequest(amendment.number, { body: setAmendmentStatus(current.body, [status, '', ...recommendation, '', ...alternatives]) });
@@ -870,8 +870,15 @@ export async function maintainOpenSpecPull(client, env, context, { now = Date.no
     report(`- Started a rework of ${noun} #${number} with ${pending.items.length} feedback item(s).`);
     return { outcome: 'rework' };
   }
-  if (!state.stale && !state.latest) {
-    await startAnalysis(client, env, context, { round: 0, mode: 'check' });
+  const discarded = context.kind === 'fix' && state.latest?.conclusion === 'neutral' && state.latest.output?.title === 'The amendment is no longer open';
+  if (!state.stale && (!state.latest || discarded)) {
+    let mode = 'check';
+    if (context.kind === 'fix') {
+      const { isAutomationCommit } = await import('./speckit-fix.mjs');
+      const commits = await client.listPullRequestCommits(number);
+      if (commits.length > 0 && commits.every(isAutomationCommit)) mode = 'loop';
+    }
+    await startAnalysis(client, env, context, { round: 0, mode });
     report(`- Checking the changes pushed to ${noun} #${number}.`);
     return { outcome: 'checking' };
   }

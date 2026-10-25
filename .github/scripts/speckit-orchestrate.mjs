@@ -23,7 +23,7 @@ import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment } from './speckit-amend.mjs';
 import { maintainBacklog } from './speckit-backlog.mjs';
-import { maintainFixSpec, startFixAuthoring } from './speckit-fix.mjs';
+import { maintainFixSpec, maintainIndependentSpecs, startFixAuthoring } from './speckit-fix.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
@@ -152,6 +152,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   }
   const unblocked = await sweepBlocked(client, env, { handled: new Set(inProgress.map((twin) => twin.pull)), now: now(), notes: amendmentNotes });
   amendmentActions += unblocked;
+  amendmentActions += await maintainIndependentSpecs(client, env, { now: now(), report: (line) => amendmentNotes.push(line) });
   // Requested prerequisites of running implementations first, however the dependency came about: each unblocks an
   // implementation that waits for it. A prerequisite that is not requested never starts; the Blocked comment on the
   // waiting implementation recommends `/speckit implement` on its twin.

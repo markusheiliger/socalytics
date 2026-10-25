@@ -4,10 +4,11 @@ import { pathToFileURL } from 'node:url';
 
 import { PENDING_LABEL, TWIN_LABEL, countOpenChecklistItems, hasLabel, isValidFolderName, parseFixForLine, resolveTwins } from './speckit-prepare-core.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
-import { beginAmendment, decodeTracked, guardPullRequest, maintainOpenSpecPull } from './speckit-amend.mjs';
+import { beginAmendment, decodeTracked, guardPullRequest, maintainOpenSpecPull, resolveAmendment } from './speckit-amend.mjs';
 import { defaultGit } from './speckit-orchestrate.mjs';
 import {
   ARCHITECTURE_PREFIX,
+  AMEND_REWORK_MARKER,
   BOT_LOGIN,
   BRANCH_PREFIX,
   CHECK_FIX_AUTHORED,
@@ -144,11 +145,30 @@ async function recordedPrerequisites(client, pulls) {
 }
 
 // The implementation pull request a prerequisite spec pull request was authored for: the legacy marker in its
-// description, or the open implementation pull request that recorded it.
+// description, or the implementation pull request that recorded it. The bot's introductory comment is a lookup
+// hint for merged origins; the reciprocal created event, not editable pull request text, establishes ownership.
 export async function authoredFor(client, pull) {
   const legacy = parseFixFor(pull.body)?.pull;
-  if (legacy) return legacy;
+  if (legacy) {
+    const implementation = await client.getPullRequest(legacy);
+    if (implementation.state === 'open') return legacy;
+    if (implementation.merged_at && await recordedOrigin(client, pull, implementation)) return legacy;
+  }
+  const comments = await client.listIssueComments(pull.number);
+  for (const comment of comments) {
+    if (comment.user?.login !== BOT_LOGIN || !String(comment.body ?? '').startsWith(AMEND_REWORK_MARKER)) continue;
+    const origin = Number(String(comment.body).match(/\nThis spec was requested with `\/speckit author` on #(\d+)\./)?.[1]);
+    if (!Number.isInteger(origin) || origin <= 0) continue;
+    const implementation = await client.getPullRequest(origin);
+    if (await recordedOrigin(client, pull, implementation)) return origin;
+  }
   return (await recordedPrerequisites(client, await client.listOpenPullRequests())).get(pull.number)?.owner ?? null;
+}
+
+async function recordedOrigin(client, pull, implementation) {
+  if (implementation.head?.repo?.full_name !== pull.head?.repo?.full_name) return false;
+  const recorded = (await recordedPrerequisites(client, [implementation])).get(pull.number);
+  return recorded?.owner === implementation.number && recorded.folder === folderOfBranch(pull.head?.ref);
 }
 
 // One cause gets one prerequisite spec. The prerequisite specs that may already cover a cause: open prerequisite spec
@@ -767,7 +787,7 @@ export async function mergeSpecPull(client, env, { amendment, folder, implementa
     commit_message: `Merged automatically by Spec Kit: consistent, no architecture changes, only automation commits. Authored with \`/speckit author\` on #${implementation.number}.`,
   });
   if (!result.merged) return { outcome: 'held', held: 'refused', message: result.message ?? 'the merge was refused' };
-  const unlinked = parseFixEvents(await client.listIssueComments(implementation.number)).some((event) => event.event === 'created' && event.pull === pull.number && event.link === false);
+  const unlinked = implementation.state !== 'open' || parseFixEvents(await client.listIssueComments(implementation.number)).some((event) => event.event === 'created' && event.pull === pull.number && event.link === false);
   await client.createComment(pull.number, `**Merged automatically** into \`${defaultBranch}\`: an independent \`/speckit-analyze\` found it consistent, it changes no \`${ARCHITECTURE_PREFIX}\`, and only automation pushed to it. Its spec twin is created next; like every spec, it is implemented once someone with write access signs it off with \`/speckit implement\` on that twin.${unlinked ? '' : ` #${implementation.number} names the twin with the ready-to-paste command once it exists.`}`);
   await settleClosedFix(client, env, { amendment: await client.getPullRequest(pull.number), folder, implementation, automatic: true });
   for (const [file, inputs] of [[PREPARE_WORKFLOW_FILE, { dry_run: 'false' }], [ORCHESTRATE_WORKFLOW_FILE, {}]]) {
@@ -796,7 +816,7 @@ export async function settleClosedFix(client, env, { amendment: pull, folder, im
     // Already gone, or GitHub deleted it.
   }
   // A spec that does not block the implementation is recorded only; the implementation is never held or stopped by it.
-  if (events.some((event) => event.event === 'created' && event.link === false)) {
+  if (implementation.state !== 'open' || events.some((event) => event.event === 'created' && event.link === false)) {
     const merged = pull.merged_at && pull.base?.ref === defaultBranch;
     await client.createComment(implementation.number, [
       renderFixEvent(merged ? 'merged' : 'discarded', { pull: pull.number, folder, link: false }),
@@ -952,6 +972,31 @@ async function maintainUnlinkedSpec(client, env, { implementation, twin, comment
   const settled = await settleClosedFix(client, env, { amendment: pull, folder: state.created.folder, implementation, actor: pull.merged_by?.login ?? null });
   if (settled.outcome !== 'handled') report(`- Non-blocking spec #${pull.number} was ${settled.outcome}.`);
   return settled;
+}
+
+// Authored specs outlive their originating implementations, which the normal twin loop no longer maintains.
+export async function maintainIndependentSpecs(client, env, { now = Date.now(), report = () => {} } = {}) {
+  let actions = 0;
+  let pulls;
+  try {
+    pulls = await client.listOpenPullRequests();
+  } catch (error) {
+    report(`- Warning: could not list authored specs: ${error.message}`);
+    return actions;
+  }
+  for (const pull of pulls) {
+    if (!isPrerequisiteBranch(pull.head?.ref)) continue;
+    try {
+      const context = await resolveAmendment(client, env, pull.number);
+      if (context.reason || context.implementation.state === 'open') continue;
+      await guardPullRequest(client, env, pull, { report });
+      const result = await maintainOpenSpecPull(client, env, { ...context, amendment: await client.getPullRequest(pull.number) }, { now, report });
+      if (['checking', 'rework'].includes(result.outcome)) actions += 1;
+    } catch (error) {
+      report(`- Warning: could not check authored spec #${pull.number}: ${error.message}`);
+    }
+  }
+  return actions;
 }
 
 async function authoringRunning(client, twin, now) {
