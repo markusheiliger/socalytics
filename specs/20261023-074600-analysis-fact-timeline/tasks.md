@@ -18,7 +18,7 @@
 ### Translation keys and query keys
 
 - [x] T001 [P] Add the timeline translation keys (lane and bin state labels for facts present, analysed without facts, facts beyond the loading bound not shown, partially covered, not analysed, no reported coverage, in progress, complete without facts, capability not in run, unavailable, error, connection required; zoom, extent, selection, "Show facts", "Back to timeline", text alternative, partial "based on N of M facts", extent unavailable, live-region messages) to `src/clients/web/src/i18n/en/analysis.json` (FR-020)
-- [ ] T002 [P] Add the timeline query key prefix `['analysis', 'timeline']` and a lane key built from run, node key, fact count, and coverage counts of the stream summary (research R6) to `src/clients/web/src/features/analysis/analysisKeys.ts`, with the case in `src/clients/web/tests/unit/features/analysis/analysisKeys.test.ts`
+- [x] T002 [P] Add the timeline query key prefix `['analysis', 'timeline']` and a lane key built from run, node key, fact count, and coverage counts of the stream summary (research R6) to `src/clients/web/src/features/analysis/analysisKeys.ts`, with the case in `src/clients/web/tests/unit/features/analysis/analysisKeys.test.ts`
 
 ---
 
