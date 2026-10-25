@@ -41,7 +41,7 @@ A maintainer running the integration tests, or the verification of any implement
 
 **Why this priority**: The test failed in the verifications of three implementations that pass only on a rerun and report a flaky test none of them caused; the stopped implementation of #294 needs it reliable.
 
-**Independent Test**: Run the named test repeatedly alone, together with the whole analysis test group in one run (the isolated collection runs after the parallel collections), and under CPU load; every run passes. Then break the behavior with a probe (for example a second rejection count for one completion, or a payload value in a tag) and confirm the test still fails on its assertions.
+**Independent Test**: Run the named test repeatedly alone, together with the whole analysis test group in one run (the isolated collection runs after the parallel collections); every run passes. Then break the behavior with a probe (for example a second rejection count for one completion, or a payload value in a tag) and confirm the test still fails on its assertions.
 
 **Acceptance Scenarios**:
 
