@@ -11,7 +11,7 @@ description: "Task list for Deterministic Fact Payload Telemetry Test"
 
 **Tests**: The feature is a test fix, so its verification tasks run the existing Integration tests, deliberate reproductions, and probes. No new test project or test class is added.
 
-**Organization**: One user story (US1, P1). Every task changes the platform's Integration test project (`src/platform/Tests/SocAlytics.Platform.Integration.Tests`) or this spec folder; production code is changed only temporarily by probes and restored.
+**Organization**: One user story (US1, P1). Every task changes the platform's Integration test project (`src/platform/Tests/SocAlytics.Platform.Integration.Tests`) or this spec folder (verification-only tasks record their result in `research.md`, so each task leaves a change); production code is changed only temporarily by probes and restored.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -28,7 +28,7 @@ description: "Task list for Deterministic Fact Payload Telemetry Test"
 
 **Purpose**: Confirm the build baseline before any change
 
-- [ ] T001 Restore and build the Integration test project from the repository root with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-restore`, and confirm that Docker is available (`src/platform/Tests/SocAlytics.Platform.Integration.Tests`)
+- [ ] T001 Restore and build the Integration test project from the repository root with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-restore`, and confirm that Docker is available, then record the outcome (restore and build result, warning and error counts, Docker server version) as a `### Build baseline` subsection of the `## Evidence` section of `specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md`, so the task leaves a committed change
 
 ---
 
@@ -67,7 +67,7 @@ description: "Task list for Deterministic Fact Payload Telemetry Test"
 **Purpose**: Evidence, documentation, and final checks
 
 - [ ] T010 Update `docs/architecture/` only if a statement there becomes false: the plan's Architecture Updates section says `None` (the change only schedules integration tests and changes no narrative, design decision, or implementation-status statement), so confirm that no architecture file describes the scheduling of the analysis telemetry tests and record the confirmation in the `## Evidence` section of `specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md`
-- [ ] T011 Consolidate and check the `## Evidence` section of `specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md` (FR-001, SC-004), which T003, T005, T006, T008, T009, and T010 already filled: confirm that it holds the code path of the rejection counting, the parallel execution of the test project, the deliberate reproduction with the old and the new result (T003 and T005), the per-class defect check (T006), the run counts (T009), the probe results (T008), and the architecture confirmation (T010), add what is missing from the recorded evidence without recreating it, and state in its text that SC-005 is observed after merge when #294 retries and is not verified here
+- [ ] T011 Consolidate and check the `## Evidence` section of `specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md` (FR-001, SC-004), which T001, T003, T005, T006, T008, T009, and T010 already filled: confirm that it holds the code path of the rejection counting, the parallel execution of the test project, the deliberate reproduction with the old and the new result (T003 and T005), the per-class defect check (T006), the run counts (T009), the probe results (T008), and the architecture confirmation (T010), the build baseline (T001), add what is missing from the recorded evidence without recreating it, and state in its text that SC-005 is observed after merge when #294 retries and is not verified here
 - [ ] T012 Run `node .github/scripts/check-markdown.mjs --files specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md` and fix findings, then confirm with `git diff --stat` that the change touches only the files of this spec folder and the test files named above, that no assertion is textually removed, that no sleep, retry, skip, or timeout was added, and (FR-006) that the only changes to test scheduling are the new `AnalysisTelemetryCollection` and the `[Collection(AnalysisTelemetryCollection.Name)]` attributes on the classes T006 classified as defective, with no assembly-level `CollectionBehavior`, no `xunit.runner.json` parallelization setting, and no other project-wide change added (`specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md`)
 
 ---
