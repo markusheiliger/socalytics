@@ -21,4 +21,8 @@ CompletionRejected("result-payload-invalid") in a loop with SOCALYTICS_PROBE_CON
 --filter "FullyQualifiedName~FactPayloadTelemetryTests|FullyQualifiedName~ConcurrentRejectionProbe". Both theory rows failed:
 - invalid: measurements.Count(x => x.Outcome == code) should be 1 but was 212
 - undeclared: measurements.Count(x => x.Outcome is not null && x.Outcome != code) should be 0 but was 384
+
+Deliberate reproduction with the changed test (T005): same probe, same environment variable, same filter. The test joined the
+non-parallel AnalysisTelemetry collection, so xUnit ran it only after the probe collection had finished (the probe ran its full
+60 s first). Result: Passed 3, Failed 0 (both theory rows and the probe). The probe file was deleted afterwards.
 */
