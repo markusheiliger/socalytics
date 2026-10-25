@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -757,6 +757,148 @@ exit 0
         writeFileSync(recordPath(env), damaged(readFileSync(recordPath(env), 'utf8')));
         expectFull(finalize(root, env, { changed: ['a.txt'] }));
         assert.equal(readRecord(env).passed, true);
+      });
+    }
+
+    const expectReused = (result) => {
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.calls.length, 0);
+      assert.match(result.log, /Reused result/);
+    };
+
+    // The fixture repository with a committed notes file and the given committed .gitignore.
+    function trackedRepository(ignore = '') {
+      const root = gitRepository();
+      writeFileSync(path.join(root, 'notes.txt'), 'one\n');
+      if (ignore) writeFileSync(path.join(root, '.gitignore'), ignore);
+      git(root, 'add', '-A');
+      git(root, 'commit', '-q', '-m', 'notes');
+      return root;
+    }
+
+    const listing = (dir) => (existsSync(dir) ? readdirSync(dir, { recursive: true }).sort() : []);
+
+    it('reuses an unchanged workspace after a first run', () => {
+      const root = trackedRepository();
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      expectReused(finalize(root, env, { changed: ['notes.txt'] }));
+    });
+
+    const mutations = {
+      'an edited file': (root) => writeFileSync(path.join(root, 'notes.txt'), 'two\n'),
+      'an added file': (root) => writeFileSync(path.join(root, 'added.txt'), 'new\n'),
+      'a removed file': (root) => unlinkSync(path.join(root, 'notes.txt')),
+      'a commit between the runs': (root) => {
+        writeFileSync(path.join(root, 'committed.txt'), 'new\n');
+        git(root, 'add', '-A');
+        git(root, 'commit', '-q', '-m', 'between');
+      },
+    };
+    for (const [name, mutate] of Object.entries(mutations)) {
+      it(`changes the identity and prevents reuse for ${name}`, () => {
+        const root = trackedRepository();
+        const env = reuseEnv();
+        expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+        mutate(root);
+        expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+        expectReused(finalize(root, env, { changed: ['notes.txt'] }));
+      });
+    }
+
+    for (const name of ['RUNNER_TEMP', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_JOB']) {
+      for (const kind of ['empty', 'missing']) {
+        it(`runs every check, touches no record, and logs that reuse was not possible for ${kind} ${name}`, () => {
+          const root = trackedRepository();
+          const env = reuseEnv();
+          expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+          const before = listing(env.RUNNER_TEMP);
+          const content = readFileSync(recordPath(env), 'utf8');
+          const altered = { ...env };
+          if (kind === 'empty') altered[name] = '';
+          else delete altered[name];
+          const result = finalize(root, altered, { changed: ['notes.txt'] });
+          expectFull(result);
+          assert.match(result.log, /Finalize reuse was not possible/);
+          assert.deepEqual(listing(env.RUNNER_TEMP), before);
+          assert.equal(readFileSync(recordPath(env), 'utf8'), content);
+        });
+      }
+    }
+
+    it('runs every check, writes no record, and logs that reuse was not possible for a workspace without Git metadata', () => {
+      const root = sdkRepository();
+      const env = reuseEnv();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const result = finalize(root, env, { changed: ['a.txt'] });
+        expectFull(result);
+        assert.match(result.log, /Finalize reuse was not possible/);
+      }
+      assert.deepEqual(listing(env.RUNNER_TEMP), []);
+    });
+
+    it('runs every check and neither reads nor writes a record for an ignored configuration file', () => {
+      const root = trackedRepository('appsettings.local.json\n');
+      writeFileSync(path.join(root, 'appsettings.local.json'), '{}');
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      assert.deepEqual(listing(env.RUNNER_TEMP), []);
+    });
+
+    it('neither reads nor writes a record while the environment action tests run', () => {
+      const root = trackedRepository();
+      const env = reuseEnv();
+      const nested = { SOCALYTICS_ENVIRONMENT_TESTS_RUNNING: '1' };
+      expectFull(finalize(root, env, { changed: ['notes.txt'], env: nested }));
+      assert.deepEqual(listing(env.RUNNER_TEMP), []);
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      const content = readFileSync(recordPath(env), 'utf8');
+      expectFull(finalize(root, env, { changed: ['notes.txt'], env: nested }));
+      assert.equal(readFileSync(recordPath(env), 'utf8'), content);
+    });
+
+    it('is not prevented by ignored build folders, generated Web UI output, and Spec Kit housekeeping', () => {
+      const root = gitRepository();
+      const touch = (relative) => {
+        mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+        writeFileSync(path.join(root, relative), 'x');
+      };
+      // Tracked files keep the parent folders from being listed as wholly ignored.
+      for (const relative of ['notes.txt', '.specify/keep.txt', '.specify/workflows/keep.txt', 'src/other/keep.txt', 'src/clients/keep.txt', 'src/clients/web/keep.txt', 'src/clients/web/src/keep.txt']) touch(relative);
+      writeFileSync(path.join(root, '.gitignore'), 'bin/\nnode_modules/\nsrc/clients/web/src/generated/\n.specify/workflows/runs/\n.specify/feature.json\n');
+      git(root, 'add', '-A');
+      git(root, 'commit', '-q', '-m', 'tracked');
+      for (const relative of [
+        'bin/x.dll', 'src/other/node_modules/pkg/index.js', 'src/clients/web/src/generated/client.ts',
+        '.specify/workflows/runs/run-1/state.json', '.specify/feature.json',
+      ]) touch(relative);
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      expectReused(finalize(root, env, { changed: ['notes.txt'] }));
+    });
+
+    it('is still prevented by an ignored configuration file next to ignored housekeeping paths', () => {
+      const root = trackedRepository('bin/\n.specify/feature.json\nsecrets.env\n');
+      mkdirSync(path.join(root, 'bin'));
+      writeFileSync(path.join(root, 'bin/x.dll'), 'x');
+      mkdirSync(path.join(root, '.specify'));
+      writeFileSync(path.join(root, '.specify/feature.json'), '{}');
+      writeFileSync(path.join(root, 'secrets.env'), 'A=1');
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      assert.deepEqual(listing(env.RUNNER_TEMP), []);
+    });
+
+    for (const [name, other] of [['run id', { runId: '2002' }], ['attempt', { attempt: '2' }], ['job', { job: 'other-job' }]]) {
+      it(`does not reuse a record of another ${name}`, () => {
+        const root = trackedRepository();
+        const runnerTemp = path.join(temporary, `runner-${counter++}`);
+        const env = reuseEnv({ runnerTemp });
+        expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+        expectFull(finalize(root, reuseEnv({ runnerTemp, ...other }), { changed: ['notes.txt'] }));
+        expectReused(finalize(root, env, { changed: ['notes.txt'] }));
       });
     }
   });
