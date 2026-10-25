@@ -200,6 +200,56 @@ runs:
           fi
         fi
 
+        # Scope of this run: every run checks the full scope until the scope decision reduces it.
+        scope=full
+
+        # Reuse decision: an earlier passing finalize run of this job over the same workspace state, changed files, and
+        # scope is reused without running any check. Any read or parse failure falls through to a full run.
+        if [ -n "$record_file" ] && [ -f "$record_file" ]; then
+          reuse_lines="$(node -e '
+            const [file, identity, mode, changedFiles, scope] = process.argv.slice(1);
+            try {
+              const r = JSON.parse(require("fs").readFileSync(file, "utf8"));
+              const text = (v) => typeof v === "string" && !/[\r\n]/.test(v);
+              const ok = r !== null && typeof r === "object" && r.version === 1 && r.passed === true
+                && ["identity", "mode", "changedFiles", "scope"].every((k) => typeof r[k] === "string")
+                && ["checks", "uncovered", "flaky"].every((k) => text(r[k]))
+                && r.source !== null && typeof r.source === "object" && !Array.isArray(r.source)
+                && r.identity === identity && r.mode === mode && r.changedFiles === changedFiles && r.scope === scope;
+              if (!ok) process.exit(1);
+              const s = r.source;
+              const part = (v) => String(v ?? "unknown").replace(/[\r\n]+/g, " ");
+              console.log(r.checks);
+              console.log(r.uncovered);
+              console.log(r.flaky);
+              console.log(`run ${part(s.runId)}, attempt ${part(s.attempt)}, job ${part(s.job)}, recorded at ${part(s.recordedAt)}, sequence ${part(s.sequence)}`);
+            } catch { process.exit(1); }
+          ' "$record_file" "$start_identity" "$MODE" "$normalized_changed_hash" "$scope" 2> /dev/null)"
+          if [ $? -eq 0 ] && [ "$(wc -l <<< "$reuse_lines")" -eq 4 ]; then
+            reused_checks="$(sed -n 1p <<< "$reuse_lines")"
+            reused_uncovered="$(sed -n 2p <<< "$reuse_lines")"
+            reused_flaky="$(sed -n 3p <<< "$reuse_lines")"
+            reused_source="$(sed -n 4p <<< "$reuse_lines")"
+            {
+              echo "Reused result: the workspace state, the changed files, and the scope ($scope) equal those of an earlier passing finalize run, so no check ran again"
+              echo "Earlier run: $reused_source"
+              echo "Checks of the earlier run: ${reused_checks:-<none>}"
+            } | tee -a "$LOG_FILE"
+            {
+              echo "### Reused result"
+              echo "The workspace state, the changed files, and the scope (\`$scope\`) equal those of an earlier passing finalize run, so no check ran again."
+              echo
+              echo "- Earlier run: $reused_source"
+              echo "- Checks of the earlier run: ${reused_checks:-none}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            rm -rf "$RESULTS_ROOT"
+            echo "checks=${reused_checks}" >> "$GITHUB_OUTPUT"
+            echo "uncovered=${reused_uncovered}" >> "$GITHUB_OUTPUT"
+            echo "flaky=${reused_flaky}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        fi
+
         # Recognized Analyst Python projects (the SDK and capabilities): the helper validates every existing project and
         # selects those the mode and the changed paths call for, in dependency order. The roots of existing projects
         # become covered source scopes; a deleted or unrecognized project stays uncovered.
