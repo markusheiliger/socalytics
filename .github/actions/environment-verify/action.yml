@@ -200,8 +200,23 @@ runs:
           fi
         fi
 
-        # Scope of this run: every run checks the full scope until the scope decision reduces it.
+        # Scope of this run: only a finalize run whose changed files all lie directly inside the two environment action
+        # folders is reduced to the environment scope; every other run checks the full scope. A path with a backslash,
+        # a leading slash, or a "." or ".." or empty component never counts as inside.
         scope=full
+        scope_reason=""
+        if [ "$MODE" = finalize ] && [ -n "$normalized_changed" ]; then
+          scope=environment
+          while IFS= read -r changed_path; do
+            if ! grep -qE '^\.github/actions/environment-(setup|verify)/[^/]' <<< "$changed_path" \
+              || [[ "$changed_path" == *\\* ]] || [[ "$changed_path" == /* ]] || [[ "$changed_path" == */ ]] \
+              || [[ "$changed_path" == *//* ]] || grep -qE '(^|/)\.{1,2}(/|$)' <<< "$changed_path"; then
+              scope=full
+              break
+            fi
+          done <<< "$normalized_changed"
+          [ "$scope" = environment ] && scope_reason="every changed file lies in .github/actions/environment-setup/ or .github/actions/environment-verify/"
+        fi
 
         # Reuse decision: an earlier passing finalize run of this job over the same workspace state, changed files, and
         # scope is reused without running any check. Any read or parse failure falls through to a full run.
@@ -254,13 +269,24 @@ runs:
         # selects those the mode and the changed paths call for, in dependency order. The roots of existing projects
         # become covered source scopes; a deleted or unrecognized project stays uncovered.
         analyst_python="${SOCALYTICS_PYTHON:-python3}"
-        analyst_error_file="$(mktemp)"
-        analyst_output="$("$analyst_python" "$ANALYST_PROJECTS" select --root "$WORKSPACE" --mode "$MODE" --changed-files "$CHANGED_FILES" 2> "$analyst_error_file")"
-        analyst_status=$?
-        analyst_error="$(cat "$analyst_error_file")"
-        rm -f "$analyst_error_file"
+        analyst_status=0
+        analyst_error=""
         analyst_selected=""
-        if [ "$analyst_status" -eq 0 ]; then
+        if [ "$scope" = full ]; then
+          analyst_error_file="$(mktemp)"
+          analyst_output="$("$analyst_python" "$ANALYST_PROJECTS" select --root "$WORKSPACE" --mode "$MODE" --changed-files "$CHANGED_FILES" 2> "$analyst_error_file")"
+          analyst_status=$?
+          analyst_error="$(cat "$analyst_error_file")"
+          rm -f "$analyst_error_file"
+        else
+          echo "Scope reduced to the environment actions: $scope_reason, so only the Environment action tests and the Markdown check run" | tee -a "$LOG_FILE"
+          {
+            echo "### Reduced scope"
+            echo "The scope was reduced to the environment actions: $scope_reason, so only the Environment action tests and the Markdown check run."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [ "$scope" = full ] && [ "$analyst_status" -eq 0 ]; then
           analyst_lines="$(node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));for(const p of r.projects)console.log("S "+p.root);for(const c of r.covered)console.log("C "+c)' <<< "$analyst_output")"
           analyst_selected="$(sed -n 's/^S //p' <<< "$analyst_lines")"
           while IFS= read -r analyst_root; do
@@ -412,7 +438,7 @@ runs:
           done < <(find "$(dirname "$solution")" -name '*Tests.csproj' -not -path '*/bin/*' -not -path '*/obj/*' | sed 's|^\./||' | sort)
           return "$result"
         }
-        if [ "$status" -eq 0 ] && applies "$PLATFORM_SCOPE" && [ -f "$PLATFORM_SOLUTION" ]; then
+        if [ "$status" -eq 0 ] && [ "$scope" = full ] && applies "$PLATFORM_SCOPE" && [ -f "$PLATFORM_SOLUTION" ]; then
           checks+=("platform build and $(tests_label)")
           { step dotnet restore "$PLATFORM_SOLUTION" &&
             step dotnet build "$PLATFORM_SOLUTION" --no-restore &&
@@ -420,7 +446,7 @@ runs:
         fi
         # Active only once the Analyst Manager solution exists; it also runs for changes under contracts/analyst-manager/
         # because the Manager tests read the shared golden fixtures there.
-        if [ "$status" -eq 0 ] && applies "$MANAGER_TRIGGER" && [ -f "$MANAGER_SOLUTION" ]; then
+        if [ "$status" -eq 0 ] && [ "$scope" = full ] && applies "$MANAGER_TRIGGER" && [ -f "$MANAGER_SOLUTION" ]; then
           checks+=("Analyst Manager build and $(tests_label)")
           platform_pin="$(sdk_pin src/platform/global.json)"
           manager_pin="$(sdk_pin src/analysts/manager/global.json)"
@@ -460,7 +486,7 @@ runs:
           tail -n "+$((before + 1))" "$LOG_FILE" | playwright_flaky >> "$FLAKY_FILE"
           return "$result"
         }
-        if [ "$status" -eq 0 ] && applies "$WEB_TRIGGER" && [ -f "$WEB_DIR/package.json" ]; then
+        if [ "$status" -eq 0 ] && [ "$scope" = full ] && applies "$WEB_TRIGGER" && [ -f "$WEB_DIR/package.json" ]; then
           checks+=("Web UI build and tests")
           pushd "$WEB_DIR" > /dev/null
           { web_step install step env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci &&
@@ -496,7 +522,7 @@ runs:
             }
           done
         }
-        if [ "$status" -eq 0 ] && { [ "$analyst_status" -ne 0 ] || [ -n "$analyst_selected" ]; }; then
+        if [ "$status" -eq 0 ] && [ "$scope" = full ] && { [ "$analyst_status" -ne 0 ] || [ -n "$analyst_selected" ]; }; then
           checks+=("Analyst Python projects")
           if [ "$analyst_status" -ne 0 ]; then
             echo "Analyst Python projects: discovery failed (exit $analyst_status) using $analyst_python" | tee -a "$LOG_FILE"
