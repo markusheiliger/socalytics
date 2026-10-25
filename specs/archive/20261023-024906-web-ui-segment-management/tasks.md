@@ -5,7 +5,7 @@ description: "Task list for Web UI Materialized Segment Management for Club Admi
 
 # Tasks: Web UI Materialized Segment Management for Club Admins
 
-**Input**: Design documents from `specs/20261023-024906-web-ui-segment-management/`
+**Input**: Design documents from `specs/archive/20261023-024906-web-ui-segment-management/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
@@ -29,7 +29,7 @@ description: "Task list for Web UI Materialized Segment Management for Club Admi
 ### Models and texts
 
 - [x] T001 [P] Create `src/clients/web/src/platform/models/segments.ts` with `MaterializedSegment`, `SegmentList`, and
-  `PurgeOutcome` as specified in `specs/20261023-024906-web-ui-segment-management/data-model.md` (`state` is
+  `PurgeOutcome` as specified in `specs/archive/20261023-024906-web-ui-segment-management/data-model.md` (`state` is
   `'absent' | 'materializing' | 'available' | 'failed'` with unknown platform values kept as reported text;
   `mediaSizeBytes`, `failureReason`, and `availableAt` are `undefined` when not reported)
 - [x] T002 [P] Create the `segments` translation namespace `src/clients/web/src/i18n/en/segments.json` (area title and
@@ -50,7 +50,7 @@ description: "Task list for Web UI Materialized Segment Management for Club Admi
 - [x] T003 [P] Create `src/clients/web/src/platform/adapters/segmentAdapter.ts` (`list` over `listMaterializedSegments`
   and `purge` over `purgeMaterializedSegments` through the shared Kiota client and `toPlatformFailure`; nullable DTO
   fields become `undefined`; an unknown `state` is kept verbatim; no headers, no retry, no snapshot change) as specified
-  in `specs/20261023-024906-web-ui-segment-management/contracts/segment-adapter.md`, with the unit test
+  in `specs/archive/20261023-024906-web-ui-segment-management/contracts/segment-adapter.md`, with the unit test
   `src/clients/web/tests/unit/platform/adapters/segmentAdapter.test.ts` (mapping, nullable fields, unknown state,
   `401`, `403`, `404`, `503` refusals, single request per call)
 - [x] T004 [P] Create `src/clients/web/src/features/segments/segmentSummary.ts` (`total`, per-state counts, `other`,
