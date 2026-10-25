@@ -204,7 +204,7 @@ for each and, after the condition clears and the Club Admin retries, shows the l
   planned (only statements that actually exist; the Segment Service "no Web UI" wording is in `AGENTS.md`, not in
   `docs/architecture/`); also update `AGENTS.md` "Current State" (the Segment Service "no Web UI" wording and the Web
   UI foundation description), `src/clients/README.md`, and `README.md`, re-reading all of them at implementation time
-- [ ] T017 Run the final verification in `src/clients/web` (`npm run build`, `npm test`,
+- [x] T017 Run the final verification in `src/clients/web` (`npm run build`, `npm test`,
   `npm run test:e2e -- --project simulated`, and, with Docker, the full
   `npm run test:e2e -- --project platform-segments` including its dependency chain, so that all earlier platform
   projects run with the e2e `VideoPolicy` `optional` of T010) and

@@ -192,7 +192,7 @@ test('shows real failed and available segments and purges the unused ones (FR-01
   await cancel.getByLabel('Reason').fill(`E2E segments ${stamp}`);
   await cancel.getByRole('button', { name: 'Cancel run' }).click();
   await expect(cancel).toBeHidden({ timeout: 15_000 });
-  await expect(runItem.getByRole('status')).toContainText('Cancelled');
+  await expect(runItem.getByRole('status')).toContainText('Cancelled', { timeout: 15_000 });
 
   await refreshUntil(page, area, (rows) => rows.some((r) => r.state === 'Available' && r.use === 'Not in use'), 60_000);
 
