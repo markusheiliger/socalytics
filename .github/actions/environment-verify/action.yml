@@ -118,6 +118,10 @@ runs:
         RERUN_LIMIT=10
         changed=""
         [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ] && changed="$(cat "$CHANGED_FILES")"
+        # The same changed files in another order, with CRLF line endings, or with blank lines are identical for
+        # finalize reuse: strip \r, drop blank lines, sort unique, join with \n, and hash the result.
+        normalized_changed="$(tr -d '\r' <<< "$changed" | grep -v '^$' | LC_ALL=C sort -u)"
+        normalized_changed_hash="$(node -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync(0,"utf8").replace(/\n+$/,"")).digest("hex"))' <<< "$normalized_changed")"
 
         # Recognized Analyst Python projects (the SDK and capabilities): the helper validates every existing project and
         # selects those the mode and the changed paths call for, in dependency order. The roots of existing projects
