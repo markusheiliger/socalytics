@@ -1,8 +1,9 @@
 # Research: Deterministic OpenAPI Document Host Tests
 
-No `NEEDS CLARIFICATION` remains. The cause is deliberately not asserted here: FR-001 requires the
-implementation to prove or rule out each hypothesis with evidence. This file fixes the method and the
-design that follows from each outcome.
+No `NEEDS CLARIFICATION` remains. FR-001 requires each hypothesis to be proved or ruled out with evidence.
+The [Evidence](#evidence) section records the baseline from the first T001 attempt (H1 proved, H2 ruled
+out), so the "not reproducible" path below no longer applies; the hypotheses table and decisions document
+the method and the design that follows from each outcome.
 
 ## Observed Facts (from the code)
 
@@ -83,3 +84,27 @@ Two temporary probes, removed afterward and never committed: (1) remove one Anal
 served document and confirm the test fails on its `ShouldContain` assertion within the existing limit;
 (2) prevent the stamp from becoming ready (for example a failing Migrator environment value) and confirm every
 dependent test fails with the fixture's start error within the limit instead of hanging.
+
+## Evidence
+
+Recorded by the amendment from the first T001 attempt (its agent summary on pull request #310), because tasks
+cannot write under `specs/`. T001 confirms the numbers and changes no file.
+
+- **Load generator and level**: `stress-ng` was not installed, so 4 busy-loop processes ran for the whole duration
+  of the loaded runs (the sufficient fallback).
+- **Single test alone**: `OpenApiDocumentContainsAllAnalystRegistryOperationIds` passed 20 of 20 consecutive runs.
+- **Whole Host project under load**: runs 1 to 3 passed and run 4 failed (4 of the 5 planned runs; the loop stops
+  at the first failure). The failure was a 20 s Polly timeout inside Aspire's start step (`app.StartAsync`), not an
+  assertion and not the 5-minute limit.
+- **H1 (concurrent full stamps exhaust the start budget on a loaded runner)**: proved. The failure surfaced only in
+  whole-project runs under load, where several stamps start concurrently.
+- **H2 (readiness reached before the document is complete)**: ruled out. 800 requests for `/openapi/v1.json` right
+  after `api` was healthy all returned 200 with every registry operation ID; the probe was reverted.
+- **H3 (start-up race between stamps)**: not reproducible; no name conflicts were seen in the logs.
+- **H4 (external dependency)**: not reproducible; no pull errors or rate limits were seen in the logs.
+- **Logs of #201, #225, and #275**: not read; `gh` was denied in the attempt's environment.
+- **Evidenced cause**: H1, a start-step timeout when concurrent stamps compete for the loaded runner.
+- **Covered code**: no platform code needs to change (H2 is ruled out).
+- **SC-003 baseline**: 57 Host tests and 161 assertion lines (lines matching `Should` and `Assert\.` in the Host
+  test files).
+- **Unloaded whole-project run**: 2 m 43 s wall-clock.
