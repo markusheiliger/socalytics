@@ -55,9 +55,10 @@ The Analyst Manager advertises host capabilities and admits only jobs whose
 pinned image and model it can execute. Changed metadata always produces a new
 image digest and manifest version.
 
-The first implementation bundles model weights and all preprocessing and
-postprocessing implementation inside the image while recording an independent
-model digest. This accepts larger images and duplicated weights in exchange for
+The first implementation of a model-based Analyst bundles model weights and all
+preprocessing and postprocessing implementation inside the image while
+recording an independent model digest (the development images without a model
+bundle no weights and declare the no-model digest). This accepts larger images and duplicated weights in exchange for
 reproducible execution without runtime artifact downloads or credentials.
 External digest-pinned model artifacts remain a future optimization.
 
@@ -107,6 +108,27 @@ local procedure through the normal Registry operations, is never published to
 GHCR, and is not part of the
 [Analyst Capability Catalog](analyst-capability-catalog.md); only convention
 keeps it out of production stamps.
+
+A second development image exists: `media-context-classification` 1.0.0, the
+catalog's first named capability, built from the independent locked Python
+project `src/analysts/capabilities/media-context-classification/` with its own
+`Dockerfile`. It is a shot-boundary baseline only: fixed rules, no model, and
+no model weights in the image (it declares the platform's no-model digest). It
+follows the same packaging convention and pinned inputs as the reference image
+and adds the OpenCV (`opencv-python-headless`) and NumPy wheels, locked in its
+`uv.lock`, for frame decoding and comparison next to the environment's pinned
+FFmpeg build. A dependency audit under the project's `audit/` folder records
+every locked package, the shared libraries bundled in runtime wheels, and the
+FFmpeg toolchain with its license, checks each license against an allowed set
+(permissive licenses; LGPL only for separately packaged or bundled shared
+libraries and the toolchain; no other GPL or AGPL), and is accompanied by a
+CycloneDX SBOM that names the base image by digest and does not enumerate
+operating-system packages. The project's tests and the image test compare the
+audit with the lock and with the distributions installed in the image. This is
+development evidence only: the image is never published, no gate of the
+catalog is met, and it is not part of any production workflow. Registries and
+publication, the catalog's independent license and provenance audit (the
+capability's own audit does not replace it), and production values remain open.
 
 ### Implementation Profile
 
@@ -269,7 +291,8 @@ container on the Docker Desktop profile, as are fact validation and indexing
 (development evidence against the simulated Analyst), and so is
 capability-specific payload validation against the pinned payload schemas
 (see Fact payload schemas below). Still open: no catalog capability declares
-payload schemas, the limit values are development values, and the platform
+payload schemas in its manifest (the development baseline `media-context-classification`
+keeps its payload schema in its project, not in its `1.0.0` manifest), the limit values are development values, and the platform
 neither interprets payloads nor computes quality metrics from them.
 
 Fact indexing is implemented as follows. Facts travel in
@@ -310,7 +333,7 @@ automatically before it writes a result and always fails the write on a
 violation. The `reference-media-probe` development capability has a `1.1.0`
 variant that declares a payload schema for its fact kind, built from its own
 `Dockerfile.payload-validated`; no catalog capability declares payload schemas
-yet, and the platform neither interprets payloads nor computes quality metrics
+in its manifest yet, and the platform neither interprets payloads nor computes quality metrics
 from them.
 
 ### Capability-Scoped Result Access
@@ -473,7 +496,8 @@ reconciliation, incompatible upgrades, disk exhaustion, and image pull and
 launch latency. Security tests must reject forbidden mounts, devices,
 privileges, host namespaces, and runtime endpoint exposure. The Docker Desktop
 adapter's tests evidence the Engine API path against a Linux engine, an
-SDK-built Analyst (`reference-media-probe`) that decodes Manager-staged segment
+SDK-built Analyst (`reference-media-probe`, and the shot-boundary baseline
+`media-context-classification`) that decodes Manager-staged segment
 media in a restricted container from its digest-pinned image, with its facts
 accepted, indexed, and read by members (validation of presigned video access
 stays open), the local
