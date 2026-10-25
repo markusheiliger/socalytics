@@ -82,7 +82,7 @@ src/platform/Tests/
 ```
 
 **Structure Decision**: No new project or file is planned; the final file list is decided by the evidence recorded
-in `research.md` (`## Evidence`). Production code (`SocAlytics.Platform.Infrastructure` outbox, `WorkerLoop`,
+in the evidence comment block above the named test in `SeedTests.cs` (`research.md` `## Evidence` explains why). Production code (`SocAlytics.Platform.Infrastructure` outbox, `WorkerLoop`,
 `AgentAttemptMonitorWorker`) changes only if the evidence shows the cause there (FR-006).
 
 ## Architecture Updates
