@@ -18,7 +18,7 @@ fix tasks name the candidate files of [plan.md](plan.md) and are completed for t
 
 ## Phase 1: Setup
 
-- [ ] T001 Restore and build the platform with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore`, and run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SeedTests"` once to record the baseline (a running Docker runtime is required); nothing is changed.
+- [ ] T001 Restore and build the platform with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore`, and run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SeedTests"` once (a running Docker runtime is required), and record the baseline (build result and the pass, fail, and skip counts of `SeedTests`) in a `### Baseline` subsection of the `## Evidence` section of `specs/20261025-003459-deterministic-agent-workload-test/research.md`; this research note is the only change.
 
 ---
 
