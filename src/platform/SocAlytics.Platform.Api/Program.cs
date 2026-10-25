@@ -100,6 +100,7 @@ app.MapRegistryEndpoints();
 app.MapAgentConversationEndpoints();
 app.MapAgentCatalogEndpoints();
 app.MapAgentWorkloadEndpoints();
+app.MapAgentToolApi();
 
 app.Run();
 

@@ -197,6 +197,8 @@ public static class ApplicationServiceCollectionExtensions
             IValidateOptions<SocAlytics.Platform.Application.AgentOrchestration.Tools.AgentToolOptions>,
             SocAlytics.Platform.Application.AgentOrchestration.Tools.AgentToolOptionsValidator>());
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Tools.AuthorizeToolCallHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Tools.GetMatchToolHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Tools.GetVideoClipTool>();
 
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadTokenHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.AuthenticateAgentWorkloadRequestHandler>();

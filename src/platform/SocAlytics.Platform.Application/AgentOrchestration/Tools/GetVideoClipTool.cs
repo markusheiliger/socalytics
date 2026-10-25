@@ -11,7 +11,8 @@ using SocAlytics.Platform.Domain.Analysis.Evidence;
 namespace SocAlytics.Platform.Application.AgentOrchestration.Tools;
 
 public sealed record GetVideoClipToolCommand(
-    AuthorizedToolCall Call, EvidenceFactRequest? Fact, EvidenceRangeRequest? Range, bool RetryFailed);
+    AuthorizedToolCall Call, EvidenceFactRequest? Fact, EvidenceRangeRequest? Range, bool RetryFailed,
+    IReadOnlyList<FieldViolation>? ArgumentViolations = null);
 
 /// <summary>The wire result of the call; it carries links only in <c>parts[].media.url</c> and must never be stored or logged.</summary>
 public sealed record GetVideoClipToolResult(JsonObject Result);
@@ -39,7 +40,8 @@ public sealed class GetVideoClipTool(
         var call = command.Call;
         var resolution = new ResolveEvidenceMediaCommand(call.AnalysisRunId, command.Fact, command.Range, command.RetryFailed);
 
-        var violations = resolver.Validate(resolution);
+        var violations = new List<FieldViolation>(command.ArgumentViolations ?? []);
+        violations.AddRange(resolver.Validate(resolution));
         if (violations.Count > 0)
         {
             await AppendAsync(call, ToolCallOutcome.Invalid, null, null, [], [], cancellationToken);
