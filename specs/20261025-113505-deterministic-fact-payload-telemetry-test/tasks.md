@@ -1,0 +1,90 @@
+---
+
+description: "Task list for Deterministic Fact Payload Telemetry Test"
+---
+
+# Tasks: Deterministic Fact Payload Telemetry Test
+
+**Input**: Design documents from `/specs/20261025-113505-deterministic-fact-payload-telemetry-test/`
+
+**Prerequisites**: plan.md, spec.md, research.md, quickstart.md (no `data-model.md` and no `contracts/`: no entities and no external interface change)
+
+**Tests**: The feature is a test fix, so its verification tasks run the existing Integration tests, deliberate reproductions, and probes. No new test project or test class is added.
+
+**Organization**: One user story (US1, P1). Every task changes the platform's Integration test project (`src/platform/Tests/SocAlytics.Platform.Integration.Tests`) or this spec folder; production code is changed only temporarily by probes and restored.
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: Can run in parallel (different files, no dependencies); consecutive `[P]` tasks under one heading run in parallel, each from the same commit
+- **[Story]**: Which user story the task belongs to (US1)
+- All tasks are sequential: they share the one named test, its evidence, and the process-wide analysis meter.
+
+## Path Conventions
+
+- Test project: `src/platform/Tests/SocAlytics.Platform.Integration.Tests/`
+- Spec folder: `specs/20261025-113505-deterministic-fact-payload-telemetry-test/`
+
+## Phase 1: Setup (Shared Infrastructure)
+
+**Purpose**: Confirm the build baseline before any change
+
+- [ ] T001 Restore and build the Integration test project from the repository root with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-restore`, and confirm that Docker is available (`src/platform/Tests/SocAlytics.Platform.Integration.Tests`)
+
+---
+
+## Phase 2: Foundational (Blocking Prerequisites)
+
+**Purpose**: The non-parallel collection that every listening test class joins
+
+**⚠️ CRITICAL**: No user story work can begin until this phase is complete
+
+- [ ] T002 Create `AnalysisTelemetryCollection` in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Support/AnalysisTelemetryCollection.cs`: a `public sealed class` in the namespace `SocAlytics.Platform.Integration.Tests.Analysis.Support` with `[CollectionDefinition(Name, DisableParallelization = true)]` and `public const string Name = "AnalysisTelemetry"`, following `IdentityAccess/Support/TimingCollection.cs`; no other member and no fixture
+
+**Checkpoint**: The collection exists; no test uses it yet.
+
+---
+
+## Phase 3: User Story 1 - The payload telemetry test fails only when its behavior is wrong (Priority: P1) 🎯 MVP
+
+**Goal**: `FactPayloadTelemetryTests.MetricsAndAuditRecordsCarryThePayloadReasonCodeAndNeverAPayloadValue` passes whenever the rejection of an invalid or undeclared fact payload is counted once with the bare reason code and free of payload values, no matter which other tests run at the same time, and fails only when that behavior is broken.
+
+**Independent Test**: Run the named test 30 times alone and 10 times with the whole analysis group; every run passes. Each of the three probes makes it fail on its assertions.
+
+- [ ] T003 [US1] Reproduce the cause with the unchanged named test (FR-001): add a temporary `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/ConcurrentRejectionProbe.cs` holding a probe test method in a different parallel collection (it must not join `AnalysisTelemetry`) that raises `AnalysisMetrics.CompletionRejected("result-payload-invalid")` (from `src/platform/SocAlytics.Platform.Application/Telemetry/AnalysisMetrics.cs`) in a loop for a bounded duration (for example 60 s) and stops when its test ends, without touching `FactPayloadTelemetryTests.cs`; run the named test together with the probe (`--filter "FullyQualifiedName~FactPayloadTelemetryTests|FullyQualifiedName~ConcurrentRejectionProbe"`) so the unchanged test, running in parallel with the probe, sees the foreign rejection in its window, and note that the old test fails on its assertion of exactly one measurement or no other rejection outcome; keep the probe file for T005 and re-read the rejection path in `src/platform/SocAlytics.Platform.Application/Analysis/Commands/CompleteAttempt.cs` to confirm it counts the rejection before it returns the response (no late-metric cause)
+- [ ] T004 [US1] Join the collection in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/FactPayloadTelemetryTests.cs`: add `[Collection(AnalysisTelemetryCollection.Name)]` and a short code comment that names the evidenced cause (the process-wide meter `SocAlytics.Platform.Analysis` is listened to without scope while test collections run in parallel in one process) and the isolation; change no assertion and add no wait, retry, skip, or timeout
+- [ ] T005 [US1] Repeat the deliberate reproduction of T003 against the changed test: with `ConcurrentRejectionProbe.cs` still present and the same filter (`--filter "FullyQualifiedName~FactPayloadTelemetryTests|FullyQualifiedName~ConcurrentRejectionProbe"`), xUnit runs the non-parallel `AnalysisTelemetry` collection only after the probe collection has finished, so the changed named test passes; then delete `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/ConcurrentRejectionProbe.cs`
+- [ ] T006 [US1] Check every other listener of the analysis meter for the defect (FR-005): read the assertions of `Analysis/Results/ValidatedAcceptanceTests.cs`, `Analysis/AnalysisTelemetryTests.cs`, `Analysis/RunSupersessionTests.cs`, `Analysis/PartialCoverageReadinessTests.cs`, and `Registry/MinimumVersionEnforcementTests.cs` (all under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/`), classify each as defective (it asserts a count or an absence that a foreign measurement of its own instrument can break) or not, and record the classification with the reasons in the `## Evidence` section of `specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md`; listeners of other meters (agent orchestration, agent catalog, messaging) are out of scope
+- [ ] T007 [US1] Add `[Collection(AnalysisTelemetryCollection.Name)]` (with the `using` of `SocAlytics.Platform.Integration.Tests.Analysis.Support`) only to the test classes that T006 classified as defective, in their files under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/` and `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/MinimumVersionEnforcementTests.cs`; classes without the defect keep their code, and no assertion is removed, loosened, or skipped
+- [ ] T008 [US1] Run the three probes of SC-003 one after another and restore the code after each: in `src/platform/SocAlytics.Platform.Application/Analysis/Commands/CompleteAttempt.cs` count the rejection a second time, count it with a different outcome, and add the payload value as a metric tag; the named test must fail on its own assertions each time, and `git diff` must then show no change under `src/platform/SocAlytics.Platform.Application/`
+- [ ] T009 [US1] Run the consecutive runs of SC-001 and SC-002 with `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~FactPayloadTelemetryTests"` 30 times and with `--filter "FullyQualifiedName~SocAlytics.Platform.Integration.Tests.Analysis|FullyQualifiedName~MinimumVersionEnforcementTests"` 10 times (every run passes; every class changed by T007 must be in the filter, so extend it when T007 changes a class outside those namespaces and names), then run the rest of the project once so that the unchanged tests still pass, and note the counts and the results in `specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md`
+
+**Checkpoint**: User Story 1 is complete and independently verified.
+
+---
+
+## Phase 4: Polish & Cross-Cutting Concerns
+
+**Purpose**: Evidence, documentation, and final checks
+
+- [ ] T010 Complete the `## Evidence` section of `specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md` (FR-001, SC-004): the code path of the rejection counting, the parallel execution of the test project, the deliberate reproduction with the old and the new result (T003 and T005), the per-class defect check (T006), the run counts (T009), and the probe results (T008); state in its text that SC-005 is observed after merge when #294 retries and is not verified here
+- [ ] T011 Update `docs/architecture/` only if a statement there becomes false: the plan's Architecture Updates section says `None` (the change only schedules integration tests and changes no narrative, design decision, or implementation-status statement), so confirm that no architecture file describes the scheduling of the analysis telemetry tests and record the confirmation in the `## Evidence` section of `specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md`
+- [ ] T012 Run `node .github/scripts/check-markdown.mjs --files specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md` and fix findings, then confirm with `git diff --stat` that the change touches only the files of this spec folder and the test files named above, that no assertion is textually removed, and that no sleep, retry, skip, or timeout was added (`specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md`)
+
+---
+
+## Dependencies & Execution Order
+
+- Phase 1 (T001) → Phase 2 (T002) → Phase 3 (T003 → T004 → T005 → T006 → T007 → T008 → T009) → Phase 4 (T010 → T011 → T012).
+- T003 must run before T004: it needs the unchanged test.
+- T007 depends on the classification of T006; T009 depends on T004, T005, T007, and T008 (probes removed).
+- No task is marked `[P]`: the tasks share the named test, the process-wide meter, and one evidence file, so they run one after another.
+
+## Parallel Example
+
+None: the single story is a sequential investigation, fix, and verification chain.
+
+## Implementation Strategy
+
+- **MVP**: Phases 1 to 3 (US1) are the whole feature; Phase 4 completes the evidence and checks.
+- **Order**: Show the cause (T003) before fixing it (T004), prove the fix (T005), extend it only where the defect is confirmed (T006, T007), prove that the assertions still bite (T008), and then measure stability (T009).
+- **Guardrails**: No retries, sleeps, longer timeouts, skips, or loosened assertions; metric names, tags, and values stay as documented (FR-003, FR-004); only the listening tests leave the parallel phase (FR-006).

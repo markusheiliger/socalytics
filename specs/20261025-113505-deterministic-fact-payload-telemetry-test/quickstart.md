@@ -1,0 +1,14 @@
+# Quickstart: Validate the Deterministic Fact Payload Telemetry Test
+
+Prerequisites: .NET 10 SDK from `src/platform/global.json`, a running Docker-compatible runtime. From the repository root:
+
+```bash
+dotnet restore src/platform/SocAlytics.Platform.slnx
+dotnet build src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-restore
+```
+
+1. **Alone, 30 times** (SC-001): run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~FactPayloadTelemetryTests"` repeatedly; every run passes.
+2. **With the analysis group, 10 times** (SC-001, SC-002): run the same command with `--filter "FullyQualifiedName~SocAlytics.Platform.Integration.Tests.Analysis"`; every run passes.
+3. **Deliberate reproduction** (FR-001): temporarily raise `AnalysisMetrics.CompletionRejected("result-payload-invalid")` from a second test host during the window; the old test fails and the new one passes. Remove the probe.
+4. **Probes** (SC-003): temporarily count a rejection twice, with a different outcome, and with a payload value in a tag; the named test fails on its assertions each time. Remove the probes.
+5. **Unchanged tests**: run the rest of the project; the tests that were not changed still pass.
