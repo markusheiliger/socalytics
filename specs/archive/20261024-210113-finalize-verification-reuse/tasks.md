@@ -5,7 +5,7 @@ description: "Task list for Finalize Verification Without Repeated Work"
 
 # Tasks: Finalize Verification Without Repeated Work
 
-**Input**: Design documents from `/specs/20261024-210113-finalize-verification-reuse/`
+**Input**: Design documents from `/specs/archive/20261024-210113-finalize-verification-reuse/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/finalize-verification.md](contracts/finalize-verification.md), [quickstart.md](quickstart.md)
 
