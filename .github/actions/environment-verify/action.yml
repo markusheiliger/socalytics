@@ -555,7 +555,52 @@ runs:
           } >> "$GITHUB_STEP_SUMMARY"
         fi
         rm -rf "$RESULTS_ROOT"
-        (IFS=,; echo "checks=${checks[*]}") >> "$GITHUB_OUTPUT"
+        checks_text="$(IFS=,; echo "${checks[*]}")"
+
+        # Record write: only a run that passed with the workspace state unchanged since its start leaves a record, which
+        # replaces any earlier one atomically. A failing run, or a passing run whose workspace state changed, deletes an
+        # existing record, so a later run never inherits an earlier pass over a failure.
+        if [ -n "$record_file" ]; then
+          if [ "$status" -ne 0 ]; then
+            rm -f "$record_file"
+          else
+            end_identity="$(workspace_identity)"
+            if [ -z "$end_identity" ] || [ "$end_identity" != "$start_identity" ]; then
+              echo "No finalize reuse record was written: the workspace state changed during the run or could not be identified at its end" | tee -a "$LOG_FILE"
+              rm -f "$record_file"
+            else
+              record_dir="$(dirname "$record_file")"
+              record_tmp=""
+              if mkdir -p "$record_dir" && record_tmp="$(mktemp "$record_dir/.record.XXXXXX")" \
+                && node -e '
+                  const fs = require("fs");
+                  const [file, identity, mode, changedFiles, scope, checks, uncovered, flaky, runId, attempt, job] = process.argv.slice(1);
+                  const text = (v) => typeof v === "string" && !/[\r\n]/.test(v);
+                  let sequence = 1;
+                  try {
+                    const r = JSON.parse(fs.readFileSync(file, "utf8"));
+                    const valid = r !== null && typeof r === "object" && r.version === 1 && r.passed === true
+                      && ["identity", "mode", "changedFiles", "scope"].every((k) => typeof r[k] === "string")
+                      && ["checks", "uncovered", "flaky"].every((k) => text(r[k]))
+                      && r.source !== null && typeof r.source === "object" && !Array.isArray(r.source);
+                    if (valid) sequence = (Number.isFinite(r.source.sequence) ? r.source.sequence : 0) + 1;
+                  } catch {}
+                  process.stdout.write(JSON.stringify({
+                    version: 1, passed: true, identity, mode, changedFiles, scope, checks, uncovered, flaky,
+                    source: { runId, attempt, job, recordedAt: new Date().toISOString(), sequence },
+                  }) + "\n");
+                ' "$record_file" "$end_identity" "$MODE" "$normalized_changed_hash" "$scope" "$checks_text" "$uncovered" "$flaky" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" > "$record_tmp" \
+                && mv -f "$record_tmp" "$record_file"; then
+                echo "Finalize reuse record written for scope $scope" | tee -a "$LOG_FILE"
+              else
+                [ -z "$record_tmp" ] || rm -f "$record_tmp"
+                rm -f "$record_file"
+                echo "No finalize reuse record was written: the record could not be written" | tee -a "$LOG_FILE"
+              fi
+            fi
+          fi
+        fi
+        echo "checks=${checks_text}" >> "$GITHUB_OUTPUT"
         echo "uncovered=${uncovered}" >> "$GITHUB_OUTPUT"
         echo "flaky=${flaky}" >> "$GITHUB_OUTPUT"
         exit "$status"
