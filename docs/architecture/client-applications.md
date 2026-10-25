@@ -81,7 +81,9 @@ The React Web UI supports connected platform and club workflows, including:
   with who cancelled them, when, and why (implemented); the
   run list also marks the match's current run and each superseded run with
   the run that superseded it, and shows a run cancelled because it was
-  superseded without a member (implemented)
+  superseded without a member (implemented); the match page also offers Club
+  Admins a segments area with the match's materialized segments and a
+  confirmed manual purge (implemented, see below)
 - team and match review, analytics, and agent conversations for coaches (the
   connected analysis review and the match triage conversations with Specialist
   Agents are implemented, see below, as is evidence playback in the review;
@@ -223,6 +225,24 @@ enablement change applies only to questions submitted afterwards, while
 existing invocations keep their pinned versions. The area is online only and
 offers no deletion, editing of registered records, model-rendered previews, or
 evaluation results.
+
+The Club Admin segments area is implemented as a connected workflow, as
+development evidence in the `simulated` and `platform` browser-test projects.
+On the match page `/matches/:matchId`, Club Admins of the owning club see the
+match's materialized segments as the platform's member list reports them
+(state, size, and whether a waiting, ready, or claimed job still uses them),
+with a summary and a manual refresh, through the existing
+`listMaterializedSegments` operation; other members see no area and send no
+request, and a `403` shows a not-permitted state without segment data. A
+confirmed purge (`purgeMaterializedSegments`) states that segments not in use
+are deleted and become absent, that segments in use are kept and reported, and
+that a purged segment is rematerialized on demand, and then shows the purged
+and in-use counts the platform returns; refusals and failures are explained and
+the list is read again. The platform decides what is in use and what is
+purged; the Web UI reads and relays no media bytes. The area is online only and
+keeps segment data in memory only (the service worker caches none of it), and
+it offers no automatic eviction, per-segment actions, media preview, or
+cache policy.
 
 Recording uploads run in a dedicated upload worker that hashes the parts
 and transfers them directly to object storage with the platform's per-part

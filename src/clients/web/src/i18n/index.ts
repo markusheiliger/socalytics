@@ -20,13 +20,14 @@ import uploads from './en/uploads.json';
 import registry from './en/registry.json';
 import agentCatalog from './en/agentCatalog.json';
 import operations from './en/operations.json';
+import segments from './en/segments.json';
 
 void i18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'managers', 'matches', 'uploads', 'lineage', 'triage', 'email', 'registry', 'passwordRecovery', 'analysis', 'operations', 'invitations', 'agentCatalog'],
-  resources: { en: { common, session, account, shell, club, seasons, teams, members, managers, matches, uploads, lineage, triage, email, registry, passwordRecovery, analysis, operations, invitations, agentCatalog } },
+  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'managers', 'matches', 'uploads', 'lineage', 'triage', 'email', 'registry', 'passwordRecovery', 'analysis', 'operations', 'invitations', 'agentCatalog', 'segments'],
+  resources: { en: { common, session, account, shell, club, seasons, teams, members, managers, matches, uploads, lineage, triage, email, registry, passwordRecovery, analysis, operations, invitations, agentCatalog, segments } },
   interpolation: { escapeValue: false },
 });
 
