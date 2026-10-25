@@ -537,6 +537,45 @@ exit 0
     assert.equal(result.outputs.checks, 'Analyst Python projects');
   });
 
+  describe('finalize reuse', () => {
+    function git(root, ...args) {
+      const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    }
+
+    // The fixture repository with a committed baseline: the action identifies the workspace state through Git.
+    function gitRepository() {
+      const root = sdkRepository();
+      git(root, 'init', '-q');
+      git(root, 'config', 'user.name', 'Test');
+      git(root, 'config', 'user.email', 'test@example.invalid');
+      git(root, 'config', 'commit.gpgsign', 'false');
+      git(root, 'add', '-A');
+      git(root, 'commit', '-q', '-m', 'baseline');
+      return root;
+    }
+
+    // A private record folder root and the run identity values that enable the record of one job.
+    function reuseEnv({ runnerTemp = path.join(temporary, `runner-${counter++}`), runId = '1001', attempt = '1', job = 'verify' } = {}) {
+      mkdirSync(runnerTemp, { recursive: true });
+      return { RUNNER_TEMP: runnerTemp, GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: attempt, GITHUB_JOB: job };
+    }
+
+    // One finalize run with the record enabled; calls holds one entry per stub uv command (the expensive work).
+    const finalize = (root, env, options = {}) => run(root, { ...options, mode: 'finalize', env: { ...env, ...options.env } });
+
+    it('records a finalize run of a Git workspace and counts its stub commands', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      const result = finalize(root, env, { changed: ['a.txt'] });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.calls.length, stages.length);
+      assert.equal(result.outputs.checks, 'Analyst Python projects,Markdown check');
+      assert.ok(existsSync(path.join(env.RUNNER_TEMP, 'socalytics-environment-verify', 'finalize-1001-1-verify.json')));
+    });
+  });
+
   describe('cross-check regression', () => {
     const platformSolution = 'src/platform/SocAlytics.Platform.slnx';
     const platformTests = [
