@@ -2,7 +2,7 @@
 
 **Branch**: `20261023-022148-shot-boundary-analyst` | **Date**: 2026-10-23 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261023-022148-shot-boundary-analyst/spec.md`
+**Input**: Feature specification from `/specs/archive/20261023-022148-shot-boundary-analyst/spec.md`
 
 ## Summary
 
@@ -67,16 +67,16 @@ area, or environment requirement.
 
 **Narratives**:
 
-- [Low-Level Capabilities](../../docs/architecture/analyst-capability-catalog.md#low-level-capabilities): the
+- [Low-Level Capabilities](../../../docs/architecture/analyst-capability-catalog.md#low-level-capabilities): the
   `media-context-classification` row (baseline of shot boundaries implemented as development evidence; types,
   live/replay/graphics, quality, usable intervals, the learned challenger, and gates not implemented).
-- [Implementation Waves](../../docs/architecture/analyst-capability-catalog.md#implementation-waves): Wave 1 starts with
+- [Implementation Waves](../../../docs/architecture/analyst-capability-catalog.md#implementation-waves): Wave 1 starts with
   the media-context baseline; no Wave 1 gate is met.
-- [Catalog Rules](../../docs/architecture/analyst-capability-catalog.md#catalog-rules): the paragraph that says
+- [Catalog Rules](../../../docs/architecture/analyst-capability-catalog.md#catalog-rules): the paragraph that says
   development reference capabilities are not part of the catalog.
-- [Image Metadata And Packaging](../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging):
+- [Image Metadata And Packaging](../../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging):
   the first catalog-named capability image, and the audit evidence it starts.
-- [Analyst runtime and recovery](../../docs/architecture/analyst-runtime-and-recovery.md): the statement that real
+- [Analyst runtime and recovery](../../../docs/architecture/analyst-runtime-and-recovery.md): the statement that real
   Analyst execution evidence is a development reference that is not a catalog capability.
 
 **Design updates**: None applied. The plan decides capability-local details only (detection settings, the fact payload
@@ -110,7 +110,7 @@ whole job.
 ### Documentation (this feature)
 
 ```text
-specs/20261023-022148-shot-boundary-analyst/
+specs/archive/20261023-022148-shot-boundary-analyst/
 ├── plan.md
 ├── research.md
 ├── data-model.md

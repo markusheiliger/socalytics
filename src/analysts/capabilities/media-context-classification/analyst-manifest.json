@@ -1,0 +1,23 @@
+{
+  "manifestVersion": "1.0.0",
+  "capability": {
+    "id": "media-context-classification",
+    "version": "1.0.0",
+    "tier": "low-level",
+    "executionScope": "segment"
+  },
+  "upstream": [],
+  "videoAccess": "required",
+  "output": { "schemaVersion": "1.0.0" },
+  "compatibleProfiles": ["media-context-classification-dev"],
+  "model": { "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000000" },
+  "runtime": { "constraints": ["linux-amd64"], "accelerators": [] },
+  "resources": { "memory": "2Gi", "cpu": "2" },
+  "requirements": {
+    "minMaxAttempts": 1,
+    "minLeaseSeconds": 30,
+    "minStaleTimeoutSeconds": 60,
+    "minExecutionTimeoutSeconds": 300
+  },
+  "determinism": { "deterministic": true, "idempotent": true }
+}

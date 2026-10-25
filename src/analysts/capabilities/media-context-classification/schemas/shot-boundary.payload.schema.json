@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rule",
+    "changeMeasure",
+    "hardThreshold",
+    "frameIndex",
+    "previousShotLastFrameMs",
+    "settings"
+  ],
+  "properties": {
+    "rule": { "type": "string", "enum": ["hard-cut", "adaptive-cut"] },
+    "changeMeasure": { "type": "number", "minimum": 0, "maximum": 255 },
+    "hardThreshold": { "type": "number" },
+    "adaptiveFloor": { "type": "number" },
+    "adaptiveRatio": { "type": "number" },
+    "contextMean": { "type": "number" },
+    "frameIndex": { "type": "integer", "minimum": 1 },
+    "previousShotLastFrameMs": { "type": ["integer", "null"] },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "detectorVersion",
+        "frameWidth",
+        "frameHeight",
+        "adaptiveWindow",
+        "minShotLengthMs",
+        "ruleOrder"
+      ],
+      "properties": {
+        "detectorVersion": { "type": "string" },
+        "frameWidth": { "type": "integer", "minimum": 1 },
+        "frameHeight": { "type": "integer", "minimum": 1 },
+        "adaptiveWindow": { "type": "integer", "minimum": 1 },
+        "minShotLengthMs": { "type": "integer", "minimum": 0 },
+        "ruleOrder": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["hard-cut", "adaptive-cut"] }
+        }
+      }
+    }
+  },
+  "dependentRequired": {
+    "adaptiveFloor": ["adaptiveRatio", "contextMean"],
+    "adaptiveRatio": ["adaptiveFloor", "contextMean"],
+    "contextMean": ["adaptiveFloor", "adaptiveRatio"]
+  },
+  "if": {
+    "properties": { "rule": { "const": "adaptive-cut" } },
+    "required": ["rule"]
+  },
+  "then": {
+    "required": ["adaptiveFloor", "adaptiveRatio", "contextMean"]
+  }
+}
