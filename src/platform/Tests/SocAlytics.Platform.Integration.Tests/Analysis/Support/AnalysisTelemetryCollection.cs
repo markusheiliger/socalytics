@@ -52,4 +52,10 @@ Stability of the named test alone (T009, SC-001): 30 consecutive runs of
 dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~FactPayloadTelemetryTests",
 one after another in a single shell loop that stopped at the first failure. Result: 30 of 30 runs passed (each run: Passed 2,
 Failed 0, both theory rows).
+
+Stability together with the other analysis tests (T013, SC-001 and SC-002, runs 1 to 5 of 10): 5 consecutive runs of
+dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SocAlytics.Platform.Integration.Tests.Analysis|FullyQualifiedName~MinimumVersionEnforcementTests",
+one after another in a single shell loop that stopped at the first failure. The filter covers every class changed by T007 (the four
+classes under Analysis/ and Registry/MinimumVersionEnforcementTests). Result: 5 of 5 runs passed (each run: Passed 658,
+Failed 0, Skipped 0, Total 658).
 */
