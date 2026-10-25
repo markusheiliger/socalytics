@@ -136,6 +136,70 @@ runs:
           fi
         fi
 
+        # workspace_identity: sha256(HEAD commit, "\n", tree) of the workspace content, printed when certain and empty
+        # when uncertain. The tree comes from a throw-away index (the real index and the working tree stay untouched)
+        # filled with HEAD and every unignored file except the log file and the changed-files list. It is uncertain when
+        # git fails, when the workspace is not the top level of a Git work tree, or when an ignored path exists that is
+        # not a known build output, dependency folder, generated client, or Spec Kit housekeeping path.
+        workspace_identity() {
+          local log_abs="" changed_abs=""
+          [ -n "$LOG_FILE" ] && log_abs="$(realpath -m -- "$LOG_FILE" 2>/dev/null)"
+          [ -n "$CHANGED_FILES" ] && changed_abs="$(realpath -m -- "$CHANGED_FILES" 2>/dev/null)"
+          (
+            set +e -uo pipefail
+            cd "$WORKSPACE" 2>/dev/null || exit 1
+            root="$(pwd -P)"
+            top="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 1
+            [ "$(cd "$top" 2>/dev/null && pwd -P)" = "$root" ] || exit 1
+            head_commit="$(git rev-parse HEAD 2>/dev/null)" || exit 1
+            index_dir="$(mktemp -d)" || exit 1
+            trap 'rm -rf "$index_dir"' EXIT
+            export GIT_INDEX_FILE="$index_dir/index"
+            git read-tree HEAD > /dev/null 2>&1 || exit 1
+            excluded=()
+            for abs in "$log_abs" "$changed_abs"; do
+              case "$abs" in "$root"/?*) excluded+=("${abs#"$root"/}") ;; esac
+            done
+            pathspecs=()
+            for rel in ${excluded[@]+"${excluded[@]}"}; do pathspecs+=(":(exclude,literal)$rel"); done
+            git add -A -- . ${pathspecs[@]+"${pathspecs[@]}"} > /dev/null 2>&1 || exit 1
+            ignored_list="$(git ls-files -z --others --ignored --exclude-standard --directory 2>/dev/null | tr '\0' '\n')" || exit 1
+            while IFS= read -r ignored; do
+              [ -n "$ignored" ] || continue
+              ignored="${ignored%/}"
+              skip=0
+              for rel in ${excluded[@]+"${excluded[@]}"}; do [ "$ignored" = "$rel" ] && skip=1; done
+              [ "$skip" -eq 0 ] || continue
+              known=0
+              IFS=/ read -ra components <<< "$ignored"
+              for component in "${components[@]}"; do
+                case "$component" in
+                  bin|obj|node_modules|.venv|venv|__pycache__|dist|build|TestResults|test-results|playwright-report|.vs|.pytest_cache|.uv-cache) known=1 ;;
+                esac
+              done
+              case "$ignored" in
+                src/clients/web/src/generated|*/src/clients/web/src/generated) known=1 ;;
+                .specify/workflows/runs|*/.specify/workflows/runs) known=1 ;;
+                .specify/feature.json|*/.specify/feature.json) known=1 ;;
+                .specify/.workflow-install.lock|*/.specify/.workflow-install.lock) known=1 ;;
+                .specify/extensions/*/local-config.yml|*/.specify/extensions/*/local-config.yml) known=1 ;;
+              esac
+              [ "$known" -eq 1 ] || exit 1
+            done <<< "$ignored_list"
+            tree="$(git write-tree 2>/dev/null)" || exit 1
+            [ -n "$head_commit" ] && [ -n "$tree" ] || exit 1
+            printf '%s\n%s' "$head_commit" "$tree" | node -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync(0)).digest("hex"))'
+          )
+        }
+        start_identity=""
+        if [ -n "$record_file" ]; then
+          start_identity="$(workspace_identity)"
+          if [ -z "$start_identity" ]; then
+            echo "Finalize reuse was not possible: the workspace state could not be identified with certainty" | tee -a "$LOG_FILE"
+            record_file=""
+          fi
+        fi
+
         # Recognized Analyst Python projects (the SDK and capabilities): the helper validates every existing project and
         # selects those the mode and the changed paths call for, in dependency order. The roots of existing projects
         # become covered source scopes; a deleted or unrecognized project stays uncovered.
