@@ -6,11 +6,11 @@ import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { renderSpecLine } from './speckit-prepare-core.mjs';
-import { presentAmendment, resolveAmendment, runRecordAnalysis, startRework } from './speckit-amend.mjs';
+import { presentAmendment, resolveAmendment, runFeedback, runPushed, runRecordAnalysis, startRework } from './speckit-amend.mjs';
 import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, RETRY_COMMENT_MARKER, maintainDependencyBlock, parseFixEvents, renderFixEvent, setAttention, setBlocked } from './speckit-implement-core.mjs';
-import { authoredFor, checkFixSpec, main as fixMain, designDecisionsFromPlan, fixBlock, fixStamp, isAutomationCommit, linkPrerequisite, maintainFixSpec, parseAuthorReport, parseDesignDecisions, readResult, reworkOutcome, reworkStage, runDecide, runEvidence, runInputs, runLand, runPackage, runRecord, settleClosedFix, startFixAuthoring, syncDesignDecisions, validateDecision } from './speckit-fix.mjs';
-import { defaultGit } from './speckit-orchestrate.mjs';
-import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
+import { authoredFor, checkFixSpec, main as fixMain, designDecisionsFromPlan, fixBlock, fixStamp, isAutomationCommit, linkPrerequisite, maintainFixSpec, maintainIndependentSpecs, parseAuthorReport, parseDesignDecisions, readResult, reworkOutcome, reworkStage, runDecide, runEvidence, runInputs, runLand, runPackage, runRecord, settleClosedFix, startFixAuthoring, syncDesignDecisions, validateDecision } from './speckit-fix.mjs';
+import { defaultGit, runSelect } from './speckit-orchestrate.mjs';
+import { diagnosisRepo, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const FOLDER = '20261014-100000-upload-expiry';
 const PREFIX = `specs/${FOLDER}`;
@@ -571,6 +571,126 @@ test('a spec that does not block (link: false) is authored, maintained, and merg
   assert.ok(!labels().includes(BLOCKED_LABEL));
   await maintainFixSpec(github, env(), { implementation: implementation(), twin: 5 }, { now: github.clock, report: silent });
   assert.equal(github.comments.filter((item) => item.number === 9 && item.body.includes('speckit-fix:merged')).length, 1, 'recorded once');
+});
+
+async function independentSpec(github) {
+  github.repo.pullCommits[12] = [{ sha: 'sha-fix', author: { login: 'github-actions[bot]', type: 'Bot' }, committer: { login: 'web-flow' } }];
+  await startFixAuthoring(github, env(), { twin: 5, implementation: await github.getPullRequest(9), actor: 'dev', now: github.clock, link: false });
+  const check = github.repo.checkRuns.at(-1);
+  github.closePull(9, { merged: true });
+  github.find(5).state = 'closed';
+  github.find(5).labels = [];
+  return withResult(authorResult(), (dir) => runRecord({ client: github, env: env({ SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_CREATED_PULL: '12' }), log: silent }));
+}
+
+test('the scheduler recovers an unlinked spec authored after its origin merged, through independent analysis and correction', async () => {
+  const github = fixRepo();
+  assert.equal((await independentSpec(github)).outcome, 'created');
+  const context = await resolveAmendment(github, env(), 12);
+  assert.deepEqual([context.kind, context.implementation.number, context.twin], ['fix', 9, 5]);
+  const abandoned = github.repo.checkRuns.at(-1);
+  Object.assign(abandoned, { status: 'completed', conclusion: 'neutral', external_id: 'speckit:amend-inconsistent', output: { title: 'The amendment is no longer open' } });
+  for (const run of github.repo.runs) run.status = 'completed';
+  const origin = await github.getPullRequest(9);
+  const root = makeRepo([]);
+  try {
+    const selection = await runSelect({ client: github, rootDir: root, env: env(), log: silent, now: () => github.clock });
+    assert.equal(selection.amendmentActions, 1);
+    const analysis = github.repo.runs.at(-1);
+    assert.deepEqual([analysis.workflow, analysis.inputs.mode, analysis.inputs.pull, analysis.inputs.issue], ['speckit-analyze.lock.yml', 'loop', '9', '5']);
+    assert.equal((await runSelect({ client: github, rootDir: root, env: env(), log: silent, now: () => github.clock })).amendmentActions, 0, 'an active analysis is not dispatched twice');
+    assert.equal((await recordSpecAnalysis(github, { findings: [{ severity: 'HIGH', location: 'tasks.md', summary: 'Missing a regression task.' }] })).outcome, 'correcting');
+    const correction = github.repo.runs.at(-1);
+    assert.deepEqual([correction.workflow, correction.inputs.mode, correction.inputs.round, correction.inputs.pull], ['speckit-author.yml', 'fix', '1', '9']);
+    assert.deepEqual(github.repo.merges, [], 'a neutral result and findings never authorize a merge');
+    assert.deepEqual(await github.getPullRequest(9), origin, 'the merged implementation stays unchanged');
+    assert.deepEqual(github.edges, [], 'the unlinked spec never adds a dependency');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('feedback and pushes on an authored spec still work after its origin merged', async () => {
+  const github = fixRepo();
+  await independentSpec(github);
+  for (const run of github.repo.runs) run.status = 'completed';
+  github.repo.checkRuns.at(-1).status = 'completed';
+  github.commentAuthor = 'dev';
+  await github.createComment(12, 'Rework the regression tasks without weakening the assertions.');
+  github.commentAuthor = undefined;
+  assert.equal((await runFeedback({ client: github, env: env({ SPECKIT_PULL: '12' }), log: silent, now: () => github.clock })).outcome, 'rework');
+  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs.mode], ['speckit-author.yml', 'revise']);
+  assert.equal((await runPushed({ client: github, env: env({ SPECKIT_PULL: '12' }), log: silent })).outcome, 'checking');
+  assert.equal(github.repo.runs.at(-1).inputs.mode, 'check', 'a person’s push retains the report-only analysis policy');
+  assert.deepEqual(github.edges, []);
+  assert.equal((await github.getPullRequest(9)).state, 'closed');
+});
+
+test('a consistent independent spec can merge after its origin merged without retrying or relinking it', async () => {
+  const github = fixRepo();
+  await independentSpec(github);
+  github.repo.pullCommits[12] = [{ sha: 'sha-fix', author: { login: 'github-actions[bot]', type: 'Bot' }, committer: { login: 'web-flow' } }];
+  const origin = await github.getPullRequest(9);
+  assert.equal((await recordSpecAnalysis(github)).outcome, 'merged');
+  assert.deepEqual(await github.getPullRequest(9), origin);
+  assert.deepEqual(github.edges, []);
+  assert.deepEqual(github.repo.runs.slice(-2).map((run) => run.workflow), ['speckit-prepare.yml', 'speckit-orchestrate.yml']);
+  assert.doesNotMatch(github.comments.filter((comment) => comment.number === 9).at(-1).body, /retries|stays stopped|speckit-implement:retry/);
+});
+
+test('merged-origin lookup requires a bot introduction and the reciprocal owning creation event', async () => {
+  for (const defect of ['human', 'missing', 'joined', 'folder']) {
+    const github = fixRepo();
+    await independentSpec(github);
+    const introduction = github.comments.find((comment) => comment.number === 12 && comment.body.includes('This spec was requested'));
+    const created = github.comments.find((comment) => comment.number === 9 && comment.body.startsWith('<!-- speckit-fix:created'));
+    if (defect === 'human') introduction.user.login = 'dev';
+    if (defect === 'missing') created.body = 'No lifecycle event.';
+    if (defect === 'joined') created.body = renderFixEvent('created', { pull: 12, folder: FOLDER, joined: true });
+    if (defect === 'folder') created.body = renderFixEvent('created', { pull: 12, folder: 'another-folder' });
+    assert.equal(await authoredFor(github, await github.getPullRequest(12)), null, defect);
+    assert.ok((await resolveAmendment(github, env(), 12)).reason, defect);
+  }
+});
+
+test('legacy description markers cannot select an unrecorded merged origin', async () => {
+  const github = fixRepo();
+  github.closePull(9, { merged: true });
+  github.repo.pulls.find((pull) => pull.number === 12).body = '<!-- speckit-fix:for {"pull":9,"twin":5,"folder":"f"} -->';
+  assert.equal(await authoredFor(github, await github.getPullRequest(12)), null);
+  assert.ok((await resolveAmendment(github, env(), 12)).reason);
+});
+
+test('recovery across a rework push retains correction rounds for automation, but not for human changes', async () => {
+  for (const human of [false, true]) {
+    const github = fixRepo();
+    await independentSpec(github);
+    for (const run of github.repo.runs) run.status = 'completed';
+    Object.assign(github.repo.checkRuns.at(-1), { status: 'completed', conclusion: 'neutral', output: { title: 'The amendment is no longer open' } });
+    github.repo.pulls.find((pull) => pull.number === 12).head.sha = 'sha-rework';
+    github.repo.pullCommits[12].push({ sha: 'sha-rework', author: { login: human ? 'dev' : 'github-actions[bot]' } });
+    assert.equal(await maintainIndependentSpecs(github, env(), { now: github.clock }), 1);
+    assert.equal(github.repo.runs.at(-1).inputs.mode, human ? 'check' : 'loop');
+  }
+});
+
+test('merged-origin recovery cannot bypass missing analysis or the authored-spec path rules', async () => {
+  const github = fixRepo();
+  await independentSpec(github);
+  const result = await runRecordAnalysis({ client: github, env: env({ SPECKIT_AMENDMENT: '12', SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id) }), log: silent });
+  assert.equal(result.outcome, 'no analysis');
+  assert.equal(github.repo.checkRuns.at(-1).conclusion, 'failure');
+  assert.deepEqual(github.repo.merges, []);
+  github.repo.pullFiles[12].push('.github/scripts/speckit-fix.mjs');
+  assert.match((await checkFixSpec(github, { folder: FOLDER, pull: await github.getPullRequest(12) })).reasons.join('\n'), /may only add[\s\S]*speckit-fix\.mjs/);
+});
+
+test('authored-spec maintenance reports listing failures without stopping implementation selection', async () => {
+  const github = fixRepo();
+  github.listOpenPullRequests = async () => { throw new Error('temporarily unavailable'); };
+  const notes = [];
+  assert.equal(await maintainIndependentSpecs(github, env(), { report: (line) => notes.push(line) }), 0);
+  assert.match(notes[0], /could not list authored specs: temporarily unavailable/);
 });
 
 // ── Spec Kit author: the decision, the inputs, the result, and the land job ──────────────────────────────────────

@@ -319,6 +319,13 @@ stopped implementation is blocked until it is implemented and then retries by it
 [Pull requests that need attention](#pull-requests-that-need-attention)). When the fix is already on the base branch,
 use `sync` instead.
 
+Authored specs outlive their originating implementation pull request. If it has already merged, the scheduler
+continues maintaining each open authored spec, using the bot's introductory comment and the reciprocal creation
+event on the origin to resolve ownership. Feedback still starts a rework, and independent analysis and correction
+rounds still apply. A neutral check discarded by the former open-origin requirement is restarted automatically;
+it is not treated as a passing analysis. Non-blocking flaky-test specs never reopen, retry, or add a dependency to
+the merged origin. These recovery changes must be on the default branch, which supplies the trusted tooling.
+
 ### Implement
 
 `/speckit implement` is posted on a spec twin issue, not on a pull request, and is the only way to request an
