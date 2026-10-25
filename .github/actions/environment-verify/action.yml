@@ -123,6 +123,19 @@ runs:
         normalized_changed="$(tr -d '\r' <<< "$changed" | grep -v '^$' | LC_ALL=C sort -u)"
         normalized_changed_hash="$(node -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync(0,"utf8").replace(/\n+$/,"")).digest("hex"))' <<< "$normalized_changed")"
 
+        # Finalize reuse record of one job: an empty record_file disables reading and writing it. Only a finalize run
+        # outside the environment action tests uses it, and only when the run, attempt, and job are known.
+        record_file=""
+        if [ "$MODE" = finalize ] && [ -z "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ]; then
+          if [ -n "${RUNNER_TEMP:-}" ] && [ -n "${GITHUB_RUN_ID:-}" ] && [ -n "${GITHUB_RUN_ATTEMPT:-}" ] && [ -n "${GITHUB_JOB:-}" ]; then
+            # Any character outside [A-Za-z0-9_.-] becomes _, so the name cannot leave the record folder.
+            record_part() { printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9_.-' '_'; }
+            record_file="$RUNNER_TEMP/socalytics-environment-verify/finalize-$(record_part "$GITHUB_RUN_ID")-$(record_part "$GITHUB_RUN_ATTEMPT")-$(record_part "$GITHUB_JOB").json"
+          else
+            echo "Finalize reuse was not possible: RUNNER_TEMP, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, or GITHUB_JOB is empty" | tee -a "$LOG_FILE"
+          fi
+        fi
+
         # Recognized Analyst Python projects (the SDK and capabilities): the helper validates every existing project and
         # selects those the mode and the changed paths call for, in dependency order. The roots of existing projects
         # become covered source scopes; a deleted or unrecognized project stays uncovered.
