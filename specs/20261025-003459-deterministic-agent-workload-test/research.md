@@ -55,6 +55,6 @@ artifact kind) show the assertions still fail, and are removed afterwards.
 
 ## Evidence
 
-To be filled in during implementation: the repeated-run results alone and under load, the demonstration per suspected
+To be filled in during implementation: the baseline of T001 (`### Baseline`: build result and `SeedTests` counts), the repeated-run results alone and under load, the demonstration per suspected
 cause (wall-clock versus fake time, start order, polling loop, shared state, covered production code) with the result
 "cause" or "ruled out", and the probe results. The same text goes into a code comment next to the fix.
