@@ -18,11 +18,22 @@ const repository = () => {
   return directory;
 };
 
-function manifest({ name, requiresPython = '>=3.11', dependencies = [], sources = {}, extra = '', build = true } = {}) {
+function manifest({
+  name, requiresPython = '>=3.11', dependencies = [], optionalDependencies = {}, dependencyGroups = {},
+  sources = {}, extra = '', build = true,
+} = {}) {
   const lines = ['[project]'];
   if (name !== undefined) lines.push(`name = "${name}"`);
   if (requiresPython !== null) lines.push(`requires-python = "${requiresPython}"`);
   lines.push(`dependencies = [${dependencies.map((value) => `"${value}"`).join(', ')}]`);
+  if (Object.keys(optionalDependencies).length) {
+    lines.push('', '[project.optional-dependencies]');
+    for (const [key, values] of Object.entries(optionalDependencies)) lines.push(`${key} = [${values.map((value) => `"${value}"`).join(', ')}]`);
+  }
+  if (Object.keys(dependencyGroups).length) {
+    lines.push('', '[dependency-groups]');
+    for (const [key, values] of Object.entries(dependencyGroups)) lines.push(`${key} = [${values.map((value) => `"${value}"`).join(', ')}]`);
+  }
   if (build) lines.push('', '[build-system]', 'requires = ["hatchling"]', 'build-backend = "hatchling.build"');
   if (Object.keys(sources).length) {
     lines.push('', '[tool.uv.sources]');
@@ -929,6 +940,119 @@ it('${id}', () => {
       });
     });
 
+    describe('agents area coverage and regression', () => {
+      const bypass = /--no-locked|--frozen|--upgrade|skip|ignore|disable|merge|unlock|bypass|weaken/i;
+      const recommendations = (log) => log.split('\n').filter((line) => line.includes('Recommended action:'));
+
+      it('keeps deleted, area-root, nested, and unowned agents-area paths uncovered while valid roots stay covered', () => {
+        const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+        project(root, 'src/agents/kept', { name: 'kept' });
+        const changed = [
+          'src/agents/deleted/pyproject.toml', 'src/agents/deleted/a.py', 'src/agents/pyproject.toml',
+          'src/agents/stray.py', 'src/agents/kept/a.py', 'src/agents/README.md',
+        ];
+        const result = run(root, { mode: 'task', changed, bin: toolBin() });
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.outputs.uncovered, 'src/agents/deleted/pyproject.toml,src/agents/deleted/a.py,src/agents/pyproject.toml,src/agents/stray.py');
+        assert.equal(result.outputs.checks, [names.python.replace('Analyst', 'Agent'), names.markdown].join(','));
+      });
+
+      it('covers src/agents/README.md only through the Markdown rule', () => {
+        const absent = run(fullRepository({ platform: false, manager: false, web: false, python: false }), { mode: 'task', changed: ['src/agents/README.md'], bin: toolBin() });
+        assert.equal(absent.status, 0, absent.log);
+        assert.equal(absent.outputs.uncovered, '');
+        assert.equal(absent.outputs.checks, names.markdown);
+        const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+        project(root, 'src/agents/kept', { name: 'kept' });
+        const present = run(root, { mode: 'task', changed: ['src/agents/README.md'], bin: toolBin() });
+        assert.equal(present.outputs.uncovered, '');
+        assert.equal(present.outputs.checks, names.markdown);
+        assert.equal(present.calls.length, 0);
+      });
+
+      it('matches agent coverage roots literally when the folder name contains ERE metacharacters', () => {
+        const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+        project(root, 'src/agents/mcp+server', { name: 'mcp-server' });
+        const result = run(root, {
+          mode: 'task',
+          changed: ['src/agents/mcp+server/agent.py', 'src/agents/mcpserver/unowned.py'],
+        });
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.outputs.checks, 'Agent Python projects');
+        assert.equal(result.outputs.uncovered, 'src/agents/mcpserver/unowned.py');
+      });
+
+      const invalid = [
+        ['a missing lock', 'src/agents/mcp', (root) => project(root, 'src/agents/mcp', { name: 'mcp' }, { lock: false })],
+        ['the area-root manifest', 'src/agents/pyproject.toml', (root) => { project(root, 'src/agents', { name: 'area' }); project(root, 'src/agents/mcp', { name: 'mcp' }); }],
+        ['a nested manifest', 'src/agents/mcp/nested/pyproject.toml', (root) => { project(root, 'src/agents/mcp', { name: 'mcp' }); project(root, 'src/agents/mcp/nested', { name: 'nested' }); }],
+        ['an Analyst dependency', 'src/agents/mcp', (root) => { project(root, 'src/analysts/sdk', { name: 'sdk' }); project(root, 'src/agents/mcp', { name: 'mcp', dependencies: ['sdk'], sources: { sdk: '../../analysts/sdk' } }); }],
+        ['a name repeating an Analyst name', 'src/agents/mcp', (root) => { project(root, 'src/analysts/sdk', { name: 'sdk' }); project(root, 'src/agents/mcp', { name: 'sdk' }); }],
+        ['a malformed manifest', 'src/agents/mcp', (root) => project(root, 'src/agents/mcp', { raw: '[project\n' })],
+      ];
+      for (const [label, named, build] of invalid) {
+        it(`fails ${label} in every mode with the named project and exactly one safe recommendation, covering no agent root`, () => {
+          for (const mode of ['task', 'phase', 'finalize']) {
+            const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+            build(root);
+            const changed = ['src/clients/other/b.ts', 'src/agents/mcp/a.py'];
+            const result = run(root, { mode, changed: mode === 'finalize' ? [] : changed, bin: toolBin() });
+            assert.equal(result.status, 1, `${mode}: ${result.log}`);
+            assert.match(result.log, /Agent Python projects: discovery failed/);
+            assert.ok(result.log.includes(named), `${mode}: ${named}`);
+            assert.ok(result.outputs.checks.split(',').includes('Agent Python projects'));
+            assert.ok(!result.outputs.checks.includes('Markdown'));
+            const advice = recommendations(result.log);
+            assert.equal(advice.length, 1, result.log);
+            assert.doesNotMatch(advice[0], bypass);
+            assert.equal(result.calls.filter((call) => call[0].includes('src/agents')).length, 0);
+            if (mode !== 'finalize') assert.equal(result.outputs.uncovered, 'src/clients/other/b.ts,src/agents/mcp/a.py');
+          }
+        });
+      }
+
+      it('fails an invalid agent project even when the changed paths do not touch it', () => {
+        const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+        project(root, 'src/agents/mcp', { name: 'mcp' }, { lock: false });
+        const result = run(root, { mode: 'task', changed: ['src/clients/other/b.ts'], bin: toolBin() });
+        assert.equal(result.status, 1);
+        assert.equal(result.outputs.checks, 'Agent Python projects');
+        assert.equal(result.outputs.uncovered, 'src/clients/other/b.ts');
+        assert.match(result.log, /project src\/agents\/mcp: locked sync: uv\.lock is missing/);
+      });
+
+      it('keeps the log, checks, and uncovered outputs for an agent stage failure alongside platform checks', () => {
+        const root = fullRepository({ web: false, python: false });
+        project(root, 'src/agents/mcp', { name: 'mcp' });
+        const result = run(root, {
+          mode: 'phase', changed: ['src/agents/mcp/a.py', 'src/agents/gone/a.py', 'src/platform/a.cs'],
+          env: { FAIL_STAGE: stages[3] }, bin: toolBin(),
+        });
+        assert.equal(result.status, 1);
+        assert.equal(result.outputs.checks, [names.platform, 'Agent Python projects'].join(','));
+        assert.equal(result.outputs.uncovered, 'src/agents/gone/a.py');
+        const advice = recommendations(result.log).filter((line) => line.startsWith('Agent Python stage failed'));
+        assert.equal(advice.length, 1);
+        assert.match(advice[0], /Agent Python stage failed: tests in src\/agents\/mcp \(command: uv run --no-sync pytest\)/);
+        assert.doesNotMatch(advice[0], /--no-locked|--frozen|--upgrade|skip|ignore|disable|merge|unlock|bypass/i);
+      });
+
+      it('runs every check in the documented order in finalize mode', () => {
+        const fixtureDir = path.join(temporary, `env-tests-${counter++}`);
+        mkdirSync(fixtureDir);
+        const file = path.join(fixtureDir, 'pass.test.mjs');
+        writeFileSync(file, "import { it } from 'node:test';\nit('passes', () => {});\n");
+        const root = fullRepository();
+        project(root, 'src/agents/mcp', { name: 'mcp' });
+        const result = run(root, { bin: toolBin(), env: { ENVIRONMENT_TESTS: file } });
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.outputs.checks, [
+          names.platform, names.manager, names.web, names.python, 'Agent Python projects', 'Environment action tests', names.markdown,
+        ].join(','));
+        assert.equal(result.outputs.uncovered, '');
+      });
+    });
+
     it('keeps the log, checks, and uncovered outputs for an Analyst failure alongside platform checks', () => {
       const root = fullRepository({ web: false });
       const result = run(root, {
@@ -940,6 +1064,140 @@ it('${id}', () => {
       assert.equal(result.outputs.uncovered, 'src/analysts/capabilities/gone/a.py');
       assert.match(result.log, /Analyst Python stage failed: wheel build in src\/analysts\/sdk/);
       assert.equal(commands(result, 'dotnet').length, 0);
+    });
+  });
+
+  describe('agent projects', () => {
+    const mcpRoot = 'src/agents/mcp';
+    const agentRepository = () => {
+      const root = repository();
+      project(root, mcpRoot, { name: 'mcp' });
+      return root;
+    };
+
+    it('runs the four exact stages in order with only the download and interpreter variables', () => {
+      const result = run(agentRepository());
+      assert.equal(result.status, 0, result.log);
+      assert.deepEqual(result.calls.map((call) => call[3]), stages);
+      for (const call of result.calls) {
+        assert.ok(call[0].endsWith(mcpRoot));
+        assert.equal(call[1], 'never');
+        assert.equal(call[2], python);
+      }
+      assert.equal(result.outputs.checks, 'Agent Python projects,Markdown check');
+      const lines = result.log.split('\n');
+      assert.ok(lines.includes(`Agent Python project: ${mcpRoot}`));
+      for (const stage of ['bootstrap sync', 'project sync', 'wheel build', 'tests']) {
+        assert.ok(lines.includes(`Agent Python stage: ${stage} (${mcpRoot})`), stage);
+      }
+      assert.doesNotMatch(result.log, /Analyst Python/);
+    });
+
+    it('adds only the download and interpreter variables to the stage commands', () => {
+      const result = run(agentRepository());
+      assert.equal(result.status, 0, result.log);
+      const commands = result.log.split('\n').filter((line) => line.startsWith('$ env '));
+      assert.equal(commands.length, 4);
+      for (const line of commands) assert.match(line, new RegExp(`^\\$ env UV_PYTHON_DOWNLOADS=never UV_PYTHON=${python.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} uv `));
+    });
+
+    for (const [index, stage] of ['bootstrap sync', 'project sync', 'wheel build', 'tests'].entries()) {
+      it(`fails the ${stage} stage with the project, command, and one recommendation`, () => {
+        const result = run(agentRepository(), { env: { FAIL_STAGE: stages[index] } });
+        assert.equal(result.status, 1);
+        assert.deepEqual(result.calls.map((call) => call[3]), stages.slice(0, index + 1));
+        assert.equal(result.outputs.checks, 'Agent Python projects');
+        const failure = result.log.split('\n').filter((line) => line.startsWith('Agent Python stage failed: '));
+        assert.equal(failure.length, 1);
+        assert.match(failure[0], new RegExp(`^Agent Python stage failed: ${stage} in ${mcpRoot} \\(command: uv ${stages[index].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)\\. Recommended action: `));
+        assert.equal(failure[0].match(/Recommended action:/g).length, 1);
+        assert.doesNotMatch(failure[0], /--no-locked|--frozen|--upgrade|skip|ignore|disable|merge/i);
+      });
+    }
+
+    it('orders dependencies first and stops at the first failing project', () => {
+      const root = repository();
+      project(root, 'src/agents/mcp-server', { name: 'mcp-server', dependencies: ['mcp'], sources: { mcp: '../mcp' } });
+      project(root, mcpRoot, { name: 'mcp' });
+      const ok = run(root);
+      assert.equal(ok.status, 0, ok.log);
+      assert.deepEqual([...new Set(ok.calls.map((call) => path.relative(root, call[0])))], [mcpRoot, 'src/agents/mcp-server']);
+      const failed = run(root, { env: { FAIL_STAGE: stages[0] } });
+      assert.equal(failed.status, 1);
+      assert.equal(failed.calls.length, 1);
+    });
+
+    it('fails explicitly without the installed interpreter or uv', () => {
+      const result = run(agentRepository(), { withPython: false });
+      assert.equal(result.status, 1);
+      assert.match(result.log, /Agent Python projects: environment setup: .*Recommended action: run environment-setup/);
+      assert.equal(result.calls.length, 0);
+      assert.equal(result.outputs.checks, 'Agent Python projects');
+    });
+
+    it('covers an agent root in task mode and leaves other agent paths uncovered', () => {
+      const result = run(agentRepository(), { mode: 'task', changed: [`${mcpRoot}/src/x.py`, 'src/agents/mcp-other/y.py'] });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.calls.length, 4);
+      assert.equal(result.outputs.uncovered, 'src/agents/mcp-other/y.py');
+    });
+
+    it('runs no agent check when no agent project exists', () => {
+      const result = run(sdkRepository());
+      assert.equal(result.status, 0, result.log);
+      assert.ok(!result.outputs.checks.includes('Agent Python projects'));
+      assert.ok(!/Agent Python/.test(result.log));
+      const empty = run(repository(), { mode: 'task', changed: ['src/agents/x/a.py'] });
+      assert.equal(empty.outputs.checks, '');
+      assert.equal(empty.outputs.uncovered, 'src/agents/x/a.py');
+    });
+
+    it('runs the Analyst check before the agent check', () => {
+      const root = sdkRepository();
+      project(root, mcpRoot, { name: 'mcp' });
+      const result = run(root);
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.outputs.checks, 'Analyst Python projects,Agent Python projects,Markdown check');
+      assert.deepEqual([...new Set(result.calls.map((call) => path.relative(root, call[0])))], [sdkRoot, mcpRoot]);
+    });
+
+    it('runs only the check of the area that changed', () => {
+      const root = sdkRepository();
+      project(root, mcpRoot, { name: 'mcp' });
+      const agent = run(root, { mode: 'task', changed: [`${mcpRoot}/a.py`] });
+      assert.equal(agent.status, 0, agent.log);
+      assert.equal(agent.outputs.checks, 'Agent Python projects');
+      assert.deepEqual([...new Set(agent.calls.map((call) => path.relative(root, call[0])))], [mcpRoot]);
+      const analyst = run(root, { mode: 'task', changed: [`${sdkRoot}/a.py`] });
+      assert.equal(analyst.outputs.checks, 'Analyst Python projects');
+      assert.deepEqual([...new Set(analyst.calls.map((call) => path.relative(root, call[0])))], [sdkRoot]);
+      const analysis = run(root, { mode: 'task', changed: ['contracts/analysis/x.json'] });
+      assert.equal(analysis.outputs.checks, 'Analyst Python projects');
+      assert.deepEqual([...new Set(analysis.calls.map((call) => path.relative(root, call[0])))], [sdkRoot]);
+    });
+
+    it('fails only the agent check for an agent discovery failure and keeps the Analyst check', () => {
+      const root = sdkRepository();
+      project(root, mcpRoot, { name: 'mcp', dependencies: ['sdk'], sources: { sdk: '../../analysts/sdk' } });
+      const result = run(root);
+      assert.equal(result.status, 1);
+      assert.equal(result.outputs.checks, 'Analyst Python projects,Agent Python projects');
+      assert.match(result.log, /Agent Python projects: discovery failed/);
+      assert.equal(result.log.match(/Recommended action:/g).length, 1);
+      assert.match(result.log, /remove the dependency on the Analyst project/);
+      assert.deepEqual([...new Set(result.calls.map((call) => path.relative(root, call[0])))], [sdkRoot]);
+      assert.doesNotMatch(result.log, /Analyst Python projects: discovery failed/);
+    });
+
+    it('keeps the Analyst check unchanged while an invalid agent project exists', () => {
+      const root = sdkRepository();
+      project(root, mcpRoot, { name: 'sdk' });
+      const result = run(root, { mode: 'task', changed: [`${sdkRoot}/a.py`] });
+      assert.equal(result.status, 1);
+      assert.equal(result.outputs.checks, 'Analyst Python projects,Agent Python projects');
+      assert.equal(result.calls.length, 4);
+      assert.match(result.log, /Analyst Python stage: tests \(src\/analysts\/sdk\)/);
+      assert.match(result.log, /project src\/agents\/mcp: project convention: project name 'sdk' duplicates Analyst project src\/analysts\/sdk/);
     });
   });
 
@@ -984,5 +1242,262 @@ dev = ["pytest>=8", "setuptools>=68"]
     const stale = run(root, { bin });
     assert.equal(stale.status, 1);
     assert.match(stale.log, /Analyst Python stage failed: bootstrap sync/);
+  });
+
+  it('passes every stage for a real isolated agents-area package without changing declarations', { skip: !uvReal }, () => {
+    const root = repository();
+    const directory = path.join(root, 'src/agents/demo');
+    mkdirSync(path.join(directory, 'src/demo_agent'), { recursive: true });
+    mkdirSync(path.join(directory, 'tests'), { recursive: true });
+    writeFileSync(path.join(directory, 'pyproject.toml'), `[project]
+name = "demo-agent"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = ["pytest>=8", "setuptools>=68"]
+`);
+    writeFileSync(path.join(directory, 'src/demo_agent/__init__.py'), 'VALUE = 1\n');
+    writeFileSync(path.join(directory, 'tests/test_demo.py'), 'import demo_agent\n\n\ndef test_value():\n    assert demo_agent.VALUE == 1\n');
+    const locked = spawnSync('uv', ['lock'], { cwd: directory, encoding: 'utf8', env: { ...process.env, UV_PYTHON: python } });
+    if (locked.status !== 0) return; // package index unreachable: the real fixture cannot be locked
+    const before = readFileSync(path.join(directory, 'pyproject.toml'), 'utf8') + readFileSync(path.join(directory, 'uv.lock'), 'utf8');
+    const bin = path.join(temporary, `bin-${counter++}`);
+    mkdirSync(bin);
+    symlinkSync(spawnSync('which', ['uv'], { encoding: 'utf8' }).stdout.trim(), path.join(bin, 'uv'));
+    const passed = run(root, { bin });
+    assert.equal(passed.status, 0, passed.log);
+    assert.equal(passed.outputs.checks, 'Agent Python projects,Markdown check');
+    assert.equal(before, readFileSync(path.join(directory, 'pyproject.toml'), 'utf8') + readFileSync(path.join(directory, 'uv.lock'), 'utf8'));
+    writeFileSync(path.join(directory, 'tests/test_demo.py'), 'def test_value():\n    assert False\n');
+    assert.equal(run(root, { bin }).status, 1);
+  });
+});
+
+describe('agents area discovery', () => {
+  const agents = (root, args = []) => discover(root, ['--area', 'agents', ...args]);
+  const rejectedAgents = (root, pattern) => {
+    const result = agents(root);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, pattern);
+    assert.match(result.stderr, /Recommended action: /);
+    return result;
+  };
+
+  it('finds nothing without an agents area or project', () => {
+    const root = repository();
+    assert.deepEqual(agents(root).projects, []);
+    mkdirSync(path.join(root, 'src/agents/empty'), { recursive: true });
+    assert.deepEqual(agents(root).projects, []);
+  });
+
+  it('recognizes several agent projects with dependencies first', () => {
+    const root = repository();
+    project(root, 'src/agents/mcp-server', { name: 'mcp-server', dependencies: ['mcp'], sources: { mcp: '../mcp' } });
+    project(root, 'src/agents/mcp', { name: 'MCP' });
+    const result = agents(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.projects.map((entry) => entry.root), ['src/agents/mcp', 'src/agents/mcp-server']);
+    assert.deepEqual(result.projects[1].dependencies, ['src/agents/mcp']);
+  });
+
+  it('skips hidden, ignored, and symbolic-link folders and leaves the Analyst area unchanged', () => {
+    const root = repository();
+    for (const name of ['.hidden', '.venv', 'venv', 'node_modules', '__pycache__', '.git', 'build', 'dist', 'site-packages']) {
+      project(root, `src/agents/${name}`, { name: `x-${name}` });
+    }
+    project(root, 'elsewhere', { name: 'linked' });
+    symlinkSync(path.join(root, 'elsewhere'), path.join(root, 'src/agents/linked'));
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    assert.deepEqual(agents(root).projects, []);
+    assert.deepEqual(discover(root).projects.map((entry) => entry.root), ['src/analysts/sdk']);
+  });
+
+  it('fails the area root and nested manifests as an unsupported layout', () => {
+    const root = repository();
+    project(root, 'src/agents', { name: 'area' });
+    project(root, 'src/agents/one/nested', { name: 'nested' });
+    project(root, 'src/agents/one', { name: 'one' });
+    const result = rejectedAgents(root, /project src\/agents\/pyproject\.toml: project convention: unsupported layout/);
+    assert.match(result.stderr, /project src\/agents\/one\/nested\/pyproject\.toml: project convention: unsupported layout/);
+    assert.match(result.stderr, /Recommended action: move the project to src\/agents\/<name>, or author the required environment extension, before retrying/);
+  });
+
+  it('applies every convention check and names the agent project', () => {
+    const cases = [
+      [{ raw: '[project\n' }, /malformed/],
+      [{ name: 'a', requiresPython: '<3.0' }, /runtime compatibility: requires-python/],
+      [{ name: 'a', build: false }, /\[build-system\]/],
+      [{ name: 'a', extra: '[tool.uv]\npackage = false' }, /package = false/],
+      [{ name: 'a', extra: '[tool.uv.workspace]\nmembers = ["x"]' }, /workspace/],
+      [{ name: 'a', dependencies: ['other'], extra: '[tool.uv.sources]\nother = { git = "https://example.test/x.git" }' }, /must be a path/],
+      [{ name: 'a', sources: { other: '../other' } }, /not in the project requirements/],
+      [{ name: 'a', dependencies: ['other'], sources: { other: '../missing' } }, /has no project/],
+      [{ name: 'a', dependencies: ['sdk @ file:///repo/src/analysts/sdk'] }, /direct reference requirement/],
+      [{ name: 'a', optionalDependencies: { test: ['sdk @ file:///repo/src/analysts/sdk'] } }, /direct reference requirement/],
+      [{ name: 'a', dependencyGroups: { dev: ['sdk @ file:///repo/src/analysts/sdk'] } }, /direct reference requirement/],
+    ];
+    for (const [options, pattern] of cases) {
+      const root = repository();
+      project(root, 'src/agents/a', options);
+      rejectedAgents(root, new RegExp(`project src/agents/a: .*${pattern.source}`));
+    }
+    const root = repository();
+    project(root, 'src/agents/a', { name: 'a' }, { lock: false });
+    rejectedAgents(root, /project src\/agents\/a: locked sync: uv\.lock is missing/);
+  });
+
+  it('rejects duplicate names and cycles', () => {
+    const root = repository();
+    project(root, 'src/agents/a', { name: 'same' });
+    project(root, 'src/agents/b', { name: 'Same' });
+    rejectedAgents(root, /project src\/agents\/b: project convention: project name 'same' duplicates src\/agents\/a/);
+    const cyclic = repository();
+    project(cyclic, 'src/agents/a', { name: 'a', dependencies: ['b'], sources: { b: '../b' } });
+    project(cyclic, 'src/agents/b', { name: 'b', dependencies: ['a'], sources: { a: '../a' } });
+    rejectedAgents(cyclic, /local dependencies form a cycle/);
+  });
+
+  it('rejects dependencies outside the agents roots', () => {
+    const root = repository();
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    project(root, 'src/agents/a', { name: 'a', dependencies: ['sdk'], sources: { sdk: '../../analysts/sdk' } });
+    const result = rejectedAgents(root, /project src\/agents\/a: project convention: local dependency 'sdk' at src\/analysts\/sdk is outside the permitted ownership roots/);
+    assert.match(result.stderr, /Recommended action: remove the dependency on the Analyst project or move the shared code into an agent project under src\/agents\/<name>, before retrying/);
+    const capability = repository();
+    project(capability, 'src/analysts/capabilities/seg', { name: 'seg' });
+    project(capability, 'src/agents/a', { name: 'a', dependencies: ['seg'], sources: { seg: '../../analysts/capabilities/seg' } });
+    rejectedAgents(capability, /local dependency 'seg' at src\/analysts\/capabilities\/seg is outside/);
+  });
+
+  it('keeps an Analyst dependency on an agent project failing as before', () => {
+    const root = repository();
+    project(root, 'src/agents/a', { name: 'a' });
+    project(root, 'src/analysts/sdk', { name: 'sdk', dependencies: ['a'], sources: { a: '../../agents/a' } });
+    const result = rejected(root, /project src\/analysts\/sdk: project convention: local dependency 'a' at src\/agents\/a is outside the permitted ownership roots/);
+    assert.match(result.stderr, /Recommended action: correct the named manifest to the documented Python product convention/);
+  });
+
+  it('fails an agent name that repeats an Analyst name and names both projects', () => {
+    const root = repository();
+    project(root, 'src/analysts/capabilities/seg', { name: 'Seg_Core' });
+    project(root, 'src/agents/a', { name: 'seg-core' });
+    const result = rejectedAgents(root, /project src\/agents\/a: project convention: project name 'seg-core' duplicates Analyst project src\/analysts\/capabilities\/seg/);
+    assert.equal(result.stderr.trim().split('\n').length, 1);
+    assert.equal(discover(root).status, 0);
+  });
+
+  it('reads only static Analyst names and skips unreadable Analyst manifests', () => {
+    const root = repository();
+    project(root, 'src/analysts/sdk', { raw: '[project\n' });
+    project(root, 'src/analysts/capabilities/dyn', { raw: '[project]\ndynamic = ["name"]\nname = "a"\n' });
+    project(root, 'src/analysts/capabilities/noname', { raw: '[project]\nrequires-python = ">=3.11"\n' });
+    project(root, 'src/agents/a', { name: 'a' });
+    const result = agents(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.projects.map((entry) => entry.root), ['src/agents/a']);
+  });
+
+  it('leaves Analyst output and errors unchanged while agent projects exist', () => {
+    const root = repository();
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    project(root, 'src/agents/a', { name: 'sdk' });
+    project(root, 'src/agents/b', { raw: '[project\n' });
+    const result = discover(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.projects.map((entry) => entry.root), ['src/analysts/sdk']);
+  });
+});
+
+describe('agents area selection', () => {
+  const mcp = 'src/agents/mcp';
+  const server = 'src/agents/mcp-server';
+  const hermes = 'src/agents/hermes';
+
+  function graph() {
+    const root = repository();
+    project(root, mcp, { name: 'mcp' });
+    project(root, server, { name: 'mcp-server', dependencies: ['mcp'], sources: { mcp: '../mcp' } });
+    project(root, hermes, { name: 'hermes' });
+    return root;
+  }
+
+  function select(root, mode, changed = []) {
+    const list = path.join(root, 'changed.txt');
+    writeFileSync(list, changed.join('\n'));
+    const result = spawnSync('python', [helper, 'select', '--area', 'agents', '--root', root, '--python-version', '3.13.5', '--mode', mode, '--changed-files', list], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    return { selected: parsed.projects.map((entry) => [entry.root, entry.reason]), covered: parsed.covered };
+  }
+
+  it('selects an own-source change and its reverse local-dependency closure once, in order', () => {
+    const root = graph();
+    for (const mode of ['task', 'phase']) {
+      assert.deepEqual(select(root, mode, [`${mcp}/src/x.py`]).selected, [[mcp, 'direct change'], [server, 'local-dependency change']]);
+      assert.deepEqual(select(root, mode, [`${server}/a.py`, `${mcp}/b.py`, `${server}/c.py`]).selected, [[mcp, 'direct change'], [server, 'direct change']]);
+      assert.deepEqual(select(root, mode, [`${hermes}/pyproject.toml`]).selected, [[hermes, 'direct change']]);
+    }
+  });
+
+  it('never matches prefix-similar project folders', () => {
+    const root = graph();
+    assert.deepEqual(select(root, 'task', [`${server}/x.py`]).selected, [[server, 'direct change']]);
+    assert.deepEqual(select(root, 'task', ['src/agents/mcp-other/x.py']).selected, []);
+  });
+
+  it('selects every agent project for shared contract families', () => {
+    const root = graph();
+    const all = [[hermes, 'shared contract change'], [mcp, 'shared contract change'], [server, 'shared contract change']];
+    for (const changed of [
+      'contracts/agent-catalog/schema.json', 'contracts/agent-orchestration/x/y.json', 'contracts/agent-tools/a.json',
+      'contracts/agent-x/new.json', 'contracts/common/shared.json',
+    ]) {
+      for (const mode of ['task', 'phase']) assert.deepEqual(select(root, mode, [changed]).selected, all, changed);
+    }
+  });
+
+  it('selects nothing for unrelated, lookalike, and Analyst changes', () => {
+    const root = graph();
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    for (const changed of [
+      'contracts/agentic/x.json', 'contracts/agent-x.md', 'contracts/analysis/x.json', 'src/analysts/sdk/x.py',
+      'src/analysts/manager/x.cs', 'src/platform/x.cs', 'README.md', 'src/agents/README.md',
+    ]) {
+      assert.deepEqual(select(root, 'task', [changed]).selected, [], changed);
+    }
+  });
+
+  it('selects every agent project for finalize and environment changes', () => {
+    const root = graph();
+    const expected = (reason) => [[hermes, reason], [mcp, reason], [server, reason]];
+    assert.deepEqual(select(root, 'finalize').selected, expected('finalize'));
+    for (const changed of ['.github/actions/environment-verify/action.yml', '.github/actions/environment-setup/scripts/x.sh']) {
+      assert.deepEqual(select(root, 'task', [changed]).selected, expected('environment change'), changed);
+    }
+  });
+
+  it('covers the existing valid agent roots only', () => {
+    const root = graph();
+    assert.deepEqual(select(root, 'task', []).covered, [hermes, mcp, server]);
+    assert.deepEqual(select(repository(), 'task', []).covered, []);
+  });
+
+  it('keeps Analyst selection unchanged by agent contract folders', () => {
+    const root = repository();
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    const list = path.join(root, 'changed.txt');
+    writeFileSync(list, 'contracts/agent-tools/a.json\ncontracts/analysis/x.json');
+    const result = spawnSync('python', [helper, 'select', '--root', root, '--python-version', '3.13.5', '--mode', 'task', '--changed-files', list], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).projects.map((entry) => entry.reason), ['shared contract change']);
   });
 });

@@ -17,11 +17,17 @@ description: >-
   while src/clients/web/package.json exists, and runs the steps install (npm ci without a browser download),
   playwright pin (the installed @playwright/test must be 1.63.0, the version environment-setup installs), build,
   unit tests, and browser tests through the npm scripts build, test, and test:e2e (with --retries=1), stopping at the
-  first failure; other paths under src/clients/ stay uncovered; "Environment action tests" runs the Node test files of
-  environment-setup and environment-verify when either action folder changed or in finalize mode; "Markdown check"
-  follows. Every .NET test project runs with a TRX log; when it fails with at most 10 failed tests, only those run
-  once more, and a project whose rerun passes passes. Tests that passed only on their rerun (and Playwright's flaky
-  tests) are listed in the log, the step summary, and the flaky output.
+  first failure; other paths under src/clients/ stay uncovered; "Analyst Python projects" runs the locked stages for
+  the Analyst Python projects (src/analysts/sdk, src/analysts/capabilities/<name>) the changes select; "Agent Python
+  projects" does the same for src/agents/<name> projects with the same convention and stages, runs when an agent
+  project, a folder directly under contracts/ named agent-*, contracts/common/, or an environment action folder
+  changed or in finalize mode, covers only the roots of existing valid agent projects (src/agents/pyproject.toml,
+  nested manifests, and unowned or deleted agent paths stay uncovered), and fails in every mode while an existing
+  agent project is invalid; agent projects never depend on Analyst projects or repeat their names; "Environment
+  action tests" runs the Node test files of environment-setup and environment-verify when either action folder
+  changed or in finalize mode; "Markdown check" follows. Every .NET test project runs with a TRX log; when it fails
+  with at most 10 failed tests, only those run once more, and a project whose rerun passes passes. Tests that passed
+  only on their rerun (and Playwright's flaky tests) are listed in the log, the step summary, and the flaky output.
 # Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
 # is reviewed and merged before the specs that need it start. For a new framework or source area, add one block below
 # that (1) adds its scope to COVERED only when its project exists, (2) runs only when the scope changed or in finalize
@@ -31,7 +37,10 @@ description: >-
 # exists; the Analyst Manager scope (src/analysts/manager/) is covered while the Manager solution exists, and its
 # check also runs for contracts/analyst-manager/ changes without covering those files; the Web UI scope
 # (src/clients/web/) is covered while src/clients/web/package.json exists, and its check also runs for
-# src/platform/SocAlytics.Platform.Api/ changes without covering those files.
+# src/platform/SocAlytics.Platform.Api/ changes without covering those files. The agent Python project scope (each
+# existing valid src/agents/<name> root) is covered by the check "Agent Python projects", which also runs for
+# contracts/agent-*, contracts/common/, finalize, and environment action changes without covering those contract
+# files; src/agents/README.md stays covered only by the Markdown rule.
 inputs:
   workspace:
     description: Path of the code to verify
@@ -133,8 +142,24 @@ runs:
           analyst_lines="$(node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));for(const p of r.projects)console.log("S "+p.root);for(const c of r.covered)console.log("C "+c)' <<< "$analyst_output")"
           analyst_selected="$(sed -n 's/^S //p' <<< "$analyst_lines")"
           while IFS= read -r analyst_root; do
-            [ -n "$analyst_root" ] && COVERED+=("^$(sed 's/[][\.*^$]/\\&/g' <<< "$analyst_root")/")
+            [ -n "$analyst_root" ] && COVERED+=("^$(sed 's/[][(){}.^$?+*|\\]/\\&/g' <<< "$analyst_root")/")
           done < <(sed -n 's/^C //p' <<< "$analyst_lines")
+        fi
+
+        # Recognized agent Python projects (src/agents/<name>): same helper and convention, selected and covered
+        # independently of the Analyst projects.
+        agent_error_file="$(mktemp)"
+        agent_output="$("$analyst_python" "$ANALYST_PROJECTS" select --area agents --root "$WORKSPACE" --mode "$MODE" --changed-files "$CHANGED_FILES" 2> "$agent_error_file")"
+        agent_status=$?
+        agent_error="$(cat "$agent_error_file")"
+        rm -f "$agent_error_file"
+        agent_selected=""
+        if [ "$agent_status" -eq 0 ]; then
+          agent_lines="$(node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));for(const p of r.projects)console.log("S "+p.root);for(const c of r.covered)console.log("C "+c)' <<< "$agent_output")"
+          agent_selected="$(sed -n 's/^S //p' <<< "$agent_lines")"
+          while IFS= read -r agent_root; do
+            [ -n "$agent_root" ] && COVERED+=("^$(sed 's/[][(){}.^$?+*|\\]/\\&/g' <<< "$agent_root")/")
+          done < <(sed -n 's/^C //p' <<< "$agent_lines")
         fi
 
         # applies <regex>: true in finalize mode or when a changed path matches.
@@ -339,11 +364,12 @@ runs:
             web_step 'browser tests' web_browser_tests; } || status=1
           popd > /dev/null
         fi
-        # Analyst Python projects: the environment owns the exact command sequence, run with the interpreter that
-        # environment-setup installed (SOCALYTICS_PYTHON) and Python downloads disabled. The first failing stage stops
-        # the check; the committed declarations and locks are never changed.
+        # Analyst and agent Python projects: the environment owns the exact command sequence, run with the interpreter
+        # that environment-setup installed (SOCALYTICS_PYTHON) and Python downloads disabled. The first failing stage
+        # stops the check; the committed declarations and locks are never changed. The label (Analyst or Agent) only
+        # names the project area in the log lines.
         python_project() {
-          local root="$1" stage
+          local root="$1" label="$2" stage
           local -a commands=(
             "bootstrap sync|uv sync --locked --all-groups --no-install-local --no-build|correct the consuming project's dependency declarations (manifest, uv.lock, locked wheels, and locked build backends) and commit them, then retry verification; verification never repairs or unlocks them"
             "project sync|uv sync --locked --all-groups --no-build-isolation|reproduce this command in the named project, correct its package or local-dependency declarations so the locked backends build it, and retry verification"
@@ -351,16 +377,16 @@ runs:
             "tests|uv run --no-sync pytest|reproduce this command in the named project, correct the failing or missing tests or the source they cover without weakening them (pytest needs at least one collectable test), and retry verification"
           )
           local entry command recommendation rest
-          echo "Analyst Python project: $root" | tee -a "$LOG_FILE"
+          echo "$label Python project: $root" | tee -a "$LOG_FILE"
           for entry in "${commands[@]}"; do
             stage="${entry%%|*}"
             rest="${entry#*|}"
             command="${rest%%|*}"
             recommendation="${rest#*|}"
             read -r -a words <<< "$command"
-            echo "Analyst Python stage: $stage ($root)" | tee -a "$LOG_FILE"
+            echo "$label Python stage: $stage ($root)" | tee -a "$LOG_FILE"
             step env UV_PYTHON_DOWNLOADS=never UV_PYTHON="$SOCALYTICS_PYTHON" "${words[@]}" || {
-              echo "Analyst Python stage failed: $stage in $root (command: $command). Recommended action: $recommendation" | tee -a "$LOG_FILE"
+              echo "$label Python stage failed: $stage in $root (command: $command). Recommended action: $recommendation" | tee -a "$LOG_FILE"
               return 1
             }
           done
@@ -380,10 +406,31 @@ runs:
           else
             while IFS= read -r analyst_root; do
               pushd "$analyst_root" > /dev/null
-              python_project "$analyst_root" || status=1
+              python_project "$analyst_root" Analyst || status=1
               popd > /dev/null
               [ "$status" -eq 0 ] || break
             done <<< "$analyst_selected"
+          fi
+        fi
+        if [ "$status" -eq 0 ] && { [ "$agent_status" -ne 0 ] || [ -n "$agent_selected" ]; }; then
+          checks+=("Agent Python projects")
+          if [ "$agent_status" -ne 0 ]; then
+            echo "Agent Python projects: discovery failed (exit $agent_status) using $analyst_python" | tee -a "$LOG_FILE"
+            [ -n "$agent_error" ] && echo "$agent_error" | tee -a "$LOG_FILE"
+            if ! grep -q 'Recommended action:' <<< "$agent_error"; then
+              echo "Agent Python projects: discovery could not run. Recommended action: run environment-setup with install-tools true so SOCALYTICS_PYTHON names a working interpreter, then retry verification" | tee -a "$LOG_FILE"
+            fi
+            status=1
+          elif [ -z "${SOCALYTICS_PYTHON:-}" ] || [ ! -x "$SOCALYTICS_PYTHON" ] || ! command -v uv > /dev/null; then
+            echo "Agent Python projects: environment setup: SOCALYTICS_PYTHON and uv from environment-setup are required. Recommended action: run environment-setup with install-tools true before verification" | tee -a "$LOG_FILE"
+            status=1
+          else
+            while IFS= read -r agent_root; do
+              pushd "$agent_root" > /dev/null
+              python_project "$agent_root" Agent || status=1
+              popd > /dev/null
+              [ "$status" -eq 0 ] || break
+            done <<< "$agent_selected"
           fi
         fi
         # The environment-local Node tests of both environment actions run when either action folder changed and in
