@@ -18,4 +18,4 @@
 
 ## Evidence
 
-Filled in by the implementation (FR-001): the code path above, the deliberate concurrent-rejection reproduction with the old and new test results, the per-class defect check, the consecutive run counts of SC-001 and SC-002, and the probe results of SC-003.
+Filled in by the implementation (FR-001): the build baseline of T001, the code path above, the deliberate concurrent-rejection reproduction with the old and new test results, the per-class defect check, the consecutive run counts of SC-001 and SC-002, and the probe results of SC-003.
