@@ -60,6 +60,7 @@ builder.Services.AddOpenApi("v1", options =>
 
 builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
 	.AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(SessionAuthenticationHandler.SchemeName, null);
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, AgentToolAuthorizationResultHandler>();
 builder.Services.AddAuthorizationBuilder()
 	.AddPolicy(AuthorizationPolicyNames.ActiveMember, policy => policy
 		.AddAuthenticationSchemes(SessionAuthenticationHandler.SchemeName)

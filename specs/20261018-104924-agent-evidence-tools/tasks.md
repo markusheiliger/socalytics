@@ -86,7 +86,7 @@ description: "Task list for Agent Evidence Tools API"
 
 ### Implementation for User Story 2
 
-- [ ] T018 [US2] Add `src/platform/SocAlytics.Platform.Api/AgentOrchestration/AgentToolAuthorizationResultHandler.cs`, an `IAuthorizationMiddlewareResultHandler` that, for endpoints of the `/api/v1/agent-tools` group only, records `agent.tool.call.refused` with reason `caller-not-workload` when authentication or the `AgentWorkload` policy fails and then delegates to the default handler, and register it in `src/platform/SocAlytics.Platform.Api/Program.cs` (FR-004, FR-018a; research R11)
+- [x] T018 [US2] Add `src/platform/SocAlytics.Platform.Api/AgentOrchestration/AgentToolAuthorizationResultHandler.cs`, an `IAuthorizationMiddlewareResultHandler` that, for endpoints of the `/api/v1/agent-tools` group only, records `agent.tool.call.refused` with reason `caller-not-workload` when authentication or the `AgentWorkload` policy fails and then delegates to the default handler, and register it in `src/platform/SocAlytics.Platform.Api/Program.cs` (FR-004, FR-018a; research R11)
 
 ### Tests for User Story 2
 
