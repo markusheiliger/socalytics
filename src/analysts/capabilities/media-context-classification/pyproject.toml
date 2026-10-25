@@ -1,0 +1,28 @@
+[project]
+name = "socalytics-media-context-classification"
+version = "1.0.0"
+description = "SocAlytics Analyst capability that detects shot boundaries in staged segment media"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "socalytics-analyst-sdk",
+    "opencv-python-headless",
+    "numpy",
+]
+
+[tool.uv.sources]
+socalytics-analyst-sdk = { path = "../../sdk" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["hatchling", "pytest", "jsonschema"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/media_context_classification"]
+dev-mode-dirs = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]

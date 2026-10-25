@@ -64,9 +64,11 @@ through `Runtime:Docker`) is implemented and verified end to end: automated
 verification runs the same Engine API adapter against a Linux Docker engine
 through its local Unix socket, an endpoint the AM accepts only in Development
 and Test configurations. That verification includes the SDK-built reference
-Analyst (`reference-media-probe`), run as a restricted container on materialized
-segment media staged by the AM, whose facts are accepted and indexed; it is
-development evidence, not a catalog capability or a production Analyst image.
+Analyst (`reference-media-probe`) and the first catalog-named capability image,
+the shot-boundary baseline `media-context-classification`, each run as a
+restricted container on materialized segment media staged by the AM, whose
+facts are accepted and indexed; both are development evidence, not production
+Analyst images, and the baseline meets no catalog quality gate.
 Docker Desktop on Windows itself is verified manually and awaits that manual
 evidence; only manually verified versions enter the
 shipped compatibility matrix, so no compatibility entry ships yet. Automated

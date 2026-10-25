@@ -20,7 +20,9 @@ through approved changes.
 - [`src/analysts/`](src/analysts/README.md) contains the executable Analyst
     Manager desktop app under `src/analysts/manager/`, the executable Python
     Analyst SDK under `src/analysts/sdk/`, the development reference Analyst
-    capability under `src/analysts/capabilities/reference-media-probe/`, and
+    capability under `src/analysts/capabilities/reference-media-probe/`, the
+    development shot-boundary Analyst capability under
+    `src/analysts/capabilities/media-context-classification/`, and
     records the planned catalog Analyst capability ownership boundary.
 - [`docs/`](docs/README.md) indexes architecture, component, and operational documentation.
 - [`contracts/`](contracts/README.md) holds the canonical machine-readable
@@ -334,6 +336,37 @@ dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "Full
 
 This is development evidence, not a catalog capability, a published image, or
 production readiness.
+
+### Shot-boundary Analyst capability
+
+The development Analyst `media-context-classification` (the shot-boundary
+baseline, fixed rules without a model) lives in
+`src/analysts/capabilities/media-context-classification/` (Python 3.12, `uv`,
+the pinned `ffmpeg` and `ffprobe` on `PATH`; author documentation and the
+registration procedure for a Development and Test stamp in its `README.md`).
+From that directory, run the same locked sequence as for the reference
+capability:
+
+```text
+UV_PYTHON_DOWNLOADS=never
+uv sync --locked --all-groups --no-install-local --no-build
+uv sync --locked --all-groups --no-build-isolation
+uv build --wheel --no-build-isolation --python .venv/bin/python
+uv run --no-sync pytest
+```
+
+From the repository root, build its `linux/amd64` image and run its
+Docker-backed evidence (a Linux engine is required; the end-to-end test also
+needs SoftHSM2):
+
+```text
+docker build -f src/analysts/capabilities/media-context-classification/Dockerfile -t media-context-classification:local .
+dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ShotBoundaryImage"
+dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ShotBoundaryEndToEnd"
+```
+
+This is development evidence, not a catalog capability, a published image, or
+production readiness; its detection settings are not calibrated.
 
 ### Contracts
 
