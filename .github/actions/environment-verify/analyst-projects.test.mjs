@@ -643,6 +643,122 @@ exit 0
         assert.equal(second.outputs.uncovered, first.outputs.uncovered);
       });
     }
+
+    const recordPath = (env) => path.join(env.RUNNER_TEMP, 'socalytics-environment-verify', `finalize-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}-${env.GITHUB_JOB}.json`);
+    const readRecord = (env) => JSON.parse(readFileSync(recordPath(env), 'utf8'));
+    const expectFull = (result) => {
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.calls.length, stages.length);
+      assert.doesNotMatch(result.log, /Reused result/);
+      assert.doesNotMatch(result.summary, /Reused result/);
+    };
+
+    it('runs every check when no record exists', () => {
+      const env = reuseEnv();
+      assert.ok(!existsSync(recordPath(env)));
+      expectFull(finalize(gitRepository(), env, { changed: ['a.txt'] }));
+    });
+
+    it('leaves no record after a failed first run and runs every check again on a passing second run', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      const failed = finalize(root, env, { changed: ['a.txt'], env: { FAIL_STAGE: stages[3] } });
+      assert.equal(failed.status, 1);
+      assert.equal(failed.calls.length, stages.length);
+      assert.ok(!existsSync(recordPath(env)));
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+      assert.ok(existsSync(recordPath(env)));
+    });
+
+    it('runs every check again and fails on its own result after a failed first run', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      const first = finalize(root, env, { changed: ['a.txt'], env: { FAIL_STAGE: stages[3] } });
+      assert.equal(first.status, 1);
+      const second = finalize(root, env, { changed: ['a.txt'], env: { FAIL_STAGE: stages[1] } });
+      assert.equal(second.status, 1);
+      assert.deepEqual(second.calls.map((call) => call[3]), stages.slice(0, 2));
+      assert.doesNotMatch(second.log, /Reused result/);
+      assert.ok(!existsSync(recordPath(env)));
+    });
+
+    it('deletes the record of an earlier passing run when a later run with other changed files fails', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+      assert.ok(existsSync(recordPath(env)));
+      const failed = finalize(root, env, { changed: ['b.txt'], env: { FAIL_STAGE: stages[2] } });
+      assert.equal(failed.status, 1);
+      assert.ok(!existsSync(recordPath(env)));
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+    });
+
+    for (const mode of ['task', 'phase']) {
+      it(`neither reads nor writes a record in ${mode} mode`, () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        const options = { mode, changed: [`${sdkRoot}/src/x.py`] };
+        const fresh = run(root, { ...options, env });
+        assert.equal(fresh.status, 0, fresh.log);
+        assert.equal(fresh.calls.length, stages.length);
+        assert.ok(!existsSync(recordPath(env)));
+
+        expectFull(finalize(root, env, { changed: options.changed }));
+        const before = readFileSync(recordPath(env), 'utf8');
+        const again = run(root, { ...options, env });
+        assert.equal(again.status, 0, again.log);
+        assert.equal(again.calls.length, stages.length);
+        assert.doesNotMatch(again.log, /Reused result/);
+        assert.equal(readFileSync(recordPath(env), 'utf8'), before);
+      });
+    }
+
+    it('runs every check for a record of a different mode', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+      const record = readRecord(env);
+      writeFileSync(recordPath(env), JSON.stringify({ ...record, mode: 'phase' }));
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+    });
+
+    it('runs every check for a record of other changed-files content', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+      expectFull(finalize(root, env, { changed: ['b.txt'] }));
+      expectFull(finalize(root, env, { changed: ['a.txt', 'b.txt'] }));
+    });
+
+    it('runs every check for a record of another scope', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+      writeFileSync(recordPath(env), JSON.stringify({ ...readRecord(env), scope: 'reduced' }));
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+    });
+
+    const damage = {
+      'an empty record': () => '',
+      'truncated JSON': (text) => text.slice(0, Math.floor(text.length / 2)),
+      'not an object': () => '[]',
+      'a version other than 1': (text) => JSON.stringify({ ...JSON.parse(text), version: 2 }),
+      'passed false': (text) => JSON.stringify({ ...JSON.parse(text), passed: false }),
+      'passed as the text true': (text) => JSON.stringify({ ...JSON.parse(text), passed: 'true' }),
+      ...Object.fromEntries(['version', 'passed', 'identity', 'mode', 'changedFiles', 'scope', 'checks', 'uncovered', 'flaky', 'source'].map((field) => [
+        `a missing ${field}`, (text) => { const record = JSON.parse(text); delete record[field]; return JSON.stringify(record); },
+      ])),
+    };
+    for (const [name, damaged] of Object.entries(damage)) {
+      it(`runs every check for a damaged record: ${name}`, () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        expectFull(finalize(root, env, { changed: ['a.txt'] }));
+        writeFileSync(recordPath(env), damaged(readFileSync(recordPath(env), 'utf8')));
+        expectFull(finalize(root, env, { changed: ['a.txt'] }));
+        assert.equal(readRecord(env).passed, true);
+      });
+    }
   });
 
   describe('cross-check regression', () => {
