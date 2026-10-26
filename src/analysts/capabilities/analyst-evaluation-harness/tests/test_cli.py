@@ -45,7 +45,7 @@ def test_evaluate_exits_zero_and_prints_report_identity_and_gates(
     assert f"identity: {report['identity']}" in captured.out
     for gate, status in report["gates"].items():
         assert f"{gate}: {status}" in captured.out
-    assert capability.invocations == len(corpus.manifest["clips"])
+    assert capability.invocations == len(corpus.manifest["clips"]) * 2
 
 
 def test_evaluate_accepts_the_corpus_directory(tmp_path, corpus_factory, capability_factory):

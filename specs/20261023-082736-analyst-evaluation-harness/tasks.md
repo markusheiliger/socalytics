@@ -260,7 +260,7 @@ fact on its second run fails the determinism check for exactly that clip.
 
 ### US3 orchestration
 
-- [ ] T040 [US3] Extend `HARNESS/src/analyst_evaluation_harness/evaluate.py` to repeat the subject on every clip
+- [x] T040 [US3] Extend `HARNESS/src/analyst_evaluation_harness/evaluate.py` to repeat the subject on every clip
   `repetitions` times in fresh mount roots; a failed repetition after a successful first run leaves the clip evaluated
   and fails the determinism check naming the clip and the failure category, without changing the exit result; a clip
   whose first run failed is not repeated and is recorded as failed (its profile is not evidenced and the determinism

@@ -14,6 +14,7 @@ from typing import Any
 from .canonical import canonical_bytes
 from .config import Comparator, ConfigRefusal, EvaluationConfig, capability_reference_mode, parse_config
 from .corpus import Clip, CorpusManifest, load_corpus
+from .determinism import compare_runs
 from .facts import EXECUTION_FAILED
 from .matching import failed_clip_pairing, pair_clip
 from .report import ClipEvaluation, build_report, report_bytes, verify_report
@@ -41,12 +42,23 @@ class Subject:
 
 
 @dataclass(frozen=True)
+class ClipRepetitions:
+    """The determinism evidence of one clip: executions made and the differences from the first run."""
+
+    executions: int
+    differences: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
 class EvaluationResult:
     """The written report and whether any clip failed for the subject."""
 
     report: dict[str, Any]
     report_path: Path
     any_failed: bool
+    executions_per_clip: tuple[int, ...] = ()
+    determinism_differences: tuple[dict[str, Any], ...] = ()
+    any_first_run_failed: bool = False
 
     @property
     def identity(self) -> str:
@@ -162,12 +174,12 @@ def _execute_builtin(
 
 
 def _write_outcome(
-    run_folder: Path, clip: Clip, outcome: ExecutionOutcome, file_name: str = OUTCOME_FILE_NAME
+    run_folder: Path, clip: Clip, outcome: ExecutionOutcome, file_name: str = OUTCOME_FILE_NAME, run: int = 1
 ) -> None:
     facts = outcome.facts
     document: dict[str, Any] = {
         "clipId": clip.clip_id,
-        "run": 1,
+        "run": run,
         "status": outcome.status,
         "durationMs": outcome.duration_ms,
     }
@@ -201,6 +213,30 @@ def _to_evaluation(clip: Clip, outcome: ExecutionOutcome, config: EvaluationConf
     )
 
 
+def _repeat(
+    subject: Subject, mode: str, clip: Clip, run_folder: Path, config: EvaluationConfig, first: ExecutionOutcome
+) -> ClipRepetitions:
+    """Run the clip again in fresh mount roots; only runs 2..n feed the determinism check, never the metrics."""
+    if first.status != "succeeded" or first.facts is None or first.facts.facts is None:
+        return ClipRepetitions(executions=1)
+    runs = [first.facts.facts]
+    differences: list[dict[str, Any]] = []
+    for number in range(2, config.repetitions + 1):
+        outcome = _execute(subject, mode, clip, run_folder, config.time_limit_seconds, f"subject-run-{number}")
+        _write_outcome(run_folder, clip, outcome, f"outcome-run-{number}.json", number)
+        if outcome.status != "succeeded" or outcome.facts is None or outcome.facts.facts is None:
+            differences.append(
+                {"clipId": clip.clip_id, "run": number, "category": outcome.failure_category or EXECUTION_FAILED}
+            )
+            continue
+        # compare_runs numbers the second run it is given 2; relabel it with the real repetition number.
+        differences.extend(
+            {**difference, "run": number}
+            for difference in compare_runs(clip.clip_id, [runs[0], outcome.facts.facts], config.determinism_tolerance)
+        )
+    return ClipRepetitions(executions=config.repetitions, differences=tuple(differences))
+
+
 def _evaluate_clip(
     subject: Subject,
     mode: str,
@@ -210,14 +246,15 @@ def _evaluate_clip(
     config: EvaluationConfig,
     comparator: Comparator | None = None,
     comparator_mode: str | None = None,
-) -> ClipEvaluation:
+) -> tuple[ClipEvaluation, ClipRepetitions]:
     run_folder = runs_folder / _safe_name(index, clip.clip_id)
     run_folder.mkdir()
     outcome = _execute(subject, mode, clip, run_folder, config.time_limit_seconds)
     _write_outcome(run_folder, clip, outcome)
     evaluation = _to_evaluation(clip, outcome, config)
+    repetitions = _repeat(subject, mode, clip, run_folder, config, outcome)
     if comparator is None:
-        return evaluation
+        return evaluation, repetitions
     # An unrunnable clip is an incomplete comparator result, never a skipped one.
     if comparator.kind == "builtin":
         assert comparator.rule is not None
@@ -233,7 +270,7 @@ def _evaluate_clip(
             "comparator-run-1",
         )
     _write_outcome(run_folder, clip, compared, COMPARATOR_OUTCOME_FILE_NAME)
-    return replace(evaluation, comparator=_to_evaluation(clip, compared, config))
+    return replace(evaluation, comparator=_to_evaluation(clip, compared, config)), repetitions
 
 
 def _corpus_kinds(corpus: CorpusManifest) -> set[str]:
@@ -266,10 +303,12 @@ def evaluate(
     runs_folder.mkdir(parents=True)
 
     started = _now()
-    clips = [
+    evaluated = [
         _evaluate_clip(subject, mode, clip, index, runs_folder, config, config.comparator, comparator_mode)
         for index, clip in enumerate(corpus.clips, start=1)
     ]
+    clips = [clip for clip, _ in evaluated]
+    repetitions = [repeated for _, repeated in evaluated]
     finished = _now()
 
     report = build_report(
@@ -290,7 +329,16 @@ def evaluate(
         raise RuntimeError("the assembled report is invalid: " + "; ".join(problems))
     report_path = output / REPORT_FILE_NAME
     report_path.write_bytes(report_bytes(report))
-    return EvaluationResult(report, report_path, any(clip.failed for clip in clips))
+    return EvaluationResult(
+        report,
+        report_path,
+        any(clip.failed for clip in clips),
+        executions_per_clip=tuple(
+            repeated.executions for clip, repeated in zip(clips, repetitions, strict=True) if not clip.failed
+        ),
+        determinism_differences=tuple(d for repeated in repetitions for d in repeated.differences),
+        any_first_run_failed=any(clip.failed for clip in clips),
+    )
 
 
 __all__ = ["EvaluationResult", "Subject", "evaluate"]
