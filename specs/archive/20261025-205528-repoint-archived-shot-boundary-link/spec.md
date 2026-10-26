@@ -10,7 +10,7 @@
 
 ## Problem
 
-The spec [Deterministic Agent Workload Test](../20261025-003459-deterministic-agent-workload-test/spec.md) is on the default branch with a relative link in its Dependencies entry (line 83) to the spec `20261023-022148-shot-boundary-analyst` at its pre-archive location. That spec has since been archived to [specs/archive/20261023-022148-shot-boundary-analyst](../archive/20261023-022148-shot-boundary-analyst/spec.md), so the link no longer resolves.
+The spec [Deterministic Agent Workload Test](../../20261025-003459-deterministic-agent-workload-test/spec.md) is on the default branch with a relative link in its Dependencies entry (line 83) to the spec `20261023-022148-shot-boundary-analyst` at its pre-archive location. That spec has since been archived to [specs/archive/20261023-022148-shot-boundary-analyst](../20261023-022148-shot-boundary-analyst/spec.md), so the link no longer resolves.
 
 The repository Markdown validation (`node .github/scripts/check-markdown.mjs`) therefore reports one dead link on the whole repository. Because phase and finalize verification of every implementation run that validation on the whole repository, every implementation currently fails verification for a reason unrelated to its own change. This blocks the stopped implementation pull request #318 of `specs/20261023-085421-cv-inference-environment` (twin #256), whose own task T001 passed.
 

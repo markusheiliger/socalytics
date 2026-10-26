@@ -1,6 +1,6 @@
 # Tasks: Repoint the archived Shot Boundary Analyst link in the deterministic agent workload test spec
 
-**Input**: Design documents from `/specs/20261025-205528-repoint-archived-shot-boundary-link/`
+**Input**: Design documents from `/specs/archive/20261025-205528-repoint-archived-shot-boundary-link/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, quickstart.md (no `contracts/`: the change exposes no interface)
 
