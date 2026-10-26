@@ -75,7 +75,7 @@ every story uses.
   profile, duplicate `clipId`, digest not `sha-256:<64 hex>`, file path with `..` or absolute, file missing or
   unreadable, digest mismatch, identity mismatch), with the identity being the canonical `sha-256` of the manifest
   without `identity` (FR-001 to FR-003, data-model "Corpus manifest")
-- [ ] T007 [P] Implement `HARNESS/src/analyst_evaluation_harness/config.py`: evaluation configuration model with
+- [x] T007 [P] Implement `HARNESS/src/analyst_evaluation_harness/config.py`: evaluation configuration model with
   defaults (`repetitions` integer 1..10 default 3, `timeLimitSeconds` 1..3600 default 120, `matchToleranceMs` default
   0), validation against `schemas/evaluation-config.schema.json`, and refusals (label kind of the corpus without
   `primaryMetric`, unknown comparator rule, negative tolerance, capability reference that is neither an image digest
