@@ -168,6 +168,11 @@ export const ATTENTION_LABEL = 'help wanted';
 // that is still being reviewed) carries BLOCKED_LABEL instead of ATTENTION_LABEL. It is only added together with a
 // comment that says what it waits for and how it is unblocked (setBlocked), and lifted by maintainDependencyBlock.
 export const BLOCKED_LABEL = 'blocked';
+// The implementations whose merge unblocks the most others (Spec Kit orchestrate, maintainRoadblocks): not blocked
+// themselves, ranked by how many implementations wait for them, also through chains. It is added together with a
+// comment that names the waiting implementations, and moves with the queue on every scheduler run.
+export const ROADBLOCK_LABEL = 'roadblock';
+export const ROADBLOCK_MARKER = '<!-- speckit-implement:roadblock -->';
 const BLOCKED_MARKER_PATTERN = /<!-- speckit-implement:blocked (\{[^\n]*?\}) -->/g;
 export const renderBlockedMarker = (key) => `<!-- speckit-implement:blocked ${JSON.stringify(key)} -->`;
 // Ends a block: the comment that lifts it carries this marker, so the lift (and its retry) happens once per block.
@@ -1652,9 +1657,37 @@ const FIXED_EFFECTS = {
   amendment: 'Merging applies the amendment to the spec artifacts on the implementation branch; the implementation then continues by itself from the next unchecked task, with a fresh attempt count. Comment or request changes there to have it reworked first.',
   push: 'A push to the implementation branch continues the implementation by itself with a fresh attempt count. Closing the pull request abandons the implementation, and the twin returns to its computed stage.',
 };
+// A change only a push to the implementation branch can make (another spec's folder, a protected path, a decision a
+// person took) is recommended as a prompt for GitHub Copilot's cloud agent: a person posts it as a comment, Copilot
+// pushes the change to the pull request's branch, and that push continues the implementation like a person's push.
+export const MAX_COPILOT_PROMPT = 3000;
+export const COPILOT_SCOPE = 'Make only this change, keep it as small as possible, and push it to this pull request\'s branch. Do not edit or tick tasks in tasks.md, do not change files the request does not name, and do not open another pull request.';
+const COPILOT_EFFECT = 'GitHub Copilot\'s cloud agent (it must be enabled for the repository) makes the change and pushes it to the implementation branch; that push continues the implementation by itself with a fresh attempt count. Check its commit on this pull request.';
+
+// The comment that asks Copilot for the change: `@copilot`, the prompt, and the scope every such request keeps.
+export function renderCopilotRequest(prompt) {
+  const text = String(prompt ?? '').trim().replace(/^@copilot\b[\s,:]*/i, '').trim();
+  return `@copilot ${text}\n\n${COPILOT_SCOPE}`;
+}
+
+// The `@copilot` request in the recommended next step of a bot comment, or null: the recommended block first, else
+// the first one under the other options.
+export function copilotRequestOf(body) {
+  const text = String(body ?? '').replace(/\r\n/g, '\n');
+  const blocks = [...text.matchAll(/^( *)```text\n((?:\1@copilot[^\n]*\n)(?:\1[^\n]*\n)*?)\1```$/gm)];
+  if (blocks.length === 0) return null;
+  const [, indent, content] = blocks[0];
+  return content.split('\n').map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line)).join('\n').trim();
+}
+
 const optionEffect = (option, context) => {
   if (option.effect) return option.effect;
   if (option.command) return describeCommandEffect(option.command, context);
+  if (option.copilot) {
+    return context.continuation?.repair
+      ? `${COPILOT_EFFECT} After Copilot pushed, request \`/speckit retry\` to reverify the pending repair; a push alone does not clear it.`
+      : COPILOT_EFFECT;
+  }
   if (context.continuation?.repair) {
     if (option.kind === 'push') return 'After pushing a fix, request `/speckit retry` to reverify the pending repair; a push alone does not clear it. Closing the pull request abandons the implementation, and the twin returns to its computed stage.';
     if (option.kind === 'amendment') return 'Merging applies the amendment and retries the implementation with the pending repair verification before normal planning can continue. Comment or request changes there to have it reworked first.';
@@ -1735,8 +1768,9 @@ export function setAmendmentStatus(body, lines) {
 // (an open amendment, else the recommended option, else waiting for the automatic diagnosis), then
 // every other valid option, collapsed. Every option says why it helps and what it does, and every command can be
 // posted as it is: no placeholders.
-// - `options`: { title, why, command, recommended, link, kind } from a diagnosis (`kind` names a fixed effect for an
-//   option without a command: `amendment` or `push`).
+// - `options`: { title, why, command, copilot, recommended, link, kind } from a diagnosis (`copilot` is a prompt for
+//   GitHub Copilot's cloud agent, rendered as a ready-to-post `@copilot` comment; `kind` names a fixed effect for an
+//   option without a command or prompt: `amendment` or `push`).
 // - `amendment`: an open amendment pull request ({ number, title, html_url, status }), or `amendmentPull` its number.
 // - `baseBranch`: the implementation pull request's base; `behindBase`: its name when it has commits the
 //   implementation branch lacks, else null.
@@ -1784,6 +1818,7 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
   const details = optionDetails(recommended, context);
   if (details.length > 0) lines.push('', ...details.map(([label, text]) => `- **${label}**: ${text}`));
   if (recommended.command) lines.push('', 'Comment this on the pull request (people with write access):', '', '```text', recommended.command, '```');
+  else if (recommended.copilot) lines.push('', 'Comment this on the pull request (people with write access):', '', '```text', ...renderCopilotRequest(recommended.copilot).split('\n'), '```');
 
   // Commands the recommendation or an option already suggests are not repeated.
   const used = new Set([recommended, ...others].map((option) => parseNextCommand(option.command)?.verb).filter(Boolean));
@@ -1805,6 +1840,7 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
     lines.push(`- **${optionTitle(option)}**`);
     for (const [label, text] of optionDetails(option, context)) lines.push(`  - ${label}: ${text}`);
     if (option.command) lines.push('', '  ```text', `  ${option.command}`, '  ```');
+    else if (option.copilot) lines.push('', '  ```text', ...renderCopilotRequest(option.copilot).split('\n').map((line) => `  ${line}`), '  ```');
   }
   lines.push('', '</details>');
   return lines;
