@@ -69,7 +69,7 @@ every story uses.
 - [x] T005 [P] Implement `HARNESS/src/analyst_evaluation_harness/canonical.py`: canonical JSON (UTF-8, sorted keys,
   separators `(",", ":")`, `ensure_ascii=False`, NaN refused), metric rounding to six decimals with `Decimal`
   `ROUND_HALF_EVEN`, and `sha-256:<hex>` identity of canonical bytes (research R4)
-- [ ] T006 [P] Implement `HARNESS/src/analyst_evaluation_harness/corpus.py`: manifest model, validation against
+- [x] T006 [P] Implement `HARNESS/src/analyst_evaluation_harness/corpus.py`: manifest model, validation against
   `schemas/corpus-manifest.schema.json`, and refusals listing every problem at once before any execution (schema
   violation, missing rights or provenance field `origin`, `license`, `production` at corpus and clip level, unknown
   profile, duplicate `clipId`, digest not `sha-256:<64 hex>`, file path with `..` or absolute, file missing or
