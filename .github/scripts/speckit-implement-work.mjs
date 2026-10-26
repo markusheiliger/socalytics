@@ -8,6 +8,9 @@ import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prep
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import { workflowFailure } from './speckit-workflow-job.mjs';
 import {
+  BOT_LOGIN,
+  latestHumanCommit,
+  parseAttempts,
   CHECK_CONFLICT,
   CHECK_DONE,
   CHECK_LIMIT,
@@ -776,7 +779,8 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     return { exitCode: 1, reasons };
   }
   if (reasons.length === 0 && inputs.kind === 'task') {
-    reasons.push(...applyPatch({ git, resultDir, check: (patchBytes) => checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes, baseBranch: baseBranchFromEnv(env) }).reasons }));
+    const allowEmpty = await doneByPush(client, { pull: inputs.pull, task: inputs.task });
+    reasons.push(...applyPatch({ git, resultDir, allowEmpty, check: (patchBytes) => checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes, baseBranch: baseBranchFromEnv(env) }).reasons }));
     if (reasons.length === 0) reasons.push(...tickLandedTask({ git, workspace, folder, task: inputs.task }));
   }
   if (reasons.length === 0 && inputs.kind === 'repair') {
@@ -1243,6 +1247,24 @@ export async function runRepairReport({ client, env, log }) {
   report.flush();
   return { exitCode: 1, verified: false };
 }
+// Whether a task may land without a change of its agent: a commit that is not the workflow's (a person's, or GitHub
+// Copilot's for them) reached the implementation branch after the task's first attempt, or is the branch head. The work
+// was then done by that push, and the agent correctly found nothing left to change; the land job only ticks the task.
+// Without such a push an empty change still fails, so an agent cannot skip a task.
+export async function doneByPush(client, { pull, task }) {
+  try {
+    const commits = await client.listPullRequestCommits(pull);
+    const pushed = latestHumanCommit(commits);
+    if (!pushed) return false;
+    const head = commits.at(-1);
+    if (head && head.author?.login !== BOT_LOGIN && head.committer?.login !== BOT_LOGIN) return true;
+    const first = parseAttempts(await client.listIssueComments(pull)).find((attempt) => attempt.kind === 'task' && attempt.task === task);
+    return Boolean(first) && Date.parse(pushed) >= Date.parse(first.at);
+  } catch {
+    return false;
+  }
+}
+
 function applyPatch({ git, resultDir, check, allowEmpty = false }) {
   const patchFile = path.join(resultDir, 'changes.patch');
   if (!existsSync(patchFile)) return ['the agent patch is missing'];
