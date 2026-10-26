@@ -65,7 +65,7 @@ The staging validation, the protected-path rule, the merge-time `referenceOnlySp
 
 ### Edge Cases
 
-- The spec's own folder, active or archived, and its own `tasks.md` stay allowed as before; other files of the spec's folder follow the existing rules.
+- Only `tasks.md` of the spec (at its active or archived location) is exempt, as before. Every other file of the spec's own folder (`spec.md`, `plan.md`, `research.md`, and so on) that the branch changes stays foreign, even when the change is an archive reference rewrite; the criterion of FR-002 applies only outside the spec's own folder.
 - A file outside the spec's folder that is modified in a way that matches the archive rewrite only partially counts as foreign.
 - A file that equals the base version because nothing changed does not appear in the change set and is not an issue.
 - A path outside the spec's folder whose staged content equals the base branch tip version is not a change against the base branch (for example because the base branch advanced and already contains the identical archive rewrite) and MUST NOT count as foreign, even when it appears in the diff against the merge base.
@@ -85,7 +85,7 @@ The staging validation, the protected-path rule, the merge-time `referenceOnlySp
 - **FR-005**: When the content of a candidate file cannot be read or compared, the guard MUST treat the file as foreign.
 - **FR-006**: The staging validation (`checkStagedTask`) MUST keep its other reasons, the protected-path rule, the size limits, and the merge-time `referenceOnlySpecChanges` check MUST keep their behavior and results.
 - **FR-007**: Unit tests MUST cover: a pure reference rewrite accepted next to an environment change; a non-reference edit, an added file, a deleted file, a `.github/` file outside the environment actions, and a source file each still rejected; a mixed branch naming only the foreign paths; a branch without environment changes; and an integration-style test of `checkStagedTask` against a temporary Git repository with an archived spec.
-- **FR-008**: Every description of the environment exclusivity rule (the repository `AGENTS.md`, the repository `README.md`, the workflows README, the gha extension README, and the guard's code comment) MUST state that archive reference rewrites outside the spec's folder do not count as other changes, wherever the rule is described.
+- **FR-008**: `AGENTS.md`, `README.md`, and the guard's code comment MUST state the exception where they describe the environment exclusivity rule; the workflows README and the gha extension README MUST each get one sentence stating the rule with the exception: archive reference rewrites outside the spec's folder do not count as other changes.
 
 ### Key Entities
 
@@ -104,6 +104,7 @@ The staging validation, the protected-path rule, the merge-time `referenceOnlySp
 
 ## Assumptions
 
+- Archive reference rewrites in the spec's own folder other than `tasks.md` are not exempted: this spec limits the exemption to files outside the spec's folder and leaves the guard's rule for the own folder unchanged.
 - `referenceOnlySpecChanges` and `archiveRewrite` in `.github/scripts/speckit-archive.mjs` are the single source of truth for what counts as a reference rewrite; they are not changed in behavior.
 - The change set for the guard is the one `checkStagedTask` already computes against the base branch merge base; the criterion compares against the base branch commit as the merge-time check does.
 - No product code, platform, contract, or `docs/architecture/` statement is affected; the plan's Architecture Updates section is `None`.

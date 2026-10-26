@@ -17,7 +17,7 @@ No `NEEDS CLARIFICATION` remains; the decisions below close the design questions
 ## R3: Which base the criterion compares against
 
 - **Decision**: The base branch commit `refs/remotes/origin/<baseBranch>`, as the merge-time check does with `baseSha`; the guard's change set stays the diff against the merge base that `branchPaths` already computes.
-- **Rationale**: The spec assumes both. After a sync the merge base is the base tip the rewrites were made against, so a rewritten file equals the base version with the archives applied. A file that differs for any other reason fails the criterion and counts as foreign. Because `branchPaths` is the merge-base diff while the criterion lists changes against the base tip, a spec file outside the spec's folder that is in `branchPaths` but has no diff against the base tip (the base branch advanced and already contains the identical change) is not a change against the base branch; the caller passes it as a `referenceRewrites` entry so it does not count as foreign.
+- **Rationale**: The spec assumes both. After a sync the merge base is the base tip the rewrites were made against, so a rewritten file equals the base version with the archives applied. A file that differs for any other reason fails the criterion and counts as foreign. Because `branchPaths` is the merge-base diff while the criterion lists changes against the base tip, a spec file outside the spec's folder that is in `branchPaths` but has no diff against the base tip (the base branch advanced and already contains the identical change) is not a change against the base branch; the caller passes it as a `referenceRewrites` entry so it does not count as foreign. The caller derives that set from the same `referenceRewriteCheck` result as the spec files outside the spec's folder in `branchPaths` that are absent from both `rewritten` and `violations`; it is empty whenever `error` is non-null, so a listing failure leaves every candidate foreign.
 - **Alternatives considered**: Comparing against the merge base (an archive rewrite is defined against the base branch's current version, and a stale base would accept edits the merge-time check refuses, rejected).
 
 ## R4: When to run the extra Git reads
@@ -29,5 +29,5 @@ No `NEEDS CLARIFICATION` remains; the decisions below close the design questions
 ## R5: Failure handling
 
 - **Decision**: A listing error or an unreadable base or staged blob keeps the file out of the rewritten set, so the guard names it as foreign.
-- **Rationale**: FR-005; never silently accept what cannot be compared.
+- **Rationale**: FR-005; never silently accept what cannot be compared. The "no diff against the tip" set (spec files outside the spec's folder in `branchPaths` absent from both `rewritten` and `violations` of the same `referenceRewriteCheck` result) is empty whenever `error` is non-null, so a listing failure leaves every candidate foreign.
 - **Alternatives considered**: Surfacing a separate reason for the listing error (it would add a new reason class; the existing exclusivity reason already names the path).
