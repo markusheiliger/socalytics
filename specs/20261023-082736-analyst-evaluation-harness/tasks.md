@@ -174,7 +174,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
 - [x] T027 [P] [US1] Add `HARNESS/tests/test_runners_container.py` against a fake `docker` executable placed first on
   `PATH` that records its argument list: asserts the exact restricted arguments, no pull, a missing image refusing the
   configuration, and `docker kill` of the named container on overrun
-- [ ] T028 [P] [US1] Add `HARNESS/tests/test_evaluate.py` (planted missing, extra, and misplaced facts each reported
+- [x] T028 [P] [US1] Add `HARNESS/tests/test_evaluate.py` (planted missing, extra, and misplaced facts each reported
   against the violated label and none for agreeing clips, SC-003; a failed clip does not stop the others and counts as
   misses; one-profile corpus reports the missing profile as not evidenced; nothing written outside the output
   directory)
