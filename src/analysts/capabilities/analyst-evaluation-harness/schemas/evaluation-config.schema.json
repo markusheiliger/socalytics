@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.example/schemas/analyst-evaluation-harness/evaluation-config/1.0.0",
+  "title": "Evaluation configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["configVersion", "labelKinds"],
+  "properties": {
+    "configVersion": { "const": "1.0.0" },
+    "repetitions": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
+    "timeLimitSeconds": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 120 },
+    "labelKinds": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["primaryMetric"],
+        "properties": {
+          "primaryMetric": { "enum": ["precision", "recall", "f1"] },
+          "matchToleranceMs": { "type": "integer", "minimum": 0, "default": 0 }
+        }
+      }
+    },
+    "determinismTolerance": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "positionMs": { "type": "integer", "minimum": 0 },
+          "numeric": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "comparator": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "rule"],
+          "properties": {
+            "kind": { "const": "builtin" },
+            "rule": { "enum": ["predict-nothing", "predict-everything"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "reference", "version", "outputType"],
+          "properties": {
+            "kind": { "const": "capability" },
+            "reference": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
+            "outputType": { "enum": ["foundational-facts", "soccer-concepts"] }
+          }
+        }
+      ]
+    },
+    "thresholds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["labelKind", "profile", "metric", "minimum"],
+        "properties": {
+          "labelKind": { "type": "string", "minLength": 1 },
+          "profile": { "enum": ["fixed", "broadcast"] },
+          "metric": { "enum": ["precision", "recall", "f1"] },
+          "minimum": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  }
+}

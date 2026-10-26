@@ -184,7 +184,7 @@ records what differs.
 
 ## R-13 Evaluation harness
 
-- **Decision**: The [Analyst Evaluation Harness](../20261023-082736-analyst-evaluation-harness/spec.md) spec exists but is
+- **Decision**: The [Analyst Evaluation Harness](../archive/20261023-082736-analyst-evaluation-harness/spec.md) spec exists but is
   not implemented in this repository state. FR-018 is therefore recorded as deferred in the capability README and the
   architecture status statements; no test depends on the harness. If the harness is implemented before this feature
   merges, the implementation adds the box label kind and report through the harness as FR-018 requires; the tasks mark
