@@ -135,7 +135,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
   kind, `precision = TP/(TP+FP)`, `recall = TP/(TP+FN)`, `f1 = 2TP/(2TP+FP+FN)`, each `null` with a
   `precisionUndefined`, `recallUndefined`, or `f1Undefined` reason when the denominator is 0, a failed clip
   contributing its labels as false negatives and no facts, and no aggregate across profiles (FR-006)
-- [ ] T019 [P] [US1] Implement `HARNESS/src/analyst_evaluation_harness/runners.py` with the subprocess runner (command
+- [x] T019 [P] [US1] Implement `HARNESS/src/analyst_evaluation_harness/runners.py` with the subprocess runner (command
   split with `shlex`, `{mount}` replaced by the mount root, run folder as working directory, environment with `PATH`
   only, time limit with kill on overrun) and the container runner (`docker image inspect <ref>` refusing the
   configuration when the image is absent and never pulling; `docker run --pull never --network none --read-only
