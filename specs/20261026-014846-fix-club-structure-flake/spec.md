@@ -20,6 +20,7 @@
 - Q: Are other tests of the `platform-club-structure` project in scope? → A: Only as protected behavior: a changed shared helper must keep them passing and deterministic.
 - Q: What should the implementation do if repeated runs, runs under CPU load, and runs after the other platform projects still cannot reproduce the failure? → A: B) Harden only the candidate causes that the traces and logs of the three recorded failures (#235, #284, #314) support, record that evidence in the code comment, and state that the failure was not reproduced.
 - Q: How must the test guarantee that no other season is active when it starts, and that a mid-test failure leaves the club without an active season for the next spec? → A: A) The test (or its support code) establishes the state itself through the club structure operations of the platform before it starts and in a cleanup that also runs after a failure.
+- Q: How are 20 repeats of the target obtained on a platform that `session.spec.ts` has already prepared, given that a Playwright run stops its AppHost when it ends? → A: The AppHost is started once and kept running across both commands (`npm run build`, then `SOCALYTICS_APPHOST_MODE=e2e dotnet run --project ../../platform/SocAlytics.Platform.AppHost` in a separate terminal, with the same `SOCALYTICS_E2E_ADMIN_PASSWORD` as the Playwright config, until `http://127.0.0.1:4174` answers); with `CI` unset, Playwright reuses it (`reuseExistingServer`), so the dependency projects run once and then only the target runs with `--no-deps --repeat-each 20`.
 
 ## Problem
 
@@ -57,7 +58,7 @@ A maintainer running the Web UI browser tests, or the verification of any implem
 
 ### Edge Cases
 
-- A rerun of the test, or a second worker, MUST NOT see seasons or teams of a previous attempt as its own.
+- A rerun of the test or a repeat-each iteration MUST NOT see seasons or teams of a previous attempt as its own.
 - A failure in the middle of the test MUST still leave the club without an active season for the next spec: a cleanup through the club structure operations of the platform runs after the test whether it passed or failed.
 - If the failure cannot be reproduced, only the candidate causes supported by the traces and logs of the three recorded failures (#235, #284, #314) are hardened, and the evidence and the missing reproduction are recorded in the code comment.
 - If the failure is not reproduced and the recorded logs of #235, #284, and #314 are no longer available or support no candidate, the implementation changes no behavior and only updates the code comment in `club-structure.spec.ts` to state that the failure was not reproduced and that no logs were available; the verification runs then confirm the unchanged test.
@@ -81,7 +82,7 @@ A maintainer running the Web UI browser tests, or the verification of any implem
 
 ### Measurable Outcomes
 
-- **SC-001**: The test passes in 100% of at least 20 consecutive runs of the `platform-club-structure` project alone (its dependency projects run once, then only the target is repeated), in at least 5 consecutive runs under CPU load (one busy-loop process per core for the duration of the runs), and in at least 5 consecutive runs after the platform projects it follows and as part of the whole `platform` chain.
+- **SC-001**: The test passes in 100% of at least 20 consecutive runs of the `platform-club-structure` project alone (on one AppHost that is started once and kept running across both commands and that Playwright reuses with `CI` unset: its dependency projects run once, then only the target is repeated with `--no-deps --repeat-each 20`), in at least 5 consecutive runs under CPU load (one busy-loop process per core for the duration of the runs), and in at least 5 consecutive runs after the platform projects it follows and as part of the whole `platform` chain.
 - **SC-002**: Each of three probes (a team list not refreshed after creation, a season that is not activated, and a save that does not persist the new name) makes the test fail on its assertions; the probes are removed afterward.
 - **SC-003**: The code comment next to the fix names the evidenced cause, the change touches only the files the cause lives in, and no assertion is textually removed.
 - **SC-004** (post-merge evidence, observed when #314 retries and not verified by a task of this spec): the verification of #314 reports no flaky `platform-club-structure` test.
