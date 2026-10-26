@@ -167,7 +167,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
 
 - [ ] T024 [P] [US1] Add `HARNESS/tests/test_matching.py` (exact, tolerance, range, payload, one-to-one pairing with
   ties, unlabelled facts, empty label list measuring false positives)
-- [ ] T025 [P] [US1] Add `HARNESS/tests/test_metrics.py` (counts and ratios by hand, undefined handling, a failed clip
+- [x] T025 [P] [US1] Add `HARNESS/tests/test_metrics.py` (counts and ratios by hand, undefined handling, a failed clip
   counted as misses, no cross-profile aggregate)
 - [ ] T026 [P] [US1] Add `HARNESS/tests/test_runners_subprocess.py` (success, non-zero exit with the SDK category,
   invalid result, hang bounded by the time limit, `{mount}` substitution)
