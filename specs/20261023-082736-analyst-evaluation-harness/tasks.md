@@ -216,9 +216,9 @@ comparator, and never presents a missing comparison as passed.
 - [x] T033 [US2] Extend `HARNESS/src/analyst_evaluation_harness/report.py` with the `comparator` section (`kind`
   `builtin`, `capability`, or `not-declared`, rule or reference and version, capability lineage fields), comparator
   metrics, label-kind verdicts, the profile verdict, `gates`, and `thresholdVerdicts`
-- [ ] T034 [US2] Extend `HARNESS/src/analyst_evaluation_harness/__main__.py` to print one line per gate
-  (`<gate>: passed|failed|not-evidenced`) after the report path and identity, keeping exit 0 when the evaluation ran
-  on every clip even if a gate failed or is not evidenced (FR-019)
+> T034 (printing one line per gate and keeping exit 0 when a gate failed or is not evidenced, FR-019) was removed: T023
+> already implemented that behavior in `__main__.py` and `test_cli.py` covers it, so the task had no change left to
+> make and stopped the implementation after two attempts without changes. T033 provides the `gates` entries it prints.
 
 ### US2 tests
 
