@@ -56,4 +56,4 @@ part of the automated verification.
 
 `node .github/scripts/check-markdown.mjs` passes after the documentation task.
 
-The implementation records the outcome of steps 1 to 3 and 5 as a `## Validation record` section appended at the end of this file (task T054).
+The implementation records the outcome of steps 1 to 3 and 5 as a `## Validation record` section appended at the end of `HARNESS/README.md` (task T054; agents cannot change files under `specs/`).
