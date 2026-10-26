@@ -227,7 +227,7 @@ comparator, and never presents a missing comparison as passed.
 - [x] T035 [P] [US2] Add `HARNESS/tests/test_trivial_comparators.py` (facts of `predict-nothing` and
   `predict-everything` on the builder corpus, including a clip with a non-zero `matchStartMs`, and the resulting
   counts)
-- [ ] T036 [P] [US2] Add `HARNESS/tests/test_gates.py` (every verdict and gate rule of T031, an undefined primary
+- [x] T036 [P] [US2] Add `HARNESS/tests/test_gates.py` (every verdict and gate rule of T031, an undefined primary
   metric never beating or being beaten, one kind `did-not-beat` and another kind undefined giving a `not-evidenced`
   profile verdict, thresholds labelled `evaluation-local`)
 - [ ] T037 [P] [US2] Add `HARNESS/tests/test_comparison.py` (no comparator gives `not declared` and not evidenced;
