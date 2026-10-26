@@ -289,11 +289,12 @@ export function refreshReferences({ root, git, folders, skip = new Set() }) {
 // Changes under specs/ outside the spec's own folder that are not reference rewrites, comparing the staged tree (the
 // prospective merge result) with the base branch commit `baseSha`: such a file must equal the base branch's version
 // with every archive of the staged tree applied; adding or removing a file there is never a reference change.
-export function referenceOnlySpecChanges({ git, baseSha, folder }) {
+export function referenceRewriteCheck({ git, baseSha, folder }) {
   const listed = git(['diff', '--cached', '--name-status', '--no-renames', '-z', baseSha, '--', `${SPECS_DIR}/`]);
-  if (listed.status !== 0) return [`the changes under ${SPECS_DIR}/ could not be listed: ${listed.stderr.trim()}`];
+  if (listed.status !== 0) return { rewritten: [], violations: [], error: `the changes under ${SPECS_DIR}/ could not be listed: ${listed.stderr.trim()}` };
   const parts = listed.stdout.split('\0').filter(Boolean);
   const folders = archivedFolders(git);
+  const rewritten = [];
   const violations = [];
   for (let index = 0; index + 1 < parts.length; index += 2) {
     const [status, file] = [parts[index], parts[index + 1]];
@@ -305,7 +306,14 @@ export function referenceOnlySpecChanges({ git, baseSha, folder }) {
     const base = showBlob(git, `${baseSha}:${file}`);
     const staged = showBlob(git, `:${file}`);
     if (base === null || staged === null || archiveRewrite(base, { file, folders }).text !== staged) violations.push(file);
+    else rewritten.push(file);
   }
+  return { rewritten, violations, error: null };
+}
+
+export function referenceOnlySpecChanges({ git, baseSha, folder }) {
+  const { violations, error } = referenceRewriteCheck({ git, baseSha, folder });
+  if (error !== null) return [error];
   return violations.length > 0
     ? [`changes under ${SPECS_DIR}/ outside ${specDir(folder)} must be reference rewrites of the archive, but these differ: ${violations.join(', ')}`]
     : [];

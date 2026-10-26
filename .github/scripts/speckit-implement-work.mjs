@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, s
 import path from 'node:path';
 
 import { specDir, stageLabelChange } from './speckit-prepare-core.mjs';
-import { archiveSpec, referenceOnlySpecChanges, refreshArchivedReferences, resolveSpecConflicts } from './speckit-archive.mjs';
+import { archiveSpec, referenceOnlySpecChanges, referenceRewriteCheck, refreshArchivedReferences, resolveSpecConflicts } from './speckit-archive.mjs';
 import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import { workflowFailure } from './speckit-workflow-job.mjs';
@@ -228,7 +228,22 @@ export function checkStagedTask({ git, workspace, folder, task, patchBytes, base
   reasons.push(...validateTaskChange({ folder, taskId: task, ...tasksFiles(git, workspace, folder), changedPaths: paths }));
   const branch = branchPaths(git, baseBranch);
   if (branch === null) reasons.push(`the branch cannot be compared with its base branch ${baseBranch}, because ${baseBranch} is not in the checkout`);
-  else reasons.push(...environmentExclusivityReasons({ folder, branchPaths: branch }));
+  else {
+    let referenceRewrites = [];
+    const specDirs = [specDir(folder), specDir(folder, { archived: true })];
+    const candidates = branch.filter((file) => file.startsWith('specs/') && !specDirs.some((dir) => file === dir || file.startsWith(`${dir}/`)));
+    if (branch.some(isEnvironmentPath) && candidates.length > 0) {
+      const base = git(['rev-parse', `refs/remotes/origin/${baseBranch}`]);
+      if (base.status === 0) {
+        const checked = referenceRewriteCheck({ git, baseSha: base.stdout.trim(), folder });
+        if (checked.error === null) {
+          const classified = new Set([...checked.rewritten, ...checked.violations]);
+          referenceRewrites = [...checked.rewritten, ...candidates.filter((file) => !classified.has(file))];
+        }
+      }
+    }
+    reasons.push(...environmentExclusivityReasons({ folder, branchPaths: branch, referenceRewrites }));
+  }
   return { reasons, paths };
 }
 

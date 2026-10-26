@@ -202,6 +202,8 @@ branch changed too. Copilot may resolve the latter if it keeps every task and ev
 `tasks.md`), and the final merge waits for a person's review of them. Outside the own spec folder an implementation may
 change files under `specs/` only by reference rewrites: the merge verification refuses any other difference from the
 base branch (`referenceOnlySpecChanges`). Conflicts under `.github/` and `.specify/` still need a person.
+Changes to either environment action must come from a standalone environment spec, with only its own `tasks.md` as an
+additional change; archive reference rewrites outside that spec's folder do not count as other changes.
 Before a phase or the convergence,
 this is best effort: when GitHub refuses the merge, the conflicts touch protected paths, or the resolution fails
 `MAX_SYNC_RESOLVE_ATTEMPTS` times, the implementation continues on its current base without stopping, that base commit

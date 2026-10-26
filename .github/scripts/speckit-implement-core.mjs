@@ -296,12 +296,13 @@ export const ENVIRONMENT_PREFIXES = ['.github/actions/environment-setup/', '.git
 export const isEnvironmentPath = (file) => ENVIRONMENT_PREFIXES.some((prefix) => file.startsWith(prefix));
 export const isProtectedPath = (file) => !isEnvironmentPath(file) && PROTECTED_PREFIXES.some((prefix) => file.startsWith(prefix));
 
-// Reasons why a branch mixes changes to the environment actions with other changes. `branchPaths` are all paths
-// the implementation branch changes compared to its base branch.
-export function environmentExclusivityReasons({ folder, branchPaths }) {
+// Reasons why a branch mixes changes to the environment actions with other changes. Archive reference rewrites
+// outside the spec's folder do not count as other changes.
+export function environmentExclusivityReasons({ folder, branchPaths, referenceRewrites = [] }) {
   if (!branchPaths.some(isEnvironmentPath)) return [];
   const tasksPaths = [tasksPathOf(folder), tasksPathOf(folder, { archived: true })];
-  const others = branchPaths.filter((file) => !isEnvironmentPath(file) && !tasksPaths.includes(file));
+  const rewritten = new Set(referenceRewrites);
+  const others = branchPaths.filter((file) => !isEnvironmentPath(file) && !tasksPaths.includes(file) && !rewritten.has(file));
   return others.length > 0
     ? [`changes to the environment actions must come from a standalone environment spec, but the branch also changes ${others.join(', ')}`]
     : [];

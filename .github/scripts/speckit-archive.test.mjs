@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { archiveBlockers, archiveRewrite, archiveSpec, archivedFolders, defaultGit, main, refreshArchivedReferences, renderArchiveReport } from './speckit-archive.mjs';
+import { archiveBlockers, archiveRewrite, archiveSpec, archivedFolders, defaultGit, main, refreshArchivedReferences, referenceOnlySpecChanges, referenceRewriteCheck, renderArchiveReport } from './speckit-archive.mjs';
 
 const A = '20260101-000000-alpha';
 const B = '20260101-000001-beta';
@@ -149,4 +149,70 @@ test('archiveRewrite gives each file exactly what archiveSpec writes, and change
   assert.equal(archiveRewrite('x', { file: `specs/${A}/plan.md`, folders: [A] }).file, `specs/archive/${A}/plan.md`);
   git(root, 'add', '-A');
   assert.deepEqual(archivedFolders(defaultGit(root)), [A, B].sort());
+}));
+
+test('referenceRewriteCheck classifies archive rewrites and every other staged spec change', () => withRepo((root) => {
+  const baseSha = git(root, 'rev-parse', 'HEAD').trim();
+  archiveSpec({ root, folder: A });
+  git(root, 'add', '-A');
+  const check = referenceRewriteCheck({ git: defaultGit(root), baseSha, folder: A });
+  assert.deepEqual(check, {
+    rewritten: [`specs/${B}/plan.md`, 'specs/README.md'],
+    violations: [],
+    error: null,
+  });
+  assert.deepEqual(referenceOnlySpecChanges({ git: defaultGit(root), baseSha, folder: A }), []);
+}));
+
+test('referenceRewriteCheck reports non-reference edits, additions, deletions, and unreadable blobs', () => {
+  withRepo((root) => {
+    const baseSha = git(root, 'rev-parse', 'HEAD').trim();
+    write(root, `specs/${B}/plan.md`, '# Changed without an archive rewrite\n');
+    write(root, 'specs/new/spec.md', '# New\n');
+    rmSync(path.join(root, `specs/${B}/spec.md`));
+    git(root, 'add', '-A');
+    assert.deepEqual(referenceRewriteCheck({ git: defaultGit(root), baseSha, folder: A }), {
+      rewritten: [],
+      violations: [`specs/${B}/plan.md`, `specs/${B}/spec.md`, 'specs/new/spec.md'],
+      error: null,
+    });
+    assert.deepEqual(referenceOnlySpecChanges({ git: defaultGit(root), baseSha, folder: A }), [
+      `changes under specs/ outside specs/${A} must be reference rewrites of the archive, but these differ: specs/${B}/plan.md, specs/${B}/spec.md, specs/new/spec.md`,
+    ]);
+  });
+  withRepo((root) => {
+    const baseSha = git(root, 'rev-parse', 'HEAD').trim();
+    write(root, `specs/${B}/plan.md`, '# Not a rewrite\n');
+    git(root, 'add', `specs/${B}/plan.md`);
+    const realGit = defaultGit(root);
+    const unreadableGit = (args) => args[0] === 'cat-file' && args[2] === `${baseSha}:specs/${B}/plan.md`
+      ? { status: 1, stdout: '', stderr: 'missing blob' }
+      : realGit(args);
+    assert.deepEqual(referenceRewriteCheck({ git: unreadableGit, baseSha, folder: A }), {
+      rewritten: [],
+      violations: [`specs/${B}/plan.md`],
+      error: null,
+    });
+  });
+});
+
+test('referenceRewriteCheck requires a staged archive and reports listing failures', () => withRepo((root) => {
+  const baseSha = git(root, 'rev-parse', 'HEAD').trim();
+  write(root, `specs/${B}/plan.md`, '# Not a rewrite\n');
+  git(root, 'add', `specs/${B}/plan.md`);
+  assert.deepEqual(referenceRewriteCheck({ git: defaultGit(root), baseSha, folder: A }), {
+    rewritten: [],
+    violations: [`specs/${B}/plan.md`],
+    error: null,
+  });
+
+  const failedGit = (args) => args[0] === 'diff' && args[1] === '--cached'
+    ? { status: 1, stdout: '', stderr: 'listing failed' }
+    : defaultGit(root)(args);
+  assert.deepEqual(referenceRewriteCheck({ git: failedGit, baseSha, folder: A }), {
+    rewritten: [],
+    violations: [],
+    error: 'the changes under specs/ could not be listed: listing failed',
+  });
+  assert.deepEqual(referenceOnlySpecChanges({ git: failedGit, baseSha, folder: A }), ['the changes under specs/ could not be listed: listing failed']);
 }));
