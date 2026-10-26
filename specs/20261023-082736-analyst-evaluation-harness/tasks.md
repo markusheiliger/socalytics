@@ -90,7 +90,7 @@ every story uses.
   `result/facts.json` with the SDK fact-artifact model, returning the validated fact list or the category
   `invalid-result`; classify failure categories (the SDK line `socalytics-analyst: failed <category>` on standard
   error, `timeout`, `invalid-result`, `execution-failed`) per research R8
-- [ ] T010 [P] Create `HARNESS/tests/conftest.py` and `HARNESS/tests/support/__init__.py` and
+- [x] T010 [P] Create `HARNESS/tests/conftest.py` and `HARNESS/tests/support/__init__.py` and
   `HARNESS/tests/support/builders.py`: builders for a small valid corpus directory (clips as arbitrary bytes with
   matching digests, both profiles, labels), configuration, and a scripted test-only capability script built on the SDK
   `run` that writes configurable facts, fails with a chosen category, hangs, or varies per invocation
