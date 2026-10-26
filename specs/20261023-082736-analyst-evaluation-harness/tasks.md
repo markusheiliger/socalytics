@@ -271,7 +271,7 @@ fact on its second run fails the determinism check for exactly that clip.
 
 ### US3 tests
 
-- [ ] T042 [P] [US3] Add `HARNESS/tests/test_determinism.py` (byte identity, tolerances per kind, differing clips and
+- [x] T042 [P] [US3] Add `HARNESS/tests/test_determinism.py` (byte identity, tolerances per kind, differing clips and
   facts named, a varying capability fixture failing for exactly that clip, a failed repetition keeping the clip
   evaluated and exit 0, a clip whose first run failed not repeated and recorded as failed with the determinism gate
   `not-evidenced`)
