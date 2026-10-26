@@ -344,7 +344,7 @@ inspect the labels against the manifest.
 - Depends on [Computer-Vision and Inference Verification Environment](../20261023-085421-cv-inference-environment/spec.md)
   (twin 256), so that the verification of the locked image-processing and numeric libraries runs on the automation; the
   implementation starts only after it has merged.
-- May use the [Analyst Evaluation Harness](../20261023-082736-analyst-evaluation-harness/spec.md) (twin 255) once
+- May use the [Analyst Evaluation Harness](../archive/20261023-082736-analyst-evaluation-harness/spec.md) (twin 255) once
   available for reporting, but does not require it; without it, the capability's own tests and the end-to-end evidence
   are the verification.
 

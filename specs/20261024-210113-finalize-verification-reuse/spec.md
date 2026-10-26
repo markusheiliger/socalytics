@@ -26,7 +26,7 @@ the reduced scope to the existing Node tests and update the action README. Why t
 `20261018-110526-agents-python-environment` (twin #174, implementation pull request #195) is an environment-only spec
 whose conflict resolution (required synchronization with main) was cancelled twice by the 90-minute limit, and
 `/speckit sync` fails the same way on the unchanged branch. Requested by @markusheiliger. The spec
-`specs/20261018-110526-agents-python-environment` depends on this spec, and this spec must be implemented and merged
+`specs/archive/20261018-110526-agents-python-environment` depends on this spec, and this spec must be implemented and merged
 to main before that implementation can continue."
 
 ## Clarifications
@@ -287,4 +287,4 @@ as before.
   folder, to timeout values, to the checks' content, or to the covered paths; a persistent cache across jobs; and
   production readiness evidence.
 - Dependency: this spec must be implemented and merged to the default branch before the implementation of
-  `specs/20261018-110526-agents-python-environment` (twin #174, pull request #195) can continue.
+  `specs/archive/20261018-110526-agents-python-environment` (twin #174, pull request #195) can continue.

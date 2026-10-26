@@ -2,7 +2,7 @@
 
 **Branch**: `20261023-082736-analyst-evaluation-harness` | **Date**: 2026-10-23 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261023-082736-analyst-evaluation-harness/spec.md`
+**Input**: Feature specification from `/specs/archive/20261023-082736-analyst-evaluation-harness/spec.md`
 
 ## Summary
 
@@ -83,7 +83,7 @@ runtime dependency beyond `jsonschema`, no platform contract, and no tooling).
 ### Documentation (this feature)
 
 ```text
-specs/20261023-082736-analyst-evaluation-harness/
+specs/archive/20261023-082736-analyst-evaluation-harness/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 decisions
 ├── data-model.md        # Phase 1 entities, rules, and states
@@ -142,12 +142,12 @@ No Constitution Check violations.
 
 ### Narratives
 
-- [Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md), sections "Implementation
+- [Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md), sections "Implementation
   Waves" (Wave 0 "metrics harness") and "Validation And Promotion Gates" (comparator, determinism, and lineage
   gates): the harness is the executable evidence tool for these gates.
-- [Analysts, Models, and Hardware](../../docs/architecture/analysts-models-and-hardware.md), "Image Metadata And
+- [Analysts, Models, and Hardware](../../../docs/architecture/analysts-models-and-hardware.md), "Image Metadata And
   Packaging": the harness runs the reference Analyst's container interface and records the OCI digest lineage.
-- [Platform Implementation](../../docs/architecture/platform-implementation.md), the source-area ownership list for
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md), the source-area ownership list for
   `src/analysts`: gains the harness project.
 
 ### Design updates
