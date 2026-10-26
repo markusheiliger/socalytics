@@ -123,7 +123,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
 
 ### US1 modules
 
-- [ ] T017 [P] [US1] Implement `HARNESS/src/analyst_evaluation_harness/matching.py`: a label-kind registry
+- [x] T017 [P] [US1] Implement `HARNESS/src/analyst_evaluation_harness/matching.py`: a label-kind registry
   `{kind: matching rule}` with the first rule `fact-position` (same kind; `startMs` equal to `positionMs` within the
   label kind's `matchToleranceMs`, or inside `[rangeStartMs - tolerance, rangeEndMs + tolerance]`; payload compared by
   deep equality of the labelled keys only when the label carries `payload`), one-to-one greedy pairing by increasing
