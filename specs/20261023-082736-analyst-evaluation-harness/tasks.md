@@ -346,7 +346,7 @@ harness validates the result and evaluates `reference-media-probe` with both bui
   development tooling while the corpus, annotations, and model cards remain future, and state in "Development
   reference capabilities are not part of this catalog" that the harness is likewise not a catalog capability and
   evidences no promotion
-- [ ] T051 [P] Update `docs/architecture/platform-implementation.md` (the `src/analysts` ownership list names the
+- [x] T051 [P] Update `docs/architecture/platform-implementation.md` (the `src/analysts` ownership list names the
   harness project as evaluation tooling under `src/analysts/capabilities`) and
   `docs/architecture/analysts-models-and-hardware.md` ("Image Metadata And Packaging" and the Docker Desktop adapter
   evidence paragraph: name the harness as a consumer of the reference image only as the implemented text says, and keep

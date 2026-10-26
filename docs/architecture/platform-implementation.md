@@ -37,7 +37,11 @@ SocAlytics uses one `src` root with these first-level ownership areas:
   and the first catalog-named capability, `media-context-classification`,
   exists under `src/analysts/capabilities/media-context-classification` as a
   shot-boundary baseline only (development evidence, fixed rules without a
-  model, no catalog gate met, never in a production workflow); the rest of the
+  model, no catalog gate met, never in a production workflow); the evaluation
+  harness `analyst-evaluation-harness` exists under
+  `src/analysts/capabilities/analyst-evaluation-harness` as development
+  evaluation tooling, not a capability, with no corpus, annotations, or
+  production thresholds; the rest of the
   catalog's Analyst capability implementations (including shot type, live,
   replay, graphics, quality, and usable intervals of media context) across
   their required runtimes remain future
