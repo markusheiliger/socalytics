@@ -1,6 +1,6 @@
 # Tasks: Analyst Evaluation Harness
 
-**Input**: Design documents from `/specs/20261023-082736-analyst-evaluation-harness/`
+**Input**: Design documents from `/specs/archive/20261023-082736-analyst-evaluation-harness/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
@@ -41,7 +41,7 @@ subprocess, fake-engine container, and end-to-end).
 
 - [x] T002 [P] Create `HARNESS/.gitignore` (`.venv/`, `__pycache__/`, `dist/`, `*.egg-info/`, `.pytest_cache/`),
   mirroring `src/analysts/capabilities/reference-media-probe/.gitignore`
-- [x] T003 [P] Copy the three schemas from `specs/20261023-082736-analyst-evaluation-harness/contracts/`
+- [x] T003 [P] Copy the three schemas from `specs/archive/20261023-082736-analyst-evaluation-harness/contracts/`
   (`corpus-manifest.schema.json`, `evaluation-config.schema.json`, `evaluation-report.schema.json`) byte for byte to
   `HARNESS/schemas/` (research R10)
 
@@ -107,7 +107,7 @@ every story uses.
   models, fresh directories per run, nothing written outside the run folder)
 - [x] T015 [P] Add `HARNESS/tests/test_facts.py` (valid facts, invalid result, each failure category)
 - [x] T016 [P] Add `HARNESS/tests/test_schemas.py` (the three schemas are valid JSON Schema 2020-12 and equal the
-  copies under `specs/20261023-082736-analyst-evaluation-harness/contracts/`, when that folder exists; the builders'
+  copies under `specs/archive/20261023-082736-analyst-evaluation-harness/contracts/`, when that folder exists; the builders'
   documents validate)
 
 **Checkpoint**: Foundation ready; user story work can begin.
