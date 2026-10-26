@@ -323,7 +323,7 @@ harness validates the result and evaluates `reference-media-probe` with both bui
 
 **Independent Test**: A test-only capability and label kind are evaluated with the same per-profile metrics.
 
-- [ ] T048 [US5] Add `HARNESS/tests/test_label_kind_extension.py`: register a test-only label kind and matching rule
+- [x] T048 [US5] Add `HARNESS/tests/test_label_kind_extension.py`: register a test-only label kind and matching rule
   through the registry of `matching.py`, evaluate a test-only capability on a corpus using it, and assert the report
   validates against the unchanged schema with the same per-profile structure (FR-018); adjust `matching.py` or the
   schemas only if this test shows the extension point is not open
