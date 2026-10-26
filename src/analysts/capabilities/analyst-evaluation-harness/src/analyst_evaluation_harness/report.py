@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import platform
+import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
@@ -16,7 +17,7 @@ from jsonschema import Draft202012Validator
 from . import __version__
 from .canonical import canonical_bytes, identity_of, round_floats
 from .corpus import CorpusManifest
-from .gates import evaluate_profile, profile_coverage_gate, threshold_verdicts
+from .gates import determinism_gate, evaluate_profile, lineage_gate, profile_coverage_gate, threshold_verdicts
 from .matching import Pairing
 from .metrics import clip_counts, profile_metrics
 
@@ -132,12 +133,22 @@ def _sdk_version() -> str:
         return NOT_RECORDED
 
 
+def _tool_version_line(tool: str) -> str:
+    """The first line of `<tool> -version`, or `not recorded` when the tool is absent or fails."""
+    try:
+        completed = subprocess.run([tool, "-version"], capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return NOT_RECORDED
+    lines = completed.stdout.splitlines() if completed.returncode == 0 else []
+    return lines[0].strip() if lines and lines[0].strip() else NOT_RECORDED
+
+
 def default_lineage() -> dict[str, str]:
     return {
         "sdkVersion": _sdk_version(),
         "harnessVersion": __version__,
-        "ffmpeg": NOT_RECORDED,
-        "ffprobe": NOT_RECORDED,
+        "ffmpeg": _tool_version_line("ffmpeg"),
+        "ffprobe": _tool_version_line("ffprobe"),
         "python": platform.python_version(),
     }
 
@@ -151,11 +162,15 @@ def build_report(
     run: Mapping[str, Any],
     comparator: Mapping[str, Any] | None = None,
     lineage: Mapping[str, Any] | None = None,
+    executions_per_clip: Sequence[int] = (),
+    determinism_differences: Sequence[Mapping[str, Any]] = (),
+    any_first_run_failed: bool = False,
 ) -> dict[str, Any]:
     """Assemble the report and seal it with its identity.
 
     `subject` carries the subject lineage fields, `configuration` is the evaluation configuration as read, and `run`
-    is the non-identity section. The comparator defaults to `not-declared`.
+    is the non-identity section. The comparator defaults to `not-declared`. The determinism section and gate come from
+    the executions per evaluated clip and the recorded differences, the lineage gate from the subject's image digest.
     """
     clip_counts_by_profile = {
         profile: sum(1 for clip in corpus.clips if clip.profile == profile) for profile in PROFILES
@@ -178,6 +193,8 @@ def build_report(
         {profile: metrics for profile, (_, metrics) in results.items()},
     )
 
+    differences = [dict(difference) for difference in determinism_differences]
+    determinism_status = determinism_gate(executions_per_clip, differences, any_first_run_failed=any_first_run_failed)
     report: dict[str, Any] = {
         "reportVersion": REPORT_VERSION,
         "corpus": {
@@ -193,13 +210,13 @@ def build_report(
         "clips": [_clip_result(clip) for clip in clips],
         "profiles": profiles,
         "determinism": {
-            "status": NOT_EVIDENCED,
+            "status": determinism_status,
             "repetitions": configuration.get("repetitions", 1),
-            "differences": [],
+            "differences": differences,
         },
         "gates": {
-            "determinism": NOT_EVIDENCED,
-            "lineage": NOT_EVIDENCED,
+            "determinism": determinism_status,
+            "lineage": lineage_gate(subject.get("imageDigest")),
             "profileCoverage": profile_coverage_gate(clip_counts_by_profile),
             **{f"comparison.{profile}": profiles[profile]["comparisonGate"] for profile in PROFILES},
         },

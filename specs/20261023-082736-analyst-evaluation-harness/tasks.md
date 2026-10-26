@@ -265,7 +265,7 @@ fact on its second run fails the determinism check for exactly that clip.
   and fails the determinism check naming the clip and the failure category, without changing the exit result; a clip
   whose first run failed is not repeated and is recorded as failed (its profile is not evidenced and the determinism
   gate is `not-evidenced`)
-- [ ] T041 [US3] Extend `HARNESS/src/analyst_evaluation_harness/report.py` with the `determinism` section and the
+- [x] T041 [US3] Extend `HARNESS/src/analyst_evaluation_harness/report.py` with the `determinism` section and the
   `lineage` section (SDK version, harness version, `ffmpeg` and `ffprobe` version lines, Python version, corpus
   identity, capability id and version, image digest or status, execution mode, comparator identity and kind)
 

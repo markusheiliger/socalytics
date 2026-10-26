@@ -311,7 +311,15 @@ def evaluate(
     repetitions = [repeated for _, repeated in evaluated]
     finished = _now()
 
+    executions_per_clip = tuple(
+        repeated.executions for clip, repeated in zip(clips, repetitions, strict=True) if not clip.failed
+    )
+    determinism_differences = tuple(d for repeated in repetitions for d in repeated.differences)
+    any_first_run_failed = any(clip.failed for clip in clips)
     report = build_report(
+        executions_per_clip=executions_per_clip,
+        determinism_differences=determinism_differences,
+        any_first_run_failed=any_first_run_failed,
         corpus=corpus,
         subject=_subject_record(subject, mode),
         configuration=configuration,
@@ -333,11 +341,9 @@ def evaluate(
         report,
         report_path,
         any(clip.failed for clip in clips),
-        executions_per_clip=tuple(
-            repeated.executions for clip, repeated in zip(clips, repetitions, strict=True) if not clip.failed
-        ),
-        determinism_differences=tuple(d for repeated in repetitions for d in repeated.differences),
-        any_first_run_failed=any(clip.failed for clip in clips),
+        executions_per_clip=executions_per_clip,
+        determinism_differences=determinism_differences,
+        any_first_run_failed=any_first_run_failed,
     )
 
 
