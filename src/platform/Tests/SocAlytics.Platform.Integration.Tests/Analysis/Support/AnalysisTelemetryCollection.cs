@@ -90,6 +90,16 @@ parallel execution of the test project (T003), the deliberate reproduction with 
 per-class defect check (T006), the probe results (T008), the run counts (T009: 30 runs alone; T013 and T014: 10 grouped runs; T015: one
 full-project run), and the architecture confirmation (T010).
 
+Scope confirmation (T012, FR-006): git diff --stat of the merge base with the default branch against the branch head lists, under
+src/, only the five test files AnalysisTelemetryTests, FactPayloadTelemetryTests, ValidatedAcceptanceTests, RunSupersessionTests, and
+MinimumVersionEnforcementTests (one added [Collection(AnalysisTelemetryCollection.Name)] attribute each, plus a comment in
+FactPayloadTelemetryTests) and this file. The diff of src/ has no removed line, so no assertion is textually removed, and its added
+lines contain no sleep, delay, retry, skip, or timeout. The files under specs/ in that diff come from the spec amendment commits
+(docs: ...) and not from any implementation task, which edited nothing under specs/. The only scheduling changes are the new
+AnalysisTelemetryCollection (DisableParallelization = true) and the [Collection(AnalysisTelemetryCollection.Name)] attributes on
+the four classes T006 classified as defective and on FactPayloadTelemetryTests; no assembly-level CollectionBehavior exists in the
+test projects, the repository has no xunit.runner.json, and no other project-wide change was made.
+
 SC-005 (the verification of #294 reports no flaky MetricsAndAuditRecordsCarryThePayloadReasonCodeAndNeverAPayloadValue test) is
 post-merge evidence: it is observed after merge when #294 retries and is not verified here.
 */
