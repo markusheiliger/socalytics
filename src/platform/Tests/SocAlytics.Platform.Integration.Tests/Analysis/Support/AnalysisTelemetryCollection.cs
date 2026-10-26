@@ -11,6 +11,10 @@ public sealed class AnalysisTelemetryCollection
 /*
 Evidence record
 
+Build baseline (T001, copied from the outcome T001 recorded when the code-side record did not exist yet): dotnet restore
+src/platform/SocAlytics.Platform.slnx succeeded and dotnet build src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-restore
+succeeded with 0 warnings and 0 errors; Docker server version 28.0.4.
+
 Rejection path (T003): CompleteAttempt counts the rejection with AnalysisMetrics.CompletionRejected(ResultRejectionReasons.Code(reason))
 before it closes the attempt, records the audit event, and returns the response, so the metric is never late. The meter
 SocAlytics.Platform.Analysis is process-wide, and FactPayloadTelemetryTests listens to it without scope while test collections run in
@@ -80,4 +84,12 @@ about the scheduling of the analysis telemetry tests (xUnit, test collection, An
 FactPayloadTelemetry, non-parallel, DisableParallelization). The only test statements are the xUnit v3 tool lists in
 platform-implementation.md ("Test And Observability Baseline") and tenancy-and-technology.md; neither describes how integration
 tests are scheduled, so no statement became false and no architecture file was changed.
+
+Consolidation (T011, FR-001, SC-004): this record holds the build baseline (T001), the code path of the rejection counting and the
+parallel execution of the test project (T003), the deliberate reproduction with the old and the new result (T003 and T005), the
+per-class defect check (T006), the probe results (T008), the run counts (T009: 30 runs alone; T013 and T014: 10 grouped runs; T015: one
+full-project run), and the architecture confirmation (T010).
+
+SC-005 (the verification of #294 reports no flaky MetricsAndAuditRecordsCarryThePayloadReasonCodeAndNeverAPayloadValue test) is
+post-merge evidence: it is observed after merge when #294 retries and is not verified here.
 */
