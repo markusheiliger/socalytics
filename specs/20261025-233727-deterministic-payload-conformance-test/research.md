@@ -16,4 +16,4 @@
 
 ## Evidence
 
-To be completed by the implementation (FR-001): the repeated-run results alone and under load, the deliberate-delay reproduction, and for each suspected cause (premature read, wait on elapsed time, staggered stream reads, shared state, covered production code) whether it was proven or ruled out.
+Placeholder, replaced by T015. T001 to T005 each append their result under a `###` heading of this section as they finish, so the evidence tasks leave a file change; T015 consolidates those entries into the final evidence (FR-001): the repeated-run results alone and under load, the deliberate-delay reproduction, and for each suspected cause (premature read, wait on elapsed time, staggered stream reads, shared state, covered production code) whether it was proven or ruled out.
