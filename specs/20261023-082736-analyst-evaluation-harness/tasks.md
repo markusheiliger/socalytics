@@ -142,7 +142,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
   --cap-drop ALL --security-opt no-new-privileges`, the invoking user, pids and memory limits, the job, attempt, and
   media read-only at `/socalytics/...`, `result/` and `scratch/` read-write, a unique `--name`, and `docker kill` on
   overrun), both returning status, failure category, and duration (FR-004, FR-013; research R2)
-- [ ] T020 [P] [US1] Implement `HARNESS/scripts/local_entry.py`: standalone launcher that imports `module:function`
+- [x] T020 [P] [US1] Implement `HARNESS/scripts/local_entry.py`: standalone launcher that imports `module:function`
   inside the capability's own environment and calls `socalytics_analyst.run(analyst, output_type=..., root=<mount>)`,
   so the harness never imports the capability (research R2)
 
