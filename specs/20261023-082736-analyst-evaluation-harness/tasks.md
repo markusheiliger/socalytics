@@ -355,7 +355,7 @@ harness validates the result and evaluates `reference-media-probe` with both bui
 - [x] T052 [P] Update `README.md` (structure and Python commands for the harness project, with `capabilities/`
   wording) and `src/analysts/README.md` (the `capabilities/` description no longer says it contains only
   `reference-media-probe`)
-- [ ] T053 [P] Update `AGENTS.md` (the Current State paragraph about what exists under `capabilities/`, and the
+- [x] T053 [P] Update `AGENTS.md` (the Current State paragraph about what exists under `capabilities/`, and the
   Repository Setup commands for the harness project)
 
 ### Validation
