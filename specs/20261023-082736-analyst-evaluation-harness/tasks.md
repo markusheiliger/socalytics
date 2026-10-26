@@ -154,7 +154,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
   missing profile); `run` as the non-identity section; `identity` over the report without `identity` and `run`; a
   `verify_report` function that recomputes the identity and validates `schemas/evaluation-report.schema.json`
   (FR-010; data-model "Evaluation report")
-- [ ] T022 [US1] Implement `HARNESS/src/analyst_evaluation_harness/evaluate.py`: validate the corpus and
+- [x] T022 [US1] Implement `HARNESS/src/analyst_evaluation_harness/evaluate.py`: validate the corpus and
   configuration first, run the subject on every clip with a fresh staged mount, read the first run's facts, pair and
   compute metrics from the first run only, record a failed clip without stopping the others, write `report.json` and
   the per-run evidence under `runs/` inside the output directory only, and return whether any clip failed
