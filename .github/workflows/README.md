@@ -425,6 +425,14 @@ and merge. Alternatives stay collapsed. Correctable findings trigger automatic c
 while automation is running, no action is needed yet. This goal never bypasses required verification or makes a
 failed or missing analysis a reason to merge.
 
+When the remedy is a change only a push to the implementation branch can make (another spec's folder, a protected
+path, or the change a person's decision needs), a `decision` diagnosis recommends a ready-to-paste `@copilot` prompt
+instead of describing the change: posted as a comment, it has GitHub Copilot's cloud agent (enabled for the
+repository) push the change to the pull request's branch, and that push continues the implementation by itself like
+any push that is not by `github-actions[bot]`. The prompt names the files, the exact change, and how to check it; the
+comment adds a fixed scope (only this change, no task ticks, no other pull request). A `/speckit retry` that is refused
+after unchanged restarts recommends the latest diagnosis' `@copilot` request when it has one.
+
 Implementation, amendment, and authored spec pull requests carry GitHub's default label `help wanted` ("Extra attention is
 needed") while they wait for a person, and lose it as soon as a person's action puts automation back to work or the
 pull request is merged or closed. The label is a convenience; the comments and check runs stay authoritative.
@@ -446,10 +454,12 @@ An implementation that waits for another spec carries the separate custom `block
 It waits whenever its twin has open blocked-by twins, however the dependency came about (`/speckit author`,
 dependency inference, or a person), and while a spec that `/speckit author` authored is still being written, checked,
 or reviewed. GitHub has no default label for an on-hold state. The label is only added together with a comment that
-starts with **Blocked**: it names what the implementation waits for, what a person needs to do (for each blocker that
-is not requested yet, the ready-to-paste `/speckit implement` for its twin; otherwise nothing while the blockers are
-implemented), which open implementation pull request of each blocker has to be merged first (posted again when a
-blocker's implementation pull request opens), and how it continues (marker `speckit-implement:blocked`); when the
+starts with **Blocked**: it names what the implementation waits for and sorts every blocker into what it needs: a spec
+twin that is not requested yet (**Spec twins to request first**, with the ready-to-paste `/speckit implement` as the
+recommended next step for all of them), an open implementation pull request to merge first (**Implementation pull
+requests to finish first**), or a requested twin whose implementation has not started yet (**Requested, starting by
+itself**; nothing to do). It is posted again when a blocker is requested or its implementation pull request opens, and
+says how the implementation continues (marker `speckit-implement:blocked`); when the
 scheduler reconciles the label on an implementation whose block is not explained yet, it posts the explanation once.
 A blocked implementation never gets `help wanted`; the scheduler does not continue its chain, and a running chain stops
 before its next unit (no retry, no diagnosis) while it waits. The label is removed when the last blocker is

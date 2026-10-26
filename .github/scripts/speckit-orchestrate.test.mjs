@@ -693,6 +693,8 @@ test('an unrequested blocker of a running implementation never starts; once requ
     const implementationB = github.repo.pulls.find((pull) => pull.head.ref === 'speckit/b');
     const blockedComments = () => github.comments.filter((comment) => comment.number === implementationA.number && comment.body.includes('speckit-implement:blocked'));
     assert.doesNotMatch(blockedComments().at(-1).body, /to finish first/, 'no implementation pull request of the blocker existed yet');
+    assert.match(blockedComments().at(-1).body, new RegExp(`\\*\\*Requested, starting by itself\\*\\*:\\n\\n- #${b.number}: requested for implementation;`), 'a requested blocker without a pull request is starting, not waiting for a request');
+    assert.doesNotMatch(blockedComments().at(-1).body, /Recommended next step/, 'nothing is left to request');
     await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
     const explained = blockedComments().at(-1).body;
     assert.match(explained, new RegExp(`^<!-- speckit-implement:blocked \\{"blockers":\\[${b.number}\\],"pulls":\\[${implementationB.number}\\]\\} -->`));
