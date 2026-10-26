@@ -275,7 +275,7 @@ fact on its second run fails the determinism check for exactly that clip.
   facts named, a varying capability fixture failing for exactly that clip, a failed repetition keeping the clip
   evaluated and exit 0, a clip whose first run failed not repeated and recorded as failed with the determinism gate
   `not-evidenced`)
-- [ ] T043 [P] [US3] Add `HARNESS/tests/test_lineage_gates.py` (image digest present versus not evaluated as an image,
+- [x] T043 [P] [US3] Add `HARNESS/tests/test_lineage_gates.py` (image digest present versus not evaluated as an image,
   determinism not evidenced with one repetition, gates never passed without evidence, SC-004)
 - [x] T044 [P] [US3] Add `HARNESS/tests/test_report_identity.py` (two evaluations of the same inputs yield the same
   identity and identical content outside `run`; changing one byte of the report makes `verify-report` fail, SC-002)
