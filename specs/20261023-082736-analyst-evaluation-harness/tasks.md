@@ -254,7 +254,7 @@ fact on its second run fails the determinism check for exactly that clip.
   `endMs` within `positionMs` and `confidence` and numeric payload leaves within `numeric` while fact counts, kinds,
   and non-numeric values must be equal; return `differences[]` (`clipId`, `run`, `category` or `factIndex`, `field`)
   (FR-009, research R7)
-- [ ] T039 [P] [US3] Extend `HARNESS/src/analyst_evaluation_harness/gates.py` with the `determinism` gate (not
+- [x] T039 [P] [US3] Extend `HARNESS/src/analyst_evaluation_harness/gates.py` with the `determinism` gate (not
   evidenced below two executions per clip) and the `lineage` gate (passed only with an OCI image digest; subprocess
   runs record `imageDigestStatus` `not evaluated as an image` and not evidenced)
 

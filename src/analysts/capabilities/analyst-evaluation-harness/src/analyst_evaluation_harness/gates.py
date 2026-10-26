@@ -6,6 +6,7 @@ results; everything the harness cannot evidence is `not-evidenced`. There is no 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -22,6 +23,9 @@ SUBJECT_INCOMPLETE = "the capability result is incomplete"
 CLIP_FAILED = "a clip of the profile failed for the capability or the comparator"
 NO_LABEL_KINDS = "no label kind is evaluated"
 PRIMARY_UNDEFINED = "the primary metric is undefined for the capability or the comparator"
+
+MIN_DETERMINISM_EXECUTIONS = 2
+_IMAGE_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 def _value(metrics: Mapping[str, Any] | None, metric: str) -> float | None:
@@ -142,3 +146,27 @@ def threshold_verdicts(
             }
         )
     return verdicts
+
+
+def determinism_gate(
+    executions_per_clip: Iterable[int],
+    differences: Iterable[Any],
+    *,
+    any_first_run_failed: bool = False,
+) -> str:
+    """Gate status `determinism`: `failed` when any difference or failed repetition is recorded; otherwise `passed`
+    only when at least one clip was evaluated, no first run failed, and every clip was executed at least twice."""
+    if any(True for _ in differences):
+        return FAILED
+    counts = list(executions_per_clip)
+    if any_first_run_failed or not counts or min(counts) < MIN_DETERMINISM_EXECUTIONS:
+        return NOT_EVIDENCED
+    return PASSED
+
+
+def lineage_gate(image_digest: str | None) -> str:
+    """Gate status `lineage`: `passed` only with an OCI image digest (`sha256:<64 hex>`, bare or after `@`); a
+    subprocess run has none (`imageDigestStatus` `not evaluated as an image`) and is `not-evidenced`."""
+    if not image_digest:
+        return NOT_EVIDENCED
+    return PASSED if _IMAGE_DIGEST.fullmatch(image_digest.rpartition("@")[2]) else NOT_EVIDENCED
