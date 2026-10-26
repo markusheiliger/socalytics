@@ -224,7 +224,7 @@ comparator, and never presents a missing comparison as passed.
 
 ### US2 tests
 
-- [ ] T035 [P] [US2] Add `HARNESS/tests/test_trivial_comparators.py` (facts of `predict-nothing` and
+- [x] T035 [P] [US2] Add `HARNESS/tests/test_trivial_comparators.py` (facts of `predict-nothing` and
   `predict-everything` on the builder corpus, including a clip with a non-zero `matchStartMs`, and the resulting
   counts)
 - [ ] T036 [P] [US2] Add `HARNESS/tests/test_gates.py` (every verdict and gate rule of T031, an undefined primary
