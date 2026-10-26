@@ -1,0 +1,28 @@
+[project]
+name = "socalytics-analyst-evaluation-harness"
+version = "0.1.0"
+description = "SocAlytics Analyst evaluation harness"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "socalytics-analyst-sdk",
+    "jsonschema",
+]
+
+[tool.uv.sources]
+socalytics-analyst-sdk = { path = "../../sdk" }
+socalytics-reference-media-probe = { path = "../reference-media-probe" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["hatchling", "pytest", "socalytics-reference-media-probe"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/analyst_evaluation_harness"]
+dev-mode-dirs = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]

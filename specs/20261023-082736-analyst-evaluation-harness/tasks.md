@@ -26,7 +26,7 @@ subprocess, fake-engine container, and end-to-end).
 
 **Purpose**: Create the Python 3.12 `uv` project, following `src/analysts/capabilities/reference-media-probe/`.
 
-- [ ] T001 Create `HARNESS/pyproject.toml` (distribution `socalytics-analyst-evaluation-harness`, version `0.1.0`,
+- [x] T001 Create `HARNESS/pyproject.toml` (distribution `socalytics-analyst-evaluation-harness`, version `0.1.0`,
   `requires-python = ">=3.12,<3.13"`, dependencies `socalytics-analyst-sdk` and `jsonschema`, `[tool.uv.sources]` path
   `../../sdk`, hatchling build with `packages = ["src/analyst_evaluation_harness"]`, dev group `hatchling`, `pytest`,
   and `socalytics-reference-media-probe` with uv source path `../reference-media-probe`, pytest `testpaths = ["tests"]`
