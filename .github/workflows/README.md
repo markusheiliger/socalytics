@@ -433,7 +433,9 @@ path, or the change a person's decision needs), a `decision` diagnosis recommend
 instead of describing the change: posted as a comment, it has GitHub Copilot's cloud agent (enabled for the
 repository) push the change to the pull request's branch, and that push continues the implementation by itself like
 any push that is not by `github-actions[bot]`. The prompt names the files, the exact change, and how to check it; the
-comment adds a fixed scope (only this change, no task ticks, no other pull request). A `/speckit retry` that is refused
+comment adds a fixed scope (only this change, no task ticks, no other pull request). The prompt only removes what
+stops the automation, never the spec's own work: a prompt that names a task, `tasks.md`, or asks to implement tasks
+is rejected, because the Spec Kit implementation implements, verifies, and ticks every task itself. A `/speckit retry` that is refused
 after unchanged restarts recommends the latest diagnosis' `@copilot` request when it has one.
 
 Implementation, amendment, and authored spec pull requests carry GitHub's default label `help wanted` ("Extra attention is

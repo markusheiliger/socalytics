@@ -7,6 +7,7 @@ import test from 'node:test';
 import { pendingFeedback, renderFeedback } from './speckit-amend.mjs';
 import { ATTENTION_LABEL, AUTO_CONTINUE_MARKER, IMPLEMENT_WORKFLOW_FILE, RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER, parseGuidance, renderRetryComment, syncBarrier, unchangedRestarts, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker, renderSyncComment, repeatedFailure, isTwinRunOf } from './speckit-implement-core.mjs';
 import { copilotRequestOf } from './speckit-implement-core.mjs';
+import { implementsTasks } from './speckit-diagnose.mjs';
 import { CATEGORIES, CATEGORY_COMMANDS, MAX_RECOMMENDED_COMMAND, MAX_STOP_SUBJECT, categoryCommands, checkReportFile, commandPatterns, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -706,4 +707,19 @@ test('a change only a push can make is recommended as a ready-to-post @copilot p
   const replaced = recommendNextSteps(stuck, { repeated });
   assert.equal(replaced.options.find((option) => option.recommended).copilot, prompt);
   assert.match(replaced.adjusted[0], /already stopped the same way/);
+});
+
+test('a Copilot prompt never implements the spec\'s tasks; it only removes what stops the automation', () => {
+  // The prompt diagnosis round 3 recommended on #344: it handed the whole spec to Copilot and bypassed the automation.
+  const takeover = 'Implement the code changes of tasks T002 to T014 in specs/20261026-100223-environment-guard-archive-rewrites/tasks.md exactly as the tasks, plan.md, data-model.md and contracts of that folder describe. Do not edit tasks.md and do not tick any task.';
+  const report = (copilot) => validateReport({ ...REPORT, category: 'decision', artifacts: [], questions: [], options: [{ title: 'Ask Copilot', why: 'x', copilot, recommended: true }] });
+  for (const prompt of [takeover, 'Finish the work of T007 in .github/scripts/speckit-archive.mjs.', 'Implement the remaining tasks of this spec in .github/scripts/.', 'Do what tasks.md describes for the guard.']) {
+    const checked = report(prompt);
+    assert.match(checked.reasons.join('; '), /asks Copilot to do the spec's tasks/, prompt);
+    assert.equal(checked.report.options[0].copilot, null);
+  }
+  assert.equal(implementsTasks(takeover), true);
+  const unblock = 'In specs/other/spec.md, change the link on line 83 from ../a/spec.md to ../archive/a/spec.md.';
+  assert.deepEqual(report(unblock).reasons, [], 'removing what stops the automation is fine');
+  assert.equal(implementsTasks(unblock), false);
 });

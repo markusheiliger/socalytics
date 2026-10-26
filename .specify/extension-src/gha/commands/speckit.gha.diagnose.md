@@ -209,6 +209,14 @@ workflow started you): never ask, and turn every open question into a report que
   comment adds `@copilot` and the scope (only this change, no task ticks, no other pull request). A Copilot prompt
   fits the category `decision`, and it is recommended instead of a command that already failed the same way.
   Prefer a command whenever the automation can make the change itself.
+- A Copilot prompt is a fallback that removes **what stops the automation**, so the automation can finish the
+  implementation itself; it never does the spec's own work. Never ask Copilot to implement, finish, or check tasks,
+  never name a task ID or `tasks.md` in the prompt (the report is rejected), and never push the changes a task
+  describes through it: the Spec Kit implementation implements, verifies, and ticks every task. When the spec's own
+  tasks must change files the implementation agents may not change (for example Spec Kit tooling under `.github/` or
+  `.specify/`), the automation cannot implement this spec at all: say so in the summary, classify it as `outside`
+  (the cause is what the automation may change, not this spec's artifacts), and recommend `/speckit author` with
+  guidance that names the protected files the spec's tasks must change, not a Copilot prompt that implements them.
 - `artifacts` lists the changed files of the amendment; leave it empty otherwise. Ask at most three questions, each
   with its recommended choice first.
 
