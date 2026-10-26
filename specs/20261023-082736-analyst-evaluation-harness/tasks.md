@@ -360,7 +360,7 @@ harness validates the result and evaluates `reference-media-probe` with both bui
 
 ### Validation
 
-- [ ] T054 Run the quickstart validation: steps 1 to 3 of
+- [x] T054 Run the quickstart validation: steps 1 to 3 of
   [quickstart.md](quickstart.md) from `HARNESS/` (locked sync, `uv build`, `uv run --no-sync pytest`, corpus
   generation twice and `diff`, and an evaluation with `verify-report`) and `node .github/scripts/check-markdown.mjs`
   from the repository root; fix any finding, then append a `## Validation record` section at the end of

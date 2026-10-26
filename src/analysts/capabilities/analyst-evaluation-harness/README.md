@@ -176,3 +176,22 @@ image with the command of its [README](../reference-media-probe/README.md), reso
 - No pull: images must already be in the local engine, and nothing is fetched or published.
 - No real footage: the only corpus is the generated synthetic one, with no third-party rights.
 - No platform, Manager, or registry interaction, and no catalog capability is evaluated.
+
+## Validation record
+
+Steps run from this directory with the pinned `ffmpeg` and `ffprobe` on `PATH` (quickstart steps 1 to 3, then the
+repository Markdown check):
+
+1. `uv sync --locked --all-groups --no-install-local --no-build`, `uv sync --locked --all-groups --no-build-isolation`,
+   `uv build --wheel --no-build-isolation --python .venv/bin/python`, and `uv run --no-sync pytest`: 311 tests passed,
+   including the end-to-end evaluation of `reference-media-probe`.
+2. `scripts/generate_corpus.py` run twice into different folders: `validate-corpus` succeeded and
+   `corpus-manifest.json` was identical (`diff` empty).
+3. `evaluate` of `reference-media-probe` with the comparator `predict-nothing`, run twice, each followed by
+   `verify-report` (exit 0): both reports share the `identity`
+   `sha-256:098f3a124fbfd1eeda8c678a0cf5a3dce9f03835efd8b0e5eb4a0f638e7c2fe2`; the gates `comparison.fixed`,
+   `comparison.broadcast`, `determinism`, and `profileCoverage` passed and `lineage` is `not-evidenced`.
+4. `node .github/scripts/check-markdown.mjs` from the repository root: 0 issues.
+
+The one-byte tamper checks are covered by `test_corpus_validation.py` (changed clip) and `test_report_identity.py`
+(changed report byte, with `test_cli.py` for the exit codes).
