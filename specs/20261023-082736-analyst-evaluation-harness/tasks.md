@@ -195,7 +195,7 @@ comparator, and never presents a missing comparison as passed.
 
 ### US2 comparator and gates
 
-- [ ] T030 [P] [US2] Extend `HARNESS/src/analyst_evaluation_harness/runners.py` with the built-in comparator runner:
+- [x] T030 [P] [US2] Extend `HARNESS/src/analyst_evaluation_harness/runners.py` with the built-in comparator runner:
   `predict-nothing` writes no facts, `predict-everything` takes the covered seconds from the clip's segment
   manifest (`matchStartMs` plus the duration) and writes one fact per second for every label kind declared in the
   evaluation configuration's `labelKinds`, with an empty payload (so payload expectations count as `payload-mismatch`),

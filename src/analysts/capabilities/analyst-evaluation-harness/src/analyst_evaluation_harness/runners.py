@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import signal
 import subprocess
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from socalytics_analyst.models.facts import Fact
+
 from .config import ConfigRefusal
-from .facts import FactsOutcome, classify_failure, read_facts
+from .facts import EXECUTION_FAILED, FactsOutcome, classify_failure, read_facts
 from .staging import StagedMount
 
 MOUNT_PLACEHOLDER = "{mount}"
@@ -21,6 +25,10 @@ CONTAINER_PIDS_LIMIT = 256
 CONTAINER_MEMORY_MEBIBYTES = 512
 _STDERR_LIMIT = 64 * 1024
 _KILL_GRACE_SECONDS = 10
+PREDICT_NOTHING = "predict-nothing"
+PREDICT_EVERYTHING = "predict-everything"
+BUILTIN_RULES = (PREDICT_NOTHING, PREDICT_EVERYTHING)
+_SECOND_MS = 1000
 
 
 @dataclass(frozen=True)
@@ -192,3 +200,41 @@ def run_container(
         argv, cwd=Path(run_folder), env=None, time_limit_seconds=time_limit_seconds, on_overrun=kill_container
     )
     return _outcome(mount, started=started, timed_out=timed_out, exit_code=exit_code, stderr=stderr)
+
+
+def _covered_window(mount: StagedMount) -> tuple[int, int]:
+    """The covered match-time window `[matchStartMs, matchStartMs + duration)` of the staged segment manifest."""
+    manifest = json.loads(mount.manifest_path.read_text(encoding="utf-8"))
+    span = manifest["timelineSpans"][0]
+    duration_ms = manifest["encodedInterval"]["endMs"] - manifest["encodedInterval"]["startMs"]
+    return span["matchStartMs"], span["matchStartMs"] + duration_ms
+
+
+def run_builtin(rule: str, mount: StagedMount, label_kinds: Iterable[str]) -> ExecutionOutcome:
+    """Produce the facts of a built-in comparator rule in process; nothing is executed (FR-007).
+
+    `predict-nothing` has no facts. `predict-everything` has one fact per covered second for every label kind, with an
+    empty payload.
+    """
+    if rule not in BUILTIN_RULES:
+        raise ConfigRefusal([f"the built-in comparator rule {rule!r} is not one of {', '.join(BUILTIN_RULES)}."])
+    started = time.monotonic()
+    facts: list[Fact] = []
+    if rule == PREDICT_EVERYTHING:
+        try:
+            start_ms, end_ms = _covered_window(mount)
+        except (OSError, ValueError, KeyError, IndexError, TypeError):
+            return ExecutionOutcome(status="failed", failure_category=EXECUTION_FAILED, duration_ms=0)
+        for second_start in range(start_ms, end_ms, _SECOND_MS):
+            second_end = min(second_start + _SECOND_MS, end_ms)
+            facts.extend(
+                Fact(kind=kind, start_ms=second_start, end_ms=second_end, confidence=1.0, payload={})
+                for kind in sorted(set(label_kinds))
+            )
+    return ExecutionOutcome(
+        status="succeeded",
+        failure_category=None,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        exit_code=0,
+        facts=FactsOutcome(facts=tuple(facts)),
+    )
