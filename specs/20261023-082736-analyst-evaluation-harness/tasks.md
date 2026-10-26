@@ -39,7 +39,7 @@ subprocess, fake-engine container, and end-to-end).
 
 ### Setup files
 
-- [ ] T002 [P] Create `HARNESS/.gitignore` (`.venv/`, `__pycache__/`, `dist/`, `*.egg-info/`, `.pytest_cache/`),
+- [x] T002 [P] Create `HARNESS/.gitignore` (`.venv/`, `__pycache__/`, `dist/`, `*.egg-info/`, `.pytest_cache/`),
   mirroring `src/analysts/capabilities/reference-media-probe/.gitignore`
 - [x] T003 [P] Copy the three schemas from `specs/20261023-082736-analyst-evaluation-harness/contracts/`
   (`corpus-manifest.schema.json`, `evaluation-config.schema.json`, `evaluation-report.schema.json`) byte for byte to
