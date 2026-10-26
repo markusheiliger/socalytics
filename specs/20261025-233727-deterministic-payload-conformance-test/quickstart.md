@@ -9,6 +9,8 @@ dotnet restore src/platform/SocAlytics.Platform.slnx
 dotnet build src/platform/SocAlytics.Platform.slnx --no-restore
 ```
 
+Record implementation evidence in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/PayloadConformanceEvidence.md` under the relevant task heading.
+
 ## Scenario 1: The class passes repeatedly alone
 
 Run from the repository root, at least 30 consecutive times (SC-001, SC-002):
