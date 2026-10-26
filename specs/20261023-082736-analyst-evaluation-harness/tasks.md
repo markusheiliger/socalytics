@@ -32,7 +32,10 @@ subprocess, fake-engine container, and end-to-end).
   and `socalytics-reference-media-probe` with uv source path `../reference-media-probe`, pytest `testpaths = ["tests"]`
   and `pythonpath = ["tests"]`) and `HARNESS/src/analyst_evaluation_harness/__init__.py` with `__version__ = "0.1.0"`,
   and generate `HARNESS/uv.lock` in the same task with `UV_PYTHON_DOWNLOADS=never uv lock` (the Analyst Python
-  verification refuses a project without its own committed `uv.lock`, so the project and its lock must land together)
+  verification refuses a project without its own committed `uv.lock`, so the project and its lock must land together),
+  and add `HARNESS/tests/test_version.py` with one test that `analyst_evaluation_harness.__version__` equals `"0.1.0"`
+  (the Analyst Python verification runs `uv run --no-sync pytest` after every task and fails with exit code 5 when no
+  test is collected, so the project must carry one collectable test from its first task)
 
 ### Setup files
 
@@ -360,7 +363,7 @@ harness validates the result and evaluates `reference-media-probe` with both bui
 
 ## Dependencies & Execution Order
 
-- Phase 1 (T001, which also generates the lock, → T004, with T002 and T003 in parallel after T001) precedes everything.
+- Phase 1 (T001, which also generates the lock and carries the first collectable test, → T004, with T002 and T003 in parallel after T001) precedes everything.
 - Phase 2 blocks all user stories; within it the modules (T005 to T010) precede the tests (T011 to T016).
 - Consecutive `[P]` tasks under one heading run in parallel: the Phase 2 modules (T005 to T010) and tests (T011 to
   T016), the US1 modules (T017 to T020) and tests (T024 to T029), the US2 comparator and gates (T030, T031) and tests
