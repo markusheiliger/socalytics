@@ -306,7 +306,7 @@ harness validates the result and evaluates `reference-media-probe` with both bui
 
 - [x] T046 [P] [US4] Add `HARNESS/tests/test_generate_corpus.py` (two runs give identical manifests and clip digests,
   SC-006; `validate-corpus` accepts the result; changing one byte of a clip is refused naming that clip)
-- [ ] T047 [P] [US4] Add `HARNESS/tests/test_end_to_end_reference.py`: generate the corpus with the pinned FFmpeg and
+- [x] T047 [P] [US4] Add `HARNESS/tests/test_end_to_end_reference.py`: generate the corpus with the pinned FFmpeg and
   evaluate `reference-media-probe` in subprocess mode (through `scripts/local_entry.py`) with `predict-nothing` and with
   `predict-everything`, using an evaluation configuration with `primaryMetric` `f1` and `matchToleranceMs` `0` for
   `frame-second-probe`, asserting per-profile metrics, verdict `beat` against `predict-nothing` (only under that
