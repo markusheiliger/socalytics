@@ -341,7 +341,7 @@ harness validates the result and evaluates `reference-media-probe` with both bui
   configuration, and report formats and schemas, the subject and comparator references, matching, metrics, gates and
   verdicts, determinism and lineage, the generation script, container mode and its manual evidence, and the limits (no
   production thresholds, no promotion decision, no pull, no real footage)
-- [ ] T050 [P] Update `docs/architecture/analyst-capability-catalog.md`: turn the "decided but not implemented yet"
+- [x] T050 [P] Update `docs/architecture/analyst-capability-catalog.md`: turn the "decided but not implemented yet"
   harness paragraph into present tense, state in "Implementation Waves" that the Wave 0 metrics harness exists as
   development tooling while the corpus, annotations, and model cards remain future, and state in "Development
   reference capabilities are not part of this catalog" that the harness is likewise not a catalog capability and
