@@ -13,14 +13,6 @@
 - **[P]**: Consecutive `[P]` tasks under one heading run in parallel, each from the same commit (different files, no dependencies on each other)
 - **[Story]**: Which user story this task belongs to (US1, US2, US3)
 
-## Phase 1: Setup
-
-**Purpose**: Establish the baseline before changing the tooling.
-
-- [ ] T001 Run `node --test .github/scripts/speckit-*.test.mjs` from the repository root and record that the existing tooling tests pass before any change (no file changes)
-
----
-
 ## Phase 2: Foundational (Blocking Prerequisites)
 
 **Purpose**: The shared criterion that both the merge-time check and the guard use (FR-002). It blocks every user story.
@@ -67,38 +59,24 @@
 
 ---
 
-## Phase 5: User Story 3 - Other checks keep their behavior (Priority: P2)
-
-**Goal**: Staging validation, the protected-path rule, `referenceOnlySpecChanges`, and the archive rewrite behave exactly as before.
-
-**Independent Test**: The existing Spec Kit tooling tests pass without changed expectations.
-
-### Verification for User Story 3
-
-- [ ] T010 [US3] Run `node --test .github/scripts/speckit-*.test.mjs` from the repository root and confirm all tests pass, with no edited expectation in any pre-existing case of `.github/scripts/speckit-archive.test.mjs`, `.github/scripts/speckit-implement-core.test.mjs`, or `.github/scripts/speckit-implement.test.mjs` (including the protected-path rejection of a spec file outside the task's folder)
-
-**Checkpoint**: All user stories pass.
-
----
-
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-**Purpose**: Documentation of the rule (FR-008) and final validation.
+**Purpose**: Documentation of the rule (FR-008).
 
 - [ ] T011 [P] Update the environment exclusivity rule in `AGENTS.md` (Spec Kit section, the "New frameworks, SDKs, or tools reach these actions only through a standalone environment spec" item) to state that archive reference rewrites outside the spec's folder do not count as other changes
 - [ ] T012 [P] Update item 1 of "Specs extend these actions" in `README.md` to state that archive reference rewrites outside the spec's folder do not count as other changes
 - [ ] T013 [P] Update the description of the environment actions rule in `.github/workflows/README.md` to add one sentence in its environment actions section stating the environment exclusivity rule with the exception that archive reference rewrites outside the spec's folder do not count as other changes
 - [ ] T014 [P] Update the environment-spec/exclusivity description in `.specify/extension-src/gha/README.md` (the extension source; do not hand-edit the generated `.specify/extensions/` copies) to add one sentence next to the `repair` workflow's `environment=true` mention stating the environment exclusivity rule with the exception that archive reference rewrites outside the spec's folder do not count as other changes
-- [ ] T015 Run `node .github/scripts/check-markdown.mjs` and `node --test .github/scripts/speckit-*.test.mjs` from the repository root and fix any finding in the files this feature changed (SC-003); then follow [quickstart.md](quickstart.md) sections 1 to 3
 
 ---
 
 ## Dependencies & Execution Order
 
-- Phase 1 (T001) first, then Phase 2: T002 before T003.
+- Task IDs T001, T010, and T015 are intentionally unused: they were verification-only tasks that change no file, which the implementation automation cannot complete (it requires a change per task). Their checks (SC-003 and the unchanged behavior of User Story 3) run as the automatic verification of every task, of each phase, and of the final convergence; follow [quickstart.md](quickstart.md) sections 1 to 3 after the last task.
+- Phase 2 first: T002 before T003.
 - Phase 2 blocks all stories. In Phase 3, T004 and T005 touch different files and run together (T005 consumes T002 and passes the `referenceRewrites` input of T004 by contract); T006 and T007 test their combined behavior and run together afterwards.
 - Phase 4 extends the test files of Phase 3, so it follows Phase 3; T008 and T009 touch different files.
-- Phase 5 (T010) runs after Phases 3 and 4. Phase 6 documentation tasks (T011 to T014) are independent of each other; T015 runs last.
+- Phase 6 documentation tasks (T011 to T014) are independent of each other and run after Phase 4.
 - After merge (SC-004, not a task of this list): start the stopped implementation of `specs/20261025-194925-dotnet-setup-resilience` again with `/speckit retry` or `/speckit sync`.
 
 ## Parallel Example: User Story 1
@@ -110,5 +88,5 @@ Acceptance tests:  T006 speckit-implement-core.test.mjs, T007 speckit-implement.
 
 ## Implementation Strategy
 
-- **MVP**: Phases 1 to 3 (shared criterion, guard, caller, acceptance tests) unblock environment specs; Phase 4 locks the non-exemption classes; Phase 5 and 6 prove unchanged behavior and document the rule.
+- **MVP**: Phases 2 and 3 (shared criterion, guard, caller, acceptance tests) unblock environment specs; Phase 4 locks the non-exemption classes; Phase 6 documents the rule; unchanged behavior is proven by the existing tests in every verification.
 - Deliver incrementally: each checkpoint leaves the tooling tests green.
