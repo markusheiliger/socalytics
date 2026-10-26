@@ -99,7 +99,7 @@ every story uses.
 
 - [x] T011 [P] Add `HARNESS/tests/test_canonical.py` (key order independence, rounding, identity stability, NaN
   refused)
-- [ ] T012 [P] Add `HARNESS/tests/test_corpus_validation.py` (every refusal of T006 reported at once, a clip with an
+- [x] T012 [P] Add `HARNESS/tests/test_corpus_validation.py` (every refusal of T006 reported at once, a clip with an
   empty label list is valid, a corpus of one profile is valid, a changed clip names that clip)
 - [x] T013 [P] Add `HARNESS/tests/test_config.py` (defaults, every refusal of T007 including the missing primary
   metric and the unknown comparator rule)
