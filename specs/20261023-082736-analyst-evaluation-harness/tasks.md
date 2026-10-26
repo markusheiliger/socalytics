@@ -158,7 +158,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
   configuration first, run the subject on every clip with a fresh staged mount, read the first run's facts, pair and
   compute metrics from the first run only, record a failed clip without stopping the others, write `report.json` and
   the per-run evidence under `runs/` inside the output directory only, and return whether any clip failed
-- [ ] T023 [US1] Implement `HARNESS/src/analyst_evaluation_harness/__main__.py`: commands `evaluate`,
+- [x] T023 [US1] Implement `HARNESS/src/analyst_evaluation_harness/__main__.py`: commands `evaluate`,
   `validate-corpus`, and `verify-report` with the arguments and exit codes 0, 1, 2, and 3 of
   [contracts/cli.md](contracts/cli.md), printing every refusal on standard error and the report path and identity on
   standard output
