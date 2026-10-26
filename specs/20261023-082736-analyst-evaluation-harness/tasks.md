@@ -131,7 +131,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
   ties by label then fact order, a pair with an unmet payload expectation as a miss plus a false
   positive, misses with reason `no-fact`, `payload-mismatch`, or `clip-failed`, and facts of kinds without labels as
   `unlabelled` (FR-005, FR-012, FR-018; data-model "Pairing result")
-- [ ] T018 [P] [US1] Implement `HARNESS/src/analyst_evaluation_harness/metrics.py`: counts summed per profile and label
+- [x] T018 [P] [US1] Implement `HARNESS/src/analyst_evaluation_harness/metrics.py`: counts summed per profile and label
   kind, `precision = TP/(TP+FP)`, `recall = TP/(TP+FN)`, `f1 = 2TP/(2TP+FP+FN)`, each `null` with a
   `precisionUndefined`, `recallUndefined`, or `f1Undefined` reason when the denominator is 0, a failed clip
   contributing its labels as false negatives and no facts, and no aggregate across profiles (FR-006)
