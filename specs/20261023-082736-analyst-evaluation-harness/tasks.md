@@ -171,7 +171,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
   counted as misses, no cross-profile aggregate)
 - [ ] T026 [P] [US1] Add `HARNESS/tests/test_runners_subprocess.py` (success, non-zero exit with the SDK category,
   invalid result, hang bounded by the time limit, `{mount}` substitution)
-- [ ] T027 [P] [US1] Add `HARNESS/tests/test_runners_container.py` against a fake `docker` executable placed first on
+- [x] T027 [P] [US1] Add `HARNESS/tests/test_runners_container.py` against a fake `docker` executable placed first on
   `PATH` that records its argument list: asserts the exact restricted arguments, no pull, a missing image refusing the
   configuration, and `docker kill` of the named container on overrun
 - [ ] T028 [P] [US1] Add `HARNESS/tests/test_evaluate.py` (planted missing, extra, and misplaced facts each reported
