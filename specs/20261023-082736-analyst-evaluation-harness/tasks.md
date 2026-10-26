@@ -200,7 +200,7 @@ comparator, and never presents a missing comparison as passed.
   manifest (`matchStartMs` plus the duration) and writes one fact per second for every label kind declared in the
   evaluation configuration's `labelKinds`, with an empty payload (so payload expectations count as `payload-mismatch`),
   produced in process without any execution (FR-007)
-- [ ] T031 [P] [US2] Implement `HARNESS/src/analyst_evaluation_harness/gates.py`: label-kind verdicts (`beat` only when
+- [x] T031 [P] [US2] Implement `HARNESS/src/analyst_evaluation_harness/gates.py`: label-kind verdicts (`beat` only when
   both primary metrics are defined and the capability is strictly higher, `did-not-beat`, `not-evidenced` when either
   is undefined or incomplete, with both values and the margin), the profile verdict exactly as research R6, the
   `comparison.<profile>` and `profileCoverage` gate statuses (`passed`, `failed`, `not-evidenced`; not evidenced when no
