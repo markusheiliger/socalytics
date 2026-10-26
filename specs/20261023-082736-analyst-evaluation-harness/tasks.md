@@ -230,7 +230,7 @@ comparator, and never presents a missing comparison as passed.
 - [x] T036 [P] [US2] Add `HARNESS/tests/test_gates.py` (every verdict and gate rule of T031, an undefined primary
   metric never beating or being beaten, one kind `did-not-beat` and another kind undefined giving a `not-evidenced`
   profile verdict, thresholds labelled `evaluation-local`)
-- [ ] T037 [P] [US2] Add `HARNESS/tests/test_comparison.py` (no comparator gives `not declared` and not evidenced;
+- [x] T037 [P] [US2] Add `HARNESS/tests/test_comparison.py` (no comparator gives `not declared` and not evidenced;
   verdicts that differ by profile, SC-005; a failed subject or comparator clip makes that profile not evidenced even when
   the metrics favor the capability; a profile with one `did-not-beat` kind and one undefined kind is `not-evidenced`;
   builtin and capability comparators scored identically; the `evaluate` command prints one `<gate>: <status>` line per

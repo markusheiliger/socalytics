@@ -138,9 +138,11 @@ def _stage(subject: Subject, clip: Clip, run_folder: Path, name: str):
     )
 
 
-def _execute(subject: Subject, mode: str, clip: Clip, run_folder: Path, time_limit: int) -> ExecutionOutcome:
+def _execute(
+    subject: Subject, mode: str, clip: Clip, run_folder: Path, time_limit: int, mount_name: str = "subject-run-1"
+) -> ExecutionOutcome:
     try:
-        mount = _stage(subject, clip, run_folder, "subject-run-1")
+        mount = _stage(subject, clip, run_folder, mount_name)
     except StagingError:
         return ExecutionOutcome(status="failed", failure_category=EXECUTION_FAILED, duration_ms=0)
     if mode == "container":
@@ -222,7 +224,14 @@ def _evaluate_clip(
         compared = _execute_builtin(comparator.rule, subject, clip, run_folder, config.label_kinds)
     else:
         assert comparator_mode is not None
-        compared = _execute(_comparator_subject(comparator), comparator_mode, clip, run_folder, config.time_limit_seconds)
+        compared = _execute(
+            _comparator_subject(comparator),
+            comparator_mode,
+            clip,
+            run_folder,
+            config.time_limit_seconds,
+            "comparator-run-1",
+        )
     _write_outcome(run_folder, clip, compared, COMPARATOR_OUTCOME_FILE_NAME)
     return replace(evaluation, comparator=_to_evaluation(clip, compared, config))
 
