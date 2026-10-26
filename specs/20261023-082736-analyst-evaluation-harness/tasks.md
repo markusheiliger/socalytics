@@ -178,7 +178,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
   against the violated label and none for agreeing clips, SC-003; a failed clip does not stop the others and counts as
   misses; one-profile corpus reports the missing profile as not evidenced; nothing written outside the output
   directory)
-- [ ] T029 [P] [US1] Add `HARNESS/tests/test_cli.py` (exit 0 for a full evaluation, 2 for a refused manifest or
+- [x] T029 [P] [US1] Add `HARNESS/tests/test_cli.py` (exit 0 for a full evaluation, 2 for a refused manifest or
   configuration with no clip run, 3 when a clip failed with the report still written, `validate-corpus` and
   `verify-report` results)
 
