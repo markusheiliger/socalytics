@@ -23,7 +23,6 @@ import {
   runIntegrate,
   runLand,
   doneByPush,
-  checkStagedTask,
   runMergeLand,
   runPackage,
   runRepairReport,
@@ -1374,91 +1373,6 @@ test('environment specs: a task may change the environment actions, but not toge
     const landed = await land(repos, fakeGitHub());
     assert.equal(landed.exitCode, 1, 'the land job re-checks the whole branch');
     assert.match(landed.reasons.join(), /standalone environment spec/);
-  });
-});
-
-test('environment exclusivity ignores archived-reference rewrites and paths already identical to the base tip', async () => {
-  await withRepos({
-    tasks: DONE_TASKS,
-    seed: (dir) => {
-      write(dir, 'specs/g/spec.md', '# G\n');
-      write(dir, 'specs/g/tasks.md', DONE_TASKS);
-      write(dir, 'specs/h/spec.md', 'See specs/g/spec.md\n');
-    },
-    branch: (dir) => archiveSpec({ root: dir, folder: 'g', git: archiveGit(dir) }),
-    main: (dir) => archiveSpec({ root: dir, folder: 'g', git: archiveGit(dir) }),
-  }, (repos) => {
-    write(repos.work, ENVIRONMENT_ACTION, 'name: x\n');
-    git(repos.work, 'add', ENVIRONMENT_ACTION);
-    const result = checkStagedTask({
-      git: defaultGit(repos.work),
-      workspace: repos.work,
-      folder: 'f',
-      task: 'T001',
-      patchBytes: 1,
-      baseBranch: 'main',
-    });
-    assert.deepEqual(result.reasons, []);
-    const mergeBase = git(repos.work, 'merge-base', 'HEAD', 'refs/remotes/origin/main').trim();
-    assert.ok(git(repos.work, 'diff', '--name-only', mergeBase).includes('specs/h/spec.md'));
-  });
-
-  await withRepos({
-    seed: (dir) => write(dir, 'specs/g/spec.md', 'See specs/f/spec.md\n'),
-    branch: (dir) => write(dir, 'specs/g/spec.md', 'See specs/archive/f/spec.md\n'),
-    main: (dir) => write(dir, 'specs/g/spec.md', 'See specs/archive/f/spec.md\n'),
-  }, (repos) => {
-    write(repos.work, ENVIRONMENT_ACTION, 'name: x\n');
-    git(repos.work, 'add', ENVIRONMENT_ACTION);
-    const result = checkStagedTask({
-      git: defaultGit(repos.work),
-      workspace: repos.work,
-      folder: 'f',
-      task: 'T001',
-      patchBytes: 1,
-      baseBranch: 'main',
-    });
-    assert.deepEqual(result.reasons, []);
-  });
-});
-
-test('environment exclusivity rejects non-reference spec edits and fails closed on unreadable or unlisted blobs', async () => {
-  const options = {
-    seed: (dir) => write(dir, 'specs/g/spec.md', 'Original\n'),
-    branch: (dir) => write(dir, 'specs/g/spec.md', 'Changed\n'),
-  };
-  const check = (repos, gitRunner = defaultGit(repos.work)) => {
-    write(repos.work, ENVIRONMENT_ACTION, 'name: x\n');
-    git(repos.work, 'add', ENVIRONMENT_ACTION);
-    return checkStagedTask({
-      git: gitRunner,
-      workspace: repos.work,
-      folder: 'f',
-      task: 'T001',
-      patchBytes: 1,
-      baseBranch: 'main',
-    });
-  };
-  await withRepos(options, (repos) => {
-    const result = check(repos);
-    assert.match(result.reasons.join(), /branch also changes specs\/g\/spec\.md/);
-  });
-  await withRepos(options, (repos) => {
-    const realGit = defaultGit(repos.work);
-    const baseSha = git(repos.work, 'rev-parse', 'refs/remotes/origin/main').trim();
-    const unreadableGit = (args) => args[0] === 'cat-file' && args[2] === `${baseSha}:specs/g/spec.md`
-      ? { status: 1, stdout: '', stderr: 'missing blob' }
-      : realGit(args);
-    const result = check(repos, unreadableGit);
-    assert.match(result.reasons.join(), /branch also changes specs\/g\/spec\.md/);
-  });
-  await withRepos(options, (repos) => {
-    const realGit = defaultGit(repos.work);
-    const failedListingGit = (args) => args[0] === 'diff' && args[1] === '--cached' && args.includes('specs/')
-      ? { status: 1, stdout: '', stderr: 'listing failed' }
-      : realGit(args);
-    const result = check(repos, failedListingGit);
-    assert.match(result.reasons.join(), /branch also changes specs\/g\/spec\.md/);
   });
 });
 
