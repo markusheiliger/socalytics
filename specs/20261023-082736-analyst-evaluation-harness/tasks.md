@@ -249,7 +249,7 @@ fact on its second run fails the determinism check for exactly that clip.
 
 ### US3 modules
 
-- [ ] T038 [P] [US3] Implement `HARNESS/src/analyst_evaluation_harness/determinism.py`: compare runs 2..n with run 1 on
+- [x] T038 [P] [US3] Implement `HARNESS/src/analyst_evaluation_harness/determinism.py`: compare runs 2..n with run 1 on
   the canonical form of the facts, byte-identical when no tolerance is declared for the kind, otherwise `startMs` and
   `endMs` within `positionMs` and `confidence` and numeric payload leaves within `numeric` while fact counts, kinds,
   and non-numeric values must be equal; return `differences[]` (`clipId`, `run`, `category` or `factIndex`, `field`)
