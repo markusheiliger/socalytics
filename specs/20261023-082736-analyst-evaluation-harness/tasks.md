@@ -165,7 +165,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
 
 ### US1 tests
 
-- [ ] T024 [P] [US1] Add `HARNESS/tests/test_matching.py` (exact, tolerance, range, payload, one-to-one pairing with
+- [x] T024 [P] [US1] Add `HARNESS/tests/test_matching.py` (exact, tolerance, range, payload, one-to-one pairing with
   ties, unlabelled facts, empty label list measuring false positives)
 - [x] T025 [P] [US1] Add `HARNESS/tests/test_metrics.py` (counts and ratios by hand, undefined handling, a failed clip
   counted as misses, no cross-profile aggregate)
