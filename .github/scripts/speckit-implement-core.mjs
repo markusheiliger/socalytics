@@ -168,6 +168,11 @@ export const ATTENTION_LABEL = 'help wanted';
 // that is still being reviewed) carries BLOCKED_LABEL instead of ATTENTION_LABEL. It is only added together with a
 // comment that says what it waits for and how it is unblocked (setBlocked), and lifted by maintainDependencyBlock.
 export const BLOCKED_LABEL = 'blocked';
+// The implementations whose merge unblocks the most others (Spec Kit orchestrate, maintainRoadblocks): not blocked
+// themselves, ranked by how many implementations wait for them, also through chains. It is added together with a
+// comment that names the waiting implementations, and moves with the queue on every scheduler run.
+export const ROADBLOCK_LABEL = 'roadblock';
+export const ROADBLOCK_MARKER = '<!-- speckit-implement:roadblock -->';
 const BLOCKED_MARKER_PATTERN = /<!-- speckit-implement:blocked (\{[^\n]*?\}) -->/g;
 export const renderBlockedMarker = (key) => `<!-- speckit-implement:blocked ${JSON.stringify(key)} -->`;
 // Ends a block: the comment that lifts it carries this marker, so the lift (and its retry) happens once per block.
