@@ -40,6 +40,7 @@ class ClipEvaluation:
     failure_category: str | None = None
     fact_count: int | None = None
     pairings: Sequence[Pairing] = field(default_factory=tuple)
+    comparator: ClipEvaluation | None = None
 
     @property
     def failed(self) -> bool:

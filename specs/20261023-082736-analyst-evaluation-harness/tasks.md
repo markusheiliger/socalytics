@@ -210,7 +210,7 @@ comparator, and never presents a missing comparison as passed.
 
 ### US2 orchestration, report, and output
 
-- [ ] T032 [US2] Extend `HARNESS/src/analyst_evaluation_harness/evaluate.py` to run the declared comparator (built-in
+- [x] T032 [US2] Extend `HARNESS/src/analyst_evaluation_harness/evaluate.py` to run the declared comparator (built-in
   or capability reference through the same staging, runner, matching, and metrics path) on the same clips, recording an
   unrunnable clip as an incomplete comparator result
 - [ ] T033 [US2] Extend `HARNESS/src/analyst_evaluation_harness/report.py` with the `comparator` section (`kind`

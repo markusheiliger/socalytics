@@ -5,23 +5,26 @@ from __future__ import annotations
 import json
 import platform
 import re
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .canonical import canonical_bytes
-from .config import ConfigRefusal, EvaluationConfig, capability_reference_mode, parse_config
+from .config import Comparator, ConfigRefusal, EvaluationConfig, capability_reference_mode, parse_config
 from .corpus import Clip, CorpusManifest, load_corpus
 from .facts import EXECUTION_FAILED
 from .matching import failed_clip_pairing, pair_clip
 from .report import ClipEvaluation, build_report, report_bytes, verify_report
-from .runners import ExecutionOutcome, ensure_image_present, run_container, run_subprocess
+from .runners import ExecutionOutcome, ensure_image_present, run_builtin, run_container, run_subprocess
 from .staging import OUTPUT_TYPES, StagingError, stage_mount
 
 REPORT_FILE_NAME = "report.json"
 RUNS_FOLDER_NAME = "runs"
 OUTCOME_FILE_NAME = "outcome.json"
+COMPARATOR_OUTCOME_FILE_NAME = "comparator-outcome.json"
+COMPARATOR_CAPABILITY_ID = "comparator"
 IMAGE_EVALUATED = "evaluated as an image"
 IMAGE_NOT_EVALUATED = "not evaluated as an image"
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
@@ -100,22 +103,44 @@ def _check_subject(subject: Subject) -> str:
     return mode
 
 
+def _comparator_subject(comparator: Comparator) -> Subject:
+    return Subject(
+        reference=comparator.reference or "",
+        capability_id=COMPARATOR_CAPABILITY_ID,
+        capability_version=comparator.version or "",
+        output_type=comparator.output_type or "",
+    )
+
+
+def _comparator_record(comparator: Comparator | None, mode: str | None) -> dict[str, Any] | None:
+    if comparator is None:
+        return None
+    if comparator.kind == "builtin":
+        return {"kind": "builtin", "rule": comparator.rule}
+    assert mode is not None
+    return {"kind": "capability", "subject": _subject_record(_comparator_subject(comparator), mode)}
+
+
 def _safe_name(index: int, clip_id: str) -> str:
     return f"{index:03d}-{_UNSAFE.sub('_', clip_id)}"[:120]
 
 
+def _stage(subject: Subject, clip: Clip, run_folder: Path, name: str):
+    return stage_mount(
+        run_folder,
+        name,
+        clip_file=clip.path,
+        match_start_ms=clip.match_start_ms,
+        duration_ms=clip.duration_ms,
+        capability_id=subject.capability_id,
+        capability_version=subject.capability_version,
+        output_type=subject.output_type,
+    )
+
+
 def _execute(subject: Subject, mode: str, clip: Clip, run_folder: Path, time_limit: int) -> ExecutionOutcome:
     try:
-        mount = stage_mount(
-            run_folder,
-            "subject-run-1",
-            clip_file=clip.path,
-            match_start_ms=clip.match_start_ms,
-            duration_ms=clip.duration_ms,
-            capability_id=subject.capability_id,
-            capability_version=subject.capability_version,
-            output_type=subject.output_type,
-        )
+        mount = _stage(subject, clip, run_folder, "subject-run-1")
     except StagingError:
         return ExecutionOutcome(status="failed", failure_category=EXECUTION_FAILED, duration_ms=0)
     if mode == "container":
@@ -123,7 +148,20 @@ def _execute(subject: Subject, mode: str, clip: Clip, run_folder: Path, time_lim
     return run_subprocess(subject.reference, mount, run_folder, time_limit)
 
 
-def _write_outcome(run_folder: Path, clip: Clip, outcome: ExecutionOutcome) -> None:
+def _execute_builtin(
+    rule: str, subject: Subject, clip: Clip, run_folder: Path, label_kinds: Iterable[str]
+) -> ExecutionOutcome:
+    # The built-in rules need only the staged segment manifest; the subject's output type stages the mount.
+    try:
+        mount = _stage(subject, clip, run_folder, "comparator-run-1")
+    except StagingError:
+        return ExecutionOutcome(status="failed", failure_category=EXECUTION_FAILED, duration_ms=0)
+    return run_builtin(rule, mount, label_kinds)
+
+
+def _write_outcome(
+    run_folder: Path, clip: Clip, outcome: ExecutionOutcome, file_name: str = OUTCOME_FILE_NAME
+) -> None:
     facts = outcome.facts
     document: dict[str, Any] = {
         "clipId": clip.clip_id,
@@ -137,22 +175,11 @@ def _write_outcome(run_folder: Path, clip: Clip, outcome: ExecutionOutcome) -> N
         document["exitCode"] = outcome.exit_code
     if facts is not None and facts.reason is not None:
         document["reason"] = facts.reason
-    (run_folder / OUTCOME_FILE_NAME).write_bytes(canonical_bytes(document) + b"\n")
+    (run_folder / file_name).write_bytes(canonical_bytes(document) + b"\n")
 
 
-def _evaluate_clip(
-    subject: Subject,
-    mode: str,
-    clip: Clip,
-    index: int,
-    runs_folder: Path,
-    config: EvaluationConfig,
-) -> ClipEvaluation:
-    run_folder = runs_folder / _safe_name(index, clip.clip_id)
-    run_folder.mkdir()
+def _to_evaluation(clip: Clip, outcome: ExecutionOutcome, config: EvaluationConfig) -> ClipEvaluation:
     kinds = list(config.label_kinds)
-    outcome = _execute(subject, mode, clip, run_folder, config.time_limit_seconds)
-    _write_outcome(run_folder, clip, outcome)
     if outcome.status != "succeeded" or outcome.facts is None or outcome.facts.facts is None:
         return ClipEvaluation(
             clip_id=clip.clip_id,
@@ -170,6 +197,34 @@ def _evaluate_clip(
         fact_count=len(facts),
         pairings=pair_clip(clip.labels, facts, tolerances, kinds),
     )
+
+
+def _evaluate_clip(
+    subject: Subject,
+    mode: str,
+    clip: Clip,
+    index: int,
+    runs_folder: Path,
+    config: EvaluationConfig,
+    comparator: Comparator | None = None,
+    comparator_mode: str | None = None,
+) -> ClipEvaluation:
+    run_folder = runs_folder / _safe_name(index, clip.clip_id)
+    run_folder.mkdir()
+    outcome = _execute(subject, mode, clip, run_folder, config.time_limit_seconds)
+    _write_outcome(run_folder, clip, outcome)
+    evaluation = _to_evaluation(clip, outcome, config)
+    if comparator is None:
+        return evaluation
+    # An unrunnable clip is an incomplete comparator result, never a skipped one.
+    if comparator.kind == "builtin":
+        assert comparator.rule is not None
+        compared = _execute_builtin(comparator.rule, subject, clip, run_folder, config.label_kinds)
+    else:
+        assert comparator_mode is not None
+        compared = _execute(_comparator_subject(comparator), comparator_mode, clip, run_folder, config.time_limit_seconds)
+    _write_outcome(run_folder, clip, compared, COMPARATOR_OUTCOME_FILE_NAME)
+    return replace(evaluation, comparator=_to_evaluation(clip, compared, config))
 
 
 def _corpus_kinds(corpus: CorpusManifest) -> set[str]:
@@ -191,6 +246,9 @@ def evaluate(
     corpus = load_corpus(corpus_path if corpus_path.is_file() else corpus_path / "corpus-manifest.json")
     configuration, config = _load_config_data(Path(config_path), _corpus_kinds(corpus))
     mode = _check_subject(subject)
+    comparator_mode = None
+    if config.comparator is not None and config.comparator.kind == "capability":
+        comparator_mode = _check_subject(_comparator_subject(config.comparator))
 
     output = Path(output_directory)
     runs_folder = output / RUNS_FOLDER_NAME
@@ -200,7 +258,7 @@ def evaluate(
 
     started = _now()
     clips = [
-        _evaluate_clip(subject, mode, clip, index, runs_folder, config)
+        _evaluate_clip(subject, mode, clip, index, runs_folder, config, config.comparator, comparator_mode)
         for index, clip in enumerate(corpus.clips, start=1)
     ]
     finished = _now()
@@ -210,6 +268,7 @@ def evaluate(
         subject=_subject_record(subject, mode),
         configuration=configuration,
         clips=clips,
+        comparator=_comparator_record(config.comparator, comparator_mode),
         run={
             "startedAt": _timestamp(started),
             "finishedAt": _timestamp(finished),
