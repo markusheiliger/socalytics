@@ -446,10 +446,12 @@ An implementation that waits for another spec carries the separate custom `block
 It waits whenever its twin has open blocked-by twins, however the dependency came about (`/speckit author`,
 dependency inference, or a person), and while a spec that `/speckit author` authored is still being written, checked,
 or reviewed. GitHub has no default label for an on-hold state. The label is only added together with a comment that
-starts with **Blocked**: it names what the implementation waits for, what a person needs to do (for each blocker that
-is not requested yet, the ready-to-paste `/speckit implement` for its twin; otherwise nothing while the blockers are
-implemented), which open implementation pull request of each blocker has to be merged first (posted again when a
-blocker's implementation pull request opens), and how it continues (marker `speckit-implement:blocked`); when the
+starts with **Blocked**: it names what the implementation waits for and sorts every blocker into what it needs: a spec
+twin that is not requested yet (**Spec twins to request first**, with the ready-to-paste `/speckit implement` as the
+recommended next step for all of them), an open implementation pull request to merge first (**Implementation pull
+requests to finish first**), or a requested twin whose implementation has not started yet (**Requested, starting by
+itself**; nothing to do). It is posted again when a blocker is requested or its implementation pull request opens, and
+says how the implementation continues (marker `speckit-implement:blocked`); when the
 scheduler reconciles the label on an implementation whose block is not explained yet, it posts the explanation once.
 A blocked implementation never gets `help wanted`; the scheduler does not continue its chain, and a running chain stops
 before its next unit (no retry, no diagnosis) while it waits. The label is removed when the last blocker is

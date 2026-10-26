@@ -817,11 +817,15 @@ export async function setBlocked(client, number, blocked, { explain = null } = {
 }
 
 // Why an implementation waits for the open blocked-by dependencies of its twin, for setBlocked. `blockers` are twin
-// numbers or the twin issues; an issue without an implementation request (isImplementRequested) never starts by
-// itself, so the explanation then recommends requesting it with `/speckit implement` on that twin. `pulls` maps a
-// blocker twin number to the number of its open implementation pull request (explainDependencyBlock); those pull
-// requests are listed as the work that has to be merged first, and are part of the key, so a blocker whose
-// implementation pull request opens later is explained again with it.
+// numbers or the twin issues; `pulls` maps a blocker twin number to the number of its open implementation pull request
+// (explainDependencyBlock). The explanation sorts every blocker into what it needs:
+// - an open implementation pull request: the pull request to finish first; nothing to do here;
+// - no implementation request (isImplementRequested): it never starts by itself, so the explanation recommends
+//   requesting it with `/speckit implement` on its spec twin, for every such blocker;
+// - requested, but its implementation pull request is not open yet: the scheduler starts it; nothing to do;
+// - a bare number (the twin was not read): it waits until the blocker is implemented.
+// The key holds the blockers, the unrequested ones, and the blocking pull requests, so the explanation is posted again
+// when a blocker is requested or its implementation pull request opens.
 export function dependencyBlock(blockers, { pulls = new Map() } = {}) {
   const issues = new Map();
   for (const blocker of blockers) {
@@ -829,42 +833,40 @@ export function dependencyBlock(blockers, { pulls = new Map() } = {}) {
     if (!issues.has(number) || typeof blocker === 'object') issues.set(number, typeof blocker === 'object' ? blocker : null);
   }
   const numbers = [...issues.keys()].sort((a, b) => a - b);
-  const unrequested = numbers.filter((number) => issues.get(number) && !isImplementRequested(issues.get(number)));
-  const list = numbers.map((number) => `#${number}`).join(', ');
+  const pullOf = (number) => (Number.isInteger(pulls.get(number)) ? pulls.get(number) : null);
+  const withPull = numbers.filter((number) => pullOf(number) !== null);
+  const unrequested = numbers.filter((number) => pullOf(number) === null && issues.get(number) && !isImplementRequested(issues.get(number)));
+  const starting = numbers.filter((number) => pullOf(number) === null && issues.get(number) && isImplementRequested(issues.get(number)));
+  const unknown = numbers.filter((number) => pullOf(number) === null && !issues.get(number));
+  const refs = (list) => list.map((number) => `#${number}`).join(', ');
+  const list = refs(numbers);
   const one = numbers.length === 1;
-  const [first, ...others] = unrequested;
-  const request = first
+  const request = unrequested.length > 0
     ? [
       '',
-      `**Recommended next step**: Comment the following on spec twin #${first} to request its implementation.`,
+      `**Recommended next step**: Comment the following on spec twin ${unrequested.length === 1 ? refs(unrequested) : `${refs(unrequested)} (on each)`} to request ${unrequested.length === 1 ? 'its' : 'their'} implementation.`,
       '',
       '```text',
       '/speckit implement',
       '```',
       '',
-      `- **Why**: #${first} is not requested for implementation, so it never starts by itself, and this implementation waits for it.`,
-      `- **What it does**: Checks that #${first} is ready (\`tasked\`, checklists checked), records who requested it, and starts its implementation ahead of other specs. Running \`/speckit-implement <folder>\` locally for its folder does the same.`,
-      ...(others.length > 0 ? [`- ${others.map((number) => `#${number}`).join(', ')} ${others.length === 1 ? 'is' : 'are'} not requested either; comment the same there.`] : []),
+      `- **Why**: ${refs(unrequested)} ${unrequested.length === 1 ? 'is' : 'are'} not requested for implementation and ${unrequested.length === 1 ? 'has' : 'have'} no implementation pull request, so ${unrequested.length === 1 ? 'it never starts' : 'they never start'} by ${unrequested.length === 1 ? 'itself' : 'themselves'}, and this implementation waits for ${unrequested.length === 1 ? 'it' : 'them'}.`,
+      `- **What it does**: Checks that the spec is ready (\`tasked\`, checklists checked), records who requested it, and starts its implementation ahead of other specs. Running \`/speckit-implement <folder>\` locally for its folder does the same.`,
     ]
     : [];
-  const pullOf = (number) => (Number.isInteger(pulls.get(number)) ? pulls.get(number) : null);
-  const blockingPulls = numbers.map(pullOf).filter((pull) => pull !== null);
-  const pullLines = blockingPulls.length > 0
-    ? [
-      '',
-      `**Implementation pull request${blockingPulls.length === 1 ? '' : 's'} to finish first**:`,
-      '',
-      ...numbers.map((number) => (pullOf(number) !== null
-        ? `- #${pullOf(number)} implements #${number}; this implementation resumes once it is merged.`
-        : `- #${number} has no open implementation pull request yet.`)),
-    ]
-    : [];
+  const section = (title, items) => (items.length > 0 ? ['', title, '', ...items] : []);
   return {
-    key: { blockers: numbers, ...(unrequested.length > 0 ? { unrequested } : {}), ...(blockingPulls.length > 0 ? { pulls: blockingPulls } : {}) },
+    key: { blockers: numbers, ...(unrequested.length > 0 ? { unrequested } : {}), ...(withPull.length > 0 ? { pulls: withPull.map(pullOf) } : {}) },
     lines: [
-      `**Blocked** by prerequisite ${list}: the spec twin of this implementation depends on ${one ? 'it' : 'them'}, so this implementation waits instead of continuing.${first ? '' : ' Nothing is needed on this pull request.'}`,
+      `**Blocked** by prerequisite ${list}: the spec twin of this implementation depends on ${one ? 'it' : 'them'}, so this implementation waits instead of continuing.${unrequested.length > 0 ? '' : ' Nothing is needed on this pull request.'}`,
       ...request,
-      ...pullLines,
+      ...section(`**Spec twin${unrequested.length === 1 ? '' : 's'} to request first** (no implementation pull request yet):`,
+        unrequested.map((number) => `- #${number}: not requested; comment \`/speckit implement\` on #${number} to start its implementation.`)),
+      ...section(`**Implementation pull request${withPull.length === 1 ? '' : 's'} to finish first**:`,
+        withPull.map((number) => `- #${pullOf(number)} implements #${number}; this implementation resumes once it is merged.`)),
+      ...section(`**Requested, starting by ${starting.length === 1 ? 'itself' : 'themselves'}**:`,
+        starting.map((number) => `- #${number}: requested for implementation; its implementation pull request opens when the scheduler starts it, and it is listed here then. Nothing to do.`)),
+      ...section('**Other prerequisites**:', unknown.map((number) => `- #${number}: this implementation waits until it is implemented.`)),
       '',
       `- **Unblocks by itself** once ${list} ${one ? 'is' : 'are'} implemented: this implementation then continues with a fresh attempt count on its current phase base.`,
       `- **To follow the prerequisite**: watch ${list} and ${one ? 'its' : 'their'} implementation pull request; if that implementation stops, it asks for help there.`,
