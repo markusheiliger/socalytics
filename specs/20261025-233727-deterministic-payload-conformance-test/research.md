@@ -10,8 +10,8 @@
 
 ## Decision
 
-- **Decision**: Wait on the database-observable publication state of the run (all expected ready-work rows exist, no row `pending`, a `failed` or `discarded` row fails with its category), then read one id snapshot and both streams.
-- **Rationale**: It is the observable condition the assertions depend on; it removes the premature read and the staggered reads without a sleep or a longer limit, and it fails with the unpublished rows named instead of a generic timeout.
+- **Decision**: Wait on the database-observable publication state of the run (the `run_id`-based message set of the run, every node of the pinned snapshot has a settled logical job, no row `pending`, a `failed` or `discarded` row fails at once with its category, and on cancellation a failure lists the `pending` rows), then read one id snapshot and both streams.
+- **Rationale**: It is the observable condition the assertions depend on; it removes the premature read and the staggered reads without a sleep or a longer limit, and it fails with the unpublished rows named (the same condition as plan.md Design step 2 and data-model.md) instead of a generic timeout.
 - **Alternatives considered**: Waiting for a fixed count of messages (couples the test to run shape and hides a missing message); a longer loop or retry (rejected by the spec); purging streams before the test (only if the shared-state hypothesis is proven); changing the publisher to publish a run atomically (changes production behavior, rejected by FR-006).
 
 ## Evidence

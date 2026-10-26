@@ -25,7 +25,7 @@ Start one busy-loop process per core, run the same command at least 10 consecuti
 
 ## Scenario 3: Deliberate race widening
 
-Temporarily delay the publication of one message of the run test-side (for example a not-yet-due outbox row) and run the old test: it fails. Run the fixed test: it passes. Remove the delay afterward (FR-001).
+Temporarily delay the publication of all but the first ready-work row of the run test-side (for example not-yet-due outbox rows) and run the old test: it fails. Run the fixed test: it passes. Remove the delay afterward (FR-001).
 
 ## Scenario 4: Probes still fail the test
 
@@ -33,8 +33,12 @@ Each of these temporary probes makes `PublishedMessagesConformToTheirSchemasAndC
 
 ## Scenario 5: Unpublished messages are named
 
-With a row of the run that cannot be published (a probe), the test fails naming the row and its last failure category instead of hanging or asserting on a partial set. Remove the probe.
+With a row of the run that cannot be published (a probe), the test fails naming the row and its last failure category instead of hanging or asserting on a partial set. Also hold one row of the run `pending` (not due): the test fails through the wait's own failure naming the row (id, `message_type`, `subject`, `attempt_count`, `failure_category`, `next_attempt_at`) instead of the generic xUnit timeout. Remove the probes.
 
-## Scenario 6: Other users of a changed helper
+## Scenario 6: Test order and mid-test failure isolation
+
+Run each test of the class alone first and the other afterwards, in both orders, in separate `--filter` invocations; then make `PublishedMessagesConformToTheirSchemasAndCarryScopeIdentity` fail mid-test with a temporary edit and run the other test immediately afterwards. Expected: the other test passes. Remove the temporary edit.
+
+## Scenario 7: Other users of a changed helper
 
 If a shared helper changed, run the integration tests that use it (`--filter "FullyQualifiedName~Analysis"` as needed) and confirm they pass.
