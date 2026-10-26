@@ -216,9 +216,11 @@ comparator, and never presents a missing comparison as passed.
 - [x] T033 [US2] Extend `HARNESS/src/analyst_evaluation_harness/report.py` with the `comparator` section (`kind`
   `builtin`, `capability`, or `not-declared`, rule or reference and version, capability lineage fields), comparator
   metrics, label-kind verdicts, the profile verdict, `gates`, and `thresholdVerdicts`
+
 > T034 (printing one line per gate and keeping exit 0 when a gate failed or is not evidenced, FR-019) was removed: T023
-> already implemented that behavior in `__main__.py` and `test_cli.py` covers it, so the task had no change left to
-> make and stopped the implementation after two attempts without changes. T033 provides the `gates` entries it prints.
+> already implemented that behavior in `__main__.py`, so the task had no code change left to make and stopped the
+> implementation after two attempts without changes. T033 provides the `gates` entries it prints, and T037 asserts the
+> output.
 
 ### US2 tests
 
@@ -231,7 +233,8 @@ comparator, and never presents a missing comparison as passed.
 - [ ] T037 [P] [US2] Add `HARNESS/tests/test_comparison.py` (no comparator gives `not declared` and not evidenced;
   verdicts that differ by profile, SC-005; a failed subject or comparator clip makes that profile not evidenced even when
   the metrics favor the capability; a profile with one `did-not-beat` kind and one undefined kind is `not-evidenced`;
-  builtin and capability comparators scored identically)
+  builtin and capability comparators scored identically; the `evaluate` command prints one `<gate>: <status>` line per
+  report gate and exits 0 although a gate failed or is not evidenced, FR-019)
 
 **Checkpoint**: User Stories 1 and 2 work independently.
 
