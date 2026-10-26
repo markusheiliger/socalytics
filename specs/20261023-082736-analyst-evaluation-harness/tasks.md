@@ -101,7 +101,7 @@ every story uses.
   refused)
 - [ ] T012 [P] Add `HARNESS/tests/test_corpus_validation.py` (every refusal of T006 reported at once, a clip with an
   empty label list is valid, a corpus of one profile is valid, a changed clip names that clip)
-- [ ] T013 [P] Add `HARNESS/tests/test_config.py` (defaults, every refusal of T007 including the missing primary
+- [x] T013 [P] Add `HARNESS/tests/test_config.py` (defaults, every refusal of T007 including the missing primary
   metric and the unknown comparator rule)
 - [x] T014 [P] Add `HARNESS/tests/test_staging.py` (the mount layout, `job.json` and `attempt.json` accepted by the SDK
   models, fresh directories per run, nothing written outside the run folder)
