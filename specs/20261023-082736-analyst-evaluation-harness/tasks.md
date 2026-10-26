@@ -47,7 +47,7 @@ subprocess, fake-engine container, and end-to-end).
 
 ### Lock
 
-- [ ] T004 Add `HARNESS/tests/test_project_layout.py` with tests that the committed project declarations hold: `HARNESS/uv.lock`
+- [x] T004 Add `HARNESS/tests/test_project_layout.py` with tests that the committed project declarations hold: `HARNESS/uv.lock`
   exists, `pyproject.toml` (read with `tomllib`) declares `requires-python = ">=3.12,<3.13"`, the dependencies
   `socalytics-analyst-sdk` and `jsonschema`, the `[tool.uv.sources]` path `../../sdk`, and the dev group
   `hatchling`, `pytest`, and `socalytics-reference-media-probe`, and that `HARNESS/src/analyst_evaluation_harness/`
