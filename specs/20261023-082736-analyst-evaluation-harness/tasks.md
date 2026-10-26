@@ -148,7 +148,7 @@ result per clip, metrics for both profiles separately, and the planted discrepan
 
 ### US1 report and orchestration
 
-- [ ] T021 [US1] Implement `HARNESS/src/analyst_evaluation_harness/report.py`: assemble `reportVersion` `1.0.0`,
+- [x] T021 [US1] Implement `HARNESS/src/analyst_evaluation_harness/report.py`: assemble `reportVersion` `1.0.0`,
   `corpus`, `subject`, `comparator` (`not-declared` until US2), `configuration`, `clips[]` with pairing results per
   label kind, and `profiles` with metrics per label kind and a profile `status` (`evidenced` or `not-evidenced` for a
   missing profile); `run` as the non-identity section; `identity` over the report without `identity` and `run`; a
