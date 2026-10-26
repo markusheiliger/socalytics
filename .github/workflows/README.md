@@ -425,6 +425,14 @@ and merge. Alternatives stay collapsed. Correctable findings trigger automatic c
 while automation is running, no action is needed yet. This goal never bypasses required verification or makes a
 failed or missing analysis a reason to merge.
 
+When the remedy is a change only a push to the implementation branch can make (another spec's folder, a protected
+path, or the change a person's decision needs), a `decision` diagnosis recommends a ready-to-paste `@copilot` prompt
+instead of describing the change: posted as a comment, it has GitHub Copilot's cloud agent (enabled for the
+repository) push the change to the pull request's branch, and that push continues the implementation by itself like
+any push that is not by `github-actions[bot]`. The prompt names the files, the exact change, and how to check it; the
+comment adds a fixed scope (only this change, no task ticks, no other pull request). A `/speckit retry` that is refused
+after unchanged restarts recommends the latest diagnosis' `@copilot` request when it has one.
+
 Implementation, amendment, and authored spec pull requests carry GitHub's default label `help wanted` ("Extra attention is
 needed") while they wait for a person, and lose it as soon as a person's action puts automation back to work or the
 pull request is merged or closed. The label is a convenience; the comments and check runs stay authoritative.

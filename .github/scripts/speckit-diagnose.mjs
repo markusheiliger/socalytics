@@ -24,6 +24,7 @@ import {
   MAX_STALLED_ROUNDS,
   MAX_WRITER_GUIDANCE,
   PR_COMMANDS,
+  MAX_COPILOT_PROMPT,
   RECOMMENDABLE_COMMANDS,
   amendmentBranch,
   baseBranchOf,
@@ -347,6 +348,19 @@ export function validateReport(raw, { requireCategory = true } = {}) {
       option.command = command;
     }
   }
+  for (const option of normalized.options) {
+    if (!option.copilot) continue;
+    const prompt = option.copilot.replace(/^@copilot\b[\s,:]*/i, '').trim();
+    if (option.command) {
+      reasons.push(`option "${option.title}" has both a command and a Copilot prompt; the command is kept`);
+      option.copilot = null;
+    } else if (!prompt || prompt.length > MAX_COPILOT_PROMPT || prompt.includes('```') || prompt.match(PLACEHOLDER_PATTERN)) {
+      reasons.push(`option "${option.title}" has an invalid Copilot prompt`);
+      option.copilot = null;
+    } else {
+      option.copilot = prompt;
+    }
+  }
   // Exactly one recommendation: the first one the agent marked.
   let recommended = false;
   for (const option of normalized.options) {
@@ -360,7 +374,7 @@ export function validateReport(raw, { requireCategory = true } = {}) {
   return { reasons, report: normalized };
 }
 
-// One option of a report: { title, why, command, recommended }. An option given as plain text (agents sometimes write
+// One option of a report: { title, why, command, copilot, recommended }. An option given as plain text (agents sometimes write
 // the option as one sentence) keeps its first sentence as the title, the rest as why, and a `/speckit` command it
 // mentions as its command. Options without a usable title are dropped with a reason.
 function normalizeOption(item, index, reasons) {
@@ -376,6 +390,7 @@ function normalizeOption(item, index, reasons) {
       // A sentence that only marks the option as recommended says nothing about why it helps.
       why: clip(rest.filter((sentence) => !/\brecommended\b/i.test(sentence)).join(' '), 400),
       command: match ? (match[1] ?? match[2]).trim() : null,
+      copilot: null,
       recommended: /\brecommended\b/i.test(value) && !/\bnot recommended\b/i.test(value),
     };
   }
@@ -386,7 +401,13 @@ function normalizeOption(item, index, reasons) {
   }
   const why = text(item?.why, 400);
   if (!why) reasons.push(`option "${clip(title, 120)}" does not say why it helps`);
-  return { title, why, command: typeof item?.command === 'string' ? item.command.trim() : null, recommended: item?.recommended === true };
+  return {
+    title,
+    why,
+    command: typeof item?.command === 'string' && item.command.trim() ? item.command.trim() : null,
+    copilot: typeof item?.copilot === 'string' && item.copilot.trim() ? clip(item.copilot.trim(), MAX_COPILOT_PROMPT + 1) : null,
+    recommended: item?.recommended === true,
+  };
 }
 
 // A command whose text after the verb is only a placeholder (`/speckit retry <guidance>`) is reduced to the bare
@@ -520,6 +541,10 @@ function defaultRecommendation(report) {
   }
 }
 
+// The categories whose remedy can be a change a person (or Copilot's cloud agent for them) pushes to the implementation
+// branch: a decision a person took, carried out as a commit.
+export const COPILOT_CATEGORIES = Object.freeze(['decision']);
+
 // The options of a diagnosis comment with exactly one recommendation that fits the category: the agent's recommended
 // option when its command fits, else its first option that fits, else the category's default. An agent recommendation
 // that does not fit stays as another option, with a note. With an amendment, the amendment is the recommendation.
@@ -532,7 +557,8 @@ export function recommendNextSteps(report, { amendment = null, repeated = null }
     return { options, notes, adjusted };
   }
   const repeats = (option) => Boolean(repeated) && parseNextCommand(option.command)?.verb === repeated.verb;
-  const fits = (option) => Boolean(option.command) && CATEGORY_COMMANDS[report.category].includes(parseNextCommand(option.command)?.verb) && !repeats(option);
+  const fits = (option) => (Boolean(option.command) && CATEGORY_COMMANDS[report.category].includes(parseNextCommand(option.command)?.verb) && !repeats(option))
+    || (Boolean(option.copilot) && COPILOT_CATEGORIES.includes(report.category));
   const agentPick = options.find((option) => option.recommended) ?? null;
   if (agentPick && fits(agentPick)) return { options, notes, adjusted };
   if (agentPick) {
@@ -547,6 +573,12 @@ export function recommendNextSteps(report, { amendment = null, repeated = null }
   if (fitting) {
     fitting.recommended = true;
     return { options: [fitting, ...options.filter((option) => option !== fitting)], notes, adjusted };
+  }
+  // A command that already failed the same way is replaced by a change only a push can make, when the report has one.
+  const pushed = repeated ? options.find((option) => option.copilot) : null;
+  if (pushed) {
+    pushed.recommended = true;
+    return { options: [pushed, ...options.filter((option) => option !== pushed)], notes, adjusted };
   }
   const fallback = repeated ? defaultRecommendation({ ...report, category: 'outside' }) : defaultRecommendation(report);
   if (repeated && parseNextCommand(fallback.command)?.verb === repeated.verb) return { options, notes, adjusted };
@@ -600,7 +632,7 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
     });
   }
   const pending = amendment ? { number: amendment.number, title: amendment.title ?? null, html_url: amendment.html_url ?? null, status: 'being checked for consistency first' } : null;
-  const shown = options.map((option) => ({ ...option, title: safe(option.title), why: safe(option.why ?? ''), command: option.command ? safe(option.command) : null }));
+  const shown = options.map((option) => ({ ...option, title: safe(option.title), why: safe(option.why ?? ''), command: option.command ? safe(option.command) : null, copilot: option.copilot ? safe(option.copilot) : null }));
   lines.push('', ...renderNextSteps({ ...context, options: shown, amendment: pending }));
   const adjusted = [...reasons, ...notes, ...repeatNotes];
   if (adjusted.length > 0) lines.push('', `_Parts of the report were adjusted: ${adjusted.map(safe).join('; ')}._`);
@@ -644,8 +676,8 @@ export async function runRecord({ client, env, log }) {
   const repeated = repeatedFailure(comments, implementation.head?.sha);
   const recommendationProblems = report?.category ? recommendNextSteps(report, { amendment, repeated }).notes : [];
   reasons.push(...recommendationProblems);
-  if (report?.category && !amendment && !report.options.some((option) => option.recommended && option.command)) {
-    reasons.push('the report must recommend one actionable command that fits its category');
+  if (report?.category && !amendment && !report.options.some((option) => option.recommended && (option.command || option.copilot))) {
+    reasons.push('the report must recommend one actionable command (or, for `decision`, a Copilot prompt) that fits its category');
   }
   const usable = report && report.category && reasons.length === 0 ? report : null;
   const round = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).length + 1;
@@ -849,8 +881,8 @@ export function checkReportFile(file, log = console.log) {
   const { reasons, report } = validateReport(readFileSync(file, 'utf8'));
   const notes = report?.category ? recommendNextSteps(report).notes : [];
   if (report?.category && report.category !== 'artifacts' &&
-      !report.options.some((option) => option.recommended && option.command)) {
-    notes.push('the report must recommend one actionable command that fits its category');
+      !report.options.some((option) => option.recommended && (option.command || option.copilot))) {
+    notes.push('the report must recommend one actionable command (or, for `decision`, a Copilot prompt) that fits its category');
   }
   const problems = [...reasons, ...notes];
   log(problems.length > 0 ? `Fix these problems before you report:\n${problems.map((item) => `- ${item}`).join('\n')}` : 'The report is valid.');
