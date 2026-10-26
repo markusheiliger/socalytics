@@ -294,7 +294,7 @@ harness validates the result and evaluates `reference-media-probe` with both bui
 
 ### Corpus generation script
 
-- [ ] T045 [US4] Implement `HARNESS/scripts/generate_corpus.py --output <empty dir>`: four clips per profile with
+- [x] T045 [US4] Implement `HARNESS/scripts/generate_corpus.py --output <empty dir>`: four clips per profile with
   `ffmpeg` `testsrc2` (`-c:v mpeg4 -threads 1 -fflags +bitexact -flags:v +bitexact -map_metadata -1 -an`, keyframe
   interval equal to the frame rate), `fixed` at 25 fps, 64x64, `matchStartMs` 0, and `broadcast` at 30 fps, 128x72, a
   non-zero `matchStartMs`, durations 5 and 6 seconds, one `frame-second-probe` label per match-second with
