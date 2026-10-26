@@ -103,7 +103,7 @@ every story uses.
   empty label list is valid, a corpus of one profile is valid, a changed clip names that clip)
 - [ ] T013 [P] Add `HARNESS/tests/test_config.py` (defaults, every refusal of T007 including the missing primary
   metric and the unknown comparator rule)
-- [ ] T014 [P] Add `HARNESS/tests/test_staging.py` (the mount layout, `job.json` and `attempt.json` accepted by the SDK
+- [x] T014 [P] Add `HARNESS/tests/test_staging.py` (the mount layout, `job.json` and `attempt.json` accepted by the SDK
   models, fresh directories per run, nothing written outside the run folder)
 - [ ] T015 [P] Add `HARNESS/tests/test_facts.py` (valid facts, invalid result, each failure category)
 - [ ] T016 [P] Add `HARNESS/tests/test_schemas.py` (the three schemas are valid JSON Schema 2020-12 and equal the
