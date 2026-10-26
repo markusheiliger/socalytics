@@ -1,0 +1,14 @@
+# Data Model: Remove the Remaining Flakiness of the Club Structure Browser Test
+
+The feature adds no persisted entity, table, or contract. These are the pieces of state the test depends on and that the fix may have to isolate.
+
+| State | Owner | Rule the test relies on |
+| --- | --- | --- |
+| Club Admin account `club-admin` | platform instance of the chained platform projects | Its password is the one `session.spec.ts` sets; the project runs after `platform-session`. |
+| Active season | club (at most one) | None is active when the test starts and none when it ends, even on failure; both are established through the club structure operations (FR-007). |
+| Season `E2E structure <run>` | created by the test | Draft after creation, `Active` after activation, archived by the cleanup. |
+| Teams `E2E first/second/renamed <run>` | created by the test | The second team is renamed; its old name is absent from the refreshed list. |
+| Run identifier `<run>` | test | Unique per attempt, so a rerun or repeat does not see the data of a previous attempt. |
+| Client query cache (`seasons`, `teams` lists, `teams item`) | Web UI | Stale-while-revalidate; a remounted list shows cached data before its refetch resolves. |
+
+State transition under test: `no season → Draft season → Active season → two teams → second team renamed → list shows renamed and first team, not the second`.
