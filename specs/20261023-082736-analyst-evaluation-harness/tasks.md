@@ -277,7 +277,7 @@ fact on its second run fails the determinism check for exactly that clip.
   `not-evidenced`)
 - [ ] T043 [P] [US3] Add `HARNESS/tests/test_lineage_gates.py` (image digest present versus not evaluated as an image,
   determinism not evidenced with one repetition, gates never passed without evidence, SC-004)
-- [ ] T044 [P] [US3] Add `HARNESS/tests/test_report_identity.py` (two evaluations of the same inputs yield the same
+- [x] T044 [P] [US3] Add `HARNESS/tests/test_report_identity.py` (two evaluations of the same inputs yield the same
   identity and identical content outside `run`; changing one byte of the report makes `verify-report` fail, SC-002)
 
 **Checkpoint**: User Stories 1 to 3 work independently.
