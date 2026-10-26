@@ -74,4 +74,10 @@ elements" while preparing the failed segment) and Analysis/Evidence/EvidencePart
 Both passed when run again in isolation (10 of 10 passed with their classes), so they are load-sensitive and unrelated to the analysis
 telemetry; they were neither changed nor retried inside a run. The whole project was then run once more in one run. Result: Passed 1945,
 Failed 0, Skipped 1 (LargeRecordingUploadTests, skipped by design), Total 1946; every test passes.
+
+Architecture confirmation (T010): the plan's Architecture Updates section says None. docs/architecture/ was searched for statements
+about the scheduling of the analysis telemetry tests (xUnit, test collection, AnalysisTelemetry, parallelization, CollectionBehavior,
+FactPayloadTelemetry, non-parallel, DisableParallelization). The only test statements are the xUnit v3 tool lists in
+platform-implementation.md ("Test And Observability Baseline") and tenancy-and-technology.md; neither describes how integration
+tests are scheduled, so no statement became false and no architecture file was changed.
 */
