@@ -97,7 +97,7 @@ every story uses.
 
 ### Foundational tests
 
-- [ ] T011 [P] Add `HARNESS/tests/test_canonical.py` (key order independence, rounding, identity stability, NaN
+- [x] T011 [P] Add `HARNESS/tests/test_canonical.py` (key order independence, rounding, identity stability, NaN
   refused)
 - [ ] T012 [P] Add `HARNESS/tests/test_corpus_validation.py` (every refusal of T006 reported at once, a clip with an
   empty label list is valid, a corpus of one profile is valid, a changed clip names that clip)
