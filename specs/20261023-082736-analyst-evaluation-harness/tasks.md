@@ -66,7 +66,7 @@ every story uses.
 
 ### Foundational modules
 
-- [ ] T005 [P] Implement `HARNESS/src/analyst_evaluation_harness/canonical.py`: canonical JSON (UTF-8, sorted keys,
+- [x] T005 [P] Implement `HARNESS/src/analyst_evaluation_harness/canonical.py`: canonical JSON (UTF-8, sorted keys,
   separators `(",", ":")`, `ensure_ascii=False`, NaN refused), metric rounding to six decimals with `Decimal`
   `ROUND_HALF_EVEN`, and `sha-256:<hex>` identity of canonical bytes (research R4)
 - [ ] T006 [P] Implement `HARNESS/src/analyst_evaluation_harness/corpus.py`: manifest model, validation against
