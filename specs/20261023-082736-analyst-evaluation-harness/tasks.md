@@ -86,7 +86,7 @@ every story uses.
   `attempt.json`, `media/segment-manifest.json` and `media/segment.mp4` copied from the clip, empty `result/` and
   `scratch/`), with the attempt's `outputType` taken from the subject (research R2); writes only inside the given run
   folder
-- [ ] T009 [P] Implement `HARNESS/src/analyst_evaluation_harness/facts.py`: read and validate
+- [x] T009 [P] Implement `HARNESS/src/analyst_evaluation_harness/facts.py`: read and validate
   `result/facts.json` with the SDK fact-artifact model, returning the validated fact list or the category
   `invalid-result`; classify failure categories (the SDK line `socalytics-analyst: failed <category>` on standard
   error, `timeout`, `invalid-result`, `execution-failed`) per research R8
