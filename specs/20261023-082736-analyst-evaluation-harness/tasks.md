@@ -352,7 +352,7 @@ harness validates the result and evaluates `reference-media-probe` with both bui
   evidence paragraph: name the harness as a consumer of the reference image only as the implemented text says, and keep
   the statement that the capability passes no gate); re-read `docs/architecture/` for any other planned, future-tense,
   or unimplemented statement about the harness and correct it, leaving `analyst-capability-catalog.md` to T050
-- [ ] T052 [P] Update `README.md` (structure and Python commands for the harness project, with `capabilities/`
+- [x] T052 [P] Update `README.md` (structure and Python commands for the harness project, with `capabilities/`
   wording) and `src/analysts/README.md` (the `capabilities/` description no longer says it contains only
   `reference-media-probe`)
 - [ ] T053 [P] Update `AGENTS.md` (the Current State paragraph about what exists under `capabilities/`, and the
