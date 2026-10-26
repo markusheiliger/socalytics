@@ -86,6 +86,7 @@ import {
   nextTaskGroup,
   parseGuidance,
   isImplementRunOf,
+  dependencyBlock,
   isTwinRunOf,
   phaseSubject,
   specTitleOfPull,
@@ -944,4 +945,22 @@ test('finds the spec of an implementation branch in specs/ or, once archived for
   assert.match(validateTaskChange({ folder: 'f', archived: true, taskId: 'T001', before, after, changedPaths: ['specs/f/tasks.md'] }).join(), /changed protected paths: specs\/f\/tasks\.md/);
   assert.match(validateAmendment({ folder: 'f', archived: true, changedPaths: ['specs/f/plan.md'], beforeTasks: before, afterTasks: before }).reasons.join(), /may only change files in `specs\/archive\/f\/`/);
   assert.deepEqual(environmentExclusivityReasons({ folder: 'f', branchPaths: ['.github/actions/environment-verify/action.yml', 'specs/archive/f/tasks.md'] }), []);
+});
+test('a Blocked comment tells a blocker with an implementation pull request from a spec twin that needs /speckit implement', () => {
+  const twin = (number, stage = null) => ({ number, labels: stage ? [{ name: `speckit:stage:${stage}` }] : [] });
+  const block = dependencyBlock([twin(77), twin(80, 'implement'), twin(81, 'implementing'), twin(90), 55], { pulls: new Map([[81, 331]]) });
+  const text = block.lines.join('\n');
+  assert.deepEqual(block.key, { blockers: [55, 77, 80, 81, 90], unrequested: [77, 90], pulls: [331] });
+  assert.match(text, /^\*\*Blocked\*\* by prerequisite #55, #77, #80, #81, #90: [^\n]*waits instead of continuing\.\n/, 'something is needed, so it does not say nothing is needed');
+  assert.match(text, /\*\*Recommended next step\*\*: Comment the following on spec twin #77, #90 \(on each\) to request their implementation\.\n\n```text\n\/speckit implement\n```/, 'every unrequested twin is named in the recommendation');
+  assert.match(text, /\*\*Spec twins to request first\*\* \(no implementation pull request yet\):\n\n- #77: not requested; comment `\/speckit implement` on #77 to start its implementation\.\n- #90: [^\n]*on #90/);
+  assert.match(text, /\*\*Implementation pull request to finish first\*\*:\n\n- #331 implements #81; this implementation resumes once it is merged\./);
+  assert.match(text, /\*\*Requested, starting by itself\*\*:\n\n- #80: requested for implementation; [^\n]*Nothing to do\./);
+  assert.match(text, /\*\*Other prerequisites\*\*:\n\n- #55: this implementation waits until it is implemented\./);
+  assert.doesNotMatch(text, /#81: not requested|#80: not requested|#331 implements #80/, 'each blocker appears in exactly one section');
+
+  const waiting = dependencyBlock([twin(80, 'implement')]).lines.join('\n');
+  assert.match(waiting, /waits instead of continuing\. Nothing is needed on this pull request\./);
+  assert.doesNotMatch(waiting, /Recommended next step|to finish first|to request first/);
+  assert.match(waiting, /\*\*Requested, starting by itself\*\*/);
 });
