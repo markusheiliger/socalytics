@@ -81,7 +81,7 @@ every story uses.
   `primaryMetric`, unknown comparator rule, negative tolerance, capability reference that is neither an image digest
   reference `<repository>@sha256:<64 hex>` nor a runnable local command whose first token is an existing executable),
   per data-model "Evaluation configuration" and "Capability reference"
-- [ ] T008 [P] Implement `HARNESS/src/analyst_evaluation_harness/staging.py`: write one fresh mount root per
+- [x] T008 [P] Implement `HARNESS/src/analyst_evaluation_harness/staging.py`: write one fresh mount root per
   execution (`job.json` validated by the SDK `LogicalJob` model at contract 1.2.0 with `segmentMedia`,
   `attempt.json`, `media/segment-manifest.json` and `media/segment.mp4` copied from the clip, empty `result/` and
   `scratch/`), with the attempt's `outputType` taken from the subject (research R2); writes only inside the given run
