@@ -365,8 +365,8 @@ harness validates the result and evaluates `reference-media-probe` with both bui
   generation twice and `diff`, and an evaluation with `verify-report`) and `node .github/scripts/check-markdown.mjs`
   from the repository root; fix any finding, then append a `## Validation record` section to
   [quickstart.md](quickstart.md) (replace it if it exists) that lists the steps run, the pytest test count, the
-  `identity` both evaluation reports shared, and that the one-byte tamper checks are covered by `test_cli.py` and
-  `test_corpus_validation.py`; this record is the task's change, because the land job ticks a task only for a
+  `identity` both evaluation reports shared, and that the one-byte tamper checks are covered by `test_corpus_validation.py` (changed clip) and
+  `test_report_identity.py` (changed report byte, with `test_cli.py` for the exit codes); this record is the task's change, because the land job ticks a task only for a
   non-empty change
 
 ---
