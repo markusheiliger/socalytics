@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -15,6 +16,7 @@ from jsonschema import Draft202012Validator
 from . import __version__
 from .canonical import canonical_bytes, identity_of, round_floats
 from .corpus import CorpusManifest
+from .gates import evaluate_profile, profile_coverage_gate, threshold_verdicts
 from .matching import Pairing
 from .metrics import clip_counts, profile_metrics
 
@@ -26,7 +28,6 @@ IDENTITY_EXCLUDED = ("identity", "run")
 NOT_EVIDENCED = "not-evidenced"
 EVIDENCED = "evidenced"
 NOT_RUN = "not-run"
-NO_COMPARATOR_REASON = "no comparator declared"
 NOT_RECORDED = "not recorded"
 
 
@@ -57,6 +58,7 @@ def _execution(clip: ClipEvaluation) -> dict[str, Any]:
 
 
 def _clip_result(clip: ClipEvaluation) -> dict[str, Any]:
+    compared = clip.comparator
     return {
         "clipId": clip.clip_id,
         "profile": clip.profile,
@@ -64,16 +66,15 @@ def _clip_result(clip: ClipEvaluation) -> dict[str, Any]:
             "execution": _execution(clip),
             "pairings": [pairing.to_dict() for pairing in clip.pairings],
         },
-        "comparator": {"execution": {"status": NOT_RUN}, "pairings": []},
+        "comparator": (
+            {"execution": _execution(compared), "pairings": [pairing.to_dict() for pairing in compared.pairings]}
+            if compared is not None
+            else {"execution": {"status": NOT_RUN}, "pairings": []}
+        ),
     }
 
 
-def _profile_result(
-    profile: str,
-    clips: Sequence[ClipEvaluation],
-    corpus_clips: int,
-    primary_metrics: Mapping[str, str],
-) -> dict[str, Any]:
+def _metrics_of(profile: str, results: Sequence[ClipEvaluation]) -> dict[str, dict[str, Any]]:
     items = [
         (
             profile,
@@ -82,30 +83,46 @@ def _profile_result(
                 labels=len(pairing.pairs) + len(pairing.missed_labels),
                 true_positives=pairing.true_positives,
                 false_positives=len(pairing.false_positives),
-                failed=clip.failed,
+                failed=result.failed,
             ),
         )
-        for clip in clips
-        if clip.profile == profile
-        for pairing in clip.pairings
+        for result in results
+        for pairing in result.pairings
     ]
-    metrics = profile_metrics(items).get(profile, {})
-    kinds = sorted(set(metrics) | set(primary_metrics))
-    return {
+    return profile_metrics(items).get(profile, {})
+
+
+def _profile_result(
+    profile: str,
+    clips: Sequence[ClipEvaluation],
+    corpus_clips: int,
+    primary_metrics: Mapping[str, str],
+    comparator_declared: bool,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """The profile result and its subject metrics (unrounded, for the thresholds)."""
+    in_profile = [clip for clip in clips if clip.profile == profile]
+    subject = _metrics_of(profile, in_profile)
+    compared = [clip.comparator for clip in in_profile if clip.comparator is not None]
+    comparator_complete = comparator_declared and len(compared) == len(in_profile) and bool(in_profile)
+    comparator = _metrics_of(profile, compared) if comparator_complete else None
+    any_failed = any(clip.failed for clip in in_profile) or any(clip.failed for clip in compared)
+    outcome = evaluate_profile(
+        primary_metrics,
+        subject,
+        comparator,
+        comparator_declared=comparator_declared,
+        comparator_incomplete=comparator_declared and not comparator_complete,
+        any_clip_failed=any_failed,
+    )
+    result: dict[str, Any] = {
         "status": EVIDENCED if corpus_clips > 0 else NOT_EVIDENCED,
-        "subject": metrics,
-        "comparisonGate": NOT_EVIDENCED,
-        "verdict": NOT_EVIDENCED,
-        "labelKindVerdicts": {
-            kind: {
-                "verdict": NOT_EVIDENCED,
-                "primaryMetric": primary_metrics[kind],
-                "reason": NO_COMPARATOR_REASON,
-            }
-            for kind in kinds
-            if kind in primary_metrics
-        },
+        "subject": subject,
+        **({"comparator": comparator} if comparator is not None else {}),
+        "comparisonGate": outcome["comparisonGate"],
+        "verdict": outcome["verdict"],
+        "labelKindVerdicts": outcome["labelKindVerdicts"],
     }
+    return result, subject
 
 
 def _sdk_version() -> str:
@@ -147,13 +164,19 @@ def build_report(
     primary_metrics = {
         kind: entry["primaryMetric"] for kind, entry in configuration.get("labelKinds", {}).items()
     }
-    profiles = round_floats(
-        {
-            profile: _profile_result(profile, clips, clip_counts_by_profile.get(profile, 0), primary_metrics)
-            for profile in PROFILES
-        }
+    declared = comparator is not None and comparator.get("kind") != "not-declared"
+    results = {
+        profile: _profile_result(profile, clips, clip_counts_by_profile.get(profile, 0), primary_metrics, declared)
+        for profile in PROFILES
+    }
+    profiles = round_floats({profile: result for profile, (result, _) in results.items()})
+    thresholds = threshold_verdicts(
+        [
+            SimpleNamespace(label_kind=t["labelKind"], profile=t["profile"], metric=t["metric"], minimum=t["minimum"])
+            for t in configuration.get("thresholds", [])
+        ],
+        {profile: metrics for profile, (_, metrics) in results.items()},
     )
-    all_profiles = all(profile in clip_counts_by_profile for profile in PROFILES)
 
     report: dict[str, Any] = {
         "reportVersion": REPORT_VERSION,
@@ -177,10 +200,13 @@ def build_report(
         "gates": {
             "determinism": NOT_EVIDENCED,
             "lineage": NOT_EVIDENCED,
-            "profileCoverage": "passed" if all_profiles else NOT_EVIDENCED,
+            "profileCoverage": profile_coverage_gate(clip_counts_by_profile),
+            **{f"comparison.{profile}": profiles[profile]["comparisonGate"] for profile in PROFILES},
         },
         "run": dict(run),
     }
+    if thresholds:
+        report["thresholdVerdicts"] = round_floats(thresholds)
     report["identity"] = identity_of(report, exclude=IDENTITY_EXCLUDED)
     return report
 
