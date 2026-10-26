@@ -1,6 +1,6 @@
 # Environment Interface Contract: Agent Python Projects
 
-This documents build-environment expectations, not a public product API or a machine-readable root contract. It extends the [interface contract of the merged environment feature](../../archive/20261017-163801-analyst-media-environment/contracts/environment-interface.md), which stays authoritative for everything not restated here.
+This documents build-environment expectations, not a public product API or a machine-readable root contract. It extends the [interface contract of the merged environment feature](../../20261017-163801-analyst-media-environment/contracts/environment-interface.md), which stays authoritative for everything not restated here.
 
 ## Existing Composite Action Interface
 
