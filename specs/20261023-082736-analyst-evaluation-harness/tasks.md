@@ -105,7 +105,7 @@ every story uses.
   metric and the unknown comparator rule)
 - [x] T014 [P] Add `HARNESS/tests/test_staging.py` (the mount layout, `job.json` and `attempt.json` accepted by the SDK
   models, fresh directories per run, nothing written outside the run folder)
-- [ ] T015 [P] Add `HARNESS/tests/test_facts.py` (valid facts, invalid result, each failure category)
+- [x] T015 [P] Add `HARNESS/tests/test_facts.py` (valid facts, invalid result, each failure category)
 - [ ] T016 [P] Add `HARNESS/tests/test_schemas.py` (the three schemas are valid JSON Schema 2020-12 and equal the
   copies under `specs/20261023-082736-analyst-evaluation-harness/contracts/`, when that folder exists; the builders'
   documents validate)
