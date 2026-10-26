@@ -336,7 +336,7 @@ harness validates the result and evaluates `reference-media-probe` with both bui
 
 ### Documentation
 
-- [ ] T049 [P] Write `HARNESS/README.md`: purpose and the statement that it is evaluation tooling and not a catalog
+- [x] T049 [P] Write `HARNESS/README.md`: purpose and the statement that it is evaluation tooling and not a catalog
   capability, setup and test commands (the locked sequence), the three commands and exit results, the corpus,
   configuration, and report formats and schemas, the subject and comparator references, matching, metrics, gates and
   verdicts, determinism and lineage, the generation script, container mode and its manual evidence, and the limits (no
