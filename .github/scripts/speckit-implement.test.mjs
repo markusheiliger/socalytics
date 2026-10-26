@@ -22,6 +22,7 @@ import {
   startAttemptChecks,
   runIntegrate,
   runLand,
+  doneByPush,
   runMergeLand,
   runPackage,
   runRepairReport,
@@ -739,6 +740,42 @@ test('land: a single task finds its result where download-artifact puts a single
   assert.deepEqual([result.ok, result.exitCode], [true, 0]);
   assert.equal(remoteShow(repos, 'speckit/f:docs/x.md'), '# X\n');
 }));
+test('task: a task a push already did lands without a change, but an agent cannot skip one', () => withRepos({}, async (repos) => {
+  // The agent makes no change: without a push that is not the workflow's, that fails the attempt.
+  work(repos, { agent: () => {} });
+  const before = remoteHead(repos);
+  const github = fakeGitHub();
+  const refused = await land(repos, github);
+  assert.equal(refused.exitCode, 1);
+  assert.match(refused.reasons.join(), /the agent made no changes/);
+  assert.equal(remoteHead(repos), before);
+
+  // A person (or Copilot for them) pushed after that attempt: the task lands with only its tick.
+  const at = new Date(Date.now() + 60_000).toISOString();
+  github.repo.pullCommits = { 9: [
+    { sha: 'a', author: { login: 'github-actions[bot]' }, committer: { login: 'github-actions[bot]' }, commit: { committer: { date: at } } },
+    { sha: 'b', author: { login: 'Copilot' }, committer: { login: 'web-flow' }, commit: { committer: { date: at } } },
+  ] };
+  work(repos, { agent: () => {} });
+  const landed = await land(repos, github, { inputs: { ...TASK_INPUTS, attempt: 2 } });
+  assert.deepEqual([landed.exitCode, landed.reasons ?? []], [0, []]);
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001 /, 'the land job ticked the task');
+}));
+
+test('doneByPush: only a push after the task started, or a push at the head, lets a task land without a change', async () => {
+  const commit = (login, date) => ({ author: { login }, committer: { login }, commit: { committer: { date } } });
+  const client = (commits, comments = []) => ({ listPullRequestCommits: async () => commits, listIssueComments: async () => comments });
+  const attempt = (task, at) => ({ user: { login: 'github-actions[bot]' }, created_at: at, body: `<!-- speckit-implement:attempt {"kind":"task","task":"${task}","attempt":1,"outcome":"failure"} -->\nfailed` });
+  const bot = (date) => commit('github-actions[bot]', date);
+  assert.equal(await doneByPush(client([bot('2026-10-26T10:00:00Z')]), { pull: 9, task: 'T001' }), false, 'only workflow commits');
+  assert.equal(await doneByPush(client([bot('2026-10-26T10:00:00Z'), commit('dev', '2026-10-26T11:00:00Z')]), { pull: 9, task: 'T001' }), true, 'a person pushed last');
+  const earlier = [commit('dev', '2026-10-26T09:00:00Z'), bot('2026-10-26T10:00:00Z')];
+  assert.equal(await doneByPush(client(earlier, [attempt('T001', '2026-10-26T08:00:00Z')]), { pull: 9, task: 'T001' }), true, 'a push after the first attempt of the task');
+  assert.equal(await doneByPush(client(earlier, [attempt('T001', '2026-10-26T09:30:00Z')]), { pull: 9, task: 'T001' }), false, 'a push before the task started does not count');
+  assert.equal(await doneByPush(client(earlier, [attempt('T002', '2026-10-26T08:00:00Z')]), { pull: 9, task: 'T001' }), false, 'another task\'s attempt does not count');
+  assert.equal(await doneByPush({ listPullRequestCommits: async () => { throw new Error('down'); } }, { pull: 9, task: 'T001' }), false);
+});
+
 test('task: land reports a refused push as a failure instead of redoing the task', () => withRepos({ tasks: PARALLEL_TASKS }, async (repos) => {
   work(repos, { agent: (r) => agentDoesT001(r.work) });
   const hook = path.join(repos.bare, 'hooks', 'pre-receive');

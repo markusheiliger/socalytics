@@ -140,7 +140,7 @@ test('select tracks the pull request lifecycle: in progress, fallback, and a fre
 
     flag(github, issue);
     const restart = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.deepEqual(restart.ready, [{ number: twin.number, folder: 'a', requester: 'dev', reset: true, prerequisite: false }]);
+    assert.deepEqual(restart.ready, [{ number: twin.number, folder: 'a', requester: 'dev', reset: true, prerequisite: false, unblocks: 0 }]);
     const staleHead = github.repo.branches['speckit/a'];
     await start(github, root, twin, { reset: true });
     assert.equal(github.repo.pulls.length, 2);
@@ -320,13 +320,13 @@ test('select reports ready, blocked, and inconsistent flagged twins', async () =
     flag(github, e, 'outsider');
     github.edges.push([b.number, github.issues[3].number]);
     const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.deepEqual(result.ready, [{ number: a.number, folder: 'a', requester: 'dev', reset: false, prerequisite: false }]);
+    assert.deepEqual(result.ready, [{ number: a.number, folder: 'a', requester: 'dev', reset: false, prerequisite: false, unblocks: 0 }]);
     assert.deepEqual(result.blocked.map((twin) => [twin.folder, twin.blockers.map((blocker) => blocker.number)]), [['b', [github.issues[3].number]]]);
     assert.deepEqual(result.inconsistent.map((twin) => twin.folder), ['c', 'e']);
     assert.match(result.inconsistent[1].reasons[0], /@outsider needs at least write access/);
     const output = readFileSync(path.join(root, 'output.txt'), 'utf8');
     assert.match(output, /count=1/);
-    assert.match(output, new RegExp(`matrix=\\{"include":\\[\\{"number":${a.number},"folder":"a","requester":"dev","reset":false,"prerequisite":false\\}\\]\\}`));
+    assert.match(output, new RegExp(`matrix=\\{"include":\\[\\{"number":${a.number},"folder":"a","requester":"dev","reset":false,"prerequisite":false,"unblocks":0\\}\\]\\}`));
 
     github.find(github.issues[3].number).state = 'closed';
     const unblocked = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
@@ -1430,4 +1430,68 @@ test('the flaky-test ledger starts one non-blocking spec per test that is flaky 
   assert.equal(parseFlakyThreshold('x'), 3);
   const lower = await maintainFlakyTests(github, { ...env, SPECKIT_FLAKY_THRESHOLD: '1' }, { now: github.clock });
   assert.match(lower.lines.join('\n'), /`Ns\.Other\.Test` was flaky in #20; started a spec/);
+});
+
+test('waitingBehind counts the implementations each twin unblocks, also through chains of blocked implementations', async () => {
+  const { waitingBehind } = await import('./speckit-orchestrate.mjs');
+  // Today's graph: #342 blocks #326, which blocks five implementations, one of which (#246) blocks #231.
+  const inProgress = [
+    { number: 326, blockers: [342] },
+    { number: 246, blockers: [326] }, { number: 297, blockers: [326] }, { number: 279, blockers: [326] },
+    { number: 280, blockers: [326] }, { number: 254, blockers: [326] },
+    { number: 231, blockers: [246] },
+    { number: 303, blockers: [330] }, { number: 173, blockers: [303] },
+    { number: 253, blockers: [335, 337] },
+  ];
+  const counts = waitingBehind(inProgress);
+  assert.equal(counts.get(342), 7, 'the environment guard unblocks #326, its five dependents, and #231 behind #246');
+  assert.equal(counts.get(330), 2);
+  assert.equal(counts.get(337), 1);
+  assert.equal(counts.get(999), undefined);
+  assert.equal(waitingBehind([{ number: 1, blockers: [2] }, { number: 2, blockers: [1] }]).get(1), 1, 'a cycle ends');
+});
+
+test('the roadblock label marks the unblocked implementations most others wait for, and follows the queue', async () => {
+  const { maintainRoadblocks, parseRoadblockPulls } = await import('./speckit-orchestrate.mjs');
+  // Today's graph: twin -> pull request, blocked or not, and its open blockers.
+  const twin = (number, pull, blockers = []) => ({ number, pull, blocked: blockers.length > 0, blockers });
+  const inProgress = [
+    twin(342, 344), twin(326, 327, [342]),
+    twin(246, 248, [326]), twin(297, 298, [326]), twin(279, 309, [326]), twin(280, 310, [326]), twin(254, 315, [326]),
+    twin(231, 239, [246]), twin(241, 273, [279]), twin(242, 275, [280]),
+    twin(330, 331), twin(303, 304, [330]), twin(256, 318, [330]), twin(308, 319, [330]), twin(173, 294, [303]),
+    twin(335, 345), twin(253, 314, [335, 337]),
+    twin(255, 316),
+  ];
+  const labels = new Map(inProgress.map((item) => [item.pull, []]));
+  labels.set(316, ['roadblock']);
+  const comments = [];
+  const client = {
+    listOpenPullRequests: async () => [...labels.keys()].map((number) => ({ number, head: { ref: `speckit/f${number}` }, labels: labels.get(number).map((name) => ({ name })) })),
+    ensureLabel: async () => {},
+    addLabels: async (number, names) => labels.set(number, [...labels.get(number), ...names]),
+    removeLabel: async (number, name) => labels.set(number, labels.get(number).filter((item) => item !== name)),
+    createComment: async (number, body) => comments.push({ number, body }),
+  };
+  const lines = await maintainRoadblocks(client, {}, inProgress);
+  const labelled = () => [...labels].filter(([, names]) => names.includes('roadblock')).map(([number]) => number).sort((a, b) => a - b);
+  assert.deepEqual(labelled(), [331, 344, 345], 'the three unblocked roots, not #327, which unblocks many but is blocked itself');
+  const first = comments.find((comment) => comment.number === 344).body;
+  assert.match(first, /^<!-- speckit-implement:roadblock -->\n\*\*Roadblock\*\*: 9 implementations wait for this one, directly or through a chain: #239 \(spec #231\), #248 \(spec #246\)/);
+  assert.match(comments.find((comment) => comment.number === 345).body, /1 implementation waits for this one[^\n]*#314 \(spec #253\)/);
+  assert.match(lines.join('\n'), /Removed `roadblock` from #316/);
+
+  // Nothing changed: no new comment. #344 merged: its waiting implementations are unblocked, and the label moves.
+  const count = comments.length;
+  await maintainRoadblocks(client, {}, inProgress);
+  assert.equal(comments.length, count, 'a label that stays is not explained again');
+  labels.delete(344);
+  const next = inProgress.filter((item) => item.number !== 342).map((item) => (item.number === 326 ? twin(326, 327) : item));
+  await maintainRoadblocks(client, {}, next);
+  assert.deepEqual(labelled(), [327, 331, 345], '#327 is unblocked now and leads the queue');
+  await maintainRoadblocks(client, { SPECKIT_ROADBLOCK_PULLS: '1' }, next);
+  assert.deepEqual(labelled(), [327]);
+  await maintainRoadblocks(client, { SPECKIT_ROADBLOCK_PULLS: '0' }, next);
+  assert.deepEqual(labelled(), [], '0 turns the label off');
+  assert.deepEqual([parseRoadblockPulls(''), parseRoadblockPulls('5'), parseRoadblockPulls('-1'), parseRoadblockPulls('x')], [3, 5, 3, 3]);
 });
