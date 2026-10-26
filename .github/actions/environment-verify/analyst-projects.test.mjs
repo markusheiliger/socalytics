@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -546,6 +546,540 @@ exit 0
     assert.match(result.log, /Recommended action: /);
     assert.equal(result.calls.length, 0);
     assert.equal(result.outputs.checks, 'Analyst Python projects');
+  });
+
+  describe('finalize reuse', () => {
+    function git(root, ...args) {
+      const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    }
+
+    // The fixture repository with a committed baseline: the action identifies the workspace state through Git.
+    function gitRepository() {
+      const root = sdkRepository();
+      git(root, 'init', '-q');
+      git(root, 'config', 'user.name', 'Test');
+      git(root, 'config', 'user.email', 'test@example.invalid');
+      git(root, 'config', 'commit.gpgsign', 'false');
+      git(root, 'add', '-A');
+      git(root, 'commit', '-q', '-m', 'baseline');
+      return root;
+    }
+
+    // A private record folder root and the run identity values that enable the record of one job.
+    function reuseEnv({ runnerTemp = path.join(temporary, `runner-${counter++}`), runId = '1001', attempt = '1', job = 'verify' } = {}) {
+      mkdirSync(runnerTemp, { recursive: true });
+      return { RUNNER_TEMP: runnerTemp, GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: attempt, GITHUB_JOB: job };
+    }
+
+    // One finalize run with the record enabled; calls holds one entry per stub uv command (the expensive work).
+    const finalize = (root, env, options = {}) => run(root, { ...options, mode: 'finalize', env: { ...env, ...options.env } });
+
+    it('records a finalize run of a Git workspace and counts its stub commands', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      const result = finalize(root, env, { changed: ['a.txt'] });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.calls.length, stages.length);
+      assert.equal(result.outputs.checks, 'Analyst Python projects,Markdown check');
+      assert.ok(existsSync(path.join(env.RUNNER_TEMP, 'socalytics-environment-verify', 'finalize-1001-1-verify.json')));
+    });
+
+    // A Git repository whose Web UI browser tests report one flaky test, so the first run has a flaky output.
+    const flakyOutput = ['Running 2 tests using 1 worker', '', '  1 flaky', '    [simulated] › tests/a.spec.ts:1:1 › retries', '  1 passed (1s)', ''].join('\\n');
+    function flakyBin() {
+      const bin = stubBin();
+      writeFileSync(path.join(bin, 'npm'), `#!/bin/bash
+echo "$PWD|npm|$*" >> "$UV_CALLS"
+if [ "$*" = "run test:e2e -- --retries=1" ]; then printf '%b' "${flakyOutput}"; fi
+exit 0
+`, { mode: 0o755 });
+      return bin;
+    }
+    function webRepository() {
+      const root = repository();
+      project(root, sdkRoot, { name: 'sdk' });
+      mkdirSync(path.join(root, 'src/clients/web'), { recursive: true });
+      writeFileSync(path.join(root, 'src/clients/web/package.json'), '{}');
+      mkdirSync(path.join(root, 'src/clients/web/node_modules/@playwright/test'), { recursive: true });
+      writeFileSync(path.join(root, 'src/clients/web/node_modules/@playwright/test/package.json'), '{"version":"1.63.0"}');
+      git(root, 'init', '-q');
+      git(root, 'config', 'user.name', 'Test');
+      git(root, 'config', 'user.email', 'test@example.invalid');
+      git(root, 'config', 'commit.gpgsign', 'false');
+      git(root, 'add', '-A');
+      git(root, 'commit', '-q', '-m', 'baseline');
+      return root;
+    }
+
+    it('reuses a passing finalize run without executing any command and reports the same outputs', () => {
+      const root = webRepository();
+      const env = reuseEnv();
+      const changed = ['src/other/x.py', 'src/clients/web/a.ts'];
+      const first = finalize(root, env, { changed, bin: flakyBin() });
+      assert.equal(first.status, 0, first.log);
+      assert.ok(first.calls.length > 0);
+      assert.equal(first.outputs.uncovered, 'src/other/x.py');
+      assert.equal(first.outputs.flaky, '[simulated] › tests/a.spec.ts:1:1 › retries');
+      assert.doesNotMatch(first.log, /Reused result/);
+
+      const second = finalize(root, env, { changed, bin: flakyBin() });
+      assert.equal(second.status, 0, second.log);
+      assert.equal(second.calls.length, 0);
+      assert.match(second.log, /Reused result/);
+      assert.match(second.log, /Earlier run: run 1001, attempt 1, job verify, recorded at \S+, sequence 1/);
+      assert.match(second.summary, /### Reused result/);
+      assert.match(second.summary, /Earlier run: run 1001, attempt 1, job verify/);
+      for (const key of ['checks', 'uncovered', 'flaky']) assert.equal(second.outputs[key], first.outputs[key], key);
+      assert.match(second.outputs.checks, /Web UI build and tests/);
+    });
+
+    for (const [name, changed] of [
+      ['another order', ['b.txt', 'a.txt']],
+      ['CRLF line endings', ['a.txt\r', 'b.txt\r']],
+      ['blank lines', ['', 'a.txt', '', '', 'b.txt', '']],
+    ]) {
+      it(`reuses the result for a changed-files list with the same files in ${name}`, () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        const first = finalize(root, env, { changed: ['a.txt', 'b.txt'] });
+        assert.equal(first.status, 0, first.log);
+        assert.equal(first.calls.length, stages.length);
+        const second = finalize(root, env, { changed });
+        assert.equal(second.status, 0, second.log);
+        assert.equal(second.calls.length, 0);
+        assert.match(second.log, /Reused result/);
+        assert.equal(second.outputs.checks, first.outputs.checks);
+        assert.equal(second.outputs.uncovered, first.outputs.uncovered);
+      });
+    }
+
+    const recordPath = (env) => path.join(env.RUNNER_TEMP, 'socalytics-environment-verify', `finalize-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}-${env.GITHUB_JOB}.json`);
+    const readRecord = (env) => JSON.parse(readFileSync(recordPath(env), 'utf8'));
+    const expectFull = (result) => {
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.calls.length, stages.length);
+      assert.doesNotMatch(result.log, /Reused result/);
+      assert.doesNotMatch(result.summary, /Reused result/);
+    };
+
+    it('runs every check when no record exists', () => {
+      const env = reuseEnv();
+      assert.ok(!existsSync(recordPath(env)));
+      expectFull(finalize(gitRepository(), env, { changed: ['a.txt'] }));
+    });
+
+    it('leaves no record after a failed first run and runs every check again on a passing second run', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      const failed = finalize(root, env, { changed: ['a.txt'], env: { FAIL_STAGE: stages[3] } });
+      assert.equal(failed.status, 1);
+      assert.equal(failed.calls.length, stages.length);
+      assert.ok(!existsSync(recordPath(env)));
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+      assert.ok(existsSync(recordPath(env)));
+    });
+
+    it('runs every check again and fails on its own result after a failed first run', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      const first = finalize(root, env, { changed: ['a.txt'], env: { FAIL_STAGE: stages[3] } });
+      assert.equal(first.status, 1);
+      const second = finalize(root, env, { changed: ['a.txt'], env: { FAIL_STAGE: stages[1] } });
+      assert.equal(second.status, 1);
+      assert.deepEqual(second.calls.map((call) => call[3]), stages.slice(0, 2));
+      assert.doesNotMatch(second.log, /Reused result/);
+      assert.ok(!existsSync(recordPath(env)));
+    });
+
+    it('deletes the record of an earlier passing run when a later run with other changed files fails', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+      assert.ok(existsSync(recordPath(env)));
+      const failed = finalize(root, env, { changed: ['b.txt'], env: { FAIL_STAGE: stages[2] } });
+      assert.equal(failed.status, 1);
+      assert.ok(!existsSync(recordPath(env)));
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+    });
+
+    for (const mode of ['task', 'phase']) {
+      it(`neither reads nor writes a record in ${mode} mode`, () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        const options = { mode, changed: [`${sdkRoot}/src/x.py`] };
+        const fresh = run(root, { ...options, env });
+        assert.equal(fresh.status, 0, fresh.log);
+        assert.equal(fresh.calls.length, stages.length);
+        assert.ok(!existsSync(recordPath(env)));
+
+        expectFull(finalize(root, env, { changed: options.changed }));
+        const before = readFileSync(recordPath(env), 'utf8');
+        const again = run(root, { ...options, env });
+        assert.equal(again.status, 0, again.log);
+        assert.equal(again.calls.length, stages.length);
+        assert.doesNotMatch(again.log, /Reused result/);
+        assert.equal(readFileSync(recordPath(env), 'utf8'), before);
+      });
+    }
+
+    it('runs every check for a record of a different mode', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+      const record = readRecord(env);
+      writeFileSync(recordPath(env), JSON.stringify({ ...record, mode: 'phase' }));
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+    });
+
+    it('runs every check for a record of other changed-files content', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+      expectFull(finalize(root, env, { changed: ['b.txt'] }));
+      expectFull(finalize(root, env, { changed: ['a.txt', 'b.txt'] }));
+    });
+
+    it('runs every check for a record of another scope', () => {
+      const root = gitRepository();
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+      writeFileSync(recordPath(env), JSON.stringify({ ...readRecord(env), scope: 'reduced' }));
+      expectFull(finalize(root, env, { changed: ['a.txt'] }));
+    });
+
+    const damage = {
+      'an empty record': () => '',
+      'truncated JSON': (text) => text.slice(0, Math.floor(text.length / 2)),
+      'not an object': () => '[]',
+      'a version other than 1': (text) => JSON.stringify({ ...JSON.parse(text), version: 2 }),
+      'passed false': (text) => JSON.stringify({ ...JSON.parse(text), passed: false }),
+      'passed as the text true': (text) => JSON.stringify({ ...JSON.parse(text), passed: 'true' }),
+      ...Object.fromEntries(['version', 'passed', 'identity', 'mode', 'changedFiles', 'scope', 'checks', 'uncovered', 'flaky', 'source'].map((field) => [
+        `a missing ${field}`, (text) => { const record = JSON.parse(text); delete record[field]; return JSON.stringify(record); },
+      ])),
+    };
+    for (const [name, damaged] of Object.entries(damage)) {
+      it(`runs every check for a damaged record: ${name}`, () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        expectFull(finalize(root, env, { changed: ['a.txt'] }));
+        writeFileSync(recordPath(env), damaged(readFileSync(recordPath(env), 'utf8')));
+        expectFull(finalize(root, env, { changed: ['a.txt'] }));
+        assert.equal(readRecord(env).passed, true);
+      });
+    }
+
+    const expectReused = (result) => {
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.calls.length, 0);
+      assert.match(result.log, /Reused result/);
+    };
+
+    // The fixture repository with a committed notes file and the given committed .gitignore.
+    function trackedRepository(ignore = '') {
+      const root = gitRepository();
+      writeFileSync(path.join(root, 'notes.txt'), 'one\n');
+      if (ignore) writeFileSync(path.join(root, '.gitignore'), ignore);
+      git(root, 'add', '-A');
+      git(root, 'commit', '-q', '-m', 'notes');
+      return root;
+    }
+
+    const listing = (dir) => (existsSync(dir) ? readdirSync(dir, { recursive: true }).sort() : []);
+
+    it('reuses an unchanged workspace after a first run', () => {
+      const root = trackedRepository();
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      expectReused(finalize(root, env, { changed: ['notes.txt'] }));
+    });
+
+    const mutations = {
+      'an edited file': (root) => writeFileSync(path.join(root, 'notes.txt'), 'two\n'),
+      'an added file': (root) => writeFileSync(path.join(root, 'added.txt'), 'new\n'),
+      'a removed file': (root) => unlinkSync(path.join(root, 'notes.txt')),
+      'a commit between the runs': (root) => {
+        writeFileSync(path.join(root, 'committed.txt'), 'new\n');
+        git(root, 'add', '-A');
+        git(root, 'commit', '-q', '-m', 'between');
+      },
+    };
+    for (const [name, mutate] of Object.entries(mutations)) {
+      it(`changes the identity and prevents reuse for ${name}`, () => {
+        const root = trackedRepository();
+        const env = reuseEnv();
+        expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+        mutate(root);
+        expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+        expectReused(finalize(root, env, { changed: ['notes.txt'] }));
+      });
+    }
+
+    for (const name of ['RUNNER_TEMP', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_JOB']) {
+      for (const kind of ['empty', 'missing']) {
+        it(`runs every check, touches no record, and logs that reuse was not possible for ${kind} ${name}`, () => {
+          const root = trackedRepository();
+          const env = reuseEnv();
+          expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+          const before = listing(env.RUNNER_TEMP);
+          const content = readFileSync(recordPath(env), 'utf8');
+          const altered = { ...env };
+          if (kind === 'empty') altered[name] = '';
+          else delete altered[name];
+          const result = finalize(root, altered, { changed: ['notes.txt'] });
+          expectFull(result);
+          assert.match(result.log, /Finalize reuse was not possible/);
+          assert.deepEqual(listing(env.RUNNER_TEMP), before);
+          assert.equal(readFileSync(recordPath(env), 'utf8'), content);
+        });
+      }
+    }
+
+    it('runs every check, writes no record, and logs that reuse was not possible for a workspace without Git metadata', () => {
+      const root = sdkRepository();
+      const env = reuseEnv();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const result = finalize(root, env, { changed: ['a.txt'] });
+        expectFull(result);
+        assert.match(result.log, /Finalize reuse was not possible/);
+      }
+      assert.deepEqual(listing(env.RUNNER_TEMP), []);
+    });
+
+    it('runs every check and neither reads nor writes a record for an ignored configuration file', () => {
+      const root = trackedRepository('appsettings.local.json\n');
+      writeFileSync(path.join(root, 'appsettings.local.json'), '{}');
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      assert.deepEqual(listing(env.RUNNER_TEMP), []);
+    });
+
+    it('neither reads nor writes a record while the environment action tests run', () => {
+      const root = trackedRepository();
+      const env = reuseEnv();
+      const nested = { SOCALYTICS_ENVIRONMENT_TESTS_RUNNING: '1' };
+      expectFull(finalize(root, env, { changed: ['notes.txt'], env: nested }));
+      assert.deepEqual(listing(env.RUNNER_TEMP), []);
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      const content = readFileSync(recordPath(env), 'utf8');
+      expectFull(finalize(root, env, { changed: ['notes.txt'], env: nested }));
+      assert.equal(readFileSync(recordPath(env), 'utf8'), content);
+    });
+
+    it('is not prevented by ignored build folders, generated Web UI output, and Spec Kit housekeeping', () => {
+      const root = gitRepository();
+      const touch = (relative) => {
+        mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+        writeFileSync(path.join(root, relative), 'x');
+      };
+      // Tracked files keep the parent folders from being listed as wholly ignored.
+      for (const relative of ['notes.txt', '.specify/keep.txt', '.specify/workflows/keep.txt', 'src/other/keep.txt', 'src/clients/keep.txt', 'src/clients/web/keep.txt', 'src/clients/web/src/keep.txt']) touch(relative);
+      writeFileSync(path.join(root, '.gitignore'), 'bin/\nnode_modules/\nsrc/clients/web/src/generated/\n.specify/workflows/runs/\n.specify/feature.json\n');
+      git(root, 'add', '-A');
+      git(root, 'commit', '-q', '-m', 'tracked');
+      for (const relative of [
+        'bin/x.dll', 'src/other/node_modules/pkg/index.js', 'src/clients/web/src/generated/client.ts',
+        '.specify/workflows/runs/run-1/state.json', '.specify/feature.json',
+      ]) touch(relative);
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      expectReused(finalize(root, env, { changed: ['notes.txt'] }));
+    });
+
+    it('is still prevented by an ignored configuration file next to ignored housekeeping paths', () => {
+      const root = trackedRepository('bin/\n.specify/feature.json\nsecrets.env\n');
+      mkdirSync(path.join(root, 'bin'));
+      writeFileSync(path.join(root, 'bin/x.dll'), 'x');
+      mkdirSync(path.join(root, '.specify'));
+      writeFileSync(path.join(root, '.specify/feature.json'), '{}');
+      writeFileSync(path.join(root, 'secrets.env'), 'A=1');
+      const env = reuseEnv();
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+      assert.deepEqual(listing(env.RUNNER_TEMP), []);
+    });
+
+    for (const [name, other] of [['run id', { runId: '2002' }], ['attempt', { attempt: '2' }], ['job', { job: 'other-job' }]]) {
+      it(`does not reuse a record of another ${name}`, () => {
+        const root = trackedRepository();
+        const runnerTemp = path.join(temporary, `runner-${counter++}`);
+        const env = reuseEnv({ runnerTemp });
+        expectFull(finalize(root, env, { changed: ['notes.txt'] }));
+        expectFull(finalize(root, reuseEnv({ runnerTemp, ...other }), { changed: ['notes.txt'] }));
+        expectReused(finalize(root, env, { changed: ['notes.txt'] }));
+      });
+    }
+
+    describe('finalize scope', () => {
+      const setupFile = '.github/actions/environment-setup/toolchain.sh';
+      const verifyFile = '.github/actions/environment-verify/action.yml';
+      const envChecks = 'Environment action tests,Markdown check';
+      const fullChecks = 'Analyst Python projects,Environment action tests,Markdown check';
+
+      // Fixture Node test files count their runs and fail on demand; the Markdown check stub does the same.
+      function fixture({ failTests = false, failMarkdown = false } = {}) {
+        const dir = path.join(temporary, `scope-${counter++}`);
+        mkdirSync(dir);
+        const testRuns = path.join(dir, 'tests.txt');
+        const markdownRuns = path.join(dir, 'markdown.txt');
+        const testFile = path.join(dir, 'fixture.test.mjs');
+        writeFileSync(testFile, `import { appendFileSync } from 'node:fs';
+import { it } from 'node:test';
+import assert from 'node:assert/strict';
+it('fixture', () => {
+  appendFileSync(${JSON.stringify(testRuns)}, 'x\\n');
+  assert.ok(!${failTests});
+});
+`);
+        const markdown = path.join(dir, 'markdown.mjs');
+        writeFileSync(markdown, `import { appendFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(markdownRuns)}, 'x\\n');
+process.exit(${failMarkdown ? 1 : 0});
+`);
+        const count = (file) => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0);
+        return {
+          env: { ENVIRONMENT_TESTS: testFile, MARKDOWN_CHECK: markdown },
+          tests: () => count(testRuns),
+          markdown: () => count(markdownRuns),
+        };
+      }
+
+      const expectReduced = (result, tests) => {
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.calls.length, 0);
+        assert.equal(result.outputs.checks, envChecks);
+        assert.equal(result.outputs.uncovered, '');
+        assert.match(result.log, /Scope reduced to the environment actions: every changed file lies in \.github\/actions\/environment-setup\/ or \.github\/actions\/environment-verify\/, so only the Environment action tests and the Markdown check run/);
+        assert.match(result.summary, /### Reduced scope/);
+        if (tests) assert.equal(tests.tests(), 1);
+      };
+
+      const expectFullScope = (result, tests) => {
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.calls.length, stages.length);
+        assert.equal(result.outputs.checks, fullChecks);
+        assert.doesNotMatch(result.log, /Scope reduced/);
+        assert.doesNotMatch(result.summary, /Reduced scope/);
+        if (tests) assert.equal(tests.tests(), 1);
+      };
+
+      it('runs only the Environment action tests and the Markdown check for changes in the two action folders', () => {
+        const tests = fixture();
+        const result = finalize(gitRepository(), reuseEnv(), { changed: [setupFile, verifyFile], env: tests.env });
+        expectReduced(result, tests);
+        assert.equal(tests.markdown(), 1);
+      });
+
+      it('runs only the environment checks for a change in one action folder', () => {
+        for (const changed of [setupFile, verifyFile]) {
+          const tests = fixture();
+          expectReduced(finalize(gitRepository(), reuseEnv(), { changed: [changed], env: tests.env }), tests);
+        }
+      });
+
+      it('fails and names the check for a failing environment action test', () => {
+        const tests = fixture({ failTests: true });
+        const result = finalize(gitRepository(), reuseEnv(), { changed: [verifyFile], env: tests.env });
+        assert.equal(result.status, 1);
+        assert.equal(result.calls.length, 0);
+        assert.equal(result.outputs.checks, 'Environment action tests');
+        assert.match(result.log, /Environment action tests failed/);
+        assert.equal(tests.markdown(), 0);
+      });
+
+      it('fails and names the check for a failing Markdown check', () => {
+        const tests = fixture({ failMarkdown: true });
+        const result = finalize(gitRepository(), reuseEnv(), { changed: [verifyFile], env: tests.env });
+        assert.equal(result.status, 1);
+        assert.equal(result.calls.length, 0);
+        assert.equal(result.outputs.checks, envChecks);
+        assert.equal(tests.tests(), 1);
+        assert.equal(tests.markdown(), 1);
+      });
+
+      const fullScopeLists = {
+        'a file outside the folders': [verifyFile, 'src/other/x.py'],
+        'a lookalike folder prefix': ['.github/actions/environment-setup-x/file'],
+        'a path with a parent component': ['.github/actions/environment-verify/../x'],
+        'an absolute path': ['/.github/actions/environment-verify/action.yml'],
+        'a backslash path': ['.github/actions/environment-verify\\action.yml'],
+        'a file directly in the actions folder': ['.github/actions/environment-verify'],
+        'an empty list': [],
+      };
+      for (const [name, changed] of Object.entries(fullScopeLists)) {
+        it(`keeps the full scope for ${name}`, () => {
+          const tests = fixture();
+          expectFullScope(finalize(gitRepository(), reuseEnv(), { changed, env: tests.env }), tests);
+        });
+      }
+
+      it('keeps the full scope for a missing changed-files list', () => {
+        const tests = fixture();
+        expectFullScope(finalize(gitRepository(), reuseEnv(), { changed: [], env: { ...tests.env, CHANGED_FILES: path.join(temporary, 'no-such-list.txt') } }), tests);
+      });
+
+      for (const mode of ['task', 'phase']) {
+        it(`does not reduce the scope in ${mode} mode`, () => {
+          const tests = fixture();
+          const result = run(gitRepository(), { mode, changed: [setupFile, verifyFile], env: tests.env });
+          assert.equal(result.status, 0, result.log);
+          assert.doesNotMatch(result.log, /Scope reduced/);
+          assert.doesNotMatch(result.summary, /Reduced scope/);
+          assert.equal(result.outputs.uncovered, '');
+          assert.match(result.outputs.checks, /Environment action tests/);
+          if (mode === 'phase') assert.match(result.outputs.checks, /Analyst Python projects/);
+        });
+      }
+
+      it('reuses a reduced run only for a later reduced run and records its scope', () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        const tests = fixture();
+        expectReduced(finalize(root, env, { changed: [verifyFile], env: tests.env }), tests);
+        assert.equal(readRecord(env).scope, 'environment');
+        const again = finalize(root, env, { changed: [verifyFile], env: tests.env });
+        assert.equal(again.status, 0, again.log);
+        assert.match(again.log, /Reused result/);
+        assert.match(again.log, /scope \(environment\)/);
+        assert.equal(again.calls.length, 0);
+        assert.equal(again.outputs.checks, envChecks);
+        assert.equal(tests.tests(), 1);
+        assert.equal(tests.markdown(), 1);
+      });
+
+      it('does not reuse a reduced record for a full-scope run and the reverse', () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        const tests = fixture();
+        expectReduced(finalize(root, env, { changed: [verifyFile], env: tests.env }));
+        const full = finalize(root, env, { changed: [verifyFile, 'a.txt'], env: tests.env });
+        assert.equal(full.status, 0, full.log);
+        assert.equal(full.calls.length, stages.length);
+        assert.equal(full.outputs.checks, fullChecks);
+        assert.equal(readRecord(env).scope, 'full');
+        const reduced = finalize(root, env, { changed: [verifyFile], env: tests.env });
+        assert.equal(reduced.status, 0, reduced.log);
+        assert.doesNotMatch(reduced.log, /Reused result/);
+        assert.equal(reduced.outputs.checks, envChecks);
+        assert.equal(readRecord(env).scope, 'environment');
+      });
+
+      it('runs every check of the reduced scope for a record that claims the full scope', () => {
+        const root = gitRepository();
+        const env = reuseEnv();
+        const tests = fixture();
+        expectReduced(finalize(root, env, { changed: [verifyFile], env: tests.env }));
+        writeFileSync(recordPath(env), JSON.stringify({ ...readRecord(env), scope: 'full' }));
+        const result = finalize(root, env, { changed: [verifyFile], env: tests.env });
+        assert.doesNotMatch(result.log, /Reused result/);
+        assert.equal(result.outputs.checks, envChecks);
+        assert.equal(tests.tests(), 2);
+        assert.equal(readRecord(env).scope, 'environment');
+      });
+    });
   });
 
   describe('cross-check regression', () => {

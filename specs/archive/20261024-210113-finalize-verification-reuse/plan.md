@@ -2,7 +2,7 @@
 
 **Branch**: `20261024-210113-finalize-verification-reuse` | **Date**: 2026-10-24 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261024-210113-finalize-verification-reuse/spec.md`
+**Input**: Feature specification from `/specs/archive/20261024-210113-finalize-verification-reuse/spec.md`
 
 ## Summary
 
@@ -59,7 +59,7 @@ entry is needed.
 ### Documentation (this feature)
 
 ```text
-specs/20261024-210113-finalize-verification-reuse/
+specs/archive/20261024-210113-finalize-verification-reuse/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output

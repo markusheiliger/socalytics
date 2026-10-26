@@ -127,18 +127,175 @@ runs:
         RERUN_LIMIT=10
         changed=""
         [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ] && changed="$(cat "$CHANGED_FILES")"
+        # The same changed files in another order, with CRLF line endings, or with blank lines are identical for
+        # finalize reuse: strip \r, drop blank lines, sort unique, join with \n, and hash the result.
+        normalized_changed="$(tr -d '\r' <<< "$changed" | grep -v '^$' | LC_ALL=C sort -u)"
+        normalized_changed_hash="$(node -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync(0,"utf8").replace(/\n+$/,"")).digest("hex"))' <<< "$normalized_changed")"
+
+        # Finalize reuse record of one job: an empty record_file disables reading and writing it. Only a finalize run
+        # outside the environment action tests uses it, and only when the run, attempt, and job are known.
+        record_file=""
+        if [ "$MODE" = finalize ] && [ -z "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ]; then
+          if [ -n "${RUNNER_TEMP:-}" ] && [ -n "${GITHUB_RUN_ID:-}" ] && [ -n "${GITHUB_RUN_ATTEMPT:-}" ] && [ -n "${GITHUB_JOB:-}" ]; then
+            # Any character outside [A-Za-z0-9_.-] becomes _, so the name cannot leave the record folder.
+            record_part() { printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9_.-' '_'; }
+            record_file="$RUNNER_TEMP/socalytics-environment-verify/finalize-$(record_part "$GITHUB_RUN_ID")-$(record_part "$GITHUB_RUN_ATTEMPT")-$(record_part "$GITHUB_JOB").json"
+          else
+            echo "Finalize reuse was not possible: RUNNER_TEMP, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, or GITHUB_JOB is empty" | tee -a "$LOG_FILE"
+          fi
+        fi
+
+        # workspace_identity: sha256(HEAD commit, "\n", tree) of the workspace content, printed when certain and empty
+        # when uncertain. The tree comes from a throw-away index (the real index and the working tree stay untouched)
+        # filled with HEAD and every unignored file except the log file and the changed-files list. It is uncertain when
+        # git fails, when the workspace is not the top level of a Git work tree, or when an ignored path exists that is
+        # not a known build output, dependency folder, generated client, or Spec Kit housekeeping path.
+        workspace_identity() {
+          local log_abs="" changed_abs=""
+          [ -n "$LOG_FILE" ] && log_abs="$(realpath -m -- "$LOG_FILE" 2>/dev/null)"
+          [ -n "$CHANGED_FILES" ] && changed_abs="$(realpath -m -- "$CHANGED_FILES" 2>/dev/null)"
+          (
+            set +e -uo pipefail
+            cd "$WORKSPACE" 2>/dev/null || exit 1
+            root="$(pwd -P)"
+            top="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 1
+            [ "$(cd "$top" 2>/dev/null && pwd -P)" = "$root" ] || exit 1
+            head_commit="$(git rev-parse HEAD 2>/dev/null)" || exit 1
+            index_dir="$(mktemp -d)" || exit 1
+            trap 'rm -rf "$index_dir"' EXIT
+            export GIT_INDEX_FILE="$index_dir/index"
+            git read-tree HEAD > /dev/null 2>&1 || exit 1
+            excluded=()
+            for abs in "$log_abs" "$changed_abs"; do
+              case "$abs" in "$root"/?*) excluded+=("${abs#"$root"/}") ;; esac
+            done
+            pathspecs=()
+            for rel in ${excluded[@]+"${excluded[@]}"}; do pathspecs+=(":(exclude,literal)$rel"); done
+            git add -A -- . ${pathspecs[@]+"${pathspecs[@]}"} > /dev/null 2>&1 || exit 1
+            ignored_list="$(git ls-files -z --others --ignored --exclude-standard --directory 2>/dev/null | tr '\0' '\n')" || exit 1
+            while IFS= read -r ignored; do
+              [ -n "$ignored" ] || continue
+              ignored="${ignored%/}"
+              skip=0
+              for rel in ${excluded[@]+"${excluded[@]}"}; do [ "$ignored" = "$rel" ] && skip=1; done
+              [ "$skip" -eq 0 ] || continue
+              known=0
+              IFS=/ read -ra components <<< "$ignored"
+              for component in "${components[@]}"; do
+                case "$component" in
+                  bin|obj|node_modules|.venv|venv|__pycache__|dist|build|TestResults|test-results|playwright-report|.vs|.pytest_cache|.uv-cache) known=1 ;;
+                esac
+              done
+              case "$ignored" in
+                src/clients/web/src/generated|*/src/clients/web/src/generated) known=1 ;;
+                .specify/workflows/runs|*/.specify/workflows/runs) known=1 ;;
+                .specify/feature.json|*/.specify/feature.json) known=1 ;;
+                .specify/.workflow-install.lock|*/.specify/.workflow-install.lock) known=1 ;;
+                .specify/extensions/*/local-config.yml|*/.specify/extensions/*/local-config.yml) known=1 ;;
+              esac
+              [ "$known" -eq 1 ] || exit 1
+            done <<< "$ignored_list"
+            tree="$(git write-tree 2>/dev/null)" || exit 1
+            [ -n "$head_commit" ] && [ -n "$tree" ] || exit 1
+            printf '%s\n%s' "$head_commit" "$tree" | node -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync(0)).digest("hex"))'
+          )
+        }
+        start_identity=""
+        if [ -n "$record_file" ]; then
+          start_identity="$(workspace_identity)"
+          if [ -z "$start_identity" ]; then
+            echo "Finalize reuse was not possible: the workspace state could not be identified with certainty" | tee -a "$LOG_FILE"
+            record_file=""
+          fi
+        fi
+
+        # Scope of this run: only a finalize run whose changed files all lie directly inside the two environment action
+        # folders is reduced to the environment scope; every other run checks the full scope. A path with a backslash,
+        # a leading slash, or a "." or ".." or empty component never counts as inside.
+        scope=full
+        scope_reason=""
+        if [ "$MODE" = finalize ] && [ -n "$normalized_changed" ]; then
+          scope=environment
+          while IFS= read -r changed_path; do
+            if ! grep -qE '^\.github/actions/environment-(setup|verify)/[^/]' <<< "$changed_path" \
+              || [[ "$changed_path" == *\\* ]] || [[ "$changed_path" == /* ]] || [[ "$changed_path" == */ ]] \
+              || [[ "$changed_path" == *//* ]] || grep -qE '(^|/)\.{1,2}(/|$)' <<< "$changed_path"; then
+              scope=full
+              break
+            fi
+          done <<< "$normalized_changed"
+          [ "$scope" = environment ] && scope_reason="every changed file lies in .github/actions/environment-setup/ or .github/actions/environment-verify/"
+        fi
+
+        # Reuse decision: an earlier passing finalize run of this job over the same workspace state, changed files, and
+        # scope is reused without running any check. Any read or parse failure falls through to a full run.
+        if [ -n "$record_file" ] && [ -f "$record_file" ]; then
+          reuse_lines="$(node -e '
+            const [file, identity, mode, changedFiles, scope] = process.argv.slice(1);
+            try {
+              const r = JSON.parse(require("fs").readFileSync(file, "utf8"));
+              const text = (v) => typeof v === "string" && !/[\r\n]/.test(v);
+              const ok = r !== null && typeof r === "object" && r.version === 1 && r.passed === true
+                && ["identity", "mode", "changedFiles", "scope"].every((k) => typeof r[k] === "string")
+                && ["checks", "uncovered", "flaky"].every((k) => text(r[k]))
+                && r.source !== null && typeof r.source === "object" && !Array.isArray(r.source)
+                && r.identity === identity && r.mode === mode && r.changedFiles === changedFiles && r.scope === scope;
+              if (!ok) process.exit(1);
+              const s = r.source;
+              const part = (v) => String(v ?? "unknown").replace(/[\r\n]+/g, " ");
+              console.log(r.checks);
+              console.log(r.uncovered);
+              console.log(r.flaky);
+              console.log(`run ${part(s.runId)}, attempt ${part(s.attempt)}, job ${part(s.job)}, recorded at ${part(s.recordedAt)}, sequence ${part(s.sequence)}`);
+            } catch { process.exit(1); }
+          ' "$record_file" "$start_identity" "$MODE" "$normalized_changed_hash" "$scope" 2> /dev/null)"
+          if [ $? -eq 0 ] && [ "$(wc -l <<< "$reuse_lines")" -eq 4 ]; then
+            reused_checks="$(sed -n 1p <<< "$reuse_lines")"
+            reused_uncovered="$(sed -n 2p <<< "$reuse_lines")"
+            reused_flaky="$(sed -n 3p <<< "$reuse_lines")"
+            reused_source="$(sed -n 4p <<< "$reuse_lines")"
+            {
+              echo "Reused result: the workspace state, the changed files, and the scope ($scope) equal those of an earlier passing finalize run, so no check ran again"
+              echo "Earlier run: $reused_source"
+              echo "Checks of the earlier run: ${reused_checks:-<none>}"
+            } | tee -a "$LOG_FILE"
+            {
+              echo "### Reused result"
+              echo "The workspace state, the changed files, and the scope (\`$scope\`) equal those of an earlier passing finalize run, so no check ran again."
+              echo
+              echo "- Earlier run: $reused_source"
+              echo "- Checks of the earlier run: ${reused_checks:-none}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            rm -rf "$RESULTS_ROOT"
+            echo "checks=${reused_checks}" >> "$GITHUB_OUTPUT"
+            echo "uncovered=${reused_uncovered}" >> "$GITHUB_OUTPUT"
+            echo "flaky=${reused_flaky}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        fi
 
         # Recognized Analyst Python projects (the SDK and capabilities): the helper validates every existing project and
         # selects those the mode and the changed paths call for, in dependency order. The roots of existing projects
         # become covered source scopes; a deleted or unrecognized project stays uncovered.
         analyst_python="${SOCALYTICS_PYTHON:-python3}"
-        analyst_error_file="$(mktemp)"
-        analyst_output="$("$analyst_python" "$ANALYST_PROJECTS" select --root "$WORKSPACE" --mode "$MODE" --changed-files "$CHANGED_FILES" 2> "$analyst_error_file")"
-        analyst_status=$?
-        analyst_error="$(cat "$analyst_error_file")"
-        rm -f "$analyst_error_file"
+        analyst_status=0
+        analyst_error=""
         analyst_selected=""
-        if [ "$analyst_status" -eq 0 ]; then
+        if [ "$scope" = full ]; then
+          analyst_error_file="$(mktemp)"
+          analyst_output="$("$analyst_python" "$ANALYST_PROJECTS" select --root "$WORKSPACE" --mode "$MODE" --changed-files "$CHANGED_FILES" 2> "$analyst_error_file")"
+          analyst_status=$?
+          analyst_error="$(cat "$analyst_error_file")"
+          rm -f "$analyst_error_file"
+        else
+          echo "Scope reduced to the environment actions: $scope_reason, so only the Environment action tests and the Markdown check run" | tee -a "$LOG_FILE"
+          {
+            echo "### Reduced scope"
+            echo "The scope was reduced to the environment actions: $scope_reason, so only the Environment action tests and the Markdown check run."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [ "$scope" = full ] && [ "$analyst_status" -eq 0 ]; then
           analyst_lines="$(node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));for(const p of r.projects)console.log("S "+p.root);for(const c of r.covered)console.log("C "+c)' <<< "$analyst_output")"
           analyst_selected="$(sed -n 's/^S //p' <<< "$analyst_lines")"
           while IFS= read -r analyst_root; do
@@ -306,7 +463,7 @@ runs:
           done < <(find "$(dirname "$solution")" -name '*Tests.csproj' -not -path '*/bin/*' -not -path '*/obj/*' | sed 's|^\./||' | sort)
           return "$result"
         }
-        if [ "$status" -eq 0 ] && applies "$PLATFORM_SCOPE" && [ -f "$PLATFORM_SOLUTION" ]; then
+        if [ "$status" -eq 0 ] && [ "$scope" = full ] && applies "$PLATFORM_SCOPE" && [ -f "$PLATFORM_SOLUTION" ]; then
           checks+=("platform build and $(tests_label)")
           { step dotnet restore "$PLATFORM_SOLUTION" &&
             step dotnet build "$PLATFORM_SOLUTION" --no-restore &&
@@ -314,7 +471,7 @@ runs:
         fi
         # Active only once the Analyst Manager solution exists; it also runs for changes under contracts/analyst-manager/
         # because the Manager tests read the shared golden fixtures there.
-        if [ "$status" -eq 0 ] && applies "$MANAGER_TRIGGER" && [ -f "$MANAGER_SOLUTION" ]; then
+        if [ "$status" -eq 0 ] && [ "$scope" = full ] && applies "$MANAGER_TRIGGER" && [ -f "$MANAGER_SOLUTION" ]; then
           checks+=("Analyst Manager build and $(tests_label)")
           platform_pin="$(sdk_pin src/platform/global.json)"
           manager_pin="$(sdk_pin src/analysts/manager/global.json)"
@@ -354,7 +511,7 @@ runs:
           tail -n "+$((before + 1))" "$LOG_FILE" | playwright_flaky >> "$FLAKY_FILE"
           return "$result"
         }
-        if [ "$status" -eq 0 ] && applies "$WEB_TRIGGER" && [ -f "$WEB_DIR/package.json" ]; then
+        if [ "$status" -eq 0 ] && [ "$scope" = full ] && applies "$WEB_TRIGGER" && [ -f "$WEB_DIR/package.json" ]; then
           checks+=("Web UI build and tests")
           pushd "$WEB_DIR" > /dev/null
           { web_step install step env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci &&
@@ -391,7 +548,7 @@ runs:
             }
           done
         }
-        if [ "$status" -eq 0 ] && { [ "$analyst_status" -ne 0 ] || [ -n "$analyst_selected" ]; }; then
+        if [ "$status" -eq 0 ] && [ "$scope" = full ] && { [ "$analyst_status" -ne 0 ] || [ -n "$analyst_selected" ]; }; then
           checks+=("Analyst Python projects")
           if [ "$analyst_status" -ne 0 ]; then
             echo "Analyst Python projects: discovery failed (exit $analyst_status) using $analyst_python" | tee -a "$LOG_FILE"
@@ -471,7 +628,52 @@ runs:
           } >> "$GITHUB_STEP_SUMMARY"
         fi
         rm -rf "$RESULTS_ROOT"
-        (IFS=,; echo "checks=${checks[*]}") >> "$GITHUB_OUTPUT"
+        checks_text="$(IFS=,; echo "${checks[*]}")"
+
+        # Record write: only a run that passed with the workspace state unchanged since its start leaves a record, which
+        # replaces any earlier one atomically. A failing run, or a passing run whose workspace state changed, deletes an
+        # existing record, so a later run never inherits an earlier pass over a failure.
+        if [ -n "$record_file" ]; then
+          if [ "$status" -ne 0 ]; then
+            rm -f "$record_file"
+          else
+            end_identity="$(workspace_identity)"
+            if [ -z "$end_identity" ] || [ "$end_identity" != "$start_identity" ]; then
+              echo "No finalize reuse record was written: the workspace state changed during the run or could not be identified at its end" | tee -a "$LOG_FILE"
+              rm -f "$record_file"
+            else
+              record_dir="$(dirname "$record_file")"
+              record_tmp=""
+              if mkdir -p "$record_dir" && record_tmp="$(mktemp "$record_dir/.record.XXXXXX")" \
+                && node -e '
+                  const fs = require("fs");
+                  const [file, identity, mode, changedFiles, scope, checks, uncovered, flaky, runId, attempt, job] = process.argv.slice(1);
+                  const text = (v) => typeof v === "string" && !/[\r\n]/.test(v);
+                  let sequence = 1;
+                  try {
+                    const r = JSON.parse(fs.readFileSync(file, "utf8"));
+                    const valid = r !== null && typeof r === "object" && r.version === 1 && r.passed === true
+                      && ["identity", "mode", "changedFiles", "scope"].every((k) => typeof r[k] === "string")
+                      && ["checks", "uncovered", "flaky"].every((k) => text(r[k]))
+                      && r.source !== null && typeof r.source === "object" && !Array.isArray(r.source);
+                    if (valid) sequence = (Number.isFinite(r.source.sequence) ? r.source.sequence : 0) + 1;
+                  } catch {}
+                  process.stdout.write(JSON.stringify({
+                    version: 1, passed: true, identity, mode, changedFiles, scope, checks, uncovered, flaky,
+                    source: { runId, attempt, job, recordedAt: new Date().toISOString(), sequence },
+                  }) + "\n");
+                ' "$record_file" "$end_identity" "$MODE" "$normalized_changed_hash" "$scope" "$checks_text" "$uncovered" "$flaky" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" > "$record_tmp" \
+                && mv -f "$record_tmp" "$record_file"; then
+                echo "Finalize reuse record written for scope $scope" | tee -a "$LOG_FILE"
+              else
+                [ -z "$record_tmp" ] || rm -f "$record_tmp"
+                rm -f "$record_file"
+                echo "No finalize reuse record was written: the record could not be written" | tee -a "$LOG_FILE"
+              fi
+            fi
+          fi
+        fi
+        echo "checks=${checks_text}" >> "$GITHUB_OUTPUT"
         echo "uncovered=${uncovered}" >> "$GITHUB_OUTPUT"
         echo "flaky=${flaky}" >> "$GITHUB_OUTPUT"
         exit "$status"
