@@ -1,6 +1,6 @@
 # Tasks: Docker Push Digest from the Status Line
 
-**Input**: Design documents from `/specs/20261027-082724-docker-push-digest-status-line/`
+**Input**: Design documents from `/specs/archive/20261027-082724-docker-push-digest-status-line/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, quickstart.md (no `contracts/`: the feature adds no external interface)
 

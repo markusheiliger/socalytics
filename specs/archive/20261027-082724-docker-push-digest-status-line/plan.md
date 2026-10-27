@@ -2,7 +2,7 @@
 
 **Branch**: `20261027-082724-docker-push-digest-status-line` | **Date**: 2026-10-27 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261027-082724-docker-push-digest-status-line/spec.md`
+**Input**: Feature specification from `/specs/archive/20261027-082724-docker-push-digest-status-line/spec.md`
 
 ## Summary
 
@@ -59,7 +59,7 @@ None. The change only widens how End-to-End test support reads the digest of a D
 ### Documentation (this feature)
 
 ```text
-specs/20261027-082724-docker-push-digest-status-line/
+specs/archive/20261027-082724-docker-push-digest-status-line/
 ├── plan.md
 ├── research.md
 ├── data-model.md
