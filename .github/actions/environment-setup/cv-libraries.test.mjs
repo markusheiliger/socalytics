@@ -143,7 +143,7 @@ const SMOKE_LINE = 'Verified synthetic CV smoke check: decoded 60 frames, NumPy 
 // Writes stub curl, uv, python3, and ffmpeg commands into `bin`. Every call is appended to `calls.log` in `state`.
 // Behavior is steered per run through STUB_* environment variables:
 //   STUB_CURL_WHEELS (directory served by basename), STUB_CURL_FAIL, STUB_UV_FAIL, STUB_SMOKE_FAIL,
-//   STUB_SMOKE_TIMEOUT, STUB_SMOKE_OUTPUT (replaces the smoke line).
+//   STUB_SMOKE_TIMEOUT, STUB_SMOKE_OUTPUT (replaces the smoke line), STUB_TIMEOUT (timeout exits 124).
 function writeStubs(bin, state) {
   const log = path.join(state, 'calls.log');
   executable(path.join(bin, 'curl'), `#!/usr/bin/env bash
@@ -164,7 +164,7 @@ if [ -n "$output" ]; then cp "$source" "$output"; else cat "$source"; fi
 `);
   const smoke = `
 echo "smoke $*" >> "${log}"
-[ -z "\${STUB_SMOKE_FAIL:-}" ] || { echo "stub smoke failure" >&2; exit 1; }
+[ -z "\${STUB_SMOKE_FAIL:-}" ] || { echo "stub smoke failure: \${STUB_SMOKE_FAIL}" >&2; exit 1; }
 [ -z "\${STUB_SMOKE_TIMEOUT:-}" ] || sleep 30
 echo "\${STUB_SMOKE_OUTPUT:-${SMOKE_LINE}}"
 `;
@@ -185,6 +185,14 @@ case "$*" in
   *analyst-cv-smoke.py*) ${smoke.trim().replace(/\n/g, '\n  ')} ;;
   *) exec "${realPython}" "$@" ;;
 esac
+`);
+  // STUB_TIMEOUT simulates an expired bound without waiting for it.
+  executable(path.join(bin, 'timeout'), `#!/usr/bin/env bash
+echo "timeout $*" >> "${log}"
+[ -z "\${STUB_TIMEOUT:-}" ] || exit 124
+while [[ "$1" == -* ]]; do shift; done
+shift
+exec "$@"
 `);
   executable(path.join(bin, 'ffmpeg'), `#!/usr/bin/env bash
 echo "ffmpeg $*" >> "${log}"
@@ -429,5 +437,97 @@ describe('install-analyst-cv.sh verification stages', () => {
     assertCvFailure(result, 'opencv-python-headless', 'cv compatibility');
     assertRecommendedActionLast(result);
     assertNoFallback(result, drifted);
+  });
+});
+
+const installCall = (result) => result.calls.find((line) => /^uv pip install/.test(line));
+
+describe('install-analyst-cv.sh offline installation and smoke check', () => {
+  it('installs only from the verified wheelhouse with a hash-pinned requirements file', () => {
+    const { directory, wheelsDirectory, wheels, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assert.equal(result.status, 0, result.stderr);
+    const installs = result.calls.filter((line) => /^uv pip install/.test(line));
+    assert.equal(installs.length, 1);
+    const words = installCall(result).split(/\s+/);
+    for (const flag of ['--offline', '--no-index', '--require-hashes', '--no-deps']) {
+      assert.ok(words.includes(flag), `missing ${flag}: ${installs[0]}`);
+    }
+    assert.ok(!/--index-url|--extra-index-url|--no-binary|--find-links|https?:/.test(installs[0]), installs[0]);
+    const requirements = words[words.indexOf('-r') + 1] ?? words[words.indexOf('--requirement') + 1];
+    assert.ok(requirements && existsSync(requirements), `requirements file not found: ${installs[0]}`);
+    const text = readFileSync(requirements, 'utf8');
+    for (const wheel of wheels) {
+      assert.match(text, new RegExp(`${wheel.name}==${wheel.version.replace(/\./g, '\\.')}.*--hash=sha256:${wheel.sha256}`));
+      assert.ok(existsSync(path.join(result.installRoot, 'analyst-cv-wheels', wheel.fileName)), wheel.fileName);
+    }
+    assert.ok(existsSync(path.join(result.installRoot, 'analyst-cv-venv')));
+  });
+
+  it('runs the smoke check in the isolated environment and prints its evidence line', () => {
+    const { directory, wheelsDirectory, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^Verified synthetic CV smoke check:/m);
+    assert.ok(result.calls.some((line) => /^smoke .*analyst-cv-smoke\.py/.test(line)), result.calls.join('\n'));
+    assert.ok(result.calls.some((line) => /^timeout /.test(line)), 'the smoke check runs under timeout');
+  });
+
+  it('removes the downloads after the check and keeps unrelated files', () => {
+    const { directory, wheelsDirectory, declaration } = fixture();
+    const sentinel = path.join(directory, 'install', 'unrelated', 'keep.txt');
+    mkdirSync(path.dirname(sentinel), { recursive: true });
+    writeFileSync(sentinel, 'keep');
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(!existsSync(path.join(result.installRoot, 'downloads')));
+    assert.equal(readFileSync(sentinel, 'utf8'), 'keep');
+  });
+
+  for (const step of ['decode', 'NumPy', 'ONNX Runtime']) {
+    it(`fails in the cv smoke stage when the ${step} step fails`, () => {
+      const { directory, wheelsDirectory, declaration } = fixture();
+      const result = runInstaller(directory, { declaration, wheelsDirectory, env: { STUB_SMOKE_FAIL: `${step} step failed` } });
+      assertCvFailure(result, '\\S+', 'cv smoke');
+      assertRecommendedActionLast(result);
+      assert.match(result.stderr, new RegExp(`${step} step failed`));
+      assert.ok(!/^Verified synthetic CV smoke check:/m.test(result.stdout));
+      assert.ok(!existsSync(path.join(result.installRoot, 'downloads')), 'downloads are removed after a failed check');
+    });
+  }
+
+  it('fails in the cv smoke stage when the smoke check times out', () => {
+    const { directory, wheelsDirectory, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory, env: { STUB_TIMEOUT: '1' } });
+    assertCvFailure(result, '\\S+', 'cv smoke');
+    assertRecommendedActionLast(result);
+    assert.match(result.stderr, /time/i);
+  });
+
+  it('truncates the output a failing smoke check reports', () => {
+    const { directory, wheelsDirectory, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory, env: { STUB_SMOKE_FAIL: 'x'.repeat(5000) } });
+    assertCvFailure(result, '\\S+', 'cv smoke');
+    assert.ok(result.stderr.length < 1500, `stderr has ${result.stderr.length} characters`);
+    assert.ok(!result.stderr.includes('x'.repeat(1000)));
+  });
+
+  it('deletes only its own fixtures when the smoke check fails', () => {
+    const { directory, wheelsDirectory, declaration } = fixture();
+    const sentinel = path.join(directory, 'install', 'unrelated', 'keep.txt');
+    mkdirSync(path.dirname(sentinel), { recursive: true });
+    writeFileSync(sentinel, 'keep');
+    const result = runInstaller(directory, { declaration, wheelsDirectory, env: { STUB_SMOKE_FAIL: 'decode failed' } });
+    assertCvFailure(result, '\\S+', 'cv smoke');
+    assert.equal(readFileSync(sentinel, 'utf8'), 'keep');
+    assert.ok(existsSync(path.join(result.installRoot, 'analyst-cv-wheels')), 'the verified wheelhouse is not a fixture');
+  });
+
+  it('fails in the cv install stage without a smoke check when the offline install fails', () => {
+    const { directory, wheelsDirectory, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory, env: { STUB_UV_FAIL: '1' } });
+    assertCvFailure(result, '\\S+', 'cv install');
+    assertRecommendedActionLast(result);
+    assert.ok(!result.calls.some((line) => line.startsWith('smoke ')));
   });
 });
