@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -1499,5 +1499,187 @@ describe('agents area selection', () => {
     const result = spawnSync('python', [helper, 'select', '--root', root, '--python-version', '3.13.5', '--mode', 'task', '--changed-files', list], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout).projects.map((entry) => entry.reason), ['shared contract change']);
+  });
+});
+
+describe('library pin check', () => {
+  const pins = path.join(here, 'analyst-library-pins.py');
+  const declarationPath = path.join(here, '..', 'environment-setup', 'analyst-cv-libraries.json');
+  const declaration = JSON.parse(readFileSync(declarationPath, 'utf8'));
+  const projectRoot = 'src/analysts/capabilities/vision';
+  const wheelOf = (name) => declaration.wheels.find((wheel) => wheel.name === name);
+  const hexOf = (character) => character.repeat(64);
+
+  const packageBlock = ({ name, version, wheels = [], sdist = null }) => {
+    const lines = ['[[package]]', `name = "${name}"`, `version = "${version}"`, 'source = { registry = "https://pypi.org/simple" }'];
+    if (sdist) lines.push(`sdist = { url = "https://files.pythonhosted.org/packages/ab/cd/${sdist.fileName}", hash = "sha256:${sdist.sha256}", size = 1000 }`);
+    if (wheels.length) {
+      lines.push('wheels = [');
+      for (const wheel of wheels) lines.push(`    { url = "${wheel.url}", hash = "sha256:${wheel.sha256}", size = 1000 },`);
+      lines.push(']');
+    }
+    return lines.join('\n');
+  };
+
+  const pinnedPackage = (name, overrides = {}) => {
+    const wheel = wheelOf(name);
+    return {
+      name,
+      version: wheel.version,
+      wheels: [{ url: wheel.url, sha256: wheel.sha256 }],
+      ...overrides,
+    };
+  };
+
+  const lockText = (packages) => [
+    'version = 1',
+    'requires-python = ">=3.12"',
+    '',
+    '[[package]]',
+    'name = "vision"',
+    'version = "1.0.0"',
+    'source = { editable = "." }',
+    ...packages.flatMap((entry) => ['', packageBlock(entry)]),
+    '',
+  ].join('\n');
+
+  const closure = () => declaration.wheels.map((wheel) => pinnedPackage(wheel.name));
+  const replaced = (name, overrides) => closure().map((entry) => (entry.name === name ? { ...entry, ...overrides } : entry));
+  const withoutPackage = (name) => closure().filter((entry) => entry.name !== name);
+
+  function snapshot(directory) {
+    return ['uv.lock', 'pyproject.toml'].map((file) => {
+      const target = path.join(directory, file);
+      return existsSync(target) ? readFileSync(target, 'utf8') : null;
+    });
+  }
+
+  function check(packages) {
+    const directory = repository();
+    const lock = path.join(directory, 'uv.lock');
+    writeFileSync(lock, typeof packages === 'string' ? packages : lockText(packages));
+    writeFileSync(path.join(directory, 'pyproject.toml'), manifest({ name: 'vision' }));
+    const before = snapshot(directory);
+    const result = spawnSync('python', [pins, '--declaration', declarationPath, '--lock', lock, '--project', projectRoot], { encoding: 'utf8' });
+    assert.deepEqual(snapshot(directory), before, 'the check never writes');
+    assert.equal(result.error, undefined, String(result.error));
+    return result;
+  }
+
+  const passes = (packages) => {
+    const result = check(packages);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, '');
+  };
+
+  const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  function fails(packages, library, kind, locked, pinned) {
+    const result = check(packages);
+    assert.equal(result.status, 1, result.stdout);
+    const lines = result.stderr.trim().split('\n');
+    assert.equal(lines.length, 1, result.stderr);
+    const prefix = `project ${projectRoot}: library pin: ${library}: ${kind}: locked `;
+    assert.ok(lines[0].startsWith(prefix), lines[0]);
+    assert.match(lines[0], new RegExp(`^${escaped(prefix)}${locked}, pinned ${pinned}\\. Recommended action: \\S`));
+    assert.equal(lines[0].match(/Recommended action: /g).length, 1);
+    return lines[0];
+  }
+
+  const digest = (value) => `(?:sha256:)?${escaped(value)}`;
+
+  it('passes a lock without any pinned library', () => {
+    passes([{ name: 'requests', version: '2.32.0', wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/requests-2.32.0-py3-none-any.whl', sha256: hexOf('1') }] }]);
+    passes([]);
+  });
+
+  it('passes a lock with only packaging at another version', () => {
+    passes([{ name: 'packaging', version: '25.0', wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/packaging-25.0-py3-none-any.whl', sha256: hexOf('2') }] }]);
+  });
+
+  it('fails a lock with the opencv library and a different protobuf', () => {
+    const pinned = wheelOf('protobuf');
+    const other = {
+      version: '6.0.0',
+      wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/protobuf-6.0.0-cp310-abi3-manylinux2014_x86_64.whl', sha256: hexOf('3') }],
+    };
+    fails(replaced('protobuf', other), 'protobuf', 'version', '6\\.0\\.0', escaped(pinned.version));
+  });
+
+  it('passes a lock with exactly the pinned versions, wheel files, and digests', () => {
+    passes(closure());
+  });
+
+  it('passes the pinned wheels next to a source distribution and unrelated packages', () => {
+    const numpy = pinnedPackage('numpy', { sdist: { fileName: 'numpy-2.5.4.tar.gz', sha256: hexOf('4') } });
+    const rest = closure().filter((entry) => entry.name !== 'numpy');
+    passes([...rest, numpy, { name: 'pytest', version: '9.0.0', wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/pytest-9.0.0-py3-none-any.whl', sha256: hexOf('5') }] }]);
+  });
+
+  it('reports a version that differs from the pin', () => {
+    const numpy = wheelOf('numpy');
+    const url = numpy.url.replace('numpy-2.5.4-', 'numpy-2.5.3-');
+    fails(replaced('numpy', { version: '2.5.3', wheels: [{ url, sha256: numpy.sha256 }] }), 'numpy', 'version', '2\\.5\\.3', escaped(numpy.version));
+  });
+
+  it('reports a wheel with another platform tag', () => {
+    const onnx = wheelOf('onnxruntime');
+    const other = onnx.fileName.replace('x86_64', 'aarch64');
+    const line = fails(
+      replaced('onnxruntime', { wheels: [{ url: onnx.url.replace(onnx.fileName, other), sha256: onnx.sha256 }] }),
+      'onnxruntime', 'platform-tag', escaped(other), escaped(onnx.fileName),
+    );
+    assert.ok(!line.includes('\n'));
+  });
+
+  it('reports a digest that differs from the pin', () => {
+    const wheel = wheelOf('opencv-python-headless');
+    const wrong = hexOf('a');
+    fails(replaced('opencv-python-headless', { wheels: [{ url: wheel.url, sha256: wrong }] }), 'opencv-python-headless', 'digest', digest(wrong), digest(wheel.sha256));
+  });
+
+  it('reports a library locked as a source distribution only', () => {
+    const numpy = wheelOf('numpy');
+    fails(
+      replaced('numpy', { wheels: [], sdist: { fileName: 'numpy-2.5.4.tar.gz', sha256: hexOf('6') } }),
+      'numpy', 'source-distribution', '[^,]+', '[^.]+(?:\\.[^.]+)*',
+    );
+    assert.ok(numpy.fileName.endsWith('.whl'));
+  });
+
+  it('reports a pinned wheel that is missing from the lock', () => {
+    const flatbuffers = wheelOf('flatbuffers');
+    fails(withoutPackage('flatbuffers'), 'flatbuffers', 'missing-wheel', '[^,]+', escaped(flatbuffers.fileName));
+  });
+
+  for (const name of ['opencv-python', 'onnxruntime-gpu', 'nvidia-cublas-cu12', 'tensorrt', 'tensorrt-cu12']) {
+    it(`reports the disallowed package ${name} next to the pinned closure`, () => {
+      const extra = { name, version: '1.0.0', wheels: [{ url: `https://files.pythonhosted.org/packages/ab/cd/${name.replaceAll('-', '_')}-1.0.0-py3-none-any.whl`, sha256: hexOf('7') }] };
+      fails([...closure(), extra], name, 'disallowed-package', escaped(name), '[^,]+');
+    });
+  }
+
+  it('applies the disallowed-package rule to a project without pinned libraries', () => {
+    fails([{ name: 'opencv-python', version: '4.12.0.88', wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/opencv_python-4.12.0.88-cp37-abi3-manylinux2014_x86_64.whl', sha256: hexOf('8') }] }], 'opencv-python', 'disallowed-package', 'opencv-python', '[^,]+');
+  });
+
+  it('stops the sequence at the first finding of a project', () => {
+    const numpy = wheelOf('numpy');
+    const broken = replaced('numpy', { version: '2.5.3', wheels: [{ url: numpy.url.replace('numpy-2.5.4-', 'numpy-2.5.3-'), sha256: hexOf('9') }] })
+      .filter((entry) => entry.name !== 'protobuf');
+    broken.push({ name: 'nvidia-cudnn-cu12', version: '9.0.0', wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/nvidia_cudnn_cu12-9.0.0-py3-none-any.whl', sha256: hexOf('b') }] });
+    const result = check(broken);
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr.trim().split('\n').length, 1, result.stderr);
+  });
+
+  it('never writes beside the lock', () => {
+    const directory = repository();
+    const lock = path.join(directory, 'uv.lock');
+    writeFileSync(lock, lockText(closure()));
+    const result = spawnSync('python', [pins, '--declaration', declarationPath, '--lock', lock, '--project', projectRoot], { encoding: 'utf8', cwd: directory });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readdirSync(directory), ['uv.lock']);
+    assert.equal(readFileSync(lock, 'utf8'), lockText(closure()));
   });
 });
