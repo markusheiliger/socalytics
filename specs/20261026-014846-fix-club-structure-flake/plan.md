@@ -76,7 +76,7 @@ src/clients/web/
 3. **Fix the evidenced cause** by kind: wait on the awaited condition or control the racing input in the test; isolate shared state (the start state is established through the club structure operations before the test and cleaned up after it, also after a failure, FR-007); change a Web UI or platform file only if its behavior contradicts the documentation under concurrency.
 4. **Not reproduced**: harden only candidates that the traces and logs of #235, #284, and #314 support (read with `gh run view --log` where still available), record that evidence and the missing reproduction in the code comment.
 5. **Keep every assertion** and every explicit `timeout` as it is.
-6. **Prove** with the SC-001 runs and the SC-002 probes, remove the probes, and run `npm run build` and `npm test`. Nothing is written under `specs/` by the implementation tasks.
+6. **Prove** with the SC-001 runs and the SC-002 probes, remove the probes, and run `npm run build` and `npm test`. The implementation is one task (T008) whose numbered steps do this; only the files the cause lives in are committed. Nothing is written under `specs/` by it.
 
 ## Architecture Updates
 
