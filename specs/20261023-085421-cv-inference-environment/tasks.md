@@ -103,7 +103,7 @@ SBOM; each failure kind of the contract fails with one line naming the wheel or 
 
 #### Installer integration
 
-- [ ] T014 [US2] Add the stage `cv licenses` to `.github/actions/environment-setup/install-analyst-cv.sh` between `cv compatibility` and `cv install`: run `analyst-cv-licenses.py` with the declaration, the verified wheels, `$ANALYST_MEDIA_INSTALL_ROOT/notices/analyst-cv/sbom.cdx.json`, and the toolchain declaration, turn its finding lines into the failure line with `library=<wheel|library>` and one `Recommended action` (broken environment: correct the pin or table through a standalone environment change, never bypass the check), and print `Verified Analyst CV libraries: <n> wheels, <m> bundled libraries, SBOM <path>` on success
+- [x] T014 [US2] Add the stage `cv licenses` to `.github/actions/environment-setup/install-analyst-cv.sh` between `cv compatibility` and `cv install`: run `analyst-cv-licenses.py` with the declaration, the verified wheels, `$ANALYST_MEDIA_INSTALL_ROOT/notices/analyst-cv/sbom.cdx.json`, and the toolchain declaration, turn its finding lines into the failure line with `library=<wheel|library>` and one `Recommended action` (broken environment: correct the pin or table through a standalone environment change, never bypass the check), and print `Verified Analyst CV libraries: <n> wheels, <m> bundled libraries, SBOM <path>` on success
 
 **Checkpoint**: User Stories 1 and 2 both work independently; the SBOM and provenance notices sit beside the toolchain
 notices.

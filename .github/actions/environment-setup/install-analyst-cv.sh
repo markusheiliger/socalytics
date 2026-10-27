@@ -33,7 +33,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for required in jq curl sha256sum timeout uv ffmpeg; do
+for required in jq curl sha256sum timeout uv ffmpeg python3; do
   command -v "$required" > /dev/null 2>&1 \
     || fail "$required" prerequisites "the runner does not provide $required" \
       "use the supported Linux x64 runner image and the verified Analyst toolchain step, which provide $required, and rerun setup."
@@ -193,6 +193,26 @@ for ((index = 0; index < wheel_count; index++)); do
     || fail "${names[index]}" "cv compatibility" "$problem" "$pin_action"
 done
 
+licenses_script="$script_dir/analyst-cv-licenses.py"
+sbom="$install_root/notices/analyst-cv/sbom.cdx.json"
+licenses_args=(--declaration "$declaration" --wheels "$downloads" --sbom "$sbom")
+[[ ! -f "$toolchain" ]] || licenses_args+=(--ffmpeg-toolchain "$toolchain")
+licenses_status=0
+licenses_output="$(python3 "$licenses_script" "${licenses_args[@]}" 2>&1 < /dev/null)" || licenses_status=$?
+if ((licenses_status != 0)); then
+  first_finding="${licenses_output%%$'\n'*}"
+  finding_count="$(printf '%s\n' "$licenses_output" | grep -c . || true)"
+  finding_library="${first_finding%%:*}"
+  finding_problem="${first_finding#*: }"
+  [[ -n "$finding_library" && "$finding_library" != "$first_finding" && "$finding_library" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+    || { finding_library=licenses; finding_problem="the licence check failed: ${first_finding:0:300}"; }
+  ((finding_count <= 1)) || finding_problem="$finding_problem (and $((finding_count - 1)) more findings)"
+  fail "$finding_library" "cv licenses" "$finding_problem" \
+    "correct the pin or the licence table through a standalone environment change and rerun setup; never bypass the check."
+fi
+bundled_count="$(jq '[.components[]? | (.components // [])[]] | length' "$sbom" 2> /dev/null)" \
+  || fail licenses "cv licenses" "the licence check wrote no readable SBOM at $sbom" "$pin_action"
+
 mkdir -p "$wheelhouse"
 requirements="$wheelhouse/requirements.txt"
 {
@@ -226,4 +246,4 @@ fi
   || fail smoke "cv smoke" "the smoke check printed no evidence line: ${smoke_output:0:300}" "$pin_action"
 
 echo "$smoke_output"
-echo "Verified Analyst CV libraries: $wheel_count wheels installed offline from verified digests into $venv"
+echo "Verified Analyst CV libraries: $wheel_count wheels, $bundled_count bundled libraries, SBOM $sbom"
