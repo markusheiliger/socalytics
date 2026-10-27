@@ -19,7 +19,7 @@ The evidence of this feature lives in a comment block in `SeedTests.cs` (see T00
 
 ## Phase 1: Setup
 
-- [ ] T001 Restore and build the platform with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore`, and run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SeedTests"` once (a running Docker runtime is required), and record the baseline (build result and the pass, fail, and skip counts of `SeedTests`) in the `Baseline:` lines of an `// Evidence:` comment block directly above the named test in `T/AgentOrchestration/Catalog/SeedTests.cs` (created by this task; comments only, no code change); agents cannot change files under `specs/` other than the `tasks.md` tick, so the evidence of this feature lives in this comment block, not in `research.md`.
+- [x] T001 Restore and build the platform with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore`, and run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SeedTests"` once (a running Docker runtime is required), and record the baseline (build result and the pass, fail, and skip counts of `SeedTests`) in the `Baseline:` lines of an `// Evidence:` comment block directly above the named test in `T/AgentOrchestration/Catalog/SeedTests.cs` (created by this task; comments only, no code change); agents cannot change files under `specs/` other than the `tasks.md` tick, so the evidence of this feature lives in this comment block, not in `research.md`.
 
 ---
 
