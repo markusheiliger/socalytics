@@ -24,6 +24,8 @@ on:
     - cron: "17 2 * * *"
   workflow_dispatch:
 
+run-name: "${{ github.event_name == 'push' && format('Main health · check {0} after a push', github.ref_name) || github.event_name == 'schedule' && format('Main health · nightly check of {0}', github.ref_name) || format('Main health · check {0}', github.ref_name) }}"
+
 permissions: {}
 
 # One run at a time per branch; GitHub keeps only the newest pending run, so the latest state is always verified next.

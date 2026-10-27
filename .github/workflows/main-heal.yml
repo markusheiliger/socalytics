@@ -19,6 +19,8 @@ on:
         required: false
         default: ""
 
+run-name: "${{ inputs.issue && format('Main heal · fix the unhealthy default branch (#{0})', inputs.issue) || 'Main heal · fix the unhealthy default branch' }}"
+
 permissions: {}
 
 # One healing attempt at a time.
