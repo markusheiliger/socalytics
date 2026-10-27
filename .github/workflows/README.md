@@ -92,7 +92,7 @@ They become ready only after final verification, immediately before an automatic
 | Workflow | File | Triggered by | Does |
 | --- | --- | --- | --- |
 | Spec Kit prepare | [speckit-prepare.yml](speckit-prepare.yml) | Push to `specs/**`, stage label changes (restored when a person made them), manual | Keeps one twin issue per spec folder, infers dependencies between new twins, validates implement requests; a dispatched, applying run then dispatches `Spec Kit orchestrate`. |
-| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; requested twins that block running implementations start regardless and first, the one that unblocks the most waiting implementations, also through chains of blocked ones, first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
+| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; blocked implementations keep their slots; requested twins that block running implementations start regardless and first, the one that unblocks the most waiting implementations, also through chains of blocked ones, first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
 | Spec Kit implement decide | [speckit-implement-decide.yml](speckit-implement-decide.yml) | Orchestrate, commands, the chain | The run without work: when the next work is none (a stop at an attempt limit, a failure, a running merge, a finished implementation) or cannot be told, it decides and acts on it (reports the stop, starts the diagnosis, marks the implementation done); work it finds after all is handed over to the workflow of its kind. |
 | Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Orchestrate, commands, the chain | A sequential group (consecutive tasks without `[P]`, one at a time), a parallel group (consecutive `[P]` tasks under one heading, at most 5 at once, verified together only when a landing merged a sibling's edits to the same files), or the convergence or a conflict resolution as a group of one; then starts the next run. |
 | Spec Kit implement verify | [speckit-implement-verify.yml](speckit-implement-verify.yml) | The chain | The full verification of a finished phase in a run of its own, in up to four shards side by side that a planning job names after their work (combined into the artifact `speckit-phase-verification`); a failure stops with a pending repair. |
@@ -317,7 +317,8 @@ analysis finds it consistent and its changed Markdown passes the Markdown check 
 check), the pull request is merged automatically; it waits for review when it changes
 `docs/architecture/` (a **Design decisions** comment explains why) or when a person pushed to it. On the default
 branch it is an ordinary spec with its own twin, and the stopped spec's twin is blocked by it like by any dependency.
-Nothing requests its implementation automatically: someone signs it off with `/speckit implement` on its twin. The
+Once it is ready (`tasked`, checklists checked), the scheduler requests its implementation automatically on behalf of
+the person who posted `/speckit author`, because it exists only to unblock the stopped implementation. The
 stopped implementation is blocked until it is implemented and then retries by itself (see
 [Pull requests that need attention](#pull-requests-that-need-attention)). When the fix is already on the base branch,
 use `sync` instead.
@@ -455,7 +456,7 @@ Failed checks, failed reworks, and exhausted correction rounds recommend a ready
 restarts rework and analysis. Starting new work replaces the previous recommendation with an explicit wait; a failed
 or abandoned run replaces that wait with the recovery action in both the description and its comment.
 
-An implementation that waits for another spec carries the separate custom `blocked` label instead of `help wanted`.
+An implementation that waits for another spec carries the separate custom `blocked` label, with `help wanted` only while a blocker waits for its `/speckit implement` request.
 It waits whenever its twin has open blocked-by twins, however the dependency came about (`/speckit author`,
 dependency inference, or a person), and while a spec that `/speckit author` authored is still being written, checked,
 or reviewed. GitHub has no default label for an on-hold state. The label is only added together with a comment that
@@ -466,8 +467,12 @@ requests to finish first**), or a requested twin whose implementation has not st
 itself**; nothing to do). It is posted again when a blocker is requested or its implementation pull request opens, and
 says how the implementation continues (marker `speckit-implement:blocked`); when the
 scheduler reconciles the label on an implementation whose block is not explained yet, it posts the explanation once.
-A blocked implementation never gets `help wanted`; the scheduler does not continue its chain, and a running chain stops
-before its next unit (no retry, no diagnosis) while it waits. The label is removed when the last blocker is
+A blocked implementation carries `help wanted` as well exactly while a blocker is a spec twin that is not requested for
+implementation: nothing starts that blocker by itself, and the **Blocked** comment recommends `/speckit implement` on it.
+Once every blocker is requested (the explanation posted again then says that nothing is needed), `help wanted` is removed
+and only `blocked` stays. The scheduler does not continue a blocked implementation's chain, and a running chain stops
+before its next unit (no retry, no diagnosis) while it waits. The `blocked` label (and a `help wanted` that came with it)
+is removed when the last blocker is
 implemented (the retry comment says the block is lifted and the implementation continues with a fresh attempt count),
 when a blocker or the authored spec pull request is closed without being implemented (that comment lists the next
 steps with `help wanted`), or when the implementation pull request closes.
