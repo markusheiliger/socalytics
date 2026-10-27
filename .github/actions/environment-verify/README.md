@@ -14,7 +14,7 @@ The `flaky` output lists the recorded tests once each, comma-separated (a comma 
 
 ## Analyst Python projects
 
-No Analyst SDK or capability exists yet, so the check selects nothing and adds no coverage. The action creates no project, lock file, or declaration. It only verifies projects that later specs add, and this page advertises no product command for them.
+The check verifies the Analyst SDK (`src/analysts/sdk`) and every capability project under `src/analysts/capabilities/<name>` that exists, each as an independent project, and adds each existing project's root to the covered paths. It selects nothing and adds no coverage while no project exists. The action creates no project, lock file, or declaration, and this page advertises no product command for a project.
 
 ### Project layout
 
@@ -46,16 +46,36 @@ A project may depend on another recognized project. It declares the dependency i
 
 ### Command stages
 
-Each selected project runs these stages in order, from its own folder, with `UV_PYTHON_DOWNLOADS=never` and `UV_PYTHON` set to `SOCALYTICS_PYTHON`. The first failing stage ends the check:
+Each selected project runs these stages in order, from its own folder, with `UV_PYTHON_DOWNLOADS=never` and `UV_PYTHON` set to `SOCALYTICS_PYTHON`. The first failing stage ends the check. The `library pin` stage runs first, and only for Analyst projects (never for agent projects):
 
 | Stage | Command |
 | --- | --- |
+| library pin | `python3 analyst-library-pins.py --declaration ../environment-setup/analyst-cv-libraries.json --lock uv.lock --project <root>` (with `SOCALYTICS_PYTHON`) |
 | bootstrap sync | `uv sync --locked --all-groups --no-install-local --no-build` |
 | project sync | `uv sync --locked --all-groups --no-build-isolation` |
 | wheel build | `uv build --wheel --no-build-isolation --python .venv/bin/python` |
 | tests | `uv run --no-sync pytest` |
 
 The bootstrap sync installs locked external wheels and backends without building local packages. The project sync installs the project and its local dependencies using those backends. The tests stage runs the whole project in every mode, and pytest's no-tests exit fails it. The check requires `SOCALYTICS_PYTHON` and `uv` from [`environment-setup`](../environment-setup/action.yml) run with `install-tools: true`, and it fails otherwise instead of skipping.
+
+### Library pin stage
+
+[`analyst-library-pins.py`](analyst-library-pins.py) only reads the project's committed `uv.lock` and compares it with the single pinned declaration [`analyst-cv-libraries.json`](../environment-setup/analyst-cv-libraries.json) of [`environment-setup`](../environment-setup/README.md). It never writes a file and needs no network. A package matching the declaration's `deniedPackages` is rejected in every Analyst project. The whole pinned closure (the `library` wheels `opencv-python-headless`, `numpy`, and `onnxruntime`, and the `dependency` wheels) is enforced only when the lock contains at least one `library` wheel, so a project that locks none of the libraries (such as the SDK or `reference-media-probe`) passes. The first finding ends the project's sequence as one line:
+
+```text
+project <root>: library pin: <library>: <kind>: locked <value>, pinned <value>. Recommended action: <action>
+```
+
+| Finding kind | Meaning |
+| --- | --- |
+| `version` | the locked version differs from the pinned version |
+| `platform-tag` | the locked wheel file is not the pinned wheel file (another platform or Python tag) |
+| `digest` | the locked SHA-256 differs from the pinned digest |
+| `source-distribution` | the lock offers only a source distribution for the pinned version |
+| `missing-wheel` | a pinned package or its wheel is absent from the lock |
+| `disallowed-package` | the lock contains a denied package (for example a GPU, CUDA, or non-headless OpenCV variant) |
+
+An unreadable lock or declaration is reported as `uv.lock: unreadable` at the same stage. The failure propagates through the log line `Analyst Python stage failed: library pin in <root> ...` and ends the check with status 1.
 
 ### When it runs
 
@@ -107,7 +127,7 @@ Discovery always validates the existing agent manifests. A malformed or unsuppor
 
 ## Environment action tests
 
-The check "Environment action tests" runs `node --test` over [`analyst-projects.test.mjs`](analyst-projects.test.mjs) and [`../environment-setup/toolchain.test.mjs`](../environment-setup/toolchain.test.mjs). It runs when a file under `.github/actions/environment-setup/` or `.github/actions/environment-verify/` changed, and in `finalize` mode, whether or not an Analyst Python project exists. It uses the Node.js that the caller provides. The marker `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING` makes a nested run of the action skip this check, so the test fixtures never start the self-test again. The tests stub external commands and never connect to a database. They use isolated fixtures, not product projects.
+The check "Environment action tests" runs `node --test` over [`analyst-projects.test.mjs`](analyst-projects.test.mjs), [`../environment-setup/toolchain.test.mjs`](../environment-setup/toolchain.test.mjs), and [`../environment-setup/cv-libraries.test.mjs`](../environment-setup/cv-libraries.test.mjs) (the pinned libraries, the licence and SBOM check, and the library pin stage). It runs when a file under `.github/actions/environment-setup/` or `.github/actions/environment-verify/` changed, and in `finalize` mode, whether or not an Analyst Python project exists. It uses the Node.js that the caller provides. The marker `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING` makes a nested run of the action skip this check, so the test fixtures never start the self-test again. The tests stub external commands and never connect to a database. They use isolated fixtures, not product projects.
 
 ## Check order and coverage
 
@@ -120,7 +140,7 @@ The `uncovered` output lists changed files that no check covers, and the workflo
 - Markdown files, `specs/`, and the repository metadata files `.gitignore`, `.gitattributes`, and `.editorconfig`;
 - the two environment action folders, which the merge self-tests;
 - `src/platform/` and `contracts/` while the platform solution exists, `src/analysts/manager/` while the Manager solution exists, and `src/clients/web/` while its `package.json` exists;
-- the root of each existing recognized Analyst Python project;
+- the root of each existing recognized Analyst Python project, which includes `src/analysts/capabilities/<name>/` only while that project's `pyproject.toml` exists (a deleted capability's source stays uncovered);
 - the root of each existing valid agent Python project (`src/agents/<name>`); `src/agents/README.md` is covered only by the Markdown rule.
 
 The source of a deleted or unrecognized Analyst or agent project stays uncovered, because no check can approve a project that does not exist; this includes `src/agents/pyproject.toml`, nested agent manifests, and unowned files directly in `src/agents/`. Contracts stay covered by the platform scope, and the `contracts/agent-*` and `contracts/common/` triggers run the agent check without covering those files. Other paths under `src/analysts/`, `src/agents/`, and `src/clients/` stay uncovered.
@@ -133,6 +153,8 @@ Every failure names the project or tool, the stage, and one recommended action i
 | --- | --- |
 | malformed manifest, unsupported layout, duplicate name, missing or cyclic local dependency | correct the named manifest to the project convention above, or author the required environment extension, then retry |
 | `requires-python` excludes the installed interpreter | correct `requires-python` of the named project, or author the required environment extension, then retry |
+| `library pin` finding of kind `version`, `platform-tag`, `digest`, `source-distribution`, `missing-wheel`, or `disallowed-package` (the consuming project's `uv.lock` is at fault) | align the project's `uv.lock` with the pinned library set or remove the disallowed package, then retry; verification never changes the lock, and a change of a pin is a standalone environment change |
+| `library pin` reports an unreadable declaration or lock, or the pin set itself is wrong (the environment is broken, not the consuming project) | run `environment-setup` with `install-tools: true`, or correct the declaration in a standalone environment change, then retry |
 | missing or stale `uv.lock`, missing external wheel, missing locked backend (a sync stage) | correct and commit the consuming project's declarations and lock; verification never repairs or unlocks them |
 | failed wheel build | reproduce the command in the named project and correct the package or build configuration |
 | failed or empty tests | reproduce the command in the named project and correct the tests or the source they cover without weakening them |
