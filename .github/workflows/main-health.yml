@@ -4,9 +4,10 @@ name: Main health
 # verification trips over it: after every push to the default branch that changes more than Markdown and specs/, every
 # night (changes outside the repository: SDK patches, runner images, downloads), and on demand. It plans the
 # verification shards like Spec Kit implement verify, runs environment-verify in finalize mode in each, and records the
-# result (speckit-main-health.mjs): a failure opens or updates one tracking issue (label `main-health`, with
-# `help wanted` and a recommended next step), a success closes it. The Spec Kit scheduler starts no new spec while the
-# latest finished run failed (repository variable SPECKIT_HEALTH_GATE=false turns that off).
+# result (speckit-main-health.mjs): a failure opens or updates one tracking issue (label `main-health`) and starts the
+# healer (Main heal, main-heal.yml), a success closes it and starts the Spec Kit scheduler. While the issue or a healing
+# pull request is open, the scheduler blocks every implementation and starts no spec (repository variable
+# SPECKIT_HEALTH_GATE=false turns that off).
 on:
   push:
     # The job runs on the default branch only; Spec Kit's own branches are left out so they start no skipped runs.
@@ -15,6 +16,7 @@ on:
       - "speckit-amend/**"
       - "speckit-spec/**"
       - "speckit-fix/**"
+      - "main-heal/**"
     paths-ignore:
       - "**/*.md"
       - "specs/**"
@@ -132,10 +134,13 @@ jobs:
     permissions:
       contents: read
       issues: write
+      actions: write
     steps:
+      # The full history attributes a red default branch to the changes since the last green run.
       - name: Check out the default branch
         uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js
@@ -171,7 +176,6 @@ jobs:
           SPECKIT_HEALTH_LOG: ${{ runner.temp }}/main-health/verification.log
         run: node .github/scripts/speckit-main-health.mjs record
 
-      # The run's own conclusion is the health the scheduler reads.
       - name: Fail when the default branch is unhealthy
         if: needs.shards.result != 'success' || needs.verify.result != 'success'
         run: |
