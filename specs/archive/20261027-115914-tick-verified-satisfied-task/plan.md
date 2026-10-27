@@ -2,7 +2,7 @@
 
 **Branch**: `20261027-115914-tick-verified-satisfied-task` | **Date**: 2026-10-27 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261027-115914-tick-verified-satisfied-task/spec.md`
+**Input**: Feature specification from `specs/archive/20261027-115914-tick-verified-satisfied-task/spec.md`
 
 ## Summary
 
@@ -62,7 +62,7 @@ No violations; Complexity Tracking stays empty. The post-design check gives the 
 ### Documentation (this feature)
 
 ```text
-specs/20261027-115914-tick-verified-satisfied-task/
+specs/archive/20261027-115914-tick-verified-satisfied-task/
 ├── plan.md
 ├── research.md
 ├── data-model.md

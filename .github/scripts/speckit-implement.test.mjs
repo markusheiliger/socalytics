@@ -8,7 +8,7 @@ import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
 import { archiveSpec, defaultGit as archiveGit } from './speckit-archive.mjs';
-import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, baseOwnedChanges, pointSpecLinks, renderBaseOwnedMarker, renderGuidanceMarker, renderRepairMarker, renderSyncComment, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
+import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, baseOwnedChanges, pointSpecLinks, renderBaseOwnedMarker, renderGuidanceMarker, renderRepairMarker, renderSyncComment, syncBarrier, taskNamedFiles, unresolvedRepair } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
   combinedGroupEdits,
@@ -167,6 +167,187 @@ const remoteHead = (repos) => git(repos.base, `--git-dir=${repos.bare}`, 'log', 
 const remoteShow = (repos, spec) => git(repos.base, `--git-dir=${repos.bare}`, 'show', spec);
 const remoteSha = (repos, ref) => git(repos.base, `--git-dir=${repos.bare}`, 'rev-parse', ref).trim();
 
+test('taskNamedFiles keeps distinct existing safe paths in first-mention order and respects its cap', () => {
+  const existing = new Set(['docs/a.md', 'src/b.ts', 'unsafe.txt', 'src/c.ts', '../secret.md']);
+  const text = 'Use `docs/a.md`, then src/b.ts and `docs/a.md`; unsafe.txt, Missing.md, `../secret.md`, and `src/c.ts`.';
+  const options = {
+    exists: (file) => existing.has(file),
+    isSafe: (file) => !file.startsWith('../') && file !== 'unsafe.txt',
+  };
+  assert.deepEqual(taskNamedFiles(text, { ...options, max: 2 }), ['docs/a.md', 'src/b.ts']);
+  assert.deepEqual(taskNamedFiles(text, { ...options, max: 10 }), ['docs/a.md', 'src/b.ts', 'src/c.ts']);
+  assert.deepEqual(taskNamedFiles(text, { ...options, max: 0 }), []);
+});
+
+test('task: package selects named files for unchanged verification without reporting changes', () => withRepos({
+  branch: (dir) => write(dir, 'docs/x.md', '# Existing task work\n'),
+}, (repos) => {
+  const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+  const { packaged, result } = work(repos, {
+    env: { SPECKIT_HEAD: head },
+    agent: () => {},
+    verify: { outcome: 'success', checks: 'platform build and tests' },
+  });
+  assert.equal(packaged.result.patchBytes, 0);
+  assert.deepEqual(result.changedFiles, []);
+  assert.deepEqual(result.taskFiles, ['docs/x.md']);
+  assert.equal(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8'), 'docs/x.md\n');
+  assert.deepEqual(result.unchanged, {
+    status: 'passed',
+    head,
+    checks: ['platform build and tests'],
+    uncovered: [],
+    files: ['docs/x.md'],
+  });
+  assert.deepEqual([result.reasons, result.verified], [[], false]);
+}));
+
+test('task: unchanged verification records failed and not-run outcomes without changing verdict state', () => withRepos({
+  branch: (dir) => write(dir, 'docs/x.md', '# Existing task work\n'),
+}, (repos) => {
+  for (const [verify, expected] of [
+    [{ outcome: 'failure', checks: 'platform build and tests' }, 'failed'],
+    [{ outcome: 'skipped', checks: '' }, 'not-run'],
+  ]) {
+    rmSync(repos.resultDir, { recursive: true, force: true });
+    const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+    const { result } = work(repos, { env: { SPECKIT_HEAD: head }, agent: () => {}, verify });
+    assert.equal(result.unchanged.status, expected);
+    assert.deepEqual([result.reasons, result.verified], [[], false]);
+  }
+}));
+
+test('task: an unchanged task passes only with current-head task-specific verification', () => withRepos({
+  branch: (dir) => write(dir, 'docs/x.md', '# Existing task work\n'),
+}, async (repos) => {
+  const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+  const { result: verified } = work(repos, {
+    env: { SPECKIT_HEAD: head },
+    agent: () => {},
+    verify: { outcome: 'success', checks: 'platform build and tests' },
+  });
+  const github = fakeGitHub();
+  github.repo.branches['speckit/f'] = head;
+  const landed = await land(repos, github);
+  assert.equal(landed.exitCode, 0);
+  assert.equal(verified.unchanged.status, 'passed');
+  assert.equal(landed.check.output.title, 'T001 already satisfied');
+  assert.match(github.comments.at(-1).body, /T001 already satisfied and ticked[\s\S]*verification passed on the unchanged branch/);
+  assert.match(remoteHead(repos), /\|feat\(f\): T001 already satisfied$/);
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001 .* — already satisfied by [0-9a-f]+ on the implementation branch \(verified; no change by this task\)/);
+  assert.match(github.comments.at(-1).body, /Provenance: already satisfied by [0-9a-f]+ on the implementation branch/);
+}));
+
+test('task: an unchanged task whose work landed on the base branch since the implementation started is ticked with its provenance', async () => {
+  for (const [created, accepted] of [['2000-01-01T00:00:00Z', true], [new Date(Date.now() + 3_600_000).toISOString(), false]]) {
+    await withRepos({ main: (dir) => write(dir, 'docs/x.md', '# Landed on main\n') }, async (repos) => {
+      // The implementation branch merged its base branch, which already holds the task's work.
+      git(repos.base, `--git-dir=${repos.bare}`, 'update-ref', 'refs/heads/speckit/f', 'refs/heads/main');
+      for (const dir of [repos.work, repos.land]) {
+        git(dir, 'fetch', '-q', 'origin');
+        git(dir, 'reset', '-q', '--hard', 'origin/speckit/f');
+      }
+      const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+      const landedOnMain = git(repos.work, 'log', '-1', '--format=%h', 'origin/main').trim();
+      work(repos, { env: { SPECKIT_HEAD: head }, agent: () => {}, verify: { outcome: 'success', checks: 'platform build and tests' } });
+      const github = fakeGitHub();
+      github.repo.branches['speckit/f'] = head;
+      github.repo.pulls.find((pull) => pull.number === 9).created_at = created;
+      const landed = await land(repos, github);
+      if (accepted) {
+        assert.equal(landed.exitCode, 0);
+        assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), new RegExp(`- \\[x\\] T001 .* — already satisfied by ${landedOnMain} on main \\(verified; no change by this task\\)`));
+        assert.match(github.comments.at(-1).body, new RegExp(`Provenance: already satisfied by ${landedOnMain} on main`));
+      } else {
+        // Work that was on the base branch before the implementation started is not evidence for this task.
+        assert.equal(landed.exitCode, 1);
+        assert.match(landed.reasons.join('; '), /changed on main since the implementation started/);
+        assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+      }
+    });
+  }
+});
+
+test('task: missing, uncovered, mismatched, and shared unchanged work fails without ticking', () => withRepos({
+  tasks: `${TASKS}- [ ] T002 Reuse docs/x.md\n`,
+  branch: (dir) => write(dir, 'docs/x.md', '# Existing task work\n'),
+}, async (repos) => {
+  const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+  for (const [verify, headNow, status, reason] of [
+    [{ outcome: 'failure', checks: 'platform build and tests' }, head, 'failed', /verification of the unchanged branch failed/],
+    [null, head, 'not-configured', /verification of the unchanged branch was not configured/],
+    [{ outcome: 'success', checks: 'Markdown check' }, head, 'passed', /no test or build check covered/],
+    [{ outcome: 'success', checks: 'platform build and tests' }, 'moved-head', 'passed', /ran on a different head/],
+  ]) {
+    rmSync(repos.resultDir, { recursive: true, force: true });
+    const worked = work(repos, { env: { SPECKIT_HEAD: head }, agent: () => {}, verify });
+    const github = fakeGitHub();
+    github.repo.branches['speckit/f'] = headNow;
+    const landed = await land(repos, github);
+    assert.equal(landed.exitCode, 1);
+    assert.match(landed.reasons.join('; '), reason);
+    assert.equal(remoteSha(repos, 'speckit/f'), head);
+    assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+    assert.equal(worked.result.unchanged.status, status);
+  }
+  rmSync(repos.resultDir, { recursive: true, force: true });
+  work(repos, { env: { SPECKIT_HEAD: head }, agent: () => {}, verify: { outcome: 'success', checks: 'platform build and tests' } });
+  const github = fakeGitHub({ body: '## Tasks (2)\n\n- [ ] T001 Create docs/x.md\n- [ ] T002 Reuse docs/x.md\n' });
+  github.repo.branches['speckit/f'] = head;
+  const landed = await land(repos, github);
+  assert.equal(landed.exitCode, 1);
+  assert.match(landed.reasons.join('; '), /no named file is specific to this task/);
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+}));
+
+test('task: empty-patch land survives a moved branch without reapplying the patch', async () => {
+  for (const mode of ['verified', 'doneByPush']) {
+    await withRepos({
+      branch: (dir) => write(dir, 'docs/x.md', '# Existing task work\n'),
+    }, async (repos) => {
+      const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+      work(repos, {
+        env: { SPECKIT_HEAD: head },
+        agent: () => {},
+        verify: { outcome: 'success', checks: 'platform build and tests' },
+      });
+      const github = fakeGitHub();
+      github.repo.branches['speckit/f'] = head;
+      if (mode === 'doneByPush') {
+        const at = new Date(Date.now() + 60_000).toISOString();
+        github.repo.pullCommits = { 9: [
+          { sha: 'human', author: { login: 'Copilot' }, committer: { login: 'web-flow' }, commit: { committer: { date: at } } },
+        ] };
+      }
+      const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'in_progress', external_id: CHECK_ATTEMPT });
+      const realGit = defaultGit(repos.land);
+      let pushes = 0;
+      let applies = 0;
+      const racingGit = (args) => {
+        if (args[0] === 'apply') applies += 1;
+        if (args.includes('push') && ++pushes === 1) {
+          const seed = path.join(repos.base, 'seed');
+          write(seed, 'docs/sibling.md', '# Parallel task\n');
+          git(seed, 'add', '-A');
+          git(seed, 'commit', '-q', '-m', 'parallel task');
+          git(seed, 'push', '-q', repos.bare, 'HEAD:refs/heads/speckit/f');
+          return { status: 1, stdout: '', stderr: 'push rejected: branch moved' };
+        }
+        return realGit(args);
+      };
+      const landed = await runLand({
+        client: github, git: racingGit, env: landEnv(repos), inputs: { ...TASK_INPUTS, checkRun: check.id },
+        folder: 'f', workspace: repos.land, resultDir: repos.resultDir, workResult: 'success', log: silent,
+      });
+      assert.equal(landed.exitCode, 0, `${mode}: ${(landed.reasons ?? []).join('; ')}`);
+      assert.equal(pushes, 2, mode);
+      assert.equal(applies, 0, mode);
+      assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001/, mode);
+      assert.equal(remoteShow(repos, 'speckit/f:docs/sibling.md'), '# Parallel task\n', mode);
+    });
+  }
+});
+
 // On Windows, `bash` on the PATH is often WSL's System32 launcher, which neither receives the environment these tests
 // pass nor understands Windows paths; Git for Windows' bash does both.
 function resolveBash() {
@@ -218,6 +399,7 @@ test('task: package writes the change and the changed paths, and verdict records
   assert.ok(readFileSync(path.join(repos.resultDir, 'changes.patch'), 'utf8').includes('docs/x.md'));
   assert.deepEqual([result.verified, result.verification, result.checks], [true, 'configured', [{ name: 'Markdown check', passed: true }]]);
   assert.deepEqual(result.changedFiles.sort(), ['docs/x.md', 'specs/f/tasks.md']);
+  assert.equal('unchanged' in result, false);
 }));
 
 test('repair: package and land change code without changing completed task checkboxes', () => withRepos({ tasks: DONE_TASKS }, async (repos) => {
@@ -744,12 +926,14 @@ test('land: a single task finds its result where download-artifact puts a single
 }));
 test('task: a task a push already did lands without a change, but an agent cannot skip one', () => withRepos({}, async (repos) => {
   // The agent makes no change: without a push that is not the workflow's, that fails the attempt.
-  work(repos, { agent: () => {} });
+  const taskHead = git(repos.work, 'rev-parse', 'HEAD').trim();
+  work(repos, { env: { SPECKIT_HEAD: taskHead }, agent: () => {} });
   const before = remoteHead(repos);
   const github = fakeGitHub();
+  github.repo.branches['speckit/f'] = taskHead;
   const refused = await land(repos, github);
   assert.equal(refused.exitCode, 1);
-  assert.match(refused.reasons.join(), /the agent made no changes/);
+  assert.match(refused.reasons.join(), /the task names no verifiable file/);
   assert.equal(remoteHead(repos), before);
 
   // A person (or Copilot for them) pushed after that attempt: the task lands with only its tick.
@@ -758,10 +942,10 @@ test('task: a task a push already did lands without a change, but an agent canno
     { sha: 'a', author: { login: 'github-actions[bot]' }, committer: { login: 'github-actions[bot]' }, commit: { committer: { date: at } } },
     { sha: 'b', author: { login: 'Copilot' }, committer: { login: 'web-flow' }, commit: { committer: { date: at } } },
   ] };
-  work(repos, { agent: () => {} });
+  work(repos, { env: { SPECKIT_HEAD: taskHead }, agent: () => {} });
   const landed = await land(repos, github, { inputs: { ...TASK_INPUTS, attempt: 2 } });
   assert.deepEqual([landed.exitCode, landed.reasons ?? []], [0, []]);
-  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001 /, 'the land job ticked the task');
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001 .* — already done by a push to the implementation branch \(verified; no change by this task\)/, 'the land job ticked the task and said where its work came from');
 }));
 
 test('doneByPush: only a push after the task started, or a push at the head, lets a task land without a change', async () => {
