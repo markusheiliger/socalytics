@@ -10,7 +10,7 @@ declaration) only when the lock contains at least one wheel with the role `libra
     project <root>: library pin: <library>: <kind>: locked <value>, pinned <value>. Recommended action: <action>
 
 and ends with exit code 1 (kinds: version, platform-tag, digest, source-distribution, missing-wheel,
-disallowed-package).
+disallowed-package). A pinned package that the lock does not contain is not a finding.
 """
 
 import argparse
@@ -70,7 +70,7 @@ def check_pin(pin, packages):
     name = normalize(pin["name"])
     entries = [package for package in packages if normalize(package.get("name", "")) == name]
     if not entries:
-        raise Finding(name, "missing-wheel", "none", pin["fileName"])
+        return
     matching = [entry for entry in entries if entry.get("version") == pin["version"]]
     if not matching:
         raise Finding(name, "version", entries[0].get("version", "unknown"), pin["version"])

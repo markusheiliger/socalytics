@@ -72,7 +72,7 @@ project <root>: library pin: <library>: <kind>: locked <value>, pinned <value>. 
 | `platform-tag` | the locked wheel file is not the pinned wheel file (another platform or Python tag) |
 | `digest` | the locked SHA-256 differs from the pinned digest |
 | `source-distribution` | the lock offers only a source distribution for the pinned version |
-| `missing-wheel` | a pinned package or its wheel is absent from the lock |
+| `missing-wheel` | the lock entry of a pinned package at the pinned version lists neither a wheel nor a source distribution (a pinned package that the lock does not contain is not a finding) |
 | `disallowed-package` | the lock contains a denied package (for example a GPU, CUDA, or non-headless OpenCV variant) |
 
 An unreadable lock or declaration is reported as `uv.lock: unreadable` at the same stage. The failure propagates through the log line `Analyst Python stage failed: library pin in <root> ...` and ends the check with status 1.

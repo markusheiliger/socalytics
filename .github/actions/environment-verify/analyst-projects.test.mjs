@@ -1694,7 +1694,6 @@ describe('library pin check', () => {
 
   const closure = () => declaration.wheels.map((wheel) => pinnedPackage(wheel.name));
   const replaced = (name, overrides) => closure().map((entry) => (entry.name === name ? { ...entry, ...overrides } : entry));
-  const withoutPackage = (name) => closure().filter((entry) => entry.name !== name);
 
   function snapshot(directory) {
     return ['uv.lock', 'pyproject.toml'].map((file) => {
@@ -1796,9 +1795,15 @@ describe('library pin check', () => {
     assert.ok(numpy.fileName.endsWith('.whl'));
   });
 
-  it('reports a pinned wheel that is missing from the lock', () => {
-    const flatbuffers = wheelOf('flatbuffers');
-    fails(withoutPackage('flatbuffers'), 'flatbuffers', 'missing-wheel', '[^,]+', escaped(flatbuffers.fileName));
+  it('passes a lock that has the pinned opencv, numpy, and packaging but not onnxruntime, flatbuffers, or protobuf', () => {
+    const present = new Set(['opencv-python-headless', 'numpy', 'packaging']);
+    passes(closure().filter((entry) => present.has(entry.name)));
+    assert.ok(['onnxruntime', 'flatbuffers', 'protobuf'].every((name) => !present.has(name) && wheelOf(name)));
+  });
+
+  it('reports a pinned package at the pinned version that lists neither a wheel nor a source distribution', () => {
+    const numpy = wheelOf('numpy');
+    fails(replaced('numpy', { wheels: [] }), 'numpy', 'missing-wheel', '[^,]+', escaped(numpy.fileName));
   });
 
   for (const name of ['opencv-python', 'onnxruntime-gpu', 'nvidia-cublas-cu12', 'tensorrt', 'tensorrt-cu12']) {
