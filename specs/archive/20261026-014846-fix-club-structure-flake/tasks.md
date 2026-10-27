@@ -1,6 +1,6 @@
 # Tasks: Remove the Remaining Flakiness of the Club Structure Browser Test
 
-**Input**: Design documents from `specs/20261026-014846-fix-club-structure-flake/`
+**Input**: Design documents from `specs/archive/20261026-014846-fix-club-structure-flake/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [quickstart.md](quickstart.md), [contracts/README.md](contracts/README.md)
 

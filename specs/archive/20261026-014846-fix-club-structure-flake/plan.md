@@ -2,7 +2,7 @@
 
 **Branch**: `20261026-014846-fix-club-structure-flake` | **Date**: 2026-10-26 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261026-014846-fix-club-structure-flake/spec.md`
+**Input**: Feature specification from `specs/archive/20261026-014846-fix-club-structure-flake/spec.md`
 
 ## Summary
 
@@ -46,7 +46,7 @@ Re-check after design: unchanged; the design adds no file, dependency, or behavi
 ### Documentation (this feature)
 
 ```text
-specs/20261026-014846-fix-club-structure-flake/
+specs/archive/20261026-014846-fix-club-structure-flake/
 ├── spec.md
 ├── plan.md
 ├── research.md
