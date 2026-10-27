@@ -396,7 +396,7 @@ model digests, and its status is not promotable.
 - The [Media Quality and Usable Intervals](../20261025-193130-media-quality-usable-intervals/spec.md) feature is an optional
   upstream: this capability declares media context as an optional dependency but does not consume it, so it does not wait
   for it to be implemented.
-- The [Analyst Evaluation Harness](../20261023-082736-analyst-evaluation-harness/spec.md) is required only for the
+- The [Analyst Evaluation Harness](../archive/20261023-082736-analyst-evaluation-harness/spec.md) is required only for the
   evaluation report (FR-018); the rest of the feature does not depend on it.
 - The existing evidence playback, fact reads, and analysis review are implemented and need no change.
 
