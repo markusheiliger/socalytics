@@ -323,6 +323,31 @@ export function tasksPathOf(folder, { archived = false } = {}) {
   return `${specDir(folder, { archived })}/tasks.md`;
 }
 
+// Files named in task text, in first-mention order, limited to existing safe repository-relative paths.
+export function taskNamedFiles(text, { exists, isSafe, max = Number.POSITIVE_INFINITY } = {}) {
+  if (typeof exists !== 'function' || typeof isSafe !== 'function') throw new TypeError('exists and isSafe must be functions');
+  const limit = Number.isFinite(Number(max)) ? Math.max(0, Math.floor(Number(max))) : Number.POSITIVE_INFINITY;
+  if (limit === 0) return [];
+  const files = [];
+  const seen = new Set();
+  const add = (value, backticked = false) => {
+    const file = String(value).replace(/^[([{<"'`]+/, '').replace(/[)\]}>,"';:!?.]+$/, '');
+    if (!file || (!backticked && !(/[\\/]/.test(file) || /\.[A-Za-z0-9][A-Za-z0-9_-]*$/.test(file)))) return;
+    if (seen.has(file) || !isSafe(file) || !exists(file)) return;
+    seen.add(file);
+    files.push(file);
+  };
+  for (const match of String(text ?? '').matchAll(/`([^`\r\n]+)`|([^\s`]+)/g)) {
+    if (match[1] !== undefined) {
+      for (const token of match[1].match(/\S+/g) ?? []) add(token, true);
+    } else {
+      add(match[2]);
+    }
+    if (files.length >= limit) break;
+  }
+  return files;
+}
+
 // Reads tasks.md of a spec at a ref, wherever the spec folder is; null when it is in neither place.
 export async function readSpecTasks(client, folder, ref) {
   const active = await client.getFileContent(tasksPathOf(folder), ref);
