@@ -500,16 +500,39 @@ test('a fix spec linked by earlier tooling is an ordinary dependency: the missin
   assert.deepEqual(await maintainFixSpec(github, env(), { implementation, twin: 5 }, { now: github.clock, report: silent }), { outcome: 'linked', blocked: false });
   assert.deepEqual(github.edges, [[5, 30]]);
   await maintainDependencyBlock(github, env(), { implementation, twin: 5 }, { report: silent });
-  assert.deepEqual(implementation.labels.map((label) => label.name), [BLOCKED_LABEL]);
+  // #30 is not requested for implementation, so nothing starts it: the block asks a person for /speckit implement.
+  assert.deepEqual(implementation.labels.map((label) => label.name).sort(), [ATTENTION_LABEL, BLOCKED_LABEL].sort());
   assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"blockers":\[30\],"unrequested":\[30\]\} -->\n\*\*Blocked\*\* by prerequisite #30[\s\S]*\*\*Recommended next step\*\*: Comment the following on spec twin #30/);
   const count = github.comments.length;
   await maintainDependencyBlock(github, env(), { implementation, twin: 5 }, { report: silent });
   assert.equal(github.comments.length, count);
+  // Once #30 is requested, the block stays but needs nobody: the attention label goes, and the block is explained again.
+  github.find(30).labels = [...(github.find(30).labels ?? []), { name: 'speckit:stage:implement' }];
+  await maintainDependencyBlock(github, env(), { implementation, twin: 5 }, { report: silent });
+  assert.deepEqual(implementation.labels.map((label) => label.name), [BLOCKED_LABEL]);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"blockers":\[30\]\} -->\n\*\*Blocked\*\* by prerequisite #30[\s\S]*Nothing is needed on this pull request\./);
   Object.assign(github.find(30), { state: 'closed', state_reason: 'completed' });
   assert.equal((await maintainDependencyBlock(github, env(), { implementation, twin: 5 }, { report: silent })).outcome, 'retried');
+  assert.ok(!implementation.labels.some((label) => [ATTENTION_LABEL, BLOCKED_LABEL].includes(label.name)));
 });
 
-test('a blocked label always comes with one explanation, replaces the attention label, and is not set on closed pull requests', async () => {
+test('a blocked pull request asks for attention exactly while a blocker is not requested, and loses it when the block is lifted', async () => {
+  const github = fixRepo();
+  const implementation = github.repo.pulls.find((pull) => pull.number === 9);
+  const unrequested = { key: { blockers: [30, 31], unrequested: [31] }, lines: ['**Blocked** by prerequisite #30, #31'] };
+  const requested = { key: { blockers: [30, 31] }, lines: ['**Blocked** by prerequisite #30, #31. Nothing is needed on this pull request.'] };
+  await setBlocked(github, 9, true, { explain: unrequested });
+  assert.deepEqual(implementation.labels.map((label) => label.name).sort(), [ATTENTION_LABEL, BLOCKED_LABEL].sort());
+  await setBlocked(github, 9, true, { explain: unrequested });
+  assert.equal(implementation.labels.filter((label) => label.name === ATTENTION_LABEL).length, 1);
+  await setBlocked(github, 9, true, { explain: requested });
+  assert.deepEqual(implementation.labels.map((label) => label.name), [BLOCKED_LABEL]);
+  await setBlocked(github, 9, true, { explain: unrequested });
+  await setBlocked(github, 9, false);
+  assert.deepEqual(implementation.labels.map((label) => label.name), []);
+});
+
+test('a blocked label always comes with one explanation, replaces the attention label unless a blocker is unrequested, and is not set on closed pull requests', async () => {
   const github = fixRepo();
   const implementation = github.repo.pulls.find((pull) => pull.number === 9);
   await github.addLabels(9, ['bug', ATTENTION_LABEL]);

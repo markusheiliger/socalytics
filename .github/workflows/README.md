@@ -455,7 +455,7 @@ Failed checks, failed reworks, and exhausted correction rounds recommend a ready
 restarts rework and analysis. Starting new work replaces the previous recommendation with an explicit wait; a failed
 or abandoned run replaces that wait with the recovery action in both the description and its comment.
 
-An implementation that waits for another spec carries the separate custom `blocked` label instead of `help wanted`.
+An implementation that waits for another spec carries the separate custom `blocked` label, with `help wanted` only while a blocker waits for its `/speckit implement` request.
 It waits whenever its twin has open blocked-by twins, however the dependency came about (`/speckit author`,
 dependency inference, or a person), and while a spec that `/speckit author` authored is still being written, checked,
 or reviewed. GitHub has no default label for an on-hold state. The label is only added together with a comment that
@@ -466,8 +466,12 @@ requests to finish first**), or a requested twin whose implementation has not st
 itself**; nothing to do). It is posted again when a blocker is requested or its implementation pull request opens, and
 says how the implementation continues (marker `speckit-implement:blocked`); when the
 scheduler reconciles the label on an implementation whose block is not explained yet, it posts the explanation once.
-A blocked implementation never gets `help wanted`; the scheduler does not continue its chain, and a running chain stops
-before its next unit (no retry, no diagnosis) while it waits. The label is removed when the last blocker is
+A blocked implementation carries `help wanted` as well exactly while a blocker is a spec twin that is not requested for
+implementation: nothing starts that blocker by itself, and the **Blocked** comment recommends `/speckit implement` on it.
+Once every blocker is requested (the explanation posted again then says that nothing is needed), `help wanted` is removed
+and only `blocked` stays. The scheduler does not continue a blocked implementation's chain, and a running chain stops
+before its next unit (no retry, no diagnosis) while it waits. The `blocked` label (and a `help wanted` that came with it)
+is removed when the last blocker is
 implemented (the retry comment says the block is lifted and the implementation continues with a fresh attempt count),
 when a blocker or the authored spec pull request is closed without being implemented (that comment lists the next
 steps with `help wanted`), or when the implementation pull request closes.
