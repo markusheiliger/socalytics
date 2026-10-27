@@ -695,7 +695,8 @@ posts.
       `.github/actions/environment-setup/` and
       `.github/actions/environment-verify/`. These are the only paths under
       `.github/` that agents may change, and only without other changes on the
-      same branch; mixing them fails the task.
+      same branch; mixing them fails the task, except that archive reference
+      rewrites outside the spec's folder do not count as other changes.
   2. New checks add their paths to `COVERED` only when their project exists,
       run only when those paths changed (or before merging), and skip while
       their project does not exist yet, because the environment spec merges

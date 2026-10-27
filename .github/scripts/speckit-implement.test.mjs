@@ -23,6 +23,7 @@ import {
   runIntegrate,
   runLand,
   doneByPush,
+  checkStagedTask,
   runMergeLand,
   runPackage,
   runRepairReport,
@@ -1373,6 +1374,83 @@ test('environment specs: a task may change the environment actions, but not toge
     const landed = await land(repos, fakeGitHub());
     assert.equal(landed.exitCode, 1, 'the land job re-checks the whole branch');
     assert.match(landed.reasons.join(), /standalone environment spec/);
+  });
+});
+
+test('environment guard accepts an archive reference rewrite and a spec path already equal to the base tip', async () => {
+  await withRepos({
+    seed: (dir) => {
+      write(dir, `specs/archive/${'20260101-000001-g'}/spec.md`, '# Archived G\n');
+      write(dir, 'specs/h/spec.md', 'See [G](../20260101-000001-g/spec.md)\n');
+    },
+    branch: (dir) => write(dir, 'specs/h/spec.md', 'See [G](../archive/20260101-000001-g/spec.md)\n'),
+  }, (repos) => {
+    write(repos.work, ENVIRONMENT_ACTION, 'name: x\n');
+    git(repos.work, 'add', ENVIRONMENT_ACTION);
+    const result = checkStagedTask({
+      git: defaultGit(repos.work),
+      workspace: repos.work,
+      folder: 'f',
+      task: 'T001',
+      patchBytes: 1,
+      baseBranch: 'main',
+    });
+    assert.deepEqual(result.reasons, []);
+  });
+
+  await withRepos({
+    seed: (dir) => write(dir, 'specs/g/spec.md', 'Original\n'),
+    branch: (dir) => write(dir, 'specs/g/spec.md', 'Changed\n'),
+    main: (dir) => write(dir, 'specs/g/spec.md', 'Changed\n'),
+  }, (repos) => {
+    write(repos.work, ENVIRONMENT_ACTION, 'name: x\n');
+    git(repos.work, 'add', ENVIRONMENT_ACTION);
+    const result = checkStagedTask({
+      git: defaultGit(repos.work),
+      workspace: repos.work,
+      folder: 'f',
+      task: 'T001',
+      patchBytes: 1,
+      baseBranch: 'main',
+    });
+    assert.deepEqual(result.reasons, []);
+  });
+});
+
+test('environment guard rejects non-reference edits and unreadable or unlisted spec blobs', async () => {
+  const options = {
+    seed: (dir) => write(dir, 'specs/g/spec.md', 'Original\n'),
+    branch: (dir) => write(dir, 'specs/g/spec.md', 'Changed\n'),
+  };
+  const check = (repos, gitRunner = defaultGit(repos.work)) => {
+    write(repos.work, ENVIRONMENT_ACTION, 'name: x\n');
+    git(repos.work, 'add', ENVIRONMENT_ACTION);
+    return checkStagedTask({
+      git: gitRunner,
+      workspace: repos.work,
+      folder: 'f',
+      task: 'T001',
+      patchBytes: 1,
+      baseBranch: 'main',
+    });
+  };
+  await withRepos(options, (repos) => {
+    assert.match(check(repos).reasons.join(), /branch also changes specs\/g\/spec\.md/);
+  });
+  await withRepos(options, (repos) => {
+    const realGit = defaultGit(repos.work);
+    const baseSha = git(repos.work, 'rev-parse', 'refs/remotes/origin/main').trim();
+    const unreadableGit = (args) => args[0] === 'cat-file' && args[2] === `${baseSha}:specs/g/spec.md`
+      ? { status: 1, stdout: '', stderr: 'missing blob' }
+      : realGit(args);
+    assert.match(check(repos, unreadableGit).reasons.join(), /branch also changes specs\/g\/spec\.md/);
+  });
+  await withRepos(options, (repos) => {
+    const realGit = defaultGit(repos.work);
+    const failedListingGit = (args) => args[0] === 'diff' && args.includes('--name-status')
+      ? { status: 1, stdout: '', stderr: 'listing failed' }
+      : realGit(args);
+    assert.match(check(repos, failedListingGit).reasons.join(), /branch also changes specs\/g\/spec\.md/);
   });
 });
 

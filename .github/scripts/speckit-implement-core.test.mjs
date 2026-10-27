@@ -667,10 +667,20 @@ test('environment specs: only the environment actions, and only without other ch
   assert.deepEqual(task(['specs/f/tasks.md', '.github/actions/environment-setup/action.yml']), []);
   assert.match(task(['specs/f/tasks.md', '.github/actions/other/action.yml']).join(), /changed protected paths/);
 
-  const exclusive = (branchPaths) => environmentExclusivityReasons({ folder: 'f', branchPaths });
+  const exclusive = (branchPaths, referenceRewrites = []) => environmentExclusivityReasons({ folder: 'f', branchPaths, referenceRewrites });
   assert.deepEqual(exclusive(['specs/f/tasks.md', '.github/actions/environment-verify/action.yml']), []);
   assert.deepEqual(exclusive(['src/a.cs', 'specs/f/tasks.md']), []);
   assert.match(exclusive(['.github/actions/environment-setup/action.yml', 'src/a.cs', 'specs/f/tasks.md']).join(), /standalone environment spec, but the branch also changes src\/a\.cs$/);
+  assert.deepEqual(exclusive(['.github/actions/environment-setup/action.yml', 'specs/f/tasks.md', 'specs/g/spec.md'], ['specs/g/spec.md']), []);
+  assert.deepEqual(exclusive(['.github/actions/environment-setup/action.yml', 'specs/f/tasks.md', 'specs/g/spec.md', 'specs/h/spec.md'], ['specs/g/spec.md', 'specs/h/spec.md']), []);
+  assert.match(exclusive(['.github/actions/environment-setup/action.yml', 'specs/g/spec.md'], ['specs/h/spec.md']).join(), /branch also changes specs\/g\/spec\.md$/);
+  assert.match(exclusive(['.github/actions/environment-setup/action.yml', 'specs/new/spec.md']).join(), /branch also changes specs\/new\/spec\.md$/);
+  assert.match(exclusive(['.github/actions/environment-setup/action.yml', 'specs/deleted/spec.md']).join(), /branch also changes specs\/deleted\/spec\.md$/);
+  assert.match(exclusive(['.github/actions/environment-setup/action.yml', '.github/workflows/build.yml']).join(), /branch also changes \.github\/workflows\/build\.yml$/);
+  assert.match(exclusive(['.github/actions/environment-setup/action.yml', '.specify/config.json']).join(), /branch also changes \.specify\/config\.json$/);
+  assert.match(exclusive(['.github/actions/environment-setup/action.yml', 'specs/g/spec.md', 'src/a.cs'], ['specs/g/spec.md']).join(), /branch also changes src\/a\.cs$/);
+  assert.match(exclusive(['.github/actions/environment-setup/action.yml', 'specs/f/spec.md']).join(), /branch also changes specs\/f\/spec\.md$/);
+  assert.deepEqual(exclusive(['specs/g/spec.md'], ['specs/g/spec.md']), []);
 });
 
 test('accepts only an appended convergence phase with new unchecked tasks', () => {
