@@ -76,9 +76,93 @@ function zip(entries) {
 
 const normalized = (name) => name.replace(/[-_.]+/g, '_');
 
-// Fixture wheel specification; `libs` lists bundled shared libraries placed in `<name>.libs/`.
+const align8 = (n) => (n + 7) & ~7;
+
+// Minimal 64-bit little-endian ELF shared object (or other type) with DT_SONAME and DT_NEEDED entries,
+// readable through program headers (PT_DYNAMIC) and through section headers (.dynstr, .dynamic).
+function elf({ type = 3, soname, needed = [] } = {}) {
+  let strings = Buffer.from('\0');
+  const add = (text) => {
+    const offset = strings.length;
+    strings = Buffer.concat([strings, Buffer.from(`${text}\0`)]);
+    return offset;
+  };
+  const entries = [];
+  if (soname !== undefined) entries.push([14, add(soname)]);
+  for (const name of needed) entries.push([1, add(name)]);
+  const stringsOffset = 64 + 2 * 56;
+  const dynamicOffset = align8(stringsOffset + strings.length);
+  entries.push([5, stringsOffset], [10, strings.length], [0, 0]);
+  const dynamicSize = entries.length * 16;
+  const shstrtab = Buffer.from('\0.dynstr\0.dynamic\0.shstrtab\0');
+  const shstrtabOffset = dynamicOffset + dynamicSize;
+  const sectionsOffset = align8(shstrtabOffset + shstrtab.length);
+  const total = sectionsOffset + 4 * 64;
+  const buffer = Buffer.alloc(total);
+  const u64 = (offset, value) => buffer.writeBigUInt64LE(BigInt(value), offset);
+  Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1]).copy(buffer, 0);
+  buffer.writeUInt16LE(type, 16);
+  buffer.writeUInt16LE(62, 18);
+  buffer.writeUInt32LE(1, 20);
+  u64(32, 64);
+  u64(40, sectionsOffset);
+  buffer.writeUInt16LE(64, 52);
+  buffer.writeUInt16LE(56, 54);
+  buffer.writeUInt16LE(2, 56);
+  buffer.writeUInt16LE(64, 58);
+  buffer.writeUInt16LE(4, 60);
+  buffer.writeUInt16LE(3, 62);
+  const program = (index, kind, flags, offset, size, alignment) => {
+    const at = 64 + index * 56;
+    buffer.writeUInt32LE(kind, at);
+    buffer.writeUInt32LE(flags, at + 4);
+    u64(at + 8, offset);
+    u64(at + 16, offset);
+    u64(at + 24, offset);
+    u64(at + 32, size);
+    u64(at + 40, size);
+    u64(at + 48, alignment);
+  };
+  program(0, 1, 6, 0, total, 0x1000);
+  program(1, 2, 6, dynamicOffset, dynamicSize, 8);
+  strings.copy(buffer, stringsOffset);
+  entries.forEach(([tag, value], index) => {
+    u64(dynamicOffset + index * 16, tag);
+    u64(dynamicOffset + index * 16 + 8, value);
+  });
+  shstrtab.copy(buffer, shstrtabOffset);
+  const section = (index, name, kind, offset, size, link) => {
+    const at = sectionsOffset + index * 64;
+    buffer.writeUInt32LE(name, at);
+    buffer.writeUInt32LE(kind, at + 4);
+    u64(at + 16, offset);
+    u64(at + 24, offset);
+    u64(at + 32, size);
+    buffer.writeUInt32LE(link, at + 40);
+    u64(at + 48, 8);
+    u64(at + 56, kind === 6 ? 16 : 0);
+  };
+  section(1, 1, 3, stringsOffset, strings.length, 0);
+  section(2, 9, 6, dynamicOffset, dynamicSize, 1);
+  section(3, 18, 3, shstrtabOffset, shstrtab.length, 0);
+  return buffer;
+}
+
+// Fixture wheel specification. `libs` lists bundled shared libraries placed in `<name>.libs/` as ELF objects
+// (`file`, `license`, `version`, optional `linkage`, `needed`, and `elf: false` for a non-ELF member);
+// `extensions` lists other ELF members whose DT_NEEDED entries name the libraries they load.
 const defaultWheels = [
-  { name: 'opencv-python-headless', version: '1.0.0', role: 'library', license: 'Apache-2.0', libs: ['libavcodec-fixture.so.1'] },
+  {
+    name: 'opencv-python-headless',
+    version: '1.0.0',
+    role: 'library',
+    license: 'Apache-2.0',
+    libs: [
+      { file: 'libavcodec-fixture.so.1', license: 'LGPL-2.1-or-later', version: '61.1.0', linkage: 'dynamic' },
+      { file: 'libpng-fixture.so.16', license: 'Zlib', version: '1.6.0' },
+    ],
+    extensions: [{ path: 'opencv_python_headless/cv2.abi3.so', needed: ['libavcodec-fixture.so.1', 'libpng-fixture.so.16'] }],
+  },
   { name: 'numpy', version: '2.0.0', role: 'library', license: 'BSD-3-Clause', libs: [] },
   { name: 'onnxruntime', version: '3.0.0', role: 'library', license: 'MIT', libs: [] },
   { name: 'flatbuffers', version: '4.0.0', role: 'dependency', license: 'Apache-2.0', libs: [] },
@@ -91,11 +175,16 @@ function buildWheels(directory, specs = defaultWheels, { tag = 'cp312-cp312-many
     const base = normalized(spec.name);
     const distInfo = `${base}-${spec.version}.dist-info`;
     const fileName = `${base}-${spec.version}-${spec.tag ?? tag}.whl`;
+    const libs = (spec.libs ?? []).map((lib) => (typeof lib === 'string' ? { file: lib } : lib));
     const entries = {
       [`${base}/__init__.py`]: '',
-      [`${distInfo}/METADATA`]: `Metadata-Version: 2.4\nName: ${spec.name}\nVersion: ${spec.version}\nLicense-Expression: ${spec.license}\n`,
+      [`${distInfo}/METADATA`]: `Metadata-Version: 2.4\nName: ${spec.name}\nVersion: ${spec.version}\nLicense-Expression: ${spec.metadataLicense ?? spec.license}\n`,
       [`${distInfo}/licenses/LICENSE.txt`]: `${spec.name} fixture license\n`,
-      ...Object.fromEntries((spec.libs ?? []).map((lib) => [`${base}.libs/${lib}`, `binary ${lib}`])),
+      ...Object.fromEntries(libs.flatMap((lib) => [
+        [`${base}.libs/${lib.file}`, lib.elf === false ? `binary ${lib.file}` : elf({ soname: lib.soname ?? lib.file, needed: lib.needed ?? [] })],
+        [`${distInfo}/licenses/${lib.file}.LICENSE.txt`, `${lib.file} fixture license\n`],
+      ])),
+      ...Object.fromEntries((spec.extensions ?? []).map((extension) => [extension.path, elf({ needed: extension.needed ?? [] })])),
     };
     const file = path.join(directory, fileName);
     writeFileSync(file, zip(entries));
@@ -111,6 +200,26 @@ function buildWheels(directory, specs = defaultWheels, { tag = 'cp312-cp312-many
       licenseText: `${distInfo}/licenses/LICENSE.txt`,
       role: spec.role,
     };
+  });
+}
+
+// One licenseTable row per fixture wheel and per bundled library, conforming to the shipped evidence.
+function tableFor(specs = defaultWheels) {
+  return specs.flatMap((spec) => {
+    const distInfo = `${normalized(spec.name)}-${spec.version}.dist-info`;
+    const libs = (spec.libs ?? []).map((lib) => (typeof lib === 'string' ? { file: lib } : lib));
+    return [
+      { component: spec.name, wheel: spec.name, kind: 'wheel', licenseExpression: spec.license, licenseText: `${distInfo}/licenses/LICENSE.txt` },
+      ...libs.map((lib) => ({
+        component: lib.file,
+        wheel: spec.name,
+        kind: 'library',
+        licenseExpression: lib.license ?? 'Zlib',
+        licenseText: `${distInfo}/licenses/${lib.file}.LICENSE.txt`,
+        version: lib.version ?? '1.2.3',
+        ...(lib.linkage ? { linkage: lib.linkage } : {}),
+      })),
+    ];
   });
 }
 
@@ -243,7 +352,7 @@ function fixture(overrides = {}, specs = defaultWheels, options = {}) {
   const directory = scratch();
   const wheelsDirectory = path.join(directory, 'served');
   const wheels = buildWheels(wheelsDirectory, specs, options);
-  return { directory, wheelsDirectory, wheels, declaration: cvDeclaration(wheels, overrides) };
+  return { directory, wheelsDirectory, wheels, declaration: cvDeclaration(wheels, { licenseTable: tableFor(specs), ...overrides }) };
 }
 
 function assertCvFailure(result, library, stage) {
@@ -529,5 +638,284 @@ describe('install-analyst-cv.sh offline installation and smoke check', () => {
     assertCvFailure(result, '\\S+', 'cv install');
     assertRecommendedActionLast(result);
     assert.ok(!result.calls.some((line) => line.startsWith('smoke ')));
+  });
+});
+
+const licenseCheck = path.join(here, 'analyst-cv-licenses.py');
+const toolchainDeclaration = path.join(here, 'analyst-media-toolchain.json');
+
+// Runs analyst-cv-licenses.py against the fixture wheels; the notices are written beside the SBOM.
+function runLicenseCheck({ directory, wheelsDirectory, declaration }, { toolchain = true } = {}) {
+  const declarationFile = path.join(directory, 'declaration.json');
+  writeFileSync(declarationFile, JSON.stringify(declaration));
+  const output = path.join(directory, 'out', 'notices', 'analyst-cv');
+  const sbom = path.join(output, 'sbom.cdx.json');
+  const result = spawnSync(realPython, [licenseCheck, '--declaration', declarationFile, '--wheels', wheelsDirectory, '--sbom', sbom, ...(toolchain ? ['--ffmpeg-toolchain', toolchainDeclaration] : [])], { encoding: 'utf8' });
+  return { ...result, sbom, output, text: `${result.stdout}\n${result.stderr}` };
+}
+
+const readSbom = (result) => JSON.parse(readFileSync(result.sbom, 'utf8'));
+
+const findingLine = (result, subject, kind) => new RegExp(`^${subject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: ${kind}: \\S`, 'm').test(result.text);
+
+const openCv = (libs, needed = libs.map((lib) => lib.file)) => defaultWheels.map((spec) => (spec.name === 'opencv-python-headless'
+  ? { ...spec, libs, extensions: [{ path: 'opencv_python_headless/cv2.abi3.so', needed }] }
+  : spec));
+
+const withRows = (build, change) => {
+  const built = build;
+  built.declaration.licenseTable = change(built.declaration.licenseTable);
+  return built;
+};
+
+const rowOf = (rows, component) => rows.find((row) => row.component === component);
+
+const component = (sbom, name) => sbom.components.find((entry) => entry.name === name);
+const sha256Of = (buffer) => createHash('sha256').update(buffer).digest('hex');
+const hashOf = (entry) => entry.hashes?.find((hash) => hash.alg === 'SHA-256')?.content;
+const licenseText = (entry) => entry.properties?.find((property) => property.name === 'socalytics:license-text')?.value;
+
+describe('analyst-cv-licenses.py SBOM and notices', () => {
+  it('accepts a conforming set and writes a CycloneDX 1.6 SBOM with every wheel', () => {
+    const built = fixture();
+    const result = runLicenseCheck(built);
+    assert.equal(result.status, 0, result.text);
+    const sbom = readSbom(result);
+    assert.equal(sbom.bomFormat, 'CycloneDX');
+    assert.equal(sbom.specVersion, '1.6');
+    for (const wheel of built.wheels) {
+      const entry = component(sbom, wheel.name);
+      assert.ok(entry, wheel.name);
+      assert.equal(entry.type, 'library');
+      assert.equal(entry.version, wheel.version);
+      assert.equal(entry.purl, `pkg:pypi/${wheel.name}@${wheel.version}`);
+      assert.equal(hashOf(entry), wheel.sha256);
+      assert.equal(entry.supplier?.name, wheel.publisher);
+      assert.ok(JSON.stringify(entry.licenses).includes(wheel.licenseExpression), wheel.name);
+      assert.equal(licenseText(entry), wheel.licenseText);
+    }
+  });
+
+  it('lists every nested bundled library with version, digest, publisher, licence, and licence text', () => {
+    const built = fixture();
+    const result = runLicenseCheck(built);
+    assert.equal(result.status, 0, result.text);
+    const parent = component(readSbom(result), 'opencv-python-headless');
+    const nested = parent.components ?? [];
+    assert.equal(nested.length, 2);
+    const expected = {
+      'libavcodec-fixture.so.1': { version: '61.1.0', license: 'LGPL-2.1-or-later' },
+      'libpng-fixture.so.16': { version: '1.6.0', license: 'Zlib' },
+    };
+    for (const [name, values] of Object.entries(expected)) {
+      const entry = nested.find((candidate) => candidate.name === name);
+      assert.ok(entry, name);
+      assert.equal(entry.version, values.version);
+      assert.equal(hashOf(entry), sha256Of(elf({ soname: name })));
+      assert.equal(entry.supplier?.name, 'pypi.org');
+      assert.ok(JSON.stringify(entry.licenses).includes(values.license), name);
+      assert.equal(licenseText(entry), `opencv_python_headless-1.0.0.dist-info/licenses/${name}.LICENSE.txt`);
+    }
+  });
+
+  it('lists the pinned FFmpeg build as a separate component', () => {
+    const result = runLicenseCheck(fixture());
+    assert.equal(result.status, 0, result.text);
+    const toolchain = JSON.parse(readFileSync(toolchainDeclaration, 'utf8')).tools.find((tool) => tool.id === 'ffmpeg');
+    const sbom = readSbom(result);
+    const entry = sbom.components.find((candidate) => candidate.name.toLowerCase().includes('ffmpeg'));
+    assert.ok(entry, 'FFmpeg component');
+    assert.equal(entry.version, toolchain.version);
+    assert.equal(hashOf(entry), toolchain.archive.sha256);
+    assert.ok(!sbom.components.some((candidate) => (candidate.components ?? []).includes(entry)), 'FFmpeg is not nested in a wheel');
+  });
+
+  it('copies licence files and a PROVENANCE.txt per wheel beside the SBOM', () => {
+    const built = fixture();
+    const result = runLicenseCheck(built);
+    assert.equal(result.status, 0, result.text);
+    for (const wheel of built.wheels) {
+      const folder = path.join(result.output, wheel.fileName.replace(/\.whl$/, ''));
+      assert.ok(existsSync(path.join(folder, 'PROVENANCE.txt')), folder);
+      assert.match(readFileSync(path.join(folder, 'PROVENANCE.txt'), 'utf8'), new RegExp(wheel.sha256));
+      assert.ok(existsSync(path.join(folder, 'LICENSE.txt')), folder);
+    }
+  });
+});
+
+describe('analyst-cv-licenses.py findings', () => {
+  const failing = (result, subject, kind) => {
+    assert.equal(result.status, 1, result.text);
+    assert.ok(findingLine(result, subject, kind), `expected ${subject}: ${kind}\n${result.text}`);
+  };
+
+  it('reports table-gap when a bundled library row lacks a version', () => {
+    const built = withRows(fixture(), (rows) => rows.map((row) => {
+      if (row.component !== 'libpng-fixture.so.16') return row;
+      const { version, ...rest } = row;
+      return rest;
+    }));
+    failing(runLicenseCheck(built), 'libpng-fixture.so.16', 'table-gap');
+  });
+
+  it('reports table-gap when a wheel has no licenseTable row', () => {
+    const built = withRows(fixture(), (rows) => rows.filter((row) => row.component !== 'flatbuffers'));
+    failing(runLicenseCheck(built), 'flatbuffers', 'table-gap');
+  });
+
+  for (const license of ['GPL-3.0-only', 'AGPL-3.0-only', 'GPL-2.0-or-later', 'SSPL-1.0']) {
+    it(`reports denied-license for a plain ${license} wheel`, () => {
+      const specs = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, license } : spec));
+      failing(runLicenseCheck(fixture({}, specs)), 'numpy', 'denied-license');
+    });
+  }
+
+  it('reports unknown-license for an unrecognised identifier', () => {
+    const specs = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, license: 'Fixture-Proprietary-1.0' } : spec));
+    failing(runLicenseCheck(fixture({}, specs)), 'numpy', 'unknown-license');
+  });
+
+  it('reports not-allow-listed for a known licence outside the allow-list', () => {
+    const specs = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, license: 'EPL-2.0' } : spec));
+    failing(runLicenseCheck(fixture({}, specs)), 'numpy', 'not-allow-listed');
+  });
+
+  it('reports evidence-mismatch when the table differs from the shipped METADATA', () => {
+    const specs = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, metadataLicense: 'MIT' } : spec));
+    failing(runLicenseCheck(fixture({}, specs)), 'numpy', 'evidence-mismatch');
+  });
+
+  it('reports evidence-gap when the licence text of a row is not in the wheel', () => {
+    const built = withRows(fixture(), (rows) => rows.map((row) => (row.component === 'libpng-fixture.so.16' ? { ...row, licenseText: 'missing/LICENSE.txt' } : row)));
+    failing(runLicenseCheck(built), 'libpng-fixture.so.16', 'evidence-gap');
+  });
+
+  it('reports denied-library for a bundled codec on the denied list', () => {
+    const libs = [{ file: 'libx264-fixture.so.164', license: 'Zlib', version: '0.164.0' }];
+    failing(runLicenseCheck(fixture({}, openCv(libs))), 'libx264-fixture.so.164', 'denied-library');
+  });
+
+  it('reports not-in-sbom for a bundled library without a licenseTable row', () => {
+    const built = withRows(fixture(), (rows) => rows.filter((row) => row.component !== 'libpng-fixture.so.16'));
+    failing(runLicenseCheck(built), 'libpng-fixture.so.16', 'not-in-sbom');
+  });
+
+  it('reports missing-digest for a wheel without a sha256', () => {
+    const built = fixture();
+    built.declaration.wheels = built.declaration.wheels.map((wheel) => (wheel.name === 'numpy' ? { ...wheel, sha256: '' } : wheel));
+    failing(runLicenseCheck(built), 'numpy', 'missing-digest');
+  });
+
+  it('passes an OR expression with one allowed alternative', () => {
+    const specs = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, license: 'GPL-3.0-only OR MIT' } : spec));
+    const result = runLicenseCheck(fixture({}, specs));
+    assert.equal(result.status, 0, result.text);
+  });
+
+  it('fails an OR expression without an allowed alternative', () => {
+    const specs = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, license: 'GPL-3.0-only OR AGPL-3.0-only' } : spec));
+    failing(runLicenseCheck(fixture({}, specs)), 'numpy', 'denied-license');
+  });
+
+  it('passes an AND expression only when every term is allowed', () => {
+    const allowed = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, license: 'MIT AND Apache-2.0' } : spec));
+    assert.equal(runLicenseCheck(fixture({}, allowed)).status, 0);
+    const denied = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, license: 'MIT AND GPL-3.0-only' } : spec));
+    failing(runLicenseCheck(fixture({}, denied)), 'numpy', 'denied-license');
+    const unlisted = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, license: 'MIT AND EPL-2.0' } : spec));
+    failing(runLicenseCheck(fixture({}, unlisted)), 'numpy', 'not-allow-listed');
+  });
+});
+
+describe('analyst-cv-licenses.py LGPL and runtime-exception libraries', () => {
+  const exception = 'GPL-3.0-or-later WITH GCC-exception-3.1';
+  const lib = (overrides = {}) => ({ file: 'libgcc-fixture.so.1', license: exception, version: '14.1.0', linkage: 'dynamic', ...overrides });
+
+  it('accepts a distinct dynamic LGPL library and records it', () => {
+    const result = runLicenseCheck(fixture());
+    assert.equal(result.status, 0, result.text);
+  });
+
+  it('passes an exception-licensed distinct dynamic library and records licence, exception, and text location', () => {
+    const result = runLicenseCheck(fixture({}, openCv([lib()])));
+    assert.equal(result.status, 0, result.text);
+    const nested = component(readSbom(result), 'opencv-python-headless').components.find((entry) => entry.name === 'libgcc-fixture.so.1');
+    const recorded = JSON.stringify(nested);
+    assert.ok(recorded.includes('GPL-3.0-or-later') && recorded.includes('GCC-exception-3.1'), recorded);
+    assert.equal(licenseText(nested), 'opencv_python_headless-1.0.0.dist-info/licenses/libgcc-fixture.so.1.LICENSE.txt');
+  });
+
+  it('fails the same exception licence on a statically linked library', () => {
+    const result = runLicenseCheck(fixture({}, openCv([lib({ linkage: undefined })])));
+    assert.equal(result.status, 1, result.text);
+    assert.ok(findingLine(result, 'libgcc-fixture.so.1', 'lgpl-not-dynamic'), result.text);
+  });
+
+  it('fails the same exception licence on a library no other ELF needs', () => {
+    const result = runLicenseCheck(fixture({}, openCv([lib()], [])));
+    assert.equal(result.status, 1, result.text);
+    assert.ok(findingLine(result, 'libgcc-fixture.so.1', 'lgpl-not-distinct'), result.text);
+  });
+
+  it('fails the same exception licence on a member that is not an ELF shared object', () => {
+    const result = runLicenseCheck(fixture({}, openCv([lib({ elf: false })])));
+    assert.equal(result.status, 1, result.text);
+    assert.ok(findingLine(result, 'libgcc-fixture.so.1', 'lgpl-not-distinct'), result.text);
+  });
+
+  it('fails an LGPL library without dynamic linkage or distinctness', () => {
+    const notDynamic = runLicenseCheck(fixture({}, openCv([{ file: 'libavcodec-fixture.so.1', license: 'LGPL-2.1-or-later', version: '61.1.0' }])));
+    assert.ok(findingLine(notDynamic, 'libavcodec-fixture.so.1', 'lgpl-not-dynamic'), notDynamic.text);
+    const notDistinct = runLicenseCheck(fixture({}, openCv([{ file: 'libavcodec-fixture.so.1', license: 'LGPL-2.1-or-later', version: '61.1.0', linkage: 'dynamic' }], [])));
+    assert.ok(findingLine(notDistinct, 'libavcodec-fixture.so.1', 'lgpl-not-distinct'), notDistinct.text);
+  });
+
+  it('keeps a plain GPL or AGPL library denied even when dynamic and distinct', () => {
+    for (const license of ['GPL-3.0-or-later', 'GPL-3.0-only', 'AGPL-3.0-or-later']) {
+      const result = runLicenseCheck(fixture({}, openCv([lib({ license })])));
+      assert.equal(result.status, 1, result.text);
+      assert.ok(findingLine(result, 'libgcc-fixture.so.1', 'denied-license'), `${license}\n${result.text}`);
+    }
+  });
+});
+
+describe('install-analyst-cv.sh licence stage', () => {
+  it('prints the success line with wheel and bundled library counts and the SBOM path', () => {
+    const { directory, wheelsDirectory, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assert.equal(result.status, 0, result.stderr);
+    const sbom = path.join(result.installRoot, 'notices', 'analyst-cv', 'sbom.cdx.json');
+    assert.ok(result.stdout.split('\n').includes(`Verified Analyst CV libraries: 4 wheels, 2 bundled libraries, SBOM ${sbom}`), result.stdout);
+    assert.ok(existsSync(sbom));
+  });
+
+  it('runs the licence check between the compatibility check and the install', () => {
+    const { directory, wheelsDirectory, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assert.equal(result.status, 0, result.stderr);
+    const check = result.calls.findIndex((line) => /analyst-cv-licenses\.py/.test(line));
+    assert.ok(check >= 0, result.calls.join('\n'));
+    assert.ok(check > result.calls.findLastIndex((line) => line.startsWith('curl ')));
+    assert.ok(check < result.calls.findIndex((line) => /^uv pip install/.test(line)));
+  });
+
+  it('fails in the cv licenses stage for a denied licence, naming the wheel', () => {
+    const specs = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, license: 'GPL-3.0-only' } : spec));
+    const { directory, wheelsDirectory, wheels, declaration } = fixture({}, specs);
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assertCvFailure(result, 'numpy', 'cv licenses');
+    assert.match(result.stderr, /denied-license/);
+    assertRecommendedActionLast(result);
+    assertNoFallback(result, wheels);
+    assert.ok(!/^Verified Analyst CV libraries:/m.test(result.stdout));
+  });
+
+  it('fails in the cv licenses stage for a bundled library finding, naming the library', () => {
+    const libs = [{ file: 'libx264-fixture.so.164', license: 'Zlib', version: '0.164.0' }];
+    const { directory, wheelsDirectory, wheels, declaration } = fixture({}, openCv(libs));
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assertCvFailure(result, 'libx264-fixture\\.so\\.164', 'cv licenses');
+    assertRecommendedActionLast(result);
+    assertNoFallback(result, wheels);
   });
 });
