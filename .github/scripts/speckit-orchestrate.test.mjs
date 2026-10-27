@@ -658,6 +658,28 @@ test('a blocker closed as not planned lifts the block and asks for a person inst
   }
 });
 
+test('a new spec waits while the latest Main health run failed, unless the gate is off or the default branch is green again', async () => {
+  const healthRun = (github, conclusion) => github.repo.runs.push({
+    id: github.repo.nextRun++, workflow: 'main-health.yml', status: 'completed', conclusion, head_branch: 'main',
+    created_at: new Date(github.clock).toISOString(), html_url: 'https://github.com/octo/repo/actions/runs/77',
+  });
+  for (const [label, prepare, starts] of [
+    ['red', (github) => healthRun(github, 'failure'), false],
+    ['red, gate off', (github) => healthRun(github, 'failure'), true],
+    ['green again', (github) => { healthRun(github, 'failure'); github.clock += 1000; healthRun(github, 'success'); }, true],
+  ]) {
+    const { root, github, twin } = await flaggedRepo();
+    try {
+      prepare(github);
+      const result = await orchestrate(github, root, label === 'red, gate off' ? { SPECKIT_HEALTH_GATE: 'false' } : {});
+      assert.equal(chainRuns(github).length, starts ? 1 : 0, label);
+      if (!starts) assert.match(result.text, new RegExp(`Waiting: #${twin.number} \`a\` starts once the default branch is healthy again \\(its \\[latest full verification\\]\\(https://github\\.com/octo/repo/actions/runs/77\\) failed\\)`));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test('a blocked implementation holds its slot, so a new spec waits instead of starting at SPECKIT_MAX_ACTIVE_SPECS', async () => {
   const tasks = '## Phase 1\n\n- [ ] T001 one\n';
   const root = makeRepo([{ folder: 'a', plan: true, tasks }, { folder: 'b', plan: true, tasks }, { folder: 'c', plan: true, tasks }]);
