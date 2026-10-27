@@ -21,7 +21,7 @@ unit tests, and documentation:
 4. The three build-and-push helpers (`TestAnalystImage`, `ReferenceAnalystImage`, `ShotBoundaryAnalystImage`) use these;
    a README of the project records the evidenced cause, the digest sources in order, the limits, the retry rule, the
    bound, the reuse rule, and the run commands. The cause is established with evidence first (research.md
-   `## Evidence`, FR-001), and the fix has to hold under either suspected cause.
+   `## Evidence` and the README's `## Cause`, FR-001), and the fix has to hold under either suspected cause.
 
 ## Technical Context
 
@@ -80,7 +80,7 @@ behavior is documented in the end-to-end project's README (FR-012).
 ```text
 specs/20261027-082549-reliable-e2e-image-push/
 ├── plan.md              # This file
-├── research.md          # Phase 0 (decisions, Evidence section to be completed by implementation)
+├── research.md          # Phase 0 (decisions, Evidence section; the rest of the cause goes to the end-to-end README)
 ├── data-model.md        # Phase 1 (support types, states, rules)
 ├── quickstart.md        # Phase 1 (validation scenarios)
 ├── checklists/
