@@ -203,22 +203,7 @@ internal sealed class DockerEngine : IDisposable
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadAsStringAsync(ct);
-        string? digest = null;
-        foreach (var line in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            using var document = JsonDocument.Parse(line);
-            if (document.RootElement.TryGetProperty("errorDetail", out var error))
-            {
-                throw new InvalidOperationException("Pushing the Test Analyst image failed: " + error.GetRawText());
-            }
-
-            if (document.RootElement.TryGetProperty("aux", out var aux) && aux.TryGetProperty("Digest", out var value))
-            {
-                digest = value.GetString();
-            }
-        }
-
-        return digest ?? throw new InvalidOperationException("The push did not report a manifest digest:\n" + body);
+        return PushOutput.ReadDigest(body);
     }
 
     public async Task DeleteImageAsync(string name)
