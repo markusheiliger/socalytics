@@ -125,10 +125,6 @@ in task, phase, and finalize modes.
 - [x] T015 [P] [US3] Extend `.github/actions/environment-verify/analyst-projects.test.mjs` with fixture capability projects under `src/analysts/capabilities/<name>/` (none, one, several, deleted) in task, phase, and finalize modes: a change to one project checks that project and its dependents in task and phase mode and every project in finalize mode, each project runs the stages `library pin`, `bootstrap sync`, `project sync`, `wheel build`, and `tests` once per invocation, `COVERED` includes `^src/analysts/capabilities/<name>/` only while `pyproject.toml` exists, no other path under `src/analysts/` is covered, a failing stage reports project, stage, and one recommended action through the existing `Analyst Python stage failed` line and `status=1`, a documentation-only change triggers no extra check, and committed declarations stay unchanged
 - [x] T016 [P] [US3] Extend `.github/actions/environment-setup/toolchain.test.mjs` only where the interface assertions need it: the setup `action.yml` keeps its inputs and outputs, the new step exists after the toolchain step with `install-tools == 'true'`, tools-disabled mode downloads nothing, and `analyst-media-toolchain.json` and `cache-keys.mjs` are unchanged; every existing assertion passes unchanged
 
-### Implementation for User Story 3
-
-- [ ] T017 [US3] Run `node --test .github/actions/environment-verify/analyst-projects.test.mjs`; only if a T015 case proves a gap in selection or coverage, correct `.github/actions/environment-verify/analyst-projects.py` minimally and keep every existing case passing unchanged (FR-012)
-
 **Checkpoint**: All three stories are independently functional.
 
 ---
@@ -144,7 +140,7 @@ in task, phase, and finalize modes.
 
 ### Validation
 
-- [ ] T020 Run `node --test .github/actions/environment-setup/*.test.mjs .github/actions/environment-verify/*.test.mjs` and fix any failure in the action folders without weakening a test; also run, read-only, `python3 .github/actions/environment-verify/analyst-library-pins.py --declaration .github/actions/environment-setup/analyst-cv-libraries.json --lock uv.lock --project <root>` in `src/analysts/sdk` and `src/analysts/capabilities/reference-media-probe`, requiring exit 0 and no file change, and fix the pin or the activation rule in the action folders if it fails
+- [ ] T020 Run `node --test .github/actions/environment-setup/*.test.mjs .github/actions/environment-verify/*.test.mjs` and fix any failure in the action folders without weakening a test (if a T015 case proves a gap in selection or coverage, correct `.github/actions/environment-verify/analyst-projects.py` minimally and keep every existing case passing unchanged, FR-012); also run, read-only, `python3 .github/actions/environment-verify/analyst-library-pins.py --declaration .github/actions/environment-setup/analyst-cv-libraries.json --lock uv.lock --project <root>` in `src/analysts/sdk` and `src/analysts/capabilities/reference-media-probe`, requiring exit 0 and no file change, and fix the pin or the activation rule in the action folders if it fails
 - [ ] T021 Run `node .github/scripts/check-markdown.mjs --files .github/actions/environment-setup/README.md .github/actions/environment-verify/README.md specs/20261023-085421-cv-inference-environment/tasks.md` and fix every finding
 - [ ] T022 Confirm confinement (SC-006) with `git diff --name-only` against the base branch: only paths under `.github/actions/environment-setup/`, `.github/actions/environment-verify/`, and this spec's `tasks.md` changed, and no committed declaration other than `analyst-cv-libraries.json` was modified by a verification run
 
@@ -155,7 +151,7 @@ in task, phase, and finalize modes.
 - Phase 1 (T001) precedes everything; T002 follows it and precedes the story tests in `cv-libraries.test.mjs`.
 - **US1** has no dependency on US2 or US3: tests T003, T004 (same file, in order) and T005 (a different file, parallel) precede the scripts T006 and T007 (parallel), then T008 (needs T006), then T009 and T010 (parallel).
 - **US2** builds on the installer and test file of US1: T011 follows T004; T012 runs first (a group of its own), then T013 (needs T001 and the T012 script, because it runs the check against the real wheels); T014 follows T008, T011, T012, and T013.
-- **US3** is independent of US2: T015 and T016 run in parallel after T010; T017 follows T015.
+- **US3** is independent of US2: T015 and T016 run in parallel after T010. There is no separate implementation task: the selection and coverage logic already exists, so T015's tests verify it, and T020 corrects `analyst-projects.py` only if a T015 case proves a gap. ID T017 is intentionally unused (a task whose normal outcome is no change cannot land).
 - **Polish**: T018 and T019 follow the stories they document, T020 to T022 run last, in order.
 
 ### Parallel Opportunities
