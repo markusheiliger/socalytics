@@ -18,7 +18,7 @@
 
 **Purpose**: The pure helper every story depends on.
 
-- [ ] T001 Add and export a pure function `taskNamedFiles(text, { exists, isSafe, max })` in `.github/scripts/speckit-implement-core.mjs` that returns the distinct repository-relative paths a task's text names (backticked tokens and bare tokens with a path separator or a file extension), keeping only those for which `exists(path)` and `isSafe(path)` are true, in order of first mention, capped at `max` entries; it takes the predicates and cap as parameters so the core module does not import from `speckit-implement-work.mjs` (plan Design 1, research R2a)
+- [x] T001 Add and export a pure function `taskNamedFiles(text, { exists, isSafe, max })` in `.github/scripts/speckit-implement-core.mjs` that returns the distinct repository-relative paths a task's text names (backticked tokens and bare tokens with a path separator or a file extension), keeping only those for which `exists(path)` and `isSafe(path)` are true, in order of first mention, capped at `max` entries; it takes the predicates and cap as parameters so the core module does not import from `speckit-implement-work.mjs` (plan Design 1, research R2a)
 
 **Checkpoint**: `taskNamedFiles` exists and is exported.
 
