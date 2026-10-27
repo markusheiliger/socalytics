@@ -193,6 +193,13 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 	// Reproduction: unchanged test run alone 30 times (4-core runner): 30 passed, 0 failed; no failure message observed.
 	// Reproduction: unchanged test run 10 times under CPU load (4 busy-loop processes, one per core): 10 passed, 0 failed; no failure message observed.
 	// Reproduction: the failure did not reproduce naturally; the causes are to be established by the deliberate widening of the suspected windows.
+	// Widening: hold-publish. Change (temporary, reverted): in the named test, StartAsync configureServices replaced IMessageTransport (the internal NatsJetStreamTransport in Infrastructure/Messaging/Nats) by a wrapper whose first PublishAsync call throws MessageTransportException("transport-unavailable") and later calls delegate to the real transport; the wait limit was lowered from 120 s to 25 s so the failure is quick.
+	// Widening: hold-publish result of the old test: failed after 27 s (invocation.ShouldNotBeNull(), no state in the message).
+	// Widening: hold-publish rows: outbox_messages state=pending, attempt_count=1, next_attempt_at=2026-10-27 06:32:56 (observed, set from the frozen fixture clock at the failed publication plus backoff); agent_attempts: no row; agent_invocations.state=queued. The retry never became due because OutboxPublicationStore selects next_attempt_at <= @now and the fixture MutableTimeProvider (set once to UtcNow in AgentOrchestrationFixture.StartAsync) never advances; the runner never received a work message.
+	// Widening: delay-topology. Change (temporary, reverted): same wrapper, but the first PublishAsync call awaits Task.Delay(4000 ms) before delegating (the stream and consumer exist only after the first publish, so the runner started 4 s without its consumer); wait limit 25 s.
+	// Widening: delay-topology result of the old test: passed in 7 s (the runner's RetryDelay of 200 ms retried until the consumer existed); no non-terminal rows to read.
+	// Widening: clock-back and clock-ahead. Change (temporary, reverted): in the named test right after StartAsync, f.Factory.Time.Set(DateTimeOffset.UtcNow.AddMinutes(-10)) and then AddMinutes(10), before SeedRunAsync; wait limit 25 s.
+	// Widening: clock-back and clock-ahead result of the old test: both passed in 3 s (a frozen reading offset from the wall clock is harmless while no first publication fails); no non-terminal rows to read.
 	[Fact]
 	public async Task TheSimulatedAgentWorkloadCompletesAnInvocationOfTheSeededVersionWithItsPinnedReferences()
 	{
