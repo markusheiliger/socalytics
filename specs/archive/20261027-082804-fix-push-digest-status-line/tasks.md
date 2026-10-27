@@ -1,6 +1,6 @@
 # Tasks: Read the Pushed Manifest Digest from Every Engine's Push Output
 
-**Input**: Design documents from `specs/20261027-082804-fix-push-digest-status-line/`
+**Input**: Design documents from `specs/archive/20261027-082804-fix-push-digest-status-line/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [quickstart.md](quickstart.md)
 
