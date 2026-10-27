@@ -6,6 +6,8 @@ import test from 'node:test';
 
 import { pendingFeedback, renderFeedback } from './speckit-amend.mjs';
 import { ATTENTION_LABEL, AUTO_CONTINUE_MARKER, IMPLEMENT_WORKFLOW_FILE, RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER, parseGuidance, renderRetryComment, syncBarrier, unchangedRestarts, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker, renderSyncComment, repeatedFailure, isTwinRunOf } from './speckit-implement-core.mjs';
+import { copilotRequestOf } from './speckit-implement-core.mjs';
+import { implementsTasks } from './speckit-diagnose.mjs';
 import { CATEGORIES, CATEGORY_COMMANDS, MAX_RECOMMENDED_COMMAND, MAX_STOP_SUBJECT, categoryCommands, checkReportFile, commandPatterns, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -664,4 +666,60 @@ test('continues once per action of a person, and never after the same failure re
   assert.ok(repeatedFailure(await repeated.listIssueComments(9), 'sha-impl'));
   assert.equal((await recordReport(repeated, RETRY_REPORT)).continued, null, 'the same failure already repeated');
   assert.equal(implementRuns(repeated), 0);
+});
+
+test('a change only a push can make is recommended as a ready-to-post @copilot prompt', () => {
+  const prompt = 'In specs/other/spec.md, change the link on line 83 from ../a/spec.md to ../archive/a/spec.md. Then run node .github/scripts/check-markdown.mjs --files specs/other/spec.md.';
+  const copilotOption = (extra = {}) => ({ title: 'Ask Copilot to repoint the link', why: 'Only a push can change another spec folder.', copilot: prompt, recommended: true, ...extra });
+  const decision = validateReport({ ...REPORT, category: 'decision', artifacts: [], questions: [], options: [copilotOption({ copilot: `@copilot ${prompt}` })] });
+  assert.deepEqual(decision.reasons, []);
+  assert.equal(decision.report.options[0].copilot, prompt, 'a leading @copilot is not kept twice');
+  const steps = recommendNextSteps(decision.report);
+  assert.deepEqual(steps.notes, [], 'a Copilot prompt fits a decision');
+  assert.equal(steps.options.find((option) => option.recommended).copilot, prompt);
+  const comment = renderDiagnosisComment({ report: decision.report, round: 1 });
+  assert.match(comment, new RegExp(`\\*\\*Recommended next step\\*\\*: Ask Copilot to repoint the link\\.[\\s\\S]*Comment this on the pull request \\(people with write access\\):\\n\\n\`\`\`text\\n@copilot In specs/other/spec\\.md, change the link on line 83[^\\n]*\\n\\nMake only this change, [^\\n]*do not open another pull request\\.\\n\`\`\``));
+  assert.match(comment, /GitHub Copilot's cloud agent \(it must be enabled for the repository\) makes the change and pushes it to the implementation branch; that push continues the implementation by itself/);
+  assert.equal(copilotRequestOf(comment).split('\n')[0], `@copilot ${prompt}`, 'the refused retry can reuse it');
+
+  // Invalid prompts are dropped with a reason, and a prompt next to a command loses to the command.
+  for (const [copilot, problem] of [['```sh\nrm -rf\n```', /invalid Copilot prompt/], ['x'.repeat(3100), /invalid Copilot prompt/], ['Change <what to fix> in the spec', /invalid Copilot prompt/]]) {
+    const checked = validateReport({ ...REPORT, category: 'decision', artifacts: [], questions: [], options: [copilotOption({ copilot })] });
+    assert.match(checked.reasons.join('; '), problem);
+    assert.equal(checked.report.options[0].copilot, null);
+  }
+  const both = validateReport({ ...REPORT, category: 'decision', artifacts: [], questions: [], options: [copilotOption({ command: '/speckit retry 1. Keep the scope.' })] });
+  assert.match(both.reasons.join('; '), /has both a command and a Copilot prompt; the command is kept/);
+  assert.equal(both.report.options[0].copilot, null);
+
+  // Another category does not recommend a Copilot prompt; it stays under the other options.
+  const retry = validateReport({ ...REPORT, category: 'retry', artifacts: [], questions: [], options: [copilotOption()] }).report;
+  const moved = recommendNextSteps(retry);
+  assert.match(moved.notes.join('; '), /does not fit the category `retry`/);
+  assert.match(moved.options.find((option) => option.recommended).command, /^\/speckit retry/);
+
+  // A command that already failed the same way is replaced by the Copilot prompt rather than a new spec.
+  const repeated = { verb: 'retry', reason: 'T001 did not succeed in 2 attempts' };
+  const stuck = validateReport({ ...REPORT, category: 'decision', artifacts: [], questions: [], options: [
+    { title: 'Retry with the answers', why: 'x', command: '/speckit retry 1. Keep it.', recommended: true },
+    copilotOption({ recommended: false }),
+  ] }).report;
+  const replaced = recommendNextSteps(stuck, { repeated });
+  assert.equal(replaced.options.find((option) => option.recommended).copilot, prompt);
+  assert.match(replaced.adjusted[0], /already stopped the same way/);
+});
+
+test('a Copilot prompt never implements the spec\'s tasks; it only removes what stops the automation', () => {
+  // The prompt diagnosis round 3 recommended on #344: it handed the whole spec to Copilot and bypassed the automation.
+  const takeover = 'Implement the code changes of tasks T002 to T014 in specs/20261026-100223-environment-guard-archive-rewrites/tasks.md exactly as the tasks, plan.md, data-model.md and contracts of that folder describe. Do not edit tasks.md and do not tick any task.';
+  const report = (copilot) => validateReport({ ...REPORT, category: 'decision', artifacts: [], questions: [], options: [{ title: 'Ask Copilot', why: 'x', copilot, recommended: true }] });
+  for (const prompt of [takeover, 'Finish the work of T007 in .github/scripts/speckit-archive.mjs.', 'Implement the remaining tasks of this spec in .github/scripts/.', 'Do what tasks.md describes for the guard.']) {
+    const checked = report(prompt);
+    assert.match(checked.reasons.join('; '), /asks Copilot to do the spec's tasks/, prompt);
+    assert.equal(checked.report.options[0].copilot, null);
+  }
+  assert.equal(implementsTasks(takeover), true);
+  const unblock = 'In specs/other/spec.md, change the link on line 83 from ../a/spec.md to ../archive/a/spec.md.';
+  assert.deepEqual(report(unblock).reasons, [], 'removing what stops the automation is fine');
+  assert.equal(implementsTasks(unblock), false);
 });

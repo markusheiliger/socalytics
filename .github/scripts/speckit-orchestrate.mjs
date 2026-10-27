@@ -30,6 +30,8 @@ import { createGitHubClient, createReporter, setOutput } from './speckit-script-
 import {
   BLOCKED_LABEL,
   BOT_LOGIN,
+  ROADBLOCK_LABEL,
+  ROADBLOCK_MARKER,
   BRANCH_PREFIX,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
@@ -72,6 +74,91 @@ function blockerList(blockers) {
 
 // Server side: lists flagged twins that are consistent with the default branch and have no open blockers,
 // and resolves what their implementation PRs mean (in progress, closed without merge, or ready to start).
+// Which implementations in progress wait for each twin, directly or through a chain of blocked implementations
+// (A waits for B, whose implementation waits for C: C unblocks both). `inProgress` entries carry their twin `number`
+// and their open `blockers` (twin numbers). Returns a map from a twin to the set of waiting twin numbers.
+export function waitingSets(inProgress) {
+  const waiting = new Map();
+  for (const twin of inProgress) {
+    for (const blocker of twin.blockers ?? []) waiting.set(blocker, [...(waiting.get(blocker) ?? []), twin.number]);
+  }
+  const sets = new Map();
+  for (const blocker of waiting.keys()) {
+    const seen = new Set();
+    const queue = [...waiting.get(blocker)];
+    while (queue.length > 0) {
+      const next = queue.shift();
+      if (seen.has(next) || next === blocker) continue;
+      seen.add(next);
+      queue.push(...(waiting.get(next) ?? []));
+    }
+    sets.set(blocker, seen);
+  }
+  return sets;
+}
+
+// How many implementations in progress wait for each twin (waitingSets).
+export function waitingBehind(inProgress) {
+  return new Map([...waitingSets(inProgress)].map(([twin, set]) => [twin, set.size]));
+}
+
+// How many pull requests carry ROADBLOCK_LABEL at most (repository variable SPECKIT_ROADBLOCK_PULLS, default 3; 0
+// turns the label off).
+export const DEFAULT_ROADBLOCK_PULLS = 3;
+export function parseRoadblockPulls(value) {
+  const text = String(value ?? '').trim();
+  const number = Number(text);
+  return text !== '' && Number.isInteger(number) && number >= 0 ? number : DEFAULT_ROADBLOCK_PULLS;
+}
+
+// Labels the implementations to process first: those that are not blocked themselves and have the most
+// implementations waiting for them (waitingSets), at most SPECKIT_ROADBLOCK_PULLS, ties by the lower twin number. A
+// pull request that gets the label also gets a comment that names the implementations waiting for it; the label is
+// removed from every other open implementation pull request. Runs on every scheduler run, so the label follows the
+// queue. Returns the summary lines.
+export async function maintainRoadblocks(client, env, inProgress) {
+  const limit = parseRoadblockPulls(env.SPECKIT_ROADBLOCK_PULLS);
+  const sets = waitingSets(inProgress);
+  const pullOf = new Map(inProgress.map((twin) => [twin.number, twin.pull]));
+  const ranked = inProgress
+    .filter((twin) => !twin.blocked && (sets.get(twin.number)?.size ?? 0) > 0)
+    .sort((a, b) => sets.get(b.number).size - sets.get(a.number).size || a.number - b.number)
+    .slice(0, limit);
+  const chosen = new Map(ranked.map((twin) => [twin.pull, twin]));
+  const lines = [];
+  let pulls;
+  try {
+    pulls = (await client.listOpenPullRequests()).filter((pull) => String(pull.head?.ref ?? '').startsWith(BRANCH_PREFIX));
+  } catch (error) {
+    return [`- Warning: could not update the \`${ROADBLOCK_LABEL}\` label: ${error.message}`];
+  }
+  for (const pull of pulls) {
+    const has = (pull.labels ?? []).some((label) => (label?.name ?? label) === ROADBLOCK_LABEL);
+    const twin = chosen.get(pull.number);
+    try {
+      if (twin && !has) {
+        const waiting = [...sets.get(twin.number)].sort((a, b) => (pullOf.get(a) ?? a) - (pullOf.get(b) ?? b));
+        const refs = waiting.map((number) => (pullOf.has(number) ? `#${pullOf.get(number)} (spec #${number})` : `spec #${number}`));
+        await client.ensureLabel({ name: ROADBLOCK_LABEL, color: '0e8a16', description: 'Merging it unblocks other implementations; process it first' });
+        await client.addLabels(pull.number, [ROADBLOCK_LABEL]);
+        await client.createComment(pull.number, [
+          ROADBLOCK_MARKER,
+          `**Roadblock**: ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for this one, directly or through a chain: ${refs.join(', ')}. It is not blocked itself, so getting it merged first gains the most progress.`,
+          '',
+          `The label \`${ROADBLOCK_LABEL}\` follows the queue: the scheduler moves it to the ${limit === 1 ? 'implementation' : `${limit} implementations`} that unblock the most whenever the open implementations change.`,
+        ].join('\n'));
+        lines.push(`- Labelled #${pull.number} \`${ROADBLOCK_LABEL}\`: ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for it.`);
+      } else if (!twin && has) {
+        await client.removeLabel(pull.number, ROADBLOCK_LABEL);
+        lines.push(`- Removed \`${ROADBLOCK_LABEL}\` from #${pull.number}: others unblock more, it is blocked itself, or nothing waits for it any more.`);
+      }
+    } catch (error) {
+      lines.push(`- Warning: could not update \`${ROADBLOCK_LABEL}\` on #${pull.number}: ${error.message}`);
+    }
+  }
+  return lines;
+}
+
 export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   const report = createReporter(env, log);
   const specs = discoverSpecs(rootDir);
@@ -156,13 +243,17 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   // Requested prerequisites of running implementations first, however the dependency came about: each unblocks an
   // implementation that waits for it. A prerequisite that is not requested never starts; the Blocked comment on the
   // waiting implementation recommends `/speckit implement` on its twin.
-  const prerequisites = new Set(inProgress.flatMap((twin) => twin.blockers));
-  for (const twin of ready) twin.prerequisite = prerequisites.has(twin.number);
-  ready.sort((a, b) => Number(b.prerequisite) - Number(a.prerequisite));
+  // The one that unblocks the most waiting implementations, also through chains of blocked implementations, starts first.
+  const unblocks = waitingBehind(inProgress);
+  for (const twin of ready) {
+    twin.unblocks = unblocks.get(twin.number) ?? 0;
+    twin.prerequisite = twin.unblocks > 0;
+  }
+  ready.sort((a, b) => b.unblocks - a.unblocks);
 
   report.line('## Spec implementation selection');
   report.line();
-  for (const twin of ready) report.line(`- Ready: #${twin.number} \`${twin.folder}\`${twin.reset ? ' (the branch is reset)' : ''}`);
+  for (const twin of ready) report.line(`- Ready: #${twin.number} \`${twin.folder}\`${twin.reset ? ' (the branch is reset)' : ''}${twin.unblocks > 0 ? ` (unblocks ${twin.unblocks} waiting implementation${twin.unblocks === 1 ? '' : 's'})` : ''}`);
   for (const twin of inProgress) {
     report.line(`- In progress: #${twin.number} \`${twin.folder}\` in pull request #${twin.pull}: ${describeDecision(twin)}`);
   }
@@ -342,6 +433,13 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     actions += 1;
   }
   if (actions === 0) report.line('- Nothing to do.');
+  const roadblocks = await maintainRoadblocks(client, env, selection.inProgress);
+  if (roadblocks.length > 0) {
+    report.line();
+    report.line(`### \`${ROADBLOCK_LABEL}\` label`);
+    report.line();
+    for (const line of roadblocks) report.line(line);
+  }
   const flaky = await maintainFlakyTests(client, env, { now: now() });
   if (flaky.lines.length > 0) {
     report.line();

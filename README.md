@@ -22,8 +22,10 @@ through approved changes.
     Analyst SDK under `src/analysts/sdk/`, the development reference Analyst
     capability under `src/analysts/capabilities/reference-media-probe/`, the
     development shot-boundary Analyst capability under
-    `src/analysts/capabilities/media-context-classification/`, and
-    records the planned catalog Analyst capability ownership boundary.
+    `src/analysts/capabilities/media-context-classification/`, the
+    development Analyst evaluation harness (evaluation tooling, not a
+    capability) under `src/analysts/capabilities/analyst-evaluation-harness/`,
+    and records the planned catalog Analyst capability ownership boundary.
 - [`docs/`](docs/README.md) indexes architecture, component, and operational documentation.
 - [`contracts/`](contracts/README.md) holds the canonical machine-readable
     contracts (JSON Schema 2020-12), the golden-fixture set shared by the
@@ -367,6 +369,30 @@ dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "Full
 
 This is development evidence, not a catalog capability, a published image, or
 production readiness; its detection settings are not calibrated.
+
+### Analyst evaluation harness
+
+The development Analyst evaluation harness lives in
+`src/analysts/capabilities/analyst-evaluation-harness/` (Python 3.12, `uv`; the
+project is evaluation tooling and not a catalog capability, and sits under
+`capabilities/` only because that is where the environment verification
+recognizes Python projects). It evaluates one Analyst capability against a
+labelled synthetic corpus and writes a schema-validated report. From that
+directory, run the same locked sequence as for the reference capability:
+
+```text
+UV_PYTHON_DOWNLOADS=never
+uv sync --locked --all-groups --no-install-local --no-build
+uv sync --locked --all-groups --no-build-isolation
+uv build --wheel --no-build-isolation --python .venv/bin/python
+uv run --no-sync pytest
+```
+
+Its three commands are `evaluate`, `validate-corpus`, and `verify-report`,
+run as `uv run --no-sync python -m analyst_evaluation_harness <command>`
+(its README documents the arguments). This is development
+evidence: it has no production thresholds, makes no promotion decision, and
+uses no real footage.
 
 ### Contracts
 
@@ -956,6 +982,7 @@ place. The workflows and scripts need no changes for any of it.
 | `SPECKIT_AUTO_MERGE` | repository variable | `true` | `false` holds every implementation for review instead of merging it automatically |
 | `SPECKIT_TASK_AI_CREDITS` | repository variable | `1000` | Copilot CLI credit cap per agent run (tasks, convergence, conflict resolution) |
 | `SPECKIT_MAX_ACTIVE_SPECS` | repository variable | `3` | how many specs the scheduler implements at the same time; a spec waiting for review or for a person does not count |
+| `SPECKIT_ROADBLOCK_PULLS` | repository variable | `3` | how many implementation pull requests carry the `roadblock` label: those not blocked themselves that the most other implementations wait for; `0` turns the label off |
 | `.github/actions/environment-setup` | composite action, optional | not run | installs the SDKs and tools for building, testing, and verifying |
 | `.github/actions/environment-verify` | composite action, optional | no verification | runs the checks for changed paths (modes `task`: only the touched tests; `phase` and `finalize`: all tests) and reports files no check covers |
 | `SPECKIT_IMPLEMENT_MODE` | local environment variable | ask | `local` or `remote` answers the `/speckit-implement` routing question |

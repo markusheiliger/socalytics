@@ -74,7 +74,7 @@ shot-boundary baseline once it exists)."
 ## User Scenarios & Testing *(mandatory)*
 
 The users are platform maintainers, who need the Wave 0 metrics harness of the
-[Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md#implementation-waves) to exist as an
+[Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md#implementation-waves) to exist as an
 executable, repeatable tool; and Analyst authors, who need to evaluate a capability against labels and a declared
 comparator before anyone calls it a promotable baseline. No platform member, Club Admin, or Coach uses the harness, and
 it changes no platform behavior.

@@ -37,7 +37,11 @@ SocAlytics uses one `src` root with these first-level ownership areas:
   and the first catalog-named capability, `media-context-classification`,
   exists under `src/analysts/capabilities/media-context-classification` as a
   shot-boundary baseline only (development evidence, fixed rules without a
-  model, no catalog gate met, never in a production workflow); the rest of the
+  model, no catalog gate met, never in a production workflow); the evaluation
+  harness `analyst-evaluation-harness` exists under
+  `src/analysts/capabilities/analyst-evaluation-harness` as development
+  evaluation tooling, not a capability, with no corpus, annotations, or
+  production thresholds; the rest of the
   catalog's Analyst capability implementations (including shot type, live,
   replay, graphics, quality, and usable intervals of media context) across
   their required runtimes remain future
@@ -544,6 +548,14 @@ inspection and reconciliation operations under `/api/v1/operations` are
 restricted to Club Admins and audited when they change state. Club Admins use
 them from the Web UI's Operations area (implemented as a connected workflow; see
 [Client Applications → Web UI](client-applications.md#web-ui)).
+
+Until an audit-reviewer or stamp-operator role exists, the read-only audit
+evidence operation `GET /api/v1/audit/events` is restricted to Club Admins
+(decided, not yet implemented; development evidence). It reads the security
+audit table through ordered indexes, returns minimized fields, records every
+read as an `audit.evidence-read` audit event in the reading transaction, and is
+rate limited per member (see
+[Security and Data Governance](security-and-data-governance.md#audit-events)).
 
 ### Agent Runtime
 
