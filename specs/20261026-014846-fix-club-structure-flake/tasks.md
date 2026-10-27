@@ -23,7 +23,7 @@
 
 **Rules**: Wait on the awaited condition or control the racing input; no retries, skipping, fixed sleeps, new or longer timeouts, `networkidle`, or removed or loosened assertions (FR-002, FR-003). No fix starts before step 7 names the cause, or states that it was not reproduced. Apply only the fix step 7 names (8a, 8b, or 8c) and say in the pull request notes which are not applicable. Steps 1 to 7 change no committed file; scratch files are removed in step 14. Record the findings of steps 2 to 7 (failing step, network order, why the earlier hardening did not prevent it) for the code comment of step 8a.
 
-- [ ] T008 [US1] Reproduce, fix, and prove the club structure test in `src/clients/web`, committing only the files the cause lives in; the committed change always includes the updated comment block above `beforeEach` in `src/clients/web/tests/e2e/platform/club-structure.spec.ts` (FR-001, SC-003). Run the steps in order:
+- [x] T008 [US1] Reproduce, fix, and prove the club structure test in `src/clients/web`, committing only the files the cause lives in; the committed change always includes the updated comment block above `beforeEach` in `src/clients/web/tests/e2e/platform/club-structure.spec.ts` (FR-001, SC-003). Run the steps in order:
 
   Baseline and reproduction:
 

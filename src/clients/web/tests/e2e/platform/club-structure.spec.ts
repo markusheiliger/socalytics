@@ -23,6 +23,14 @@ const test = base.extend<{ secrets: string[] }>({
 // navigation specs (`--no-deps` on a fresh platform fails every repeat in `beforeEach` with a 401 sign-in because the
 // initial password was not changed yet, a precondition failure and not a test result). The whole platform project
 // ran 5 times: 5 passed, 0 failed, and this test passed each time, without a retry.
+// Follow-up (FR-001, SC-003): the failure was still not reproduced. The baseline (`npm ci`, build, unit tests) passed and
+// a whole `--project platform` run passed with this test green. The recorded failures of the implementation pull
+// requests #235, #284, and #314 could not be read (the GitHub CLI was not permitted in the implementing environment, so no
+// logs or traces were available), so no candidate of the spec's research is supported or rejected by recorded evidence.
+// The test and its support are therefore unchanged: no evidenced cause exists to fix, and the earlier hardening above
+// remains the only protection. Candidates still open and untested: the second team creation racing the first one's
+// refetch (the first `The team was created.` alert can satisfy the second iteration's assertion), a pre-rename team list
+// GET satisfying `waitForResponse`, and a service worker `controllerchange` reload mid-test.
 // Archives the club's active seasons through the API so the single active season is free for this test and the next
 // spec, even when a test fails.
 test.beforeEach(async () => {
