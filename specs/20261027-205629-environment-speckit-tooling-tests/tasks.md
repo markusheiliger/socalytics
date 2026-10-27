@@ -25,7 +25,7 @@ description: "Task list for Spec Kit Tooling Tests in Environment Verification"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T001 Precondition: before changing anything, run `node --test .github/actions/environment-verify/*.test.mjs .github/actions/environment-setup/toolchain.test.mjs` and confirm the existing environment action tests pass. Then, in `.github/actions/environment-verify/verification-scope.mjs`, export `TOOLING_FILE = /^\.github\/scripts\/speckit-[^/]+\.mjs$/` (matches `speckit-*.mjs` and `speckit-*.test.mjs` directly under `.github/scripts/` only) and change `classify` so the first non-Markdown changed file that matches it reports `` `${file} is a Spec Kit tooling file covered by the Spec Kit tooling tests` `` with `documentationOnly: false`, while every other non-Markdown file keeps `` `${file} is not Markdown` ``
+- [x] T001 Precondition: before changing anything, run `node --test .github/actions/environment-verify/*.test.mjs .github/actions/environment-setup/toolchain.test.mjs` and confirm the existing environment action tests pass. Then, in `.github/actions/environment-verify/verification-scope.mjs`, export `TOOLING_FILE = /^\.github\/scripts\/speckit-[^/]+\.mjs$/` (matches `speckit-*.mjs` and `speckit-*.test.mjs` directly under `.github/scripts/` only) and change `classify` so the first non-Markdown changed file that matches it reports `` `${file} is a Spec Kit tooling file covered by the Spec Kit tooling tests` `` with `documentationOnly: false`, while every other non-Markdown file keeps `` `${file} is not Markdown` ``
 
 **Checkpoint**: Pattern and scope reason exist; the existing tests still pass
 
