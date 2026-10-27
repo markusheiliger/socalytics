@@ -33,21 +33,11 @@
 
 ---
 
-## Phase 2: Polish & Cross-Cutting Concerns
-
-**Purpose**: Verify the change against the success criteria and the scope constraint.
-
-- [ ] T004 Run `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~PushOutputTests"` and fix any failure in `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/TestAnalystImage.cs` or `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/PushOutputTests.cs`.
-- [ ] T005 Run the Docker-backed evidence on a Linux engine, `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ShotBoundaryImage|FullyQualifiedName~ReferenceAnalystImage"` and then the whole project, and confirm that no end-to-end test fails with `The push did not report a manifest digest` (SC-001); no test is weakened or skipped. The whole-project run must show no failure with `The push did not report a manifest digest` and no newly failing test compared with the base branch; unrelated failures are reported but do not fail the task.
-- [ ] T006 Confirm the scope (FR-006, SC-003) with `git diff --name-only` against the base branch: only files of `specs/20261027-082804-fix-push-digest-status-line/`, `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/TestAnalystImage.cs`, and `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/PushOutputTests.cs` changed; no production source, contract, or `docs/architecture/` file changed (the plan's Architecture Updates section is `None`).
-
----
-
 ## Dependencies & Execution Order
 
-- T001 → T002 and T003 (both need `PushOutput.ReadDigest`) → T004 → T005 → T006.
+- T001 → T002 and T003 (both need `PushOutput.ReadDigest`).
 - No user story other than US1 exists. T002 and T003 are the only parallel group: T002 changes `Support/TestAnalystImage.cs`, T003 creates `PushOutputTests.cs`, and neither uses anything the other creates. T001 and T002 change the same file, so T001 runs alone first.
 
 ## Implementation Strategy
 
-MVP is the whole feature: T001 to T003 deliver the fix and its Docker-free proof; T004 to T006 give the evidence required by SC-001 to SC-003. SC-004 is post-merge evidence and has no task.
+MVP is the whole feature: T001 to T003 deliver the fix and its Docker-free proof. The evidence required by SC-001 to SC-003 (the `PushOutputTests` run, the Docker-backed `ShotBoundaryImage` and `ReferenceAnalystImage` tests and the whole end-to-end project on a Linux engine, and the scope of the change against the base branch) is produced by the automation's phase verification and convergence, not by tasks of their own, because a task that only runs a command changes no file and cannot be ticked. SC-004 is post-merge evidence and has no task.
