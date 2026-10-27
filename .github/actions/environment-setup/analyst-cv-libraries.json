@@ -104,7 +104,10 @@
     "PSF-2.0",
     "MPL-2.0",
     "0BSD",
-    "CC0-1.0"
+    "CC0-1.0",
+    "BSD-3-Clause-Open-MPI",
+    "libpng-2.0",
+    "OpenSSL"
   ],
   "lgplLicenses": [
     "LGPL-2.1-only",
@@ -127,5 +130,30 @@
     "libvidstab",
     "libfdk"
   ],
-  "licenseTable": []
+    "licenseTable": [
+    {"component": "opencv-python-headless", "wheel": "opencv-python-headless", "kind": "wheel", "licenseExpression": "Apache-2.0", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE.txt"},
+    {"component": "numpy", "wheel": "numpy", "kind": "wheel", "licenseExpression": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0", "licenseText": "numpy-2.5.4.dist-info/licenses/LICENSE.txt"},
+    {"component": "onnxruntime", "wheel": "onnxruntime", "kind": "wheel", "licenseExpression": "MIT", "licenseText": "onnxruntime/LICENSE"},
+    {"component": "flatbuffers", "wheel": "flatbuffers", "kind": "wheel", "licenseExpression": "Apache-2.0", "licenseText": "flatbuffers-25.12.19.dist-info/METADATA"},
+    {"component": "packaging", "wheel": "packaging", "kind": "wheel", "licenseExpression": "Apache-2.0 OR BSD-2-Clause", "licenseText": "packaging-26.3.dist-info/licenses/LICENSE"},
+    {"component": "protobuf", "wheel": "protobuf", "kind": "wheel", "licenseExpression": "BSD-3-Clause", "licenseText": "protobuf-7.36.2.dist-info/LICENSE"},
+    {"component": "libaom-a0d22147.so.3.14.1", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "BSD-2-Clause", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "3.14.1"},
+    {"component": "libavcodec-c4204469.so.62.28.101", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "LGPL-2.1-or-later", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "62.28.101", "linkage": "dynamic"},
+    {"component": "libavformat-4762a711.so.62.12.101", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "LGPL-2.1-or-later", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "62.12.101", "linkage": "dynamic"},
+    {"component": "libavif-43e630fc.so.16.4.2", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "BSD-2-Clause", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "16.4.2"},
+    {"component": "libavutil-befbbc48.so.60.26.101", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "LGPL-2.1-or-later", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "60.26.101", "linkage": "dynamic"},
+    {"component": "libcrypto-5409cd36.so.1.1.1k", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "OpenSSL", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "1.1.1k"},
+    {"component": "libdrm-b0291a67.so.2.4.0", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "MIT", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/sboms/auditwheel.cdx.json", "version": "2.4.115"},
+    {"component": "libgfortran-83c28eba.so.5.0.0", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "GPL-3.0-or-later WITH GCC-exception-3.1", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/sboms/auditwheel.cdx.json", "version": "8.5.0", "linkage": "dynamic"},
+    {"component": "libopenblasp-r0-59ffcd50.3.15.so", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "BSD-3-Clause", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/sboms/auditwheel.cdx.json", "version": "0.3.15"},
+    {"component": "libpng16-529cb57a.so.16.58.0", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "libpng-2.0", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "1.6.58"},
+    {"component": "libquadmath-2284e583.so.0.0.0", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "LGPL-2.1-or-later", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/sboms/auditwheel.cdx.json", "version": "8.5.0", "linkage": "dynamic"},
+    {"component": "libssl-81259c47.so.1.1.1k", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "OpenSSL", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "1.1.1k"},
+    {"component": "libswresample-2dfded3b.so.6.3.101", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "LGPL-2.1-or-later", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "6.3.101", "linkage": "dynamic"},
+    {"component": "libswscale-fe215b0b.so.9.5.101", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "LGPL-2.1-or-later", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "9.5.101", "linkage": "dynamic"},
+    {"component": "libvpx-4fb239ff.so.11.0.1", "wheel": "opencv-python-headless", "kind": "library", "licenseExpression": "BSD-3-Clause", "licenseText": "opencv_python_headless-5.0.0.93.dist-info/LICENSE-3RD-PARTY.txt", "version": "11.0.1"},
+    {"component": "libgfortran-83c28eba-468e71e5.so.5.0.0", "wheel": "numpy", "kind": "library", "licenseExpression": "GPL-3.0-or-later WITH GCC-exception-3.1", "licenseText": "numpy-2.5.4.dist-info/licenses/LICENSE.txt", "version": "5.0.0", "linkage": "dynamic"},
+    {"component": "libquadmath-2284e583-a9307bba.so.0.0.0", "wheel": "numpy", "kind": "library", "licenseExpression": "LGPL-2.1-or-later", "licenseText": "numpy-2.5.4.dist-info/licenses/LICENSE.txt", "version": "0.0.0", "linkage": "dynamic"},
+    {"component": "libscipy_openblas64_-f48b354e.so", "wheel": "numpy", "kind": "library", "licenseExpression": "BSD-3-Clause AND BSD-3-Clause-Open-MPI", "licenseText": "numpy-2.5.4.dist-info/licenses/LICENSE.txt", "version": "0.3.34.106.0"}
+  ]
 }
