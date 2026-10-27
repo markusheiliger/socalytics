@@ -23,12 +23,13 @@ registry fixture between the passing and the failing branch, so a recent change 
 suspects are the single-source digest (explains a failure after a complete push) and load with the shared five-minute
 timeout (explains an incomplete push); no recording evidences either, and the fix holds under both.
 
-Still to be established by the implementation (FR-001; T001 runs after the digest fix T007, because the task verification runs the whole Docker-backed project for a README change in it, and that project fails until the fix landed), recorded in the `## Cause` section of the end-to-end project's The task phase that contains T007 ends only after T001 and T007, because the phase verification also runs the whole project; the phases before the fix would fail it.
+Still to be established by the implementation (FR-001; T001 runs after the digest fix T007, because the task verification runs the whole Docker-backed project for a README change in it, and that project fails until the fix landed), recorded in the `## Cause` section of the end-to-end project's
 README (implementation agents may not change files under `specs/`): the Testcontainers build client's own request
 timeout and its value, read from the restored package (the attempt could only read the 4.15.0 source, which shows no
 timeout of its own). A recorded push response of a failing and of a passing push and the timings of builds and pushes
 need a reachable Linux engine; where none is, the README says they are not recorded, and a maintainer adds them here
-with the stability runs. Stability runs (SC-001: five
+with the stability runs. T001 and T007 are in the same task phase (Phase 1), whose phase verification also runs the
+whole Docker-backed project and passes only after the digest fix. Stability runs (SC-001: five
 consecutive full runs, two after an engine restart, one under CPU load) are recorded here by a maintainer and are not
 a task gate.
 
