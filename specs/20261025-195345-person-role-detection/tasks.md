@@ -21,7 +21,7 @@ FR-014, SC-001 to SC-006).
   capability), which stays unchanged together with `reference-media-probe` (FR-021). Do not change the SDK, the platform,
   contracts, the Web UI, seeds, the existing EndToEnd helpers, or `.github/actions/` (FR-001, FR-016, FR-019).
 - The OpenCV, NumPy, and ONNX Runtime CPU wheels come from the dependent environment spec
-  [CV and Inference Verification Environment](../20261023-085421-cv-inference-environment/spec.md). If a locked wheel cannot be
+  [CV and Inference Verification Environment](../archive/20261023-085421-cv-inference-environment/spec.md). If a locked wheel cannot be
   installed by the locked sequence, stop and report that the environment spec must land first (research.md R-08, R-10).
 
 ---

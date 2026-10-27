@@ -6,7 +6,7 @@ Development evidence only. Run every command from the repository root. Contract 
 ## Prerequisites
 
 - Python 3.12, `uv`, and the pinned `ffmpeg` and `ffprobe` on `PATH`; the pinned CPU OpenCV, NumPy, and ONNX Runtime
-  wheels from the [CV and Inference Verification Environment](../20261023-085421-cv-inference-environment/spec.md), which
+  wheels from the [CV and Inference Verification Environment](../archive/20261023-085421-cv-inference-environment/spec.md), which
   must be implemented first.
 - Docker-compatible engine on Linux, for the image and end-to-end checks; .NET 10 SDK and SoftHSM2 for the end-to-end test.
 

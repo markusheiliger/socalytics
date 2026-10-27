@@ -1,6 +1,6 @@
 # Environment Interface Extension: CV and Inference Libraries
 
-This contract extends the [environment interface](../../archive/20261017-163801-analyst-media-environment/contracts/environment-interface.md)
+This contract extends the [environment interface](../../20261017-163801-analyst-media-environment/contracts/environment-interface.md)
 of the Analyst and Media Verification Environment. Everything it does not mention is unchanged, including every input
 and output of both actions.
 

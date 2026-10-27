@@ -1,6 +1,6 @@
 # Tasks: Computer-Vision and Inference Verification Environment
 
-**Input**: Design documents from `/specs/20261023-085421-cv-inference-environment/`
+**Input**: Design documents from `/specs/archive/20261023-085421-cv-inference-environment/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/environment-interface.md](contracts/environment-interface.md), [quickstart.md](quickstart.md)

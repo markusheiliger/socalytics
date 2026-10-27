@@ -258,22 +258,22 @@ silently pass.
 
 ### Dependencies
 
-- [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) (#143) is
+- [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) (#143) is
   implemented and provides the pinned CPython, uv, FFmpeg and ffprobe, the locked Analyst project check, and the
   extension points this feature extends.
-- [Reference Analyst](../archive/20261018-095952-reference-analyst/spec.md) (#170) is implemented and provides the first
+- [Reference Analyst](../20261018-095952-reference-analyst/spec.md) (#170) is implemented and provides the first
   project under `src/analysts/capabilities/`, whose verification this feature must preserve.
-- [Shot-Boundary Media Context Analyst](../archive/20261023-022148-shot-boundary-analyst/spec.md) (#243) and every later
+- [Shot-Boundary Media Context Analyst](../20261023-022148-shot-boundary-analyst/spec.md) (#243) and every later
   learned-detector capability depend on this feature when OpenCV is not otherwise available.
 
 ### Architecture Alignment
 
-- [Analyst Technology](../../docs/architecture/platform-implementation.md#analyst-technology) and
-  [Analytics](../../docs/architecture/tenancy-and-technology.md#analytics) name the locked Python projects and the
+- [Analyst Technology](../../../docs/architecture/platform-implementation.md#analyst-technology) and
+  [Analytics](../../../docs/architecture/tenancy-and-technology.md#analytics) name the locked Python projects and the
   OpenCV, NumPy, and ONNX Runtime CPU/CUDA stack; this feature provisions only the CPU parts.
-- [Low-Level Capabilities](../../docs/architecture/analyst-capability-catalog.md#low-level-capabilities) names CPU
+- [Low-Level Capabilities](../../../docs/architecture/analyst-capability-catalog.md#low-level-capabilities) names CPU
   baselines on OpenCV and ONNX Runtime for the media-context and detection capabilities.
-- [Model Governance](../../docs/architecture/analysts-models-and-hardware.md#model-governance) requires a recorded
+- [Model Governance](../../../docs/architecture/analysts-models-and-hardware.md#model-governance) requires a recorded
   licence and provenance audit of every named framework and transitive dependency; the licence and bill-of-materials
   check implements that for the added wheels. Exact versions stay provisional until the capability evidence exists.
 

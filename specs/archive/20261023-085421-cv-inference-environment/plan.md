@@ -3,7 +3,7 @@
 **Branch**: `20261023-085421-cv-inference-environment` | **Date**: 2026-10-23 |
 **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261023-085421-cv-inference-environment/spec.md`
+**Input**: Feature specification from `/specs/archive/20261023-085421-cv-inference-environment/spec.md`
 
 ## Summary
 
@@ -72,7 +72,7 @@ adds no file outside the two folders.
 ### Documentation (this feature)
 
 ```text
-specs/20261023-085421-cv-inference-environment/
+specs/archive/20261023-085421-cv-inference-environment/
 ├── plan.md
 ├── research.md
 ├── data-model.md
@@ -112,9 +112,9 @@ adds only existing project roots to `COVERED`.
 
 None as a design change. The feature implements what the architecture already names (the OpenCV, NumPy, and ONNX
 Runtime CPU stack in
-[Analyst Technology](../../docs/architecture/platform-implementation.md#analyst-technology) and the licence and
+[Analyst Technology](../../../docs/architecture/platform-implementation.md#analyst-technology) and the licence and
 provenance audit in
-[Model Governance](../../docs/architecture/analysts-models-and-hardware.md#model-governance)) and applies no design
+[Model Governance](../../../docs/architecture/analysts-models-and-hardware.md#model-governance)) and applies no design
 update. FR-001 forbids documentation changes outside the two action folders, whose READMEs carry the behavior, so the
 documentation task is limited to those READMEs. No statement anywhere in `docs/architecture/` claims that this
 verification environment is planned or missing; the statements that name the libraries describe Analyst product

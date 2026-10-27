@@ -32,4 +32,4 @@
 
 ## Implementation Strategy
 
-- MVP is the whole feature: T001 is one increment. After merge, the stopped implementation pull request #318 of `specs/20261023-085421-cv-inference-environment` can pass its phase and finalize verification (SC-003).
+- MVP is the whole feature: T001 is one increment. After merge, the stopped implementation pull request #318 of `specs/archive/20261023-085421-cv-inference-environment` can pass its phase and finalize verification (SC-003).

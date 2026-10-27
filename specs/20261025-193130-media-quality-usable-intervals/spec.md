@@ -341,7 +341,7 @@ inspect the labels against the manifest.
 - Depends on the implemented specs Shot-Boundary Media Context Analyst (Baseline), Capability Fact Payload Schemas,
   Python Analyst SDK, Materialized Video Segments and Analyst Input Staging, and Analyst and Media Verification
   Environment.
-- Depends on [Computer-Vision and Inference Verification Environment](../20261023-085421-cv-inference-environment/spec.md)
+- Depends on [Computer-Vision and Inference Verification Environment](../archive/20261023-085421-cv-inference-environment/spec.md)
   (twin 256), so that the verification of the locked image-processing and numeric libraries runs on the automation; the
   implementation starts only after it has merged.
 - May use the [Analyst Evaluation Harness](../archive/20261023-082736-analyst-evaluation-harness/spec.md) (twin 255) once

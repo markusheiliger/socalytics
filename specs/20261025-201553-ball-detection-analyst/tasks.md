@@ -22,7 +22,7 @@ FR-015, SC-001 to SC-006).
   contracts, the Web UI, seeds, the existing EndToEnd helpers, or `.github/actions/` (FR-001, FR-017, FR-020). Share no
   code, file, or image layer with `person-role-detection` (FR-022).
 - The OpenCV, NumPy, and ONNX Runtime CPU wheels come from the dependent environment spec
-  [CV and Inference Verification Environment](../20261023-085421-cv-inference-environment/spec.md). If a locked wheel cannot be
+  [CV and Inference Verification Environment](../archive/20261023-085421-cv-inference-environment/spec.md). If a locked wheel cannot be
   installed by the locked sequence, stop and report that the environment spec must land first (research.md R-09, R-10).
 
 ---
