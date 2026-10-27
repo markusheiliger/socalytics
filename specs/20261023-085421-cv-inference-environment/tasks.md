@@ -161,3 +161,9 @@ in task, phase, and finalize modes.
   and coverage evidence), then documentation and validation.
 - A change to any pin, allow-list, or table entry later is a standalone environment change; never edit applied
   declarations in a task that is not an environment spec.
+
+---
+
+## Phase 7: Convergence
+
+- [ ] T023 In `.github/actions/environment-verify/analyst-library-pins.py` stop treating a pinned package that is absent from the project's `uv.lock` as a finding: once the closure is activated by a `role: library` wheel, check every pinned package the lock contains (version, platform tag, digest, source distribution) and keep `missing-wheel` only for a pinned package at the pinned version whose lock entry lists neither a wheel nor a source distribution; in `.github/actions/environment-verify/analyst-projects.test.mjs` replace the case `reports a pinned wheel that is missing from the lock` with a case where a fixture lock that has the pinned `opencv-python-headless`, `numpy`, and `packaging` but no `onnxruntime`, `flatbuffers`, or `protobuf` passes, keep the case where an `opencv-python-headless` lock with a different `protobuf` fails, and update the `missing-wheel` row of `.github/actions/environment-verify/README.md`, because the current check fails the existing `src/analysts/capabilities/media-context-classification/uv.lock` (`onnxruntime: missing-wheel: locked none`), which FR-001 forbids changing, per FR-007 and FR-008 (contradicts)
