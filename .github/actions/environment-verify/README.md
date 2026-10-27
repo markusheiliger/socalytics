@@ -69,6 +69,8 @@ The Web UI browser tests run as `npm run test:e2e -- --retries=1`, so Playwright
 
 The `flaky` output lists the recorded tests once each, comma-separated (a comma inside a name becomes a semicolon), and the log and the step summary list them too. The Spec Kit workflows show them in their verification comments and track tests that are flaky in several implementations.
 
+After each .NET test project, the log lists its ten slowest tests from its TRX logs (`Slowest tests of <project>:`), and the step summary collects them in collapsed sections after the command timings, so phase and finalize runs show where the test time goes.
+
 ## Analyst Python projects
 
 No Analyst SDK or capability exists yet, so the check selects nothing and adds no coverage. The action creates no project, lock file, or declaration. It only verifies projects that later specs add, and this page advertises no product command for them.

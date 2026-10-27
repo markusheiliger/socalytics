@@ -276,6 +276,41 @@ describe('verification of a new component', () => {
     assert.deepEqual(result.calls, []);
   });
 
+  it('logs the slowest tests of each .NET test project and lists them after the timings', () => {
+    const root = repository();
+    touch(root, 'src/tools/reporter/Reporter.slnx');
+    touch(root, 'src/tools/reporter/Tests/Reporter.Tests/Reporter.Tests.csproj');
+    const dir = path.join(temporary, `slow-${counter++}`);
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    const trx = '<TestRun><Results>'
+      + '<UnitTestResult testName="Ns.Fast" duration="00:00:00.5000000" outcome="Passed" />'
+      + '<UnitTestResult testName="Ns.Slow(&quot;x&quot;)" duration="00:01:02.2500000" outcome="Passed" />'
+      + '<UnitTestResult testName="Ns.Middle" duration="00:00:07.0000000" outcome="Passed" />'
+      + '</Results></TestRun>';
+    writeFileSync(path.join(bin, 'dotnet'), `#!/bin/bash
+args=("$@"); for ((i = 0; i < \${#args[@]}; i++)); do [ "\${args[$i]}" = --results-directory ] && dir="\${args[$((i + 1))]}"; done
+if [ "$1" = test ]; then mkdir -p "$dir"; printf '%s' '${trx}' > "$dir/r.trx"; fi
+exit 0
+`, { mode: 0o755 });
+    const files = { changed: path.join(dir, 'changed.txt'), log: path.join(dir, 'log.txt'), output: path.join(dir, 'output.txt'), summary: path.join(dir, 'summary.md') };
+    writeFileSync(files.changed, 'src/tools/reporter/a.cs');
+    writeFileSync(files.output, '');
+    const result = spawnSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME, WORKSPACE: root, MODE: 'phase', CHANGED_FILES: files.changed,
+        LOG_FILE: files.log, MARKDOWN_CHECK: path.join(dir, 'none.mjs'), ANALYST_PROJECTS: path.join(here, 'analyst-projects.py'),
+        VERIFICATION_PLAN: path.join(here, 'verification-plan.mjs'), GITHUB_STEP_SUMMARY: files.summary, GITHUB_OUTPUT: files.output,
+      },
+    });
+    assert.equal(result.status, 0, readFileSync(files.log, 'utf8'));
+    assert.match(readFileSync(files.log, 'utf8'), /Slowest tests of Tests\/Reporter\.Tests\/Reporter\.Tests\.csproj:\n {2}62\.3 s Ns\.Slow\("x"\)\n {2}7\.0 s Ns\.Middle\n {2}0\.5 s Ns\.Fast\n/);
+    const summary = readFileSync(files.summary, 'utf8');
+    assert.ok(summary.indexOf('### Slowest tests') > summary.lastIndexOf('| `dotnet test'), summary);
+    assert.match(summary, /<details><summary>Slowest tests of Tests\/Reporter\.Tests\/Reporter\.Tests\.csproj<\/summary>\n\n- 62\.3 s Ns\.Slow\("x"\)/);
+  });
+
   it('holds a changed declaration for review while testing the component in full', () => {
     const root = repository();
     touch(root, 'src/tools/reporter/Reporter.slnx');

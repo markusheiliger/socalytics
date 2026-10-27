@@ -93,6 +93,8 @@ runs:
         RESULTS_ROOT="$(mktemp -d)"
         FLAKY_FILE="$RESULTS_ROOT/flaky.txt"
         : > "$FLAKY_FILE"
+        SLOWEST_SUMMARY="$RESULTS_ROOT/slowest.md"
+        : > "$SLOWEST_SUMMARY"
         results_count=0
         # A test project with more failed tests than this is not rerun: so many failures are not flaky.
         RERUN_LIMIT=10
@@ -202,15 +204,50 @@ runs:
             for (const name of names) console.log(name);
           ' "$1" 2>/dev/null
         }
+        # trx_slowest <project> <results directory>: logs the ten slowest tests of the project's TRX logs and adds them to
+        # the step summary, so phase and finalize runs show where test time goes.
+        trx_slowest() {
+          local lines
+          lines="$(node -e '
+            const fs = require("fs"), path = require("path");
+            const files = [];
+            const walk = (dir) => { for (const entry of fs.readdirSync(dir, { withFileTypes: true })) { const file = path.join(dir, entry.name); if (entry.isDirectory()) walk(file); else if (file.endsWith(".trx")) files.push(file); } };
+            if (fs.existsSync(process.argv[1])) walk(process.argv[1]);
+            const seconds = (value) => { const m = /^(\d+):(\d+):(\d+(?:\.\d+)?)$/.exec(value || ""); return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0; };
+            const results = [];
+            for (const file of files) {
+              for (const m of fs.readFileSync(file, "utf8").matchAll(/<UnitTestResult\b([^>]*?)\/?>/g)) {
+                const name = /testName="([^"]*)"/.exec(m[1])?.[1] ?? "?";
+                results.push([seconds(/duration="([^"]*)"/.exec(m[1])?.[1]), name.replace(/&quot;/g, "\"").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")]);
+              }
+            }
+            results.sort((a, b) => b[0] - a[0]);
+            for (const [time, name] of results.slice(0, 10)) console.log(`${time.toFixed(1)} s ${name}`);
+          ' "$2" 2>/dev/null)"
+          [ -n "$lines" ] || return 0
+          echo "Slowest tests of $1:" | tee -a "$LOG_FILE"
+          sed 's/^/  /' <<< "$lines" | tee -a "$LOG_FILE"
+          {
+            echo
+            echo "<details><summary>Slowest tests of $1</summary>"
+            echo
+            sed 's/^/- /' <<< "$lines"
+            echo
+            echo "</details>"
+          } >> "$SLOWEST_SUMMARY"
+        }
         # dotnet_test <project> [arguments]: runs one test project with a TRX log. When it fails with at most RERUN_LIMIT
         # failed tests whose names the log gives, only those tests run once more; when they pass then, the project
         # passes and they are recorded as flaky. Otherwise the project fails.
         dotnet_test() {
-          local project="$1" results failed count filter
+          local project="$1" results failed count filter first
           shift
           results_count=$((results_count + 1))
           results="$RESULTS_ROOT/$results_count"
-          step dotnet test "$project" --no-build "$@" --logger trx --results-directory "$results" && return 0
+          step dotnet test "$project" --no-build "$@" --logger trx --results-directory "$results"
+          first=$?
+          trx_slowest "$project" "$results"
+          [ "$first" -eq 0 ] && return 0
           failed="$(trx_failed "$results")"
           count="$(grep -c . <<< "$failed")"
           if [ "$count" -eq 0 ]; then
@@ -528,6 +565,9 @@ runs:
             echo "### Flaky tests (passed on rerun)"
             grep -v '^$' "$FLAKY_FILE" | tr ',' ';' | awk '!seen[$0]++' | sed 's/^/- `/; s/$/`/'
           } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [ -s "$SLOWEST_SUMMARY" ]; then
+          { echo; echo "### Slowest tests"; cat "$SLOWEST_SUMMARY"; } >> "$GITHUB_STEP_SUMMARY"
         fi
         rm -rf "$RESULTS_ROOT"
         (IFS=,; echo "checks=${checks[*]}") >> "$GITHUB_OUTPUT"
