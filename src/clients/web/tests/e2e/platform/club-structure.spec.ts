@@ -25,12 +25,23 @@ const test = base.extend<{ secrets: string[] }>({
 // ran 5 times: 5 passed, 0 failed, and this test passed each time, without a retry.
 // Follow-up (FR-001, SC-003): the failure was still not reproduced. The baseline (`npm ci`, build, unit tests) passed and
 // a whole `--project platform` run passed with this test green. The recorded failures of the implementation pull
-// requests #235, #284, and #314 could not be read (the GitHub CLI was not permitted in the implementing environment, so no
-// logs or traces were available), so no candidate of the spec's research is supported or rejected by recorded evidence.
-// The test and its support are therefore unchanged: no evidenced cause exists to fix, and the earlier hardening above
-// remains the only protection. Candidates still open and untested: the second team creation racing the first one's
-// refetch (the first `The team was created.` alert can satisfy the second iteration's assertion), a pre-rename team list
-// GET satisfying `waitForResponse`, and a service worker `controllerchange` reload mid-test.
+// requests #235, #284, and #314 could not be read (`gh` has no `GH_TOKEN` in the implementing environment, so no logs or
+// traces were available), so no candidate is supported by recorded evidence.
+// Completed reproduction (convergence): with one AppHost kept running, the dependency projects once and then
+// `--no-deps --repeat-each 20 --trace on` passed 20 of 20, 0 failed. Under one CPU-burning process per core (4), 5 runs
+// of the project on a fresh platform passed, 0 failed. In a scratch copy (removed) with unchanged assertions, a 2.5 s
+// delay on `POST .../teams`, a 3 s delay on every team list GET until the save was shown, and a 2.5 s delay on the seasons
+// list GET each passed (the scratch test executed in every run). Five `--project platform` runs passed with this test
+// green (two further runs failed with `ERR_CONNECTION_REFUSED` in the first specs because the previous AppHost was still
+// shutting down; this test did not run in them and they were repeated). Probes again: team list not refreshed, season not
+// activated, and save not persisting each failed the unchanged assertions in 5 to 16 s without hanging (3 of 3). A forced
+// mid-test failure in a scratch copy left 0 active seasons after cleanup. `npm run build` and `npm test` passed.
+// Verdicts: (1) second creation racing the first refetch: rejected, 2.5 s delayed POST passed; (2) pre-rename list GET
+// matched by `waitForResponse`: rejected, 3 s delayed earlier list GET passed; (3) service worker `controllerchange`
+// reload: rejected, the trace shows only the initial navigation; (4) seasons list refetch and `selectOption`: rejected,
+// 2.5 s delayed seasons GET passed; (5) shared state and platform behavior: not reproduced in 20 + 5 + 5 runs, recorded
+// logs untestable (#235, #284, and #314 unreadable); (6) runner load and readiness: not reproduced under CPU load.
+// Cause: not reproduced, so the test and its support are unchanged and the earlier hardening above is the only protection.
 // Archives the club's active seasons through the API so the single active season is free for this test and the next
 // spec, even when a test fails.
 test.beforeEach(async () => {
