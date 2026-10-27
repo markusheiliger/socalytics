@@ -28,7 +28,8 @@ README (implementation agents may not change files under `specs/`): the Testcont
 timeout and its value, read from the restored package (the attempt could only read the 4.15.0 source, which shows no
 timeout of its own). A recorded push response of a failing and of a passing push and the timings of builds and pushes
 need a reachable Linux engine; where none is, the README says they are not recorded, and a maintainer adds them here
-with the stability runs. Stability runs (SC-001: five
+with the stability runs. T001 and T007 are in the same task phase (Phase 1), whose phase verification also runs the
+whole Docker-backed project and passes only after the digest fix. Stability runs (SC-001: five
 consecutive full runs, two after an engine restart, one under CPU load) are recorded here by a maintainer and are not
 a task gate.
 

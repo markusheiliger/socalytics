@@ -13,33 +13,23 @@
 - **[P]**: Can run in parallel (different files, no dependencies)
 - **[Story]**: Which user story this task belongs to (US1 to US4)
 
-## Phase 1: Setup (Shared Infrastructure)
+## Phase 1: Setup, Foundation, and User Story 1 - A completed push is recognized however the engine reports it (Priority: P1) 🎯 MVP
 
-**Purpose**: Prepare the engine client for the seam the unit tests need. The cause evidence (FR-001, T001) follows the digest fix in Phase 3, because a README change makes the task verification run the whole Docker-backed project, which fails until the fix landed.
+**Purpose**: Prepare the engine client and the named limits, then fix the digest determination. This is one phase because the phase verification runs the whole Docker-backed end-to-end project, whose push-based tests fail with `The push did not report a manifest digest` until the digest fix (T007) landed; a phase that ends before T007 can never pass it. The cause evidence (FR-001, T001) follows the fix for the same reason.
+
+**Goal**: The manifest digest of a completed push is taken from the progress record, the final status line, the local registry, or the engine's image record, in that order, and the push fails with the full response only when no source yields one.
+
+**Independent Test**: `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ImagePush"` passes without Docker for each recorded response shape.
 
 ### Engine client move
 
 - [x] T002 [P] Move `DockerEngine` out of `Support/TestAnalystImage.cs` into the new `Support/DockerEngine.cs` unchanged in behavior, and give it a constructor seam that accepts an `HttpMessageHandler` and a registry base address (defaults keep today's engine socket and registry use) so lookups can run against a fake endpoint
 
----
+### Foundation (blocking prerequisites)
 
-## Phase 2: Foundational (Blocking Prerequisites)
-
-**Purpose**: The named limits that the digest lookups and the engine calls both read.
-
-**⚠️ CRITICAL**: No user story work can begin until this phase is complete
+**⚠️ CRITICAL**: No later user story work can begin until this foundation is complete
 
 - [ ] T003 Create `Support/EngineCallPolicy.cs` with the named values of [data-model.md](data-model.md) in one place: `PushLimit` 15 minutes, `BuildLimit` 20 minutes, `RegistryLookupLimit` 30 seconds, `MaxAttempts` 3 (including the first), `RetryDelay` 2 seconds, each with a documenting comment of its meaning (execution logic follows in T009)
-
-**Checkpoint**: Foundation ready; user story work can begin.
-
----
-
-## Phase 3: User Story 1 - A completed push is recognized however the engine reports it (Priority: P1) 🎯 MVP
-
-**Goal**: The manifest digest of a completed push is taken from the progress record, the final status line, the local registry, or the engine's image record, in that order, and the push fails with the full response only when no source yields one.
-
-**Independent Test**: `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --filter "FullyQualifiedName~ImagePush"` passes without Docker for each recorded response shape.
 
 ### Tests for User Story 1
 
@@ -55,11 +45,11 @@
 
 - [ ] T001 [US1] After T007 (the task verification runs the whole end-to-end project for a non-`.cs` file, and its Docker-backed push tests fail until the digest fix lands), create `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/README.md` (the project's first documentation artifact) with a `## Cause` section that establishes the cause with evidence: read `git log` over `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests`, `src/analysts/`, `src/platform/Tests/SocAlytics.Platform.Integration.Tests` (registry fixture), and `.github/actions/environment-*` between the passing and the failing branch; record the push response shapes of the engine in the environment only where a Linux engine is reachable (a recorded body of a push, the status line, whether the `aux` record appears) and otherwise state that they are not recorded; record which timeout the Testcontainers build client applies (its own request timeout, separate from the `HttpClient` of `DockerEngine`) and its value, read from the restored package; name which suspected cause (digest from one source only, load and the shared five-minute timeout, a recent change on main, or another) is evidenced, and that the fix holds under either. Do not edit `research.md`: its `## Evidence` section already holds the code-level findings and the git-history result, and this task's agents may not change files under `specs/`
 
-**Checkpoint**: User Story 1 is functional and testable without Docker.
+**Checkpoint**: Phase 1 ends with User Story 1 functional and testable without Docker, and the Docker-backed push tests passing again.
 
 ---
 
-## Phase 4: User Story 2 - Pushes and builds are bounded, cancellable, and retried only for transient failures (Priority: P2)
+## Phase 2: User Story 2 - Pushes and builds are bounded, cancellable, and retried only for transient failures (Priority: P2)
 
 **Goal**: A push or build ends at its named limit or the test's cancellation, and only transient failures are retried, at most `MaxAttempts` times, with every reason reported.
 
@@ -84,7 +74,7 @@
 
 ---
 
-## Phase 5: User Story 3 - Repeated large pushes are avoided and builds and pushes stay bounded (Priority: P3)
+## Phase 3: User Story 3 - Repeated large pushes are avoided and builds and pushes stay bounded (Priority: P3)
 
 **Goal**: One process-wide gate bounds concurrent builds and pushes, and one image variant is built and pushed once per test class.
 
@@ -121,7 +111,7 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 
 ---
 
-## Phase 6: User Story 4 - The cause and the fix are recorded and no test is weakened (Priority: P3)
+## Phase 4: User Story 4 - The cause and the fix are recorded and no test is weakened (Priority: P3)
 
 **Goal**: The documentation names the evidenced cause, the digest sources in order, the limits, the retry rule, the bound, the reuse rule, and the run commands, and no Docker-backed test was weakened.
 
@@ -141,7 +131,7 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 
 ---
 
-## Phase 7: Polish & Cross-Cutting Concerns
+## Phase 5: Polish & Cross-Cutting Concerns
 
 - [ ] T031 Run `node .github/scripts/check-markdown.mjs --files src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/README.md src/platform/README.md specs/20261027-082549-reliable-e2e-image-push/research.md` and fix every finding
 - [ ] T032 Run `dotnet restore src/platform/SocAlytics.Platform.slnx`, `dotnet build src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --no-restore`, and `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --no-build --filter "FullyQualifiedName~ImagePush"` and fix every failure (quickstart step 1)
@@ -151,8 +141,8 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 
 ## Dependencies & Execution Order
 
-- **Phase 1** (T002) has no dependencies. T001 runs after T007 (a README change in the end-to-end project makes the task verification run all of its Docker-backed tests, which fail until the digest fix landed) and must finish before T011 to T013 and T028.
-- **Phase 2** (T003) is needed by every story; T007 and T010 use its values.
+- **Phase 1** (T002, T003, US1 T004 to T007, then T001) has no dependencies outside itself and is one phase so that the phase verification, which runs the whole Docker-backed end-to-end project, only runs after the digest fix. T001 runs after T007 (a README change in the end-to-end project makes the task verification run all of its Docker-backed tests, which fail until the digest fix landed) and must finish before T011 to T013 and T028.
+- **Foundation** (T003) is needed by every story; T007 and T010 use its values.
 - **US1** (T004 to T007): tests T004 and T005 first (T005 needs T002); T006 before T007; T007 needs T002 and T003; T001 needs T007.
 - **US2** (T008 to T013) depends on US1 because T010 edits `Support/DockerEngine.cs` after T007; T009 before T010 to T013; T011 to T013 touch different files and are parallel.
 - **US3** (T014 to T026) depends on US2 (the helpers are edited again): T016 before T017; T017 before T018 to T020; T018 to T020 before T021 to T026.
@@ -162,13 +152,13 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 ## Parallel Example
 
 ```text
-Phase 3, after T007: T001 alone.
+Phase 1, after T007: T001 alone.
 US1 tests: T004 and T005 together.
 US3 call sites: T021 to T026 together (six different files).
 ```
 
 ## Implementation Strategy
 
-- **MVP first**: Phases 1 to 3 (US1) fix the failure that stops #335: a completed push is recognized however the engine reports it. Validate with the `ImagePush` unit tests.
+- **MVP first**: Phase 1 (setup, foundation, and US1) fixes the failure that stops #335: a completed push is recognized however the engine reports it. Validate with the `ImagePush` unit tests.
 - **Incremental delivery**: add US2 (limits, cancellation, bounded transient retries), then US3 (gate and per-class reuse), then US4 (documentation and the no-weakening comparison), then the Polish verification.
 - **Stop rule**: do not weaken or skip a test, and do not change product code, Dockerfiles, images, contracts, or workflows (FR-010, FR-013).
