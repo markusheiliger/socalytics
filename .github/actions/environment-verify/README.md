@@ -2,7 +2,23 @@
 
 `environment-verify` is the optional composite action the Spec Kit workflows run to verify a change. This page describes only what the action executes today. It is build-environment behavior, not product documentation, and it neither approves a product nor shows production readiness.
 
-The action keeps its inputs (`workspace`, `mode`, `changed-files`, `log-file`) and outputs (`checks`, `uncovered`, `flaky`). It runs in a read-only job without token environment variables, because the checks execute agent-written code. Its header in [`action.yml`](action.yml) is the authoritative description of the platform, Analyst Manager, Web UI, Analyst Python, and Agent Python checks; this page adds the environment action tests, the rerun of failed tests, and the shared coverage rules.
+The action keeps its inputs (`workspace`, `mode`, `changed-files`, `log-file`) and outputs (`checks`, `uncovered`, `flaky`). It runs in a read-only job without token environment variables, because the checks execute agent-written code. Its header in [`action.yml`](action.yml) is the authoritative description of the platform, Analyst Manager, Web UI, Analyst Python, and Agent Python checks; this page adds documentation-only changes, the environment action tests, the rerun of failed tests, and the shared coverage rules.
+
+## Documentation-only changes
+
+Before any check, [`verification-scope.mjs`](verification-scope.mjs) decides whether the change is documentation-only. When it is, every mode (task, phase, and finalize) runs only the Markdown check: task mode checks the changed Markdown files, phase and finalize mode the whole repository. No restore, build, test, Web UI step, Python project stage, or environment action test runs. Python project discovery still runs, so an invalid existing project still fails its check. The log and the step summary state the decision and its reason (`Verification scope: documentation-only: …` or `Verification scope: full: …`).
+
+A change is documentation-only when every changed path ends in `.md` and none of those files may be read by a build, a package, or a test. A Markdown file counts as read when a file under `src/` or `contracts/`, or a file at the repository root, that is not itself Markdown:
+
+- is a project file (`.csproj`, `.fsproj`, `.vbproj`, `.props`, `.targets`) with an `Include` or `Update` item that matches it, for example `contracts\**\*` copied into a test project's output;
+- is a `pyproject.toml` with a quoted path or glob that names it or a folder containing it (`readme`, `packages`, `include`, a local path dependency);
+- names its repository path when that path has a folder, also behind `../`, for example `"docs/guide.md"`;
+- names its file name when no other Markdown file in the repository has that name, for example `RepositoryFile("docs", "architecture", "intelligence-agent-catalog.md")`;
+- names its file name and lies in the same folder, for example a `readme = "README.md"`.
+
+Files under `specs/`, `.specify/`, and `.github/`, and generated or installed folders (`node_modules`, `bin`, `obj`, `.venv`, `dist`, `build`, and similar), never count, because they neither build nor test the product. Comments count like code, so a mention can only keep the full verification, never skip it.
+
+Anything uncertain keeps the full verification: no change list, an unreadable or empty change list, any path that is not Markdown (images, JSON, or `README.MD` included), or a Markdown file the rules find a reader for. A deleted Markdown file is judged by the references that remain. A test that reads a Markdown file by a file name shared with other Markdown files, from another folder and without its path, is not detected; name the path in such a test, or include the file through its project file.
 
 ## Rerun of failed tests
 

@@ -4,7 +4,9 @@ description: >-
   agent implemented a task (mode task: only the checks the changed files call for, each building its solution but
   running only the always-run test projects and the tests the task touched; mode phase, after the last task of a phase:
   those checks with all their tests), after a conflict resolution, and before merging (mode finalize: every check
-  with all tests); the workflows skip it when this file does not exist. It runs in a job
+  with all tests); the workflows skip it when this file does not exist. A documentation-only change (every changed
+  path is Markdown that no build, package, or test reads, as verification-scope.mjs decides) runs only the Markdown
+  check and project discovery in every mode; an absent or empty change list never counts as documentation-only. It runs in a job
   with a read-only token and no token environment variables, because the checks execute agent-written code. The step
   fails when a check fails. Checks, in order: "platform build and tests" covers src/platform/ and the repository-root
   contracts/ folder and is active only while src/platform/SocAlytics.Platform.slnx exists; "Analyst Manager build and
@@ -82,7 +84,8 @@ runs:
         LOG_FILE: ${{ inputs.log-file }}
         MARKDOWN_CHECK: ${{ github.action_path }}/../../scripts/check-markdown.mjs
         ANALYST_PROJECTS: ${{ github.action_path }}/analyst-projects.py
-        ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs
+        VERIFICATION_SCOPE: ${{ github.action_path }}/verification-scope.mjs
+        ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/verification-scope.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs
       run: |
         # GitHub runs `shell: bash` with `-e`; this script handles failures itself (status) and must always write its
         # outputs, so a non-matching grep (for example when every changed file is covered) must not end it early.
@@ -128,6 +131,17 @@ runs:
         changed=""
         [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ] && changed="$(cat "$CHANGED_FILES")"
 
+        # Documentation-only changes (only Markdown that no build, package, or test reads) skip every product build and
+        # test in every mode; the Markdown check and project discovery still run. Anything uncertain keeps the full scope.
+        DOCS_ONLY=0
+        if [ -n "${VERIFICATION_SCOPE:-}" ]; then
+          scope_reason="$(node "$VERIFICATION_SCOPE" --root "$WORKSPACE" --changed-files "$CHANGED_FILES" 2>&1)" && DOCS_ONLY=1
+        else
+          scope_reason="full: the scope classifier is not configured"
+        fi
+        echo "Verification scope: $scope_reason" | tee -a "$LOG_FILE"
+        printf '### Verification scope\n\n%s\n\n' "$scope_reason" >> "$GITHUB_STEP_SUMMARY"
+
         # Recognized Analyst Python projects (the SDK and capabilities): the helper validates every existing project and
         # selects those the mode and the changed paths call for, in dependency order. The roots of existing projects
         # become covered source scopes; a deleted or unrecognized project stays uncovered.
@@ -161,9 +175,16 @@ runs:
             [ -n "$agent_root" ] && COVERED+=("^$(sed 's/[][(){}.^$?+*|\\]/\\&/g' <<< "$agent_root")/")
           done < <(sed -n 's/^C //p' <<< "$agent_lines")
         fi
+        # A documentation-only change runs no Python project stage; a failed discovery still fails its check below.
+        if [ "$DOCS_ONLY" -eq 1 ]; then
+          analyst_selected=""
+          agent_selected=""
+        fi
 
-        # applies <regex>: true in finalize mode or when a changed path matches.
+        # applies <regex>: true in finalize mode or when a changed path matches; only the Markdown check applies to a
+        # documentation-only change.
         applies() {
+          if [ "$DOCS_ONLY" -eq 1 ] && [ "$1" != '\.md$' ]; then return 1; fi
           [ "$MODE" = finalize ] || { [ -n "$changed" ] && grep -qE "$1" <<< "$changed"; }
         }
         tests_label() { [ "$MODE" = task ] && echo "affected tests" || echo tests; }
