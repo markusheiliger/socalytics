@@ -456,7 +456,10 @@ public sealed partial class MemberInvitationSafetyTests(PostgresContainerFixture
 
 		await using var h = await StartAsync(ct);
 		var teamId = await CreateTeamAsync(h, ct);
-		var a = await InviteAsync(h, teamId, "audit-a", null, ct);
+		// Generated addresses all mask to the same value, so the legitimate link the host's background delivery worker
+		// may issue to audit-c was counted with the first invitee's; this address masks differently (a***@i***.test).
+		// The probe of the cause was not run; the cause is the one analysed in the spec's research R1.
+		var a = await InviteAsync(h, teamId, "audit-a", $"audit-a-{Guid.NewGuid():N}@invitee.test", ct);
 		EmailAddress.TryCreate(a.Address, out var addressA, out _).ShouldBeTrue();
 
 		var firstMessage = (await MessagesAsync(h, a.Address, 1, ct))[0];
