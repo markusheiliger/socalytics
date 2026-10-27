@@ -299,3 +299,135 @@ describe('cv-libraries test helpers', () => {
     assert.match(readFileSync(log, 'utf8'), /^uv venv /m);
   });
 });
+
+const declaredUrls = (wheels) => new Set(wheels.map((wheel) => wheel.url));
+
+// A failing installer must not fall back to an unpinned, unhashed, or source-built install.
+function assertNoFallback(result, wheels) {
+  for (const call of result.calls.filter((line) => line.startsWith('curl '))) {
+    const urls = call.split(/\s+/).filter((word) => /^https?:/.test(word));
+    assert.ok(urls.length > 0 && urls.every((url) => declaredUrls(wheels).has(url)), `undeclared download: ${call}`);
+  }
+  const installs = result.calls.filter((line) => /^uv pip install/.test(line));
+  assert.deepEqual(installs, [], 'no install after a failed check');
+  assert.deepEqual(result.calls.filter((line) => /pip download|setup\.py|--no-binary|--index-url|--extra-index-url|git clone/.test(line)), []);
+}
+
+function assertRecommendedActionLast(result) {
+  const lines = result.stderr.split('\n').filter(Boolean);
+  const failure = lines.findIndex((line) => line.startsWith('ERROR: Analyst CV libraries:'));
+  assert.ok(failure >= 0, result.stderr);
+  assert.match(lines[failure + 1] ?? '', /^Recommended action: \S/);
+  assert.equal(result.status, 1);
+}
+
+describe('install-analyst-cv.sh verification stages', () => {
+  it('verifies the pinned wheels and prints the success line prefix', () => {
+    const { directory, wheelsDirectory, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^Verified Analyst CV libraries:/m);
+    assert.equal(result.stderr, '');
+  });
+
+  it('downloads every declared wheel from its declared URL before installing', () => {
+    const { directory, wheelsDirectory, wheels, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assert.equal(result.status, 0, result.stderr);
+    const downloads = result.calls.filter((line) => line.startsWith('curl '));
+    for (const wheel of wheels) {
+      assert.equal(downloads.filter((line) => line.includes(wheel.url)).length, 1, wheel.url);
+    }
+    const lastDownload = result.calls.map((line, index) => (line.startsWith('curl ') ? index : -1)).reduce((a, b) => Math.max(a, b));
+    const firstInstall = result.calls.findIndex((line) => /^uv pip install/.test(line));
+    assert.ok(firstInstall > lastDownload, 'installation follows download and verification of all wheels');
+    const smoke = result.calls.findIndex((line) => line.startsWith('smoke '));
+    assert.ok(smoke > firstInstall, 'the smoke check follows installation');
+  });
+
+  it('adds nothing to GITHUB_PATH or GITHUB_ENV', () => {
+    const { directory, wheelsDirectory, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.githubPath, '');
+    assert.equal(result.githubEnv, '');
+  });
+
+  it('fails in the declaration stage when the declaration is missing', () => {
+    const { directory, wheelsDirectory } = fixture();
+    const result = runInstaller(directory, { wheelsDirectory });
+    assertCvFailure(result, '\\S+', 'declaration');
+    assertRecommendedActionLast(result);
+    assert.deepEqual(result.calls.filter((line) => /^(curl|uv pip) /.test(line)), []);
+  });
+
+  it('fails in the host platform stage on an unsupported host', () => {
+    for (const env of [{ ANALYST_MEDIA_HOST_OS: 'Darwin' }, { ANALYST_MEDIA_HOST_ARCH: 'aarch64' }]) {
+      const { directory, wheelsDirectory, declaration } = fixture();
+      const result = runInstaller(directory, { declaration, wheelsDirectory, env });
+      assertCvFailure(result, '\\S+', 'host platform');
+      assertRecommendedActionLast(result);
+      assert.deepEqual(result.calls.filter((line) => /^(curl|uv pip) /.test(line)), []);
+    }
+  });
+
+  it('fails in the cv download stage when a download fails', () => {
+    const { directory, wheelsDirectory, wheels, declaration } = fixture();
+    const result = runInstaller(directory, { declaration, wheelsDirectory, env: { STUB_CURL_FAIL: '1' } });
+    assertCvFailure(result, wheels[0].name, 'cv download');
+    assertRecommendedActionLast(result);
+    assertNoFallback(result, wheels);
+  });
+
+  it('fails in the cv integrity stage when a digest differs from the declaration', () => {
+    const { directory, wheelsDirectory, wheels } = fixture();
+    const tampered = wheels.map((wheel, index) => (index === 1 ? { ...wheel, sha256: '0'.repeat(64) } : wheel));
+    const result = runInstaller(directory, { declaration: cvDeclaration(tampered), wheelsDirectory });
+    assertCvFailure(result, wheels[1].name, 'cv integrity');
+    assertRecommendedActionLast(result);
+    assertNoFallback(result, wheels);
+  });
+
+  it('fails in the cv compatibility stage for a wheel tag incompatible with cp312', () => {
+    const specs = defaultWheels.map((spec) => (spec.name === 'numpy' ? { ...spec, tag: 'cp311-cp311-manylinux_2_28_x86_64' } : spec));
+    const { directory, wheelsDirectory, wheels, declaration } = fixture({}, specs);
+    const result = runInstaller(directory, { declaration, wheelsDirectory });
+    assertCvFailure(result, 'numpy', 'cv compatibility');
+    assertRecommendedActionLast(result);
+    assertNoFallback(result, wheels);
+  });
+
+  it('fails in the cv compatibility stage for a wheel tag incompatible with the host', () => {
+    for (const tag of ['cp312-cp312-manylinux_2_28_aarch64', 'cp312-cp312-win_amd64', 'cp312-cp312-musllinux_1_2_x86_64']) {
+      const specs = defaultWheels.map((spec) => (spec.name === 'onnxruntime' ? { ...spec, tag } : spec));
+      const { directory, wheelsDirectory, wheels, declaration } = fixture({}, specs);
+      const result = runInstaller(directory, { declaration, wheelsDirectory });
+      assertCvFailure(result, 'onnxruntime', 'cv compatibility');
+      assertRecommendedActionLast(result);
+      assertNoFallback(result, wheels);
+    }
+  });
+
+  it('fails in the cv compatibility stage for a source distribution', () => {
+    const { directory, wheelsDirectory, wheels } = fixture();
+    const fileName = 'flatbuffers-4.0.0.tar.gz';
+    const file = path.join(wheelsDirectory, fileName);
+    writeFileSync(file, 'source distribution fixture');
+    const sdist = wheels.map((wheel) => (wheel.name === 'flatbuffers'
+      ? { ...wheel, fileName, url: `https://fixture.invalid/${fileName}`, sha256: sha256(file) }
+      : wheel));
+    const result = runInstaller(directory, { declaration: cvDeclaration(sdist), wheelsDirectory });
+    assertCvFailure(result, 'flatbuffers', 'cv compatibility');
+    assertRecommendedActionLast(result);
+    assertNoFallback(result, sdist);
+  });
+
+  it('fails in the cv compatibility stage when the wheel version differs from the declaration', () => {
+    const { directory, wheelsDirectory, wheels } = fixture();
+    const drifted = wheels.map((wheel) => (wheel.name === 'opencv-python-headless' ? { ...wheel, version: '1.0.1' } : wheel));
+    const result = runInstaller(directory, { declaration: cvDeclaration(drifted), wheelsDirectory });
+    assertCvFailure(result, 'opencv-python-headless', 'cv compatibility');
+    assertRecommendedActionLast(result);
+    assertNoFallback(result, drifted);
+  });
+});
