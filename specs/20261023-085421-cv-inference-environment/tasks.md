@@ -131,18 +131,12 @@ in task, phase, and finalize modes.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-**Purpose**: Documentation (FR-014) and final validation.
+**Purpose**: Documentation (FR-014); validation runs in the phase and finalize verification and the convergence.
 
 ### Documentation
 
 - [x] T018 [P] Update `.github/actions/environment-setup/README.md`: the six pinned libraries and where the single declaration lives, download, integrity, and retention behavior (wheelhouse, smoke venv, deleted downloads), the stages and failure line, the licence and SBOM rule and how it is verified (allow-list, LGPL distinct dynamic `.so` rule, evidence-versus-table cross-check, SBOM and notices location), the excluded GPU, CUDA, TensorRT, model, and dataset material, tools-disabled mode, the corrective actions, and the statement that the toolchain is build-environment tooling that approves no library for product use, redistribution, or production and sets no production value
 - [x] T019 [P] Update `.github/actions/environment-verify/README.md`: the `library pin` stage and its finding kinds, the capability project check for every project under `src/analysts/capabilities/` with the selection rules for task, phase, and finalize modes, the coverage rule (covered only while `pyproject.toml` exists), the extended environment test list, and the corrective actions that distinguish a broken environment from a failing consuming project
-
-### Validation
-
-- [ ] T020 Run `node --test .github/actions/environment-setup/*.test.mjs .github/actions/environment-verify/*.test.mjs` and fix any failure in the action folders without weakening a test (if a T015 case proves a gap in selection or coverage, correct `.github/actions/environment-verify/analyst-projects.py` minimally and keep every existing case passing unchanged, FR-012); also run, read-only, `python3 .github/actions/environment-verify/analyst-library-pins.py --declaration .github/actions/environment-setup/analyst-cv-libraries.json --lock uv.lock --project <root>` in `src/analysts/sdk` and `src/analysts/capabilities/reference-media-probe`, requiring exit 0 and no file change, and fix the pin or the activation rule in the action folders if it fails
-- [ ] T021 Run `node .github/scripts/check-markdown.mjs --files .github/actions/environment-setup/README.md .github/actions/environment-verify/README.md specs/20261023-085421-cv-inference-environment/tasks.md` and fix every finding
-- [ ] T022 Confirm confinement (SC-006) with `git diff --name-only` against the base branch: only paths under `.github/actions/environment-setup/`, `.github/actions/environment-verify/`, and this spec's `tasks.md` changed, and no committed declaration other than `analyst-cv-libraries.json` was modified by a verification run
 
 ---
 
@@ -151,8 +145,8 @@ in task, phase, and finalize modes.
 - Phase 1 (T001) precedes everything; T002 follows it and precedes the story tests in `cv-libraries.test.mjs`.
 - **US1** has no dependency on US2 or US3: tests T003, T004 (same file, in order) and T005 (a different file, parallel) precede the scripts T006 and T007 (parallel), then T008 (needs T006), then T009 and T010 (parallel).
 - **US2** builds on the installer and test file of US1: T011 follows T004; T012 runs first (a group of its own), then T013 (needs T001 and the T012 script, because it runs the check against the real wheels); T014 follows T008, T011, T012, and T013.
-- **US3** is independent of US2: T015 and T016 run in parallel after T010. There is no separate implementation task: the selection and coverage logic already exists, so T015's tests verify it, and T020 corrects `analyst-projects.py` only if a T015 case proves a gap. ID T017 is intentionally unused (a task whose normal outcome is no change cannot land).
-- **Polish**: T018 and T019 follow the stories they document, T020 to T022 run last, in order.
+- **US3** is independent of US2: T015 and T016 run in parallel after T010. There is no separate implementation task: the selection and coverage logic already exists, so T015's tests verify it, and a gap a T015 case proves is corrected in `analyst-projects.py` through the verification repair or the convergence. IDs T017 and T020 to T022 are intentionally unused: tasks whose normal outcome is no change cannot land, and the phase verification, the finalize verification, and the convergence run the environment tests, the library pin check, the Markdown check, and the confinement check (`quickstart.md` sections 1, 3, and 4) instead.
+- **Polish**: T018 and T019 follow the stories they document and are the last tasks.
 
 ### Parallel Opportunities
 
