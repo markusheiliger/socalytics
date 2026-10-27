@@ -1,0 +1,11 @@
+# Quickstart: Validate the Invitation Audit Trail Fix
+
+**Prerequisites**: a running Docker-compatible container runtime, the .NET 10 SDK from `src/platform/global.json`.
+
+1. Build: `dotnet build src/platform/Tests/SocAlytics.Platform.Integration.Tests`.
+2. Reproduce (before the fix) as in [research.md](research.md) R1: with a test-only temporary probe that, after creating `audit-c` and before revoking it, calls the delivery once exactly as the worker's iteration does (`await h.DeliverAsync(ct)`, or a scoped `EmailDeliveryProcessor.ProcessDueAsync`), query `socalytics.security_audit_event` for `invitation.issued` grouped by `resource_id`, and run
+   `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded"`; expect three `invitation.issued` events with the same `maskedAddress`, one of them for the invitation of `audit-c`.
+3. After the fix, repeat the same command at least 30 times alone and at least 10 times with one busy-loop process per core; expect every run to pass with exactly two `invitation.issued` events for the first invitee (SC-001). Remove the probe.
+4. Probes (SC-002), each removed afterward: a message prepared and audited by two overlapping delivery runs for the first invitee, a link issued without its audit event (a temporary edit in `EmailDeliveryProcessor.PrepareInvitationAsync` that skips the `InvitationAuditEvents.Issued` audit record for the first invitee; expect the `invitation.issued` count assertion to fail), and a secret written into an audit event (a temporary edit in `EmailDeliveryProcessor.PrepareInvitationAsync` that adds the invitee's normalized address to the `Details` of that audit event; expect the 'audit contains a secret' assertion to fail); each makes the test fail on its assertions.
+5. Run the whole Integration test project once (`dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build`); the invitation, password recovery, and email delivery tests pass unchanged (SC-004).
+6. Check that no assertion is textually removed from the test (`git diff` of the file) and `node .github/scripts/check-markdown.mjs` passes.
