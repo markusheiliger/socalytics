@@ -7,6 +7,7 @@ import { startFixAuthoring } from './speckit-fix.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   ATTENTION_LABEL,
+  BLOCKED_LABEL,
   BOT_LOGIN,
   COMMAND_SCOPES,
   DIAGNOSIS_COMMENT_MARKER,
@@ -265,7 +266,9 @@ export async function restartState(client, implementation) {
 // Refuses a restart while the implementation is stopped and the last MAX_UNCHANGED_RESTARTS restarts left its branch
 // where it is: another one would most likely stop the same way.
 async function refuseUnchangedRestart(client, { name, number, implementation, folder, state }) {
-  const stopped = (implementation.labels ?? []).some((label) => (label?.name ?? label) === ATTENTION_LABEL);
+  const labels = (implementation.labels ?? []).map((label) => label?.name ?? label);
+  // A blocked implementation that only waits for a blocker to be requested is not stopped.
+  const stopped = labels.includes(ATTENTION_LABEL) && !labels.includes(BLOCKED_LABEL);
   if (!stopped) return false;
   const comments = await client.listIssueComments(implementation.number);
   const restarts = unchangedRestarts(comments, state.head);

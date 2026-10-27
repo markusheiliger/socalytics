@@ -161,11 +161,13 @@ export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 // GitHub's default label for "Extra attention is needed": an implementation, amendment, or prerequisite spec pull
 // request carries it while it waits for a person (stopped, a diagnosis or a prerequisite spec outcome to decide on, or
 // ready for review) and loses it once a person's action puts automation back to work or closes the pull request. It is
-// only added together with a comment that recommends what to do, never while a diagnosis runs, and never on a blocked
-// pull request.
+// only added together with a comment that recommends what to do, never while a diagnosis runs, and on a blocked pull
+// request only while a blocker is not requested for implementation (setBlocked; its Blocked comment recommends
+// `/speckit implement` on that blocker).
 export const ATTENTION_LABEL = 'help wanted';
 // An implementation that waits for a prerequisite (an open blocked-by dependency of its twin, or a prerequisite spec
-// that is still being reviewed) carries BLOCKED_LABEL instead of ATTENTION_LABEL. It is only added together with a
+// that is still being reviewed) carries BLOCKED_LABEL, and ATTENTION_LABEL only while a blocker waits for its
+// `/speckit implement` request. It is only added together with a
 // comment that says what it waits for and how it is unblocked (setBlocked), and lifted by maintainDependencyBlock.
 export const BLOCKED_LABEL = 'blocked';
 // The implementations whose merge unblocks the most others (Spec Kit orchestrate, maintainRoadblocks): not blocked
@@ -797,14 +799,18 @@ export async function setAttention(client, number, needed) {
 
 // Adds or removes BLOCKED_LABEL on an implementation pull request. Blocking needs `explain` ({ key, lines }): unless a
 // workflow comment already carries the marker of `key` (the comment that caused the block usually does), a comment with
-// `lines` says what the implementation waits for and how it is unblocked. A blocked pull request loses ATTENTION_LABEL:
-// the person's part is described there. Removing it is silent; the comment that lifts the block explains it.
+// `lines` says what the implementation waits for and how it is unblocked. A blocked pull request carries ATTENTION_LABEL
+// exactly while a blocker is not requested for implementation (`key.unrequested`, whose explanation recommends
+// `/speckit implement` on it): nothing else can start that blocker. Once every blocker is requested, or the block is
+// lifted, the label goes; the comment that lifts the block explains it, and a lifted block that still needs a person adds
+// the label again with its own recommendation.
 export async function setBlocked(client, number, blocked, { explain = null } = {}) {
   if (blocked && !explain?.key) throw new Error('setBlocked needs an explanation to block a pull request');
   try {
     const pull = await client.getPullRequest(number);
     const names = (pull.labels ?? []).map((label) => label?.name ?? label);
     const has = names.includes(BLOCKED_LABEL);
+    const attention = names.includes(ATTENTION_LABEL);
     if (blocked && pull.state === 'open') {
       if (!blockExplained(await client.listIssueComments(number), explain.key)) {
         await client.createComment(number, [renderBlockedMarker(explain.key), ...explain.lines].join('\n'));
@@ -813,9 +819,14 @@ export async function setBlocked(client, number, blocked, { explain = null } = {
         await client.ensureLabel({ name: BLOCKED_LABEL, color: 'd93f0b', description: 'Implementation is on hold waiting for a prerequisite' });
         await client.addLabels(number, [BLOCKED_LABEL]);
       }
-      if (names.includes(ATTENTION_LABEL)) await client.removeLabel(number, ATTENTION_LABEL);
+      const unrequested = Array.isArray(explain.key.unrequested) && explain.key.unrequested.length > 0;
+      if (unrequested && !attention) await client.addLabels(number, [ATTENTION_LABEL]);
+      if (!unrequested && attention) await client.removeLabel(number, ATTENTION_LABEL);
     }
-    if ((!blocked || pull.state !== 'open') && has) await client.removeLabel(number, BLOCKED_LABEL);
+    if ((!blocked || pull.state !== 'open') && has) {
+      await client.removeLabel(number, BLOCKED_LABEL);
+      if (attention) await client.removeLabel(number, ATTENTION_LABEL);
+    }
   } catch {
     // The label only signals the state; comments and check runs carry it.
   }
