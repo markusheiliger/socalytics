@@ -20,7 +20,7 @@
 ### Evidence and engine client move
 
 - [ ] T001 [P] Establish the cause with evidence and record it in the `## Evidence` section of `specs/20261027-082549-reliable-e2e-image-push/research.md`: read `git log` over `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests`, `src/analysts/`, `src/platform/Tests/SocAlytics.Platform.Integration.Tests` (registry fixture), and `.github/actions/environment-*` between the passing and the failing branch; record the push response shapes of the engine in the environment (a recorded body of a push, the status line, whether the `aux` record appears) and build and push timings where a Linux engine is available; record which timeout the Testcontainers build client applies (its own request timeout, separate from the `HttpClient` of `DockerEngine`) and its value; name which suspected cause (digest from one source only, load and the shared five-minute timeout, a recent change on main, or another) is evidenced, and that the fix holds under either
-- [ ] T002 [P] Move `DockerEngine` out of `Support/TestAnalystImage.cs` into the new `Support/DockerEngine.cs` unchanged in behavior, and give it a constructor seam that accepts an `HttpMessageHandler` and a registry base address (defaults keep today's engine socket and registry use) so lookups can run against a fake endpoint
+- [x] T002 [P] Move `DockerEngine` out of `Support/TestAnalystImage.cs` into the new `Support/DockerEngine.cs` unchanged in behavior, and give it a constructor seam that accepts an `HttpMessageHandler` and a registry base address (defaults keep today's engine socket and registry use) so lookups can run against a fake endpoint
 
 ---
 
