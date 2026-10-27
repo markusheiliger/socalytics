@@ -63,8 +63,8 @@
 - T008 is the only task; its numbered steps run in order.
 - Step 2 reads recorded runs only and is done first; its findings decide which candidates step 6 widens first. Steps 3 to 6 share the AppHost ports, so they run one after another.
 - Steps 8a, 8b, and 8c are sequential and conditional on step 7's finding.
-- Steps 11 to 15 need the fix and share one AppHost, so they run one after another.
-- The AppHost kept running in steps 3 and 11 is stopped (`Ctrl+C`) when the 20 repeats finish; every other run (steps 4 to 6, 12 to 14) runs with no AppHost listening on 4174, so each starts and stops its own AppHost on a fresh platform.
+- Steps 9 to 15 need the fix and share one AppHost, so they run one after another.
+- The AppHost kept running in steps 3 and 9 is stopped (`Ctrl+C`) when the 20 repeats finish; every other run (steps 4 to 6 and 10 to 14) runs with no AppHost listening on 4174, so each starts and stops its own AppHost on a fresh platform.
 - SC-004 (the verification of #314 reports no flaky `platform-club-structure` test) is post-merge evidence and has no task here.
 
 ## Implementation Strategy
