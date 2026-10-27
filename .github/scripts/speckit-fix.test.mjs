@@ -532,6 +532,52 @@ test('a blocked pull request asks for attention exactly while a blocker is not r
   assert.deepEqual(implementation.labels.map((label) => label.name), []);
 });
 
+test('a spec authored to unblock an implementation is requested for implementation automatically once it is ready', async () => {
+  const tasks = '## Phase 1\n\n- [ ] T001 one\n';
+  const ready = makeRepo([{ folder: FOLDER, plan: true, tasks }]);
+  const draft = makeRepo([{ folder: FOLDER, plan: true }]);
+  try {
+    for (const [rootDir, linkedBefore] of [[ready, false], [draft, true]]) {
+      const github = fixRepo({ branch: `speckit-fix/${FOLDER}` });
+      github.closePull(12, { merged: true });
+      await github.createComment(9, renderFixEvent('requested', { by: 'lead', stamp: '20261014-100000' }));
+      await github.createComment(9, renderFixEvent('created', { pull: 12, folder: FOLDER }));
+      await github.createComment(9, renderFixEvent('merged', { pull: 12, folder: FOLDER }));
+      if (linkedBefore) {
+        await github.createComment(9, renderFixEvent('linked', { pull: 12, folder: FOLDER, twin: 30 }));
+        github.edges.push([5, 30]);
+      }
+      addTwin(github, 30, FOLDER);
+      const implementation = github.repo.pulls.find((pull) => pull.number === 9);
+      const notes = [];
+      assert.equal((await maintainFixSpec(github, env(), { implementation, twin: 5, rootDir }, { now: github.clock, report: (line) => notes.push(line) })).outcome, 'linked');
+      const twinComments = () => github.comments.filter((comment) => comment.number === 30);
+      const stages = () => github.find(30).labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:'));
+      if (rootDir === ready) {
+        assert.deepEqual(stages(), ['speckit:stage:implement']);
+        assert.match(twinComments().at(-1).body, /^<!-- speckit:implement-requested \{"by":"lead","comment":null\} -->\n\*\*Implementation requested automatically\*\* for @lead: `\/speckit author` wrote this spec to unblock implementation pull request #9/);
+        const linked = github.comments.filter((comment) => comment.number === 9).at(-1).body;
+        assert.match(linked, /Its implementation was requested automatically for @lead, who asked for it with `\/speckit author`/);
+        assert.doesNotMatch(linked, /Recommended next step/, 'nothing is left to request');
+        assert.match(notes.join('\n'), /Requested the implementation of #30, authored to unblock #9/);
+        const count = twinComments().length;
+        await maintainFixSpec(github, env(), { implementation, twin: 5, rootDir }, { now: github.clock, report: silent });
+        assert.equal(twinComments().length, count, 'requested once');
+      } else {
+        assert.deepEqual(stages(), [], 'a spec without tasks is not requested');
+        assert.equal(twinComments().length, 0);
+        assert.match(notes.join('\n'), /Spec twin #30 \(authored for #9\) is not ready to request yet/);
+        writeFileSync(path.join(draft, 'specs', FOLDER, 'tasks.md'), tasks);
+        await maintainFixSpec(github, env(), { implementation, twin: 5, rootDir }, { now: github.clock, report: silent });
+        assert.deepEqual(stages(), ['speckit:stage:implement'], 'an already linked spec is requested once it is ready');
+      }
+    }
+  } finally {
+    rmSync(ready, { recursive: true, force: true });
+    rmSync(draft, { recursive: true, force: true });
+  }
+});
+
 test('a blocked label always comes with one explanation, replaces the attention label unless a blocker is unrequested, and is not set on closed pull requests', async () => {
   const github = fixRepo();
   const implementation = github.repo.pulls.find((pull) => pull.number === 9);
