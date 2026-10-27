@@ -31,6 +31,10 @@
 
 - [x] T003 Create `Support/EngineCallPolicy.cs` with the named values of [data-model.md](data-model.md) in one place: `PushLimit` 15 minutes, `BuildLimit` 20 minutes, `RegistryLookupLimit` 30 seconds, `MaxAttempts` 3 (including the first), `RetryDelay` 2 seconds, each with a documenting comment of its meaning (execution logic follows in T009)
 
+### Digest determination (before its tests, which name its types)
+
+- [ ] T006 [US1] Create `Support/PushDigest.cs`: a pure determination over (response body, repository, tag, registry and engine lookups as delegates) that returns the digest and its source (`ProgressRecord`, `StatusLine`, `RegistryManifest`, `EngineImageRecord`) or a failure carrying the body and the outcome of each tried source (`found`, `absent`, `unavailable: <reason>`); an error line fails first; a digest is valid only as `^sha256:[0-9a-f]{64}$`; a status line counts only for the pushed tag; the first valid source ends the determination except that the record and the status line, both read from the response, must agree; registry and engine are consulted only when the response yielded none and must agree when both were consulted The public API is `PushDigest.DetermineAsync(body, repository, tag, registryLookup, engineLookup, ct)` returning a `PushDigestResult` (`Succeeded`, `Digest`, `Source`, `FailureMessage`) with a `DigestSource` enum; the lookups are `Func<CancellationToken, Task<string?>>` that return `null` when the source has no digest and throw when it is unavailable, and `FailureMessage` lists one entry per tried source such as `EngineImageRecord: unavailable: boom`. It comes before T004 because the whole solution is built for every task verification, so tests that name `PushDigestResult` cannot compile, and cannot pass verification, before this type exists
+
 ### Tests for User Story 1
 
 - [ ] T004 [P] [US1] Write `ImagePush/PushDigestTests.cs` with recorded response bodies as string constants: progress record only, status line only, both agreeing, both disagreeing (fails with diagnostics, FR-004), neither with the registry reporting the digest, neither with only the engine record, none (fails with the full body and each source's result), an `errorDetail` or `error` line (fails with that error before any digest, no lookup), a status line for another tag (ignored), a malformed digest (not `^sha256:[0-9a-f]{64}$`, never accepted from any source), a malformed JSON line (deterministic failure with the body), a valid response digest causing no registry or engine lookup (delegates assert not called), and a failure message that never contains `X-Registry-Auth` values or credentials
@@ -38,7 +42,6 @@
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] Create `Support/PushDigest.cs`: a pure determination over (response body, repository, tag, registry and engine lookups as delegates) that returns the digest and its source (`ProgressRecord`, `StatusLine`, `RegistryManifest`, `EngineImageRecord`) or a failure carrying the body and the outcome of each tried source (`found`, `absent`, `unavailable: <reason>`); an error line fails first; a digest is valid only as `^sha256:[0-9a-f]{64}$`; a status line counts only for the pushed tag; the first valid source ends the determination except that the record and the status line, both read from the response, must agree; registry and engine are consulted only when the response yielded none and must agree when both were consulted
 - [ ] T007 [US1] Edit `Support/DockerEngine.cs`: `PushAsync` reads the whole response and uses `PushDigest`, adds the registry manifest lookup and the engine image-record lookup (each under `EngineCallPolicy.RegistryLookupLimit`), and throws the determination's failure with the full body; no lookup when the response already carries a valid digest
 
 ### Evidence after the fix
@@ -143,7 +146,7 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 
 - **Phase 1** (T002, T003, US1 T004 to T007, then T001) has no dependencies outside itself and is one phase so that the phase verification, which runs the whole Docker-backed end-to-end project, only runs after the digest fix. T001 runs after T007 (a README change in the end-to-end project makes the task verification run all of its Docker-backed tests, which fail until the digest fix landed) and must finish before T011 to T013 and T028.
 - **Foundation** (T003) is needed by every story; T007 and T010 use its values.
-- **US1** (T004 to T007): tests T004 and T005 first (T005 needs T002); T006 before T007; T007 needs T002 and T003; T001 needs T007.
+- **US1** (T004 to T007): T006 first, because T004 names its `PushDigestResult` and the solution build of every task verification fails without it (T004 failed twice on that); then tests T004 and T005 (T005 needs T002); T007 needs T006, T002, and T003; T001 needs T007.
 - **US2** (T008 to T013) depends on US1 because T010 edits `Support/DockerEngine.cs` after T007; T009 before T010 to T013; T011 to T013 touch different files and are parallel.
 - **US3** (T014 to T026) depends on US2 (the helpers are edited again): T016 before T017; T017 before T018 to T020; T018 to T020 before T021 to T026.
 - **US4** (T027 to T030) depends on the final design; T028 needs T001; T030 runs last of the story.
@@ -153,7 +156,7 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 
 ```text
 Phase 1, after T007: T001 alone.
-US1 tests: T004 and T005 together.
+US1 tests, after T006: T004 and T005 together.
 US3 call sites: T021 to T026 together (six different files).
 ```
 
