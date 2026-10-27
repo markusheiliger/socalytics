@@ -68,7 +68,7 @@ A change is documentation-only when every changed path ends in `.md` and none of
 
 Files under `specs/`, `.specify/`, and `.github/`, and generated or installed folders (`node_modules`, `bin`, `obj`, `.venv`, `dist`, `build`, and similar), never count, because they neither build nor test the product. Comments count like code, so a mention can only keep the full verification, never skip it.
 
-Anything uncertain keeps the full verification: no change list, an unreadable or empty change list, any path that is not Markdown (images, JSON, or `README.MD` included), or a Markdown file the rules find a reader for. A deleted Markdown file is judged by the references that remain. A test that reads a Markdown file by a file name shared with other Markdown files, from another folder and without its path, is not detected; name the path in such a test, or include the file through its project file.
+Anything uncertain keeps the full verification: no change list, an unreadable or empty change list, any path that is not Markdown (images, JSON, `README.MD`, or a `.github/scripts/speckit-*.mjs` tooling file, whose reason names the Spec Kit tooling tests, included), or a Markdown file the rules find a reader for. A deleted Markdown file is judged by the references that remain. A test that reads a Markdown file by a file name shared with other Markdown files, from another folder and without its path, is not detected; name the path in such a test, or include the file through its project file.
 
 ## Rerun of failed tests
 
@@ -177,9 +177,15 @@ Discovery always validates the existing agent manifests. A malformed or unsuppor
 
 The check "Environment action tests" runs `node --test` over [`analyst-projects.test.mjs`](analyst-projects.test.mjs) and [`../environment-setup/toolchain.test.mjs`](../environment-setup/toolchain.test.mjs). It runs when a file under `.github/actions/environment-setup/` or `.github/actions/environment-verify/` changed, and in `finalize` mode, whether or not an Analyst Python project exists. It uses the Node.js that the caller provides. The marker `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING` makes a nested run of the action skip this check, so the test fixtures never start the self-test again. The tests stub external commands and never connect to a database. They use isolated fixtures, not product projects.
 
+## Spec Kit tooling tests
+
+The check "Spec Kit tooling tests" runs `node --test .github/scripts/speckit-*.test.mjs`, the Node tests of the Spec Kit tooling. It runs in `finalize` mode and when a changed or deleted `.github/scripts/speckit-*.mjs` or `speckit-*.test.mjs` file, or a task-named one, appears in the change list (an unchanged-branch verification passes the task-named files as its change list); a task-named or changed non-`speckit-` file under `.github/scripts/` does not start it. It uses the Node.js that the caller provides and installs nothing. The marker `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING` makes a nested run of the action skip this check, so test fixtures never start it again. The check belongs to the first shard only. A failure prints `Spec Kit tooling tests failed (command: node --test <files>). Recommended action: reproduce this command, correct the failing Spec Kit tooling script or its test without weakening the test, and retry verification`.
+
+The check covers exactly the tooling scope `.github/scripts/speckit-*.mjs` directly under `.github/scripts/` (its tests included). It covers no other `.github/` path: workflows, skills, other actions, `check-markdown.mjs`, and subfolders stay uncovered.
+
 ## Check order and coverage
 
-Checks run in this order and stop at the first failing check: platform build and tests, Analyst Manager build and tests, Web UI build and tests, Analyst Python projects, Agent Python projects, Environment action tests, and Markdown check. The `checks` output lists the checks that ran, and after a failure the last one failed.
+Checks run in this order and stop at the first failing check: platform build and tests, Analyst Manager build and tests, Web UI build and tests, Analyst Python projects, Agent Python projects, Environment action tests, Spec Kit tooling tests, and Markdown check. The `checks` output lists the checks that ran, and after a failure the last one failed.
 
 The Markdown check runs when a Markdown file changed and in `finalize` mode. In `task` mode (a task or a parallel group) it checks only the changed Markdown files (`check-markdown.mjs --files`), so a broken file elsewhere on the base branch does not fail the task; `phase` and `finalize` check every Markdown file of the repository.
 
@@ -187,6 +193,7 @@ The `uncovered` output lists changed files that no check covers, and the workflo
 
 - Markdown files, `specs/`, and the repository metadata files `.gitignore`, `.gitattributes`, and `.editorconfig`;
 - the two environment action folders, which the merge self-tests;
+- the Spec Kit tooling files `.github/scripts/speckit-*.mjs` (tests included), covered by the Spec Kit tooling tests; the scope reason names them instead of "is not Markdown", and no other `.github/` path is covered;
 - `src/platform/` and `contracts/` while the platform solution exists, `src/analysts/manager/` while the Manager solution exists, and `src/clients/web/` while its `package.json` exists;
 - the root of each existing recognized Analyst Python project;
 - the root of each existing valid agent Python project (`src/agents/<name>`); `src/agents/README.md` is covered only by the Markdown rule.

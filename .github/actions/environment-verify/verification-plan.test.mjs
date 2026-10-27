@@ -649,7 +649,7 @@ describe('sharded verification', () => {
       'platform|dotnet|restore Platform.slnx', 'platform|dotnet|build Platform.slnx --no-restore',
       'platform|dotnet|test Tests/Architecture.Tests/Architecture.Tests.csproj --no-build', 'markdown',
     ]);
-    assert.match(result.log, /Verification shard 1\/2: src\/platform#default \(3 min\); also the Python projects, environment action tests, and Markdown check/);
+    assert.match(result.log, /Verification shard 1\/2: src\/platform#default \(3 min\); also the Python projects, environment action tests, Spec Kit tooling tests, and Markdown check/);
   });
 
   it('runs nothing in a shard without work and still passes', () => {
