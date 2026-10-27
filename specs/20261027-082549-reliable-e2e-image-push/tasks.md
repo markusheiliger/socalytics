@@ -15,11 +15,10 @@
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-**Purpose**: Establish the cause with evidence (FR-001) and prepare the engine client for the seam the unit tests need.
+**Purpose**: Prepare the engine client for the seam the unit tests need. The cause evidence (FR-001, T001) follows the digest fix in Phase 3, because a README change makes the task verification run the whole Docker-backed project, which fails until the fix landed.
 
-### Evidence and engine client move
+### Engine client move
 
-- [ ] T001 [P] Create `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/README.md` (the project's first documentation artifact) with a `## Cause` section that establishes the cause with evidence: read `git log` over `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests`, `src/analysts/`, `src/platform/Tests/SocAlytics.Platform.Integration.Tests` (registry fixture), and `.github/actions/environment-*` between the passing and the failing branch; record the push response shapes of the engine in the environment only where a Linux engine is reachable (a recorded body of a push, the status line, whether the `aux` record appears) and otherwise state that they are not recorded; record which timeout the Testcontainers build client applies (its own request timeout, separate from the `HttpClient` of `DockerEngine`) and its value, read from the restored package; name which suspected cause (digest from one source only, load and the shared five-minute timeout, a recent change on main, or another) is evidenced, and that the fix holds under either. Do not edit `research.md`: its `## Evidence` section already holds the code-level findings and the git-history result, and this task's agents may not change files under `specs/`
 - [x] T002 [P] Move `DockerEngine` out of `Support/TestAnalystImage.cs` into the new `Support/DockerEngine.cs` unchanged in behavior, and give it a constructor seam that accepts an `HttpMessageHandler` and a registry base address (defaults keep today's engine socket and registry use) so lookups can run against a fake endpoint
 
 ---
@@ -51,6 +50,10 @@
 
 - [ ] T006 [US1] Create `Support/PushDigest.cs`: a pure determination over (response body, repository, tag, registry and engine lookups as delegates) that returns the digest and its source (`ProgressRecord`, `StatusLine`, `RegistryManifest`, `EngineImageRecord`) or a failure carrying the body and the outcome of each tried source (`found`, `absent`, `unavailable: <reason>`); an error line fails first; a digest is valid only as `^sha256:[0-9a-f]{64}$`; a status line counts only for the pushed tag; the first valid source ends the determination except that the record and the status line, both read from the response, must agree; registry and engine are consulted only when the response yielded none and must agree when both were consulted
 - [ ] T007 [US1] Edit `Support/DockerEngine.cs`: `PushAsync` reads the whole response and uses `PushDigest`, adds the registry manifest lookup and the engine image-record lookup (each under `EngineCallPolicy.RegistryLookupLimit`), and throws the determination's failure with the full body; no lookup when the response already carries a valid digest
+
+### Evidence after the fix
+
+- [ ] T001 [US1] After T007 (the task verification runs the whole end-to-end project for a non-`.cs` file, and its Docker-backed push tests fail until the digest fix lands), create `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/README.md` (the project's first documentation artifact) with a `## Cause` section that establishes the cause with evidence: read `git log` over `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests`, `src/analysts/`, `src/platform/Tests/SocAlytics.Platform.Integration.Tests` (registry fixture), and `.github/actions/environment-*` between the passing and the failing branch; record the push response shapes of the engine in the environment only where a Linux engine is reachable (a recorded body of a push, the status line, whether the `aux` record appears) and otherwise state that they are not recorded; record which timeout the Testcontainers build client applies (its own request timeout, separate from the `HttpClient` of `DockerEngine`) and its value, read from the restored package; name which suspected cause (digest from one source only, load and the shared five-minute timeout, a recent change on main, or another) is evidenced, and that the fix holds under either. Do not edit `research.md`: its `## Evidence` section already holds the code-level findings and the git-history result, and this task's agents may not change files under `specs/`
 
 **Checkpoint**: User Story 1 is functional and testable without Docker.
 
@@ -148,9 +151,9 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 
 ## Dependencies & Execution Order
 
-- **Phase 1** (T001, T002) has no dependencies and runs in parallel; T001 must finish before T028.
+- **Phase 1** (T002) has no dependencies. T001 runs after T007 (a README change in the end-to-end project makes the task verification run all of its Docker-backed tests, which fail until the digest fix landed) and must finish before T011 to T013 and T028.
 - **Phase 2** (T003) is needed by every story; T007 and T010 use its values.
-- **US1** (T004 to T007): tests T004 and T005 first (T005 needs T002); T006 before T007; T007 needs T002 and T003.
+- **US1** (T004 to T007): tests T004 and T005 first (T005 needs T002); T006 before T007; T007 needs T002 and T003; T001 needs T007.
 - **US2** (T008 to T013) depends on US1 because T010 edits `Support/DockerEngine.cs` after T007; T009 before T010 to T013; T011 to T013 touch different files and are parallel.
 - **US3** (T014 to T026) depends on US2 (the helpers are edited again): T016 before T017; T017 before T018 to T020; T018 to T020 before T021 to T026.
 - **US4** (T027 to T030) depends on the final design; T028 needs T001; T030 runs last of the story.
@@ -159,7 +162,7 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 ## Parallel Example
 
 ```text
-Phase 1: T001 and T002 together.
+Phase 3, after T007: T001 alone.
 US1 tests: T004 and T005 together.
 US3 call sites: T021 to T026 together (six different files).
 ```

@@ -20,8 +20,8 @@ unit tests, and documentation:
    cache** that builds and pushes one variant once per test class, with failures reported to every waiting test.
 4. The three build-and-push helpers (`TestAnalystImage`, `ReferenceAnalystImage`, `ShotBoundaryAnalystImage`) use these;
    a README of the project records the evidenced cause, the digest sources in order, the limits, the retry rule, the
-   bound, the reuse rule, and the run commands. The cause is established with evidence first (research.md
-   `## Evidence` and the README's `## Cause`, FR-001), and the fix has to hold under either suspected cause.
+   bound, the reuse rule, and the run commands. The cause is established with evidence (research.md
+   `## Evidence` and the README's `## Cause`, FR-001), and the fix has to hold under either suspected cause. The README is created after the digest fix (T001 after T007), because a README change makes the task verification run all Docker-backed tests of the project, which fail until the fix landed.
 
 ## Technical Context
 
