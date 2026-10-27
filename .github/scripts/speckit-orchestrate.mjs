@@ -24,6 +24,7 @@ import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWi
 import { maintainAmendment } from './speckit-amend.mjs';
 import { maintainBacklog } from './speckit-backlog.mjs';
 import { maintainFixSpec, maintainIndependentSpecs, startFixAuthoring } from './speckit-fix.mjs';
+import { mainHealth } from './speckit-main-health.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
@@ -420,7 +421,16 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     report.line(`- Continued #${twin.number} (pull request #${twin.pull}): ${describeDecision(twin)}.`);
     actions += 1;
   }
+  // A red default branch would stop every new implementation at its verification, so new specs wait for its repair;
+  // the prerequisites of running implementations still start.
+  const health = String(env.SPECKIT_HEALTH_GATE ?? '').trim().toLowerCase() === 'false' || selection.ready.every((twin) => twin.prerequisite)
+    ? { state: 'unchecked', run: null }
+    : await mainHealth(client, env, { now: now() });
   for (const twin of selection.ready) {
+    if (health.state === 'red' && !twin.prerequisite) {
+      report.line(`- Waiting: #${twin.number} \`${twin.folder}\` starts once the default branch is healthy again (its [latest full verification](${health.run.html_url}) failed).`);
+      continue;
+    }
     // A prerequisite of a running implementation starts even at the limit: the implementation it unblocks holds a slot
     // while it waits.
     if (active >= maxActive && !twin.prerequisite) {
