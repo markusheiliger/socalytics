@@ -29,7 +29,7 @@
 
 **⚠️ CRITICAL**: No later user story work can begin until this foundation is complete
 
-- [ ] T003 Create `Support/EngineCallPolicy.cs` with the named values of [data-model.md](data-model.md) in one place: `PushLimit` 15 minutes, `BuildLimit` 20 minutes, `RegistryLookupLimit` 30 seconds, `MaxAttempts` 3 (including the first), `RetryDelay` 2 seconds, each with a documenting comment of its meaning (execution logic follows in T009)
+- [x] T003 Create `Support/EngineCallPolicy.cs` with the named values of [data-model.md](data-model.md) in one place: `PushLimit` 15 minutes, `BuildLimit` 20 minutes, `RegistryLookupLimit` 30 seconds, `MaxAttempts` 3 (including the first), `RetryDelay` 2 seconds, each with a documenting comment of its meaning (execution logic follows in T009)
 
 ### Tests for User Story 1
 
