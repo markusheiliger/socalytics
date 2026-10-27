@@ -6,7 +6,7 @@ import path from 'node:path';
 import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { buildPlan, TOOL_GROUPS } from './verification-plan.mjs';
+import { buildPlan, MAIN_MINUTES, packShards, TOOL_GROUPS } from './verification-plan.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(here, '..', '..', '..');
@@ -27,13 +27,13 @@ function touch(root, relative, content = '') {
 
 const declare = (root, folder, settings) => touch(root, `${folder}/verification.json`, JSON.stringify({ version: 1, ...settings }));
 
-function plan(root, mode, changed) {
+function plan(root, mode, changed, shard = '') {
   let changedFiles;
   if (changed !== undefined) {
     changedFiles = path.join(temporary, `changed-${counter++}.txt`);
     writeFileSync(changedFiles, changed.join('\n'));
   }
-  return buildPlan({ root, mode, changedFiles });
+  return buildPlan({ root, mode, changedFiles, shard });
 }
 
 const component = (result, root) => result.components.find((item) => item.root === root);
@@ -409,5 +409,189 @@ describe('Web UI browser test tiers', () => {
       'src/clients/web/verification.json: browserTests must name a folder relative to the component folder, ending with "/"',
       'src/tools/reporter/verification.json: browserTests applies only to an npm package',
     ]);
+  });
+});
+
+describe('shards', () => {
+  // A platform with two declared shards and a default rest, a Web UI, and a small Manager, like the repository.
+  function sharded() {
+    const root = repository();
+    touch(root, 'src/platform/Platform.slnx');
+    for (const project of ['Architecture', 'Contracts', 'Integration', 'EndToEnd']) touch(root, `src/platform/Tests/${project}.Tests/${project}.Tests.csproj`);
+    touch(root, 'src/platform/Tests/Integration.Tests/bin/Debug/Copy.Tests.csproj');
+    declare(root, 'src/platform', {
+      order: 10, budgetMinutes: 10,
+      shards: [
+        { name: 'integration', tests: ['Tests/Integration.Tests/Integration.Tests.csproj'], docker: true, budgetMinutes: 25 },
+        { name: 'end-to-end', tests: ['Tests/EndToEnd.Tests/EndToEnd.Tests.csproj'], docker: true, budgetMinutes: 25 },
+      ],
+    });
+    touch(root, 'src/clients/web/package.json', '{}');
+    declare(root, 'src/clients/web', { order: 30, budgetMinutes: 21 });
+    touch(root, 'src/analysts/manager/Manager.slnx');
+    touch(root, 'src/analysts/manager/Tests/Manager.Tests/Manager.Tests.csproj');
+    declare(root, 'src/analysts/manager', { order: 20, budgetMinutes: 2 });
+    return root;
+  }
+
+  it('lists a .NET component\'s test projects outside bin and obj', () => {
+    const platform = component(plan(sharded(), 'finalize', []), 'src/platform');
+    assert.deepEqual(platform.testProjects, [
+      'Tests/Architecture.Tests/Architecture.Tests.csproj', 'Tests/Contracts.Tests/Contracts.Tests.csproj',
+      'Tests/EndToEnd.Tests/EndToEnd.Tests.csproj', 'Tests/Integration.Tests/Integration.Tests.csproj',
+    ]);
+  });
+
+  it('packs the units largest first into the shard with the least work, the first shard carrying the shared checks', () => {
+    const bins = plan(sharded(), 'finalize', [], '1/4').shards;
+    assert.deepEqual(bins.map((bin) => [bin.index, bin.main, bin.minutes, bin.units.map((unit) => `${unit.root}#${unit.name}`)]), [
+      [1, true, MAIN_MINUTES + 12, ['src/platform#default', 'src/analysts/manager#default']],
+      [2, false, 25, ['src/platform#end-to-end']],
+      [3, false, 25, ['src/platform#integration']],
+      [4, false, 21, ['src/clients/web#default']],
+    ]);
+    assert.deepEqual(bins[0].units[0].tests, ['Tests/Architecture.Tests/Architecture.Tests.csproj', 'Tests/Contracts.Tests/Contracts.Tests.csproj']);
+    assert.equal(bins[3].units[0].tests, null);
+  });
+
+  it('runs in each shard only its own components and test projects', () => {
+    const root = sharded();
+    const view = (shard) => plan(root, 'finalize', [], shard).components.filter((item) => item.run).map((item) => [item.root, item.allowedTests]);
+    assert.deepEqual(view('1/4'), [
+      ['src/platform', 'Tests/Architecture.Tests/Architecture.Tests.csproj;Tests/Contracts.Tests/Contracts.Tests.csproj'],
+      ['src/analysts/manager', 'Tests/Manager.Tests/Manager.Tests.csproj'],
+    ]);
+    assert.deepEqual(view('2/4'), [['src/platform', 'Tests/EndToEnd.Tests/EndToEnd.Tests.csproj']]);
+    assert.deepEqual(view('4/4'), [['src/clients/web', '*']]);
+    assert.deepEqual(view(''), [['src/platform', '*'], ['src/analysts/manager', '*'], ['src/clients/web', '*']]);
+    assert.equal(plan(root, 'finalize', [], '1/4').main, true);
+    assert.equal(plan(root, 'finalize', [], '3/4').main, false);
+    assert.equal(plan(root, 'finalize', []).main, true);
+  });
+
+  it('keeps every selected component in one unit for affected tests and leaves empty shards without work', () => {
+    const bins = plan(sharded(), 'task', ['src/platform/Domain/a.cs'], '1/3').shards;
+    assert.deepEqual(bins.map((bin) => bin.units.map((unit) => `${unit.root}#${unit.name}`)), [[], ['src/platform#default'], []]);
+    assert.equal(bins[1].units[0].tests, null);
+  });
+
+  it('covers every test project exactly once across the shards', () => {
+    const root = sharded();
+    for (const count of [1, 2, 3, 4, 7]) {
+      const runs = [];
+      for (let index = 1; index <= count; index += 1) {
+        for (const item of plan(root, 'finalize', [], `${index}/${count}`).components.filter((entry) => entry.run && entry.kind === 'dotnet-solution')) {
+          runs.push(...item.allowedTests.split(';').map((test) => `${item.root}/${test}`));
+        }
+      }
+      assert.deepEqual(runs.sort(), [
+        'src/analysts/manager/Tests/Manager.Tests/Manager.Tests.csproj', 'src/platform/Tests/Architecture.Tests/Architecture.Tests.csproj',
+        'src/platform/Tests/Contracts.Tests/Contracts.Tests.csproj', 'src/platform/Tests/EndToEnd.Tests/EndToEnd.Tests.csproj',
+        'src/platform/Tests/Integration.Tests/Integration.Tests.csproj',
+      ], `${count} shards`);
+    }
+  });
+
+  it('rejects an invalid shard', () => {
+    for (const shard of ['0/2', '3/2', '1/21', 'a/b', '1']) assert.throws(() => plan(sharded(), 'finalize', [], shard), /invalid shard/, shard);
+  });
+
+  it('never runs a shard declared for another runner and holds the change for review', () => {
+    const root = sharded();
+    declare(root, 'src/analysts/manager', {
+      order: 20, shards: [{ name: 'windows-keys', tests: ['Tests/Manager.Tests/Manager.Tests.csproj'], runner: 'windows-x64' }],
+    });
+    const manager = component(plan(root, 'phase', ['src/analysts/manager/a.cs']), 'src/analysts/manager');
+    assert.deepEqual(manager.excludedTests, ['Tests/Manager.Tests/Manager.Tests.csproj']);
+    assert.equal(manager.allowedTests, '');
+    assert.deepEqual(plan(root, 'phase', ['src/analysts/manager/a.cs']).uncovered, ['src/analysts/manager/verification.json']);
+    for (const bin of plan(root, 'finalize', [], '1/2').shards) {
+      assert.ok(bin.units.every((unit) => !(unit.tests ?? []).includes('Tests/Manager.Tests/Manager.Tests.csproj')));
+    }
+  });
+
+  it('packs deterministically', () => {
+    assert.deepEqual(packShards([], 3).map((bin) => bin.minutes), [MAIN_MINUTES, 0, 0]);
+    const root = sharded();
+    assert.deepEqual(plan(root, 'finalize', [], '2/4').shards, plan(root, 'finalize', [], '3/4').shards);
+  });
+});
+
+describe('sharded verification', () => {
+  const actionText = readFileSync(path.join(here, 'action.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const script = actionText.split('      run: |\n')[1].split('\n').map((line) => line.slice(8)).join('\n');
+
+  function shardRun(root, shard) {
+    const dir = path.join(temporary, `shard-${counter++}`);
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    for (const tool of ['dotnet', 'npm']) writeFileSync(path.join(bin, tool), `#!/bin/bash\necho "\${PWD##*/src/}|${tool}|$*" >> "$TOOL_CALLS"\nexit 0\n`, { mode: 0o755 });
+    const files = { changed: path.join(dir, 'changed.txt'), log: path.join(dir, 'log.txt'), output: path.join(dir, 'output.txt'), calls: path.join(dir, 'calls.txt'), markdown: path.join(dir, 'markdown.cjs') };
+    writeFileSync(files.changed, 'src/platform/a.cs\ndocs/a.md');
+    for (const file of [files.calls, files.output]) writeFileSync(file, '');
+    writeFileSync(files.markdown, `require('fs').appendFileSync(${JSON.stringify(files.calls)}, 'markdown\\n');\n`);
+    const result = spawnSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME, WORKSPACE: root, MODE: 'finalize', CHANGED_FILES: files.changed, SHARD: shard,
+        LOG_FILE: files.log, MARKDOWN_CHECK: files.markdown, ANALYST_PROJECTS: path.join(here, 'analyst-projects.py'),
+        VERIFICATION_PLAN: path.join(here, 'verification-plan.mjs'), GITHUB_STEP_SUMMARY: path.join(dir, 'summary.md'),
+        GITHUB_OUTPUT: files.output, TOOL_CALLS: files.calls,
+      },
+    });
+    const outputs = Object.fromEntries(readFileSync(files.output, 'utf8').split('\n').filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
+    return {
+      status: result.status, checks: outputs.checks, uncovered: outputs.uncovered, log: readFileSync(files.log, 'utf8'),
+      calls: readFileSync(files.calls, 'utf8').split('\n').filter(Boolean).map((call) => call.replace(/ --logger trx --results-directory \S+/, '')),
+    };
+  }
+
+  function twoProjects() {
+    const root = repository();
+    touch(root, 'src/platform/Platform.slnx');
+    for (const project of ['Architecture', 'Integration']) touch(root, `src/platform/Tests/${project}.Tests/${project}.Tests.csproj`);
+    declare(root, 'src/platform', {
+      check: 'platform build and {tests}', budgetMinutes: 3,
+      shards: [{ name: 'integration', tests: ['Tests/Integration.Tests/Integration.Tests.csproj'], budgetMinutes: 25 }],
+    });
+    return root;
+  }
+
+  it('runs a later shard\'s test projects only, without the shared checks', () => {
+    const result = shardRun(twoProjects(), '2/2');
+    assert.equal(result.status, 0, result.log);
+    assert.equal(result.checks, 'platform build and tests');
+    assert.deepEqual(result.calls, [
+      'platform|dotnet|restore Platform.slnx', 'platform|dotnet|build Platform.slnx --no-restore',
+      'platform|dotnet|test Tests/Integration.Tests/Integration.Tests.csproj --no-build',
+    ]);
+    assert.match(result.log, /Verification shard 2\/2: src\/platform#integration \(25 min\)\n/);
+    assert.equal(result.uncovered, '');
+  });
+
+  it('runs the rest and the shared checks in the first shard', () => {
+    const result = shardRun(twoProjects(), '1/2');
+    assert.equal(result.status, 0, result.log);
+    assert.equal(result.checks, 'platform build and tests,Markdown check');
+    assert.deepEqual(result.calls, [
+      'platform|dotnet|restore Platform.slnx', 'platform|dotnet|build Platform.slnx --no-restore',
+      'platform|dotnet|test Tests/Architecture.Tests/Architecture.Tests.csproj --no-build', 'markdown',
+    ]);
+    assert.match(result.log, /Verification shard 1\/2: src\/platform#default \(3 min\); also the Python projects, environment action tests, and Markdown check/);
+  });
+
+  it('runs nothing in a shard without work and still passes', () => {
+    const result = shardRun(twoProjects(), '4/4');
+    assert.equal(result.status, 0, result.log);
+    assert.equal(result.checks, '');
+    assert.deepEqual(result.calls, []);
+    assert.match(result.log, /Verification shard 4\/4: no component work/);
+  });
+
+  it('fails every shard of an invalid shard input', () => {
+    const result = shardRun(twoProjects(), '4/3');
+    assert.equal(result.status, 1);
+    assert.equal(result.checks, 'Verification plan');
+    assert.match(result.log, /Verification plan: invalid shard 4\/3/);
   });
 });

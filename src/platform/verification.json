@@ -5,5 +5,10 @@
   "order": 10,
   "covers": ["contracts/"],
   "alwaysRun": ["Tests/SocAlytics.Platform.Architecture.Tests/SocAlytics.Platform.Architecture.Tests.csproj"],
-  "tools": ["dotnet", "docker", "softhsm", "analyst-media"]
+  "tools": ["dotnet", "docker", "softhsm", "analyst-media"],
+  "budgetMinutes": 10,
+  "shards": [
+    { "name": "integration", "tests": ["Tests/SocAlytics.Platform.Integration.Tests/SocAlytics.Platform.Integration.Tests.csproj"], "docker": true, "budgetMinutes": 25 },
+    { "name": "end-to-end", "tests": ["Tests/SocAlytics.Platform.EndToEnd.Tests/SocAlytics.Platform.EndToEnd.Tests.csproj"], "docker": true, "budgetMinutes": 25 }
+  ]
 }

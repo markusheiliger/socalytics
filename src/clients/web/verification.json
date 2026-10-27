@@ -5,5 +5,6 @@
   "order": 30,
   "triggers": ["src/platform/SocAlytics.Platform.Api/"],
   "browserTests": "tests/e2e/",
-  "tools": ["node", "kiota", "playwright", "dotnet", "docker", "analyst-media"]
+  "tools": ["node", "kiota", "playwright", "dotnet", "docker", "analyst-media"],
+  "budgetMinutes": 21
 }

@@ -87,7 +87,7 @@ export function readDeclaration(root, component, errors) {
     errors.push(`${file}: must be a JSON object`);
     return null;
   }
-  const known = ['$comment', 'version', 'check', 'order', 'triggers', 'covers', 'alwaysRun', 'sdkPinOf', 'browserTests', 'tools', 'shards'];
+  const known = ['$comment', 'version', 'check', 'order', 'triggers', 'covers', 'alwaysRun', 'sdkPinOf', 'browserTests', 'budgetMinutes', 'tools', 'shards'];
   for (const key of Object.keys(data)) if (!known.includes(key)) problems.push(`unknown setting "${key}"`);
   if (data.version !== 1) problems.push('version must be 1');
   if (data.check !== undefined && (typeof data.check !== 'string' || !data.check.trim() || data.check.length > 80 || data.check.includes(','))) {
@@ -117,6 +117,9 @@ export function readDeclaration(root, component, errors) {
     else if (typeof data.browserTests !== 'string' || !/^(?:[^/.][^/]*\/)+$/.test(data.browserTests)) {
       problems.push('browserTests must name a folder relative to the component folder, ending with "/"');
     }
+  }
+  if (data.budgetMinutes !== undefined && (!Number.isInteger(data.budgetMinutes) || data.budgetMinutes < 1 || data.budgetMinutes > 360)) {
+    problems.push('budgetMinutes must be a whole number from 1 to 360');
   }
   if (data.tools !== undefined && (!isStringArray(data.tools) || data.tools.some((tool) => !TOOL_GROUPS.includes(tool)))) {
     problems.push(`tools must list tool groups out of ${TOOL_GROUPS.join(', ')}`);
@@ -151,6 +154,65 @@ export function readDeclaration(root, component, errors) {
   return problems.length ? null : data;
 }
 
+// The test projects (*Tests.csproj) of a .NET component, relative to its folder, outside bin/ and obj/ like the action's
+// own search.
+function testProjects(root, componentRoot) {
+  const found = [];
+  const visit = (relative) => {
+    let entries;
+    try {
+      entries = readdirSync(path.join(root, componentRoot, relative), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (entry.name !== 'bin' && entry.name !== 'obj') visit(child);
+      } else if (entry.isFile() && entry.name.endsWith('Tests.csproj')) {
+        found.push(child);
+      }
+    }
+  };
+  visit('');
+  return found.sort();
+}
+
+export const DEFAULT_UNIT_MINUTES = 10;
+// The Python projects, the environment action tests, and the Markdown check always run in the first shard.
+export const MAIN_MINUTES = 5;
+
+// Packs the work of the selected components into count shards by estimated minutes: a declared shard of a .NET
+// component in all-tests scope is one unit, the rest of each component another. Units go, largest first, to the shard
+// with the least work so far (the first on a tie), so the result is deterministic.
+export function packShards(components, count) {
+  const units = [];
+  for (const component of components.filter((item) => item.selected)) {
+    if (component.kind === 'dotnet-solution' && component.tests === 'all') {
+      const assigned = new Set(component.excludedTests);
+      for (const shard of component.shards.filter((item) => item.name !== 'default' && item.runner === 'linux-x64')) {
+        const tests = shard.tests.filter((test) => component.testProjects.includes(test) && !assigned.has(test));
+        tests.forEach((test) => assigned.add(test));
+        if (tests.length) units.push({ root: component.root, name: shard.name, tests, minutes: shard.budgetMinutes ?? DEFAULT_UNIT_MINUTES });
+      }
+      units.push({
+        root: component.root, name: 'default', tests: component.testProjects.filter((test) => !assigned.has(test)),
+        minutes: component.budgetMinutes ?? DEFAULT_UNIT_MINUTES,
+      });
+    } else {
+      units.push({ root: component.root, name: 'default', tests: null, minutes: component.budgetMinutes ?? DEFAULT_UNIT_MINUTES });
+    }
+  }
+  const bins = Array.from({ length: count }, (_, index) => ({ index: index + 1, main: index === 0, minutes: index === 0 ? MAIN_MINUTES : 0, units: [] }));
+  const ordered = [...units].sort((a, b) => b.minutes - a.minutes || a.root.localeCompare(b.root) || a.name.localeCompare(b.name));
+  for (const unit of ordered) {
+    const target = bins.reduce((best, bin) => (bin.minutes < best.minutes ? bin : best), bins[0]);
+    target.units.push(unit);
+    target.minutes += unit.minutes;
+  }
+  return bins;
+}
+
 function pythonArea(root, mode, changedFiles, area, documentationOnly) {
   const interpreter = process.env.SOCALYTICS_PYTHON || 'python3';
   const helper = process.env.ANALYST_PROJECTS || path.join(here, 'analyst-projects.py');
@@ -171,8 +233,16 @@ function pythonArea(root, mode, changedFiles, area, documentationOnly) {
   return entry;
 }
 
-export function buildPlan({ root, mode, changedFiles }) {
+export function buildPlan({ root, mode, changedFiles, shard = '' }) {
   if (!['task', 'phase', 'finalize'].includes(mode)) throw new Error(`unknown mode ${mode}`);
+  let shardIndex = 0;
+  let shardCount = 0;
+  if (shard) {
+    const match = /^([1-9]\d*)\/([1-9]\d*)$/.exec(shard);
+    if (!match || Number(match[1]) > Number(match[2]) || Number(match[2]) > 20) throw new Error(`invalid shard ${shard}; expected <index>/<count> with 1 <= index <= count <= 20`);
+    shardIndex = Number(match[1]);
+    shardCount = Number(match[2]);
+  }
   let changed = [];
   try {
     if (changedFiles) changed = [...new Set(readFileSync(changedFiles, 'utf8').split(/\r?\n/).map((line) => line.trim()).filter(Boolean))];
@@ -199,6 +269,10 @@ export function buildPlan({ root, mode, changedFiles }) {
     const declaredShards = (declaration.shards ?? []).map((shard) => ({
       name: shard.name, tests: shard.tests, runner: shard.runner ?? 'linux-x64', docker: shard.docker ?? false, budgetMinutes: shard.budgetMinutes ?? null,
     }));
+    const projects = component.kind === 'dotnet-solution' ? testProjects(root, component.root) : [];
+    // Test projects of a shard that needs another runner never run on this one.
+    const unrun = declaredShards.filter((shard) => shard.runner !== 'linux-x64');
+    const excludedTests = [...new Set(unrun.flatMap((shard) => shard.tests))].filter((test) => projects.includes(test)).sort();
     planned.push({
       kind: component.kind,
       root: component.root,
@@ -216,10 +290,32 @@ export function buildPlan({ root, mode, changedFiles }) {
       sdkPinOf: declaration.sdkPinOf ?? '',
       browserTests: declaration.browserTests ?? '',
       tools: [...new Set([...KIND_TOOLS[component.kind], ...(declaration.tools ?? [])])].sort(),
-      shards: [...declaredShards, { name: 'default', tests: [], runner: 'linux-x64', docker: (declaration.tools ?? []).includes('docker'), budgetMinutes: null }],
+      budgetMinutes: declaration.budgetMinutes ?? null,
+      testProjects: projects,
+      excludedTests,
+      unrun: unrun.map((shard) => ({ name: shard.name, runner: shard.runner, tests: shard.tests })),
+      shards: [...declaredShards, { name: 'default', tests: [], runner: 'linux-x64', docker: (declaration.tools ?? []).includes('docker'), budgetMinutes: declaration.budgetMinutes ?? null }],
     });
   }
   planned.sort((a, b) => a.order - b.order || a.root.localeCompare(b.root));
+
+  // What this execution runs: every selected component with all its tests, or, for a shard, only the units packed into
+  // it; the Python projects, environment action tests, and the Markdown check run in the first shard only.
+  const shards = shardCount ? packShards(planned, shardCount) : [];
+  const own = shardCount ? shards[shardIndex - 1] : null;
+  for (const component of planned) {
+    const units = own ? own.units.filter((unit) => unit.root === component.root) : [];
+    component.run = component.selected && (!own || units.length > 0);
+    if (!component.run) {
+      component.allowedTests = '';
+    } else if (own && units.every((unit) => unit.tests !== null)) {
+      component.allowedTests = units.flatMap((unit) => unit.tests).join(';');
+    } else if (component.excludedTests.length) {
+      component.allowedTests = component.testProjects.filter((test) => !component.excludedTests.includes(test)).join(';');
+    } else {
+      component.allowedTests = '*';
+    }
+  }
 
   const python = {
     analysts: pythonArea(root, mode, changedFiles, 'analysts', scope.documentationOnly),
@@ -231,6 +327,11 @@ export function buildPlan({ root, mode, changedFiles }) {
     ...Object.values(python).flatMap((area) => area.covered.map((projectRoot) => new RegExp(`^${escapeRegExp(projectRoot)}/`))),
   ];
   const uncovered = changed.filter((file) => declarationChanges.includes(file) || !covered.some((pattern) => pattern.test(file)));
+  // A selected component with tests for another runner holds the change for review: those tests did not run.
+  for (const component of planned.filter((item) => item.selected && item.unrun.length > 0)) {
+    const file = `${component.root}/${DECLARATION}`;
+    if (!uncovered.includes(file)) uncovered.push(file);
+  }
 
   const tools = new Set(['node', 'markdown']);
   for (const component of planned.filter((item) => item.selected)) for (const tool of component.tools) tools.add(tool);
@@ -242,6 +343,9 @@ export function buildPlan({ root, mode, changedFiles }) {
     documentationOnly: scope.documentationOnly,
     scope: `${scope.documentationOnly ? 'documentation-only' : 'full'}: ${scope.reason}`,
     errors,
+    shard: shardCount ? `${shardIndex}/${shardCount}` : '',
+    main: !own || own.main,
+    shards,
     components: planned,
     python,
     uncovered,
@@ -250,20 +354,21 @@ export function buildPlan({ root, mode, changedFiles }) {
 }
 
 export function main(argv) {
+  const usage = 'usage: verification-plan.mjs --root <workspace> --mode <task|phase|finalize> [--changed-files <list>] [--shard <index>/<count>]';
   const options = {};
   for (let index = 0; index < argv.length; index += 2) {
-    if (!['--root', '--mode', '--changed-files'].includes(argv[index]) || argv[index + 1] === undefined) {
-      console.error('usage: verification-plan.mjs --root <workspace> --mode <task|phase|finalize> [--changed-files <list>]');
+    if (!['--root', '--mode', '--changed-files', '--shard'].includes(argv[index]) || argv[index + 1] === undefined) {
+      console.error(usage);
       return 2;
     }
     options[argv[index].slice(2)] = argv[index + 1];
   }
   if (!options.root || !options.mode) {
-    console.error('usage: verification-plan.mjs --root <workspace> --mode <task|phase|finalize> [--changed-files <list>]');
+    console.error(usage);
     return 2;
   }
   try {
-    console.log(JSON.stringify(buildPlan({ root: options.root, mode: options.mode, changedFiles: options['changed-files'] }), null, 2));
+    console.log(JSON.stringify(buildPlan({ root: options.root, mode: options.mode, changedFiles: options['changed-files'], shard: options.shard ?? '' }), null, 2));
     return 0;
   } catch (error) {
     console.error(error.message);

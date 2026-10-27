@@ -1,8 +1,9 @@
 name: Spec Kit implement verify
 
 # The verification of a finished phase of an implementation chain (see Spec Kit implement decide), in a run of its own after
-# the phase's last group: prepare the run, verify the phase (all changes of the implementation branch, mode `phase`),
-# record the result, and start the next run. Each task was verified only with the tests it touched, so a change that
+# the phase's last group: prepare the run, verify the phase (all changes of the implementation branch, mode `phase`, in
+# four shards on their own runners), record the combined result, and start the next run. Each task was verified only
+# with the tests it touched, so a change that
 # breaks other tests shows here, and a failure stops the implementation for a diagnosis with a pending repair instead
 # of using up the attempts of the task that came last.
 run-name: >-
@@ -71,18 +72,22 @@ jobs:
       guidance: ${{ inputs.guidance }}
       workflow: speckit-implement-verify.yml
 
-  # Read-only token; it runs agent-written code.
+  # Read-only token; it runs agent-written code. The work is split into shards (environment-verify packs it by estimated
+  # minutes) that run side by side on their own runners, each with its own Docker daemon; the report combines them.
   verify:
     name: Verify the phase
     needs: decide
     if: ${{ !cancelled() && needs.decide.outputs.action == 'verify' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     permissions:
       contents: read
     outputs:
       head: ${{ steps.head.outputs.head }}
-      flaky: ${{ steps.verify.outputs.flaky }}
     env:
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
@@ -137,12 +142,26 @@ jobs:
           mode: phase
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+          shard: ${{ matrix.shard }}/${{ strategy.job-total }}
+
+      # Matrix outputs keep only one shard's values, so each shard records its own for the report to combine.
+      - name: Record the shard outcome
+        if: always()
+        env:
+          OUTCOME: ${{ steps.verify.outcome }}
+          CHECKS: ${{ steps.verify.outputs.checks }}
+          FLAKY: ${{ steps.verify.outputs.flaky }}
+        run: |
+          mkdir -p "$SPECKIT_RESULT_DIR"
+          printf '%s\n' "$OUTCOME" > "$SPECKIT_RESULT_DIR/outcome.txt"
+          printf '%s\n' "$CHECKS" > "$SPECKIT_RESULT_DIR/checks.txt"
+          printf '%s\n' "$FLAKY" > "$SPECKIT_RESULT_DIR/flaky.txt"
 
       - name: Upload the phase verification
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: speckit-phase-verification
+          name: speckit-phase-verification-shard-${{ matrix.shard }}
           path: ${{ env.SPECKIT_RESULT_DIR }}
           retention-days: 7
           if-no-files-found: ignore
@@ -170,6 +189,27 @@ jobs:
         with:
           node-version: 24
 
+      # The repair flow reads one artifact, speckit-phase-verification, so the shards are combined into it.
+      - name: Download the shard verifications
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: speckit-phase-verification-shard-*
+          path: ${{ runner.temp }}/shards
+
+      - name: Combine the shard verifications
+        id: combine
+        run: node .github/scripts/speckit-verify-shards.mjs combine "$RUNNER_TEMP/shards" "$RUNNER_TEMP/phase-verification"
+
+      - name: Upload the combined phase verification
+        if: steps.combine.outputs.shards != '0'
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-phase-verification
+          path: ${{ runner.temp }}/phase-verification
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Record the phase verification
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -183,7 +223,7 @@ jobs:
           SPECKIT_CHECK_RUN: ${{ needs.decide.outputs.check_run }}
           SPECKIT_HEAD: ${{ needs.verify.outputs.head || needs.decide.outputs.head }}
           SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
-          SPECKIT_VERIFY_FLAKY: ${{ needs.verify.outputs.flaky }}
+          SPECKIT_VERIFY_FLAKY: ${{ steps.combine.outputs.flaky }}
         run: node .github/scripts/speckit-spec.mjs verify-report
 
   # Starts the next run in the workflow of its kind unless this run was cancelled; a stop (attempt limit, diagnosis,

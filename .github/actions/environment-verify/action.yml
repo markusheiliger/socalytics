@@ -48,6 +48,13 @@ inputs:
   log-file:
     description: Path of a file that receives the combined output of the checks
     required: true
+  shard:
+    description: >-
+      Optional <index>/<count> (for example 2/4): run only this shard of the work, as the verification plan packs it by
+      estimated minutes; the first shard also runs the Python projects, the environment action tests, and the Markdown
+      check. Empty runs everything in one job.
+    required: false
+    default: ""
 outputs:
   checks:
     description: Comma-separated names of the checks that ran, in order; after a failure the last one failed
@@ -76,6 +83,7 @@ runs:
         MODE: ${{ inputs.mode }}
         CHANGED_FILES: ${{ inputs.changed-files }}
         LOG_FILE: ${{ inputs.log-file }}
+        SHARD: ${{ inputs.shard }}
         MARKDOWN_CHECK: ${{ github.action_path }}/../../scripts/check-markdown.mjs
         ANALYST_PROJECTS: ${{ github.action_path }}/analyst-projects.py
         VERIFICATION_PLAN: ${{ github.action_path }}/verification-plan.mjs
@@ -107,7 +115,9 @@ runs:
         PLAN_FILE="$RESULTS_ROOT/plan.json"
         plan_status=1
         if [ -n "${VERIFICATION_PLAN:-}" ]; then
-          node "$VERIFICATION_PLAN" --root "$WORKSPACE" --mode "$MODE" --changed-files "$CHANGED_FILES" > "$PLAN_FILE" 2> "$RESULTS_ROOT/plan.err"
+          plan_args=(--root "$WORKSPACE" --mode "$MODE" --changed-files "$CHANGED_FILES")
+          [ -z "${SHARD:-}" ] || plan_args+=(--shard "$SHARD")
+          node "$VERIFICATION_PLAN" "${plan_args[@]}" > "$PLAN_FILE" 2> "$RESULTS_ROOT/plan.err"
           plan_status=$?
         else
           echo "the verification plan is not configured (VERIFICATION_PLAN)" > "$RESULTS_ROOT/plan.err"
@@ -122,6 +132,7 @@ runs:
           ' "$PLAN_FILE" "$1"
         }
         DOCS_ONLY=0
+        MAIN=1
         analyst_python="${SOCALYTICS_PYTHON:-python3}"
         analyst_status=0; analyst_error=""; analyst_selected=""
         agent_status=0; agent_error=""; agent_selected=""
@@ -139,6 +150,16 @@ runs:
           agent_status="$(plan 'p.python.agents.status')"
           agent_error="$(plan 'p.python.agents.error')"
           agent_selected="$(plan 'p.python.agents.selected')"
+          # A shard other than the first runs only its components; the Python projects, the environment action tests,
+          # and the Markdown check belong to the first shard.
+          MAIN="$(plan 'p.main ? 1 : 0')"
+          if [ -n "${SHARD:-}" ]; then
+            echo "Verification shard $SHARD: $(plan 'p.shards[Number(p.shard.split("/")[0]) - 1].units.map((u) => u.root + "#" + u.name + " (" + u.minutes + " min)").join(", ") || "no component work"')$([ "$MAIN" -eq 1 ] && echo '; also the Python projects, environment action tests, and Markdown check')" | tee -a "$LOG_FILE"
+          fi
+          if [ "$MAIN" -eq 0 ]; then
+            analyst_status=0; analyst_selected=""
+            agent_status=0; agent_selected=""
+          fi
           cp "$PLAN_FILE" "$(dirname "$LOG_FILE")/verification-plan.json"
           echo "plan=$(dirname "$LOG_FILE")/verification-plan.json" >> "$GITHUB_OUTPUT"
         else
@@ -288,17 +309,21 @@ runs:
         ROOT="$PWD"
 
         # run_tests <solution> <repo path prefix of the current directory> <always-run project regex> <all|affected>
-        # all (phase, finalize, or a changed declaration): every test project, one after another in sorted order
+        # <allowed test projects: * for all, otherwise ;-separated paths relative to the component folder>
+        # all (phase, finalize, or a changed declaration): every allowed test project, one after another in sorted order
         # (Docker-backed projects must never run at the same time on the one daemon); a failing project does not stop the
         # later ones. affected (task): the always-run
         # test projects; the test classes declared in the changed .cs files of a test project; the whole test project
         # when other files of it changed (fixtures without a class, project files). A test project the task did not
         # touch is skipped; the phase verification and the merge run it. Each project runs through dotnet_test, which
-        # reruns a few failed tests once.
+        # reruns a few failed tests once. A shard allows only the test projects packed into it.
         run_tests() {
-          local solution="$1" prefix="$2" always="$3" scope="$4" result=0 project rel files file found classes whole filter
+          local solution="$1" prefix="$2" always="$3" scope="$4" allowed="${5:-*}" result=0 project rel files file found classes whole filter
           while IFS= read -r project; do
             [ -n "$project" ] || continue
+            if [ "$allowed" != '*' ] && [[ ";$allowed;" != *";$project;"* ]]; then
+              continue
+            fi
             if [ "$scope" = all ]; then
               dotnet_test "$project" || result=1
               continue
@@ -343,7 +368,7 @@ runs:
         # .NET solution components run from their own folder, so their global.json selects the SDK: restore, build, and
         # run_tests. A declared sdkPinOf requires the same sdk object as that other global.json.
         dotnet_component() {
-          local root="$1" solution="$2" always="$3" pin="$4" label="$5" scope="$6" own other result
+          local root="$1" solution="$2" always="$3" pin="$4" label="$5" scope="$6" allowed="$7" own other result
           if [ -n "$pin" ]; then
             other="$(sdk_pin "$pin")"
             own="$(sdk_pin "$root/global.json")"
@@ -355,7 +380,7 @@ runs:
           pushd "$root" > /dev/null
           { step dotnet restore "$solution" &&
             step dotnet build "$solution" --no-restore &&
-            run_tests "$solution" "$root/" "$always" "$scope"; }
+            run_tests "$solution" "$root/" "$always" "$scope" "$allowed"; }
           result=$?
           popd > /dev/null
           return "$result"
@@ -446,16 +471,22 @@ runs:
         }
         # The selected components in the plan's order (declared order, then folder), one check each; the first failed
         # check stops the later ones. Fields are separated by the unit separator, so empty fields survive.
-        while IFS=$'\x1f' read -r -u 3 kind root manifest always pin browser scope label; do
+        while IFS=$'\x1f' read -r -u 3 kind root manifest always pin browser scope allowed label; do
           [ "$status" -eq 0 ] || break
           if [ "$scope" = affected ]; then label="${label//\{tests\}/affected tests}"; else label="${label//\{tests\}/tests}"; fi
           checks+=("$label")
           case "$kind" in
-            dotnet-solution) dotnet_component "$root" "$manifest" "$always" "$pin" "$label" "$scope" || status=1 ;;
+            dotnet-solution) dotnet_component "$root" "$manifest" "$always" "$pin" "$label" "$scope" "$allowed" || status=1 ;;
             npm-package) npm_component "$root" "$label" "$scope" "$browser" || status=1 ;;
             *) echo "$label: no handler for the component kind $kind" | tee -a "$LOG_FILE"; status=1 ;;
           esac
-        done 3< <([ "$plan_status" -eq 0 ] && plan 'p.components.filter((c) => c.selected).map((c) => [c.kind, c.root, c.manifest, c.alwaysRunPattern, c.sdkPinOf, c.browserTests, c.tests, c.check].join("\x1f"))')
+        done 3< <([ "$plan_status" -eq 0 ] && plan 'p.components.filter((c) => c.run).map((c) => [c.kind, c.root, c.manifest, c.alwaysRunPattern, c.sdkPinOf, c.browserTests, c.tests, c.allowedTests, c.check].join("\x1f"))')
+        # Tests of a shard declared for another runner did not run; the plan holds the change for review.
+        if [ "$plan_status" -eq 0 ]; then
+          while IFS= read -r unrun_line; do
+            [ -n "$unrun_line" ] && echo "Not run: $unrun_line" | tee -a "$LOG_FILE"
+          done < <(plan 'p.components.filter((c) => c.selected).flatMap((c) => c.unrun.map((s) => `${c.root} shard ${s.name} (${s.tests.join(", ")}) needs the runner ${s.runner}, which this verification does not provide`))')
+        fi
         # Analyst and agent Python projects: the environment owns the exact command sequence, run with the interpreter
         # that environment-setup installed (SOCALYTICS_PYTHON) and Python downloads disabled. The first failing stage
         # stops the check; the committed declarations and locks are never changed. The label (Analyst or Agent) only
@@ -528,7 +559,7 @@ runs:
         # The environment-local Node tests of both environment actions run when either action folder changed and in
         # finalize mode, whether or not an Analyst Python project exists. They use the caller-provided node, and their
         # fixtures never start this check again: the marker below makes a nested run skip it.
-        if [ "$status" -eq 0 ] && [ -n "${ENVIRONMENT_TESTS:-}" ] && [ -z "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ] && applies "$ENVIRONMENT_TRIGGER"; then
+        if [ "$status" -eq 0 ] && [ "$MAIN" -eq 1 ] && [ -n "${ENVIRONMENT_TESTS:-}" ] && [ -z "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ] && applies "$ENVIRONMENT_TRIGGER"; then
           checks+=("Environment action tests")
           read -r -a environment_tests <<< "$ENVIRONMENT_TESTS"
           step env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test "${environment_tests[@]}" || {
@@ -536,7 +567,7 @@ runs:
             status=1
           }
         fi
-        if [ "$status" -eq 0 ] && applies '\.md$'; then
+        if [ "$status" -eq 0 ] && [ "$MAIN" -eq 1 ] && applies '\.md$'; then
           checks+=("Markdown check")
           # A task or parallel group checks only the Markdown files it changed, so a broken file elsewhere on the base
           # branch does not fail it; phase and finalize verification check the whole repository.

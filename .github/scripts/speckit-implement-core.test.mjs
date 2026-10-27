@@ -853,6 +853,11 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.match(job(phase, 'verify'), /BASE_BRANCH: \$\{\{ needs\.decide\.outputs\.base_branch \}\}[\s\S]*git merge-base HEAD "origin\/\$BASE_BRANCH"/, 'the phase verification covers all changes of the branch');
   assert.match(job(phase, 'verify'), /- name: Verify the phase\n\s+if: [^\n]+\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify[\s\S]*mode: phase/, 'a failed phase verification fails the job');
   assert.match(job(phase, 'report'), /needs: \[decide, verify\][\s\S]*SPECKIT_VERIFY_RESULT: \$\{\{ needs\.verify\.result \}\}[\s\S]*speckit-spec\.mjs verify-report/);
+  // The phase verification runs in shards side by side; the report combines their artifacts into the one the repair reads.
+  assert.match(job(phase, 'verify'), /strategy:\n\s+fail-fast: false\n\s+matrix:\n\s+shard: \[1, 2, 3, 4\]\n/);
+  assert.match(job(phase, 'verify'), /mode: phase\n[\s\S]*shard: \$\{\{ matrix\.shard \}\}\/\$\{\{ strategy\.job-total \}\}\n/);
+  assert.match(job(phase, 'verify'), /name: speckit-phase-verification-shard-\$\{\{ matrix\.shard \}\}\n/);
+  assert.match(job(phase, 'report'), /pattern: speckit-phase-verification-shard-\*[\s\S]*speckit-verify-shards\.mjs combine[\s\S]*name: speckit-phase-verification\n[\s\S]*SPECKIT_VERIFY_FLAKY: \$\{\{ steps\.combine\.outputs\.flaky \}\}/);
   // A repair is reverified with its original failed scope and reported.
   assert.match(job(kinds.repair, 'report'), /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}[\s\S]*speckit-repair\.mjs repair-report/);
   // The spec is archived on the implementation branch before the verification, which verifies and merges that head.
