@@ -5,6 +5,21 @@ using System.Text.RegularExpressions;
 
 namespace SocAlytics.Platform.EndToEnd.Tests.Support;
 
+/// <summary>Outcome of one digest lookup: <c>found</c>, <c>absent</c>, or <c>unavailable: &lt;reason&gt;</c>.</summary>
+internal readonly record struct DigestLookup(string? Digest, string Outcome)
+{
+    private static readonly Regex ValidDigest = new("^sha256:[0-9a-f]{64}$", RegexOptions.CultureInvariant);
+
+    public static DigestLookup Absent => new(null, "absent");
+
+    public static DigestLookup Unavailable(string reason) => new(null, "unavailable: " + reason);
+
+    /// <summary>A found digest, or unavailable when the value is not <c>sha256:</c> plus 64 lowercase hex characters.</summary>
+    public static DigestLookup FromValue(string? value) => value is not null && ValidDigest.IsMatch(value)
+        ? new DigestLookup(value, "found")
+        : value is null ? Absent : Unavailable("malformed digest");
+}
+
 /// <summary>The few Docker Engine calls the end-to-end test needs, on the local engine socket.</summary>
 internal sealed class DockerEngine : IDisposable
 {
@@ -77,6 +92,92 @@ internal sealed class DockerEngine : IDisposable
 
         return digest ?? statusDigest ?? throw new InvalidOperationException("The push did not report a manifest digest:\n" + body);
     }
+
+    /// <summary>The manifest digest the registry reports for <paramref name="repository"/> and <paramref name="tag"/> (<c>Docker-Content-Digest</c>).</summary>
+    public async Task<DigestLookup> LookupRegistryDigestAsync(string repository, string tag, CancellationToken ct)
+    {
+        if (RegistryBaseAddress is null)
+        {
+            return DigestLookup.Unavailable("no registry address");
+        }
+
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(EngineCallPolicy.RegistryLookupLimit);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(RegistryBaseAddress, $"/v2/{repository}/manifests/{tag}"));
+            foreach (var type in ManifestMediaTypes)
+            {
+                request.Headers.Accept.ParseAdd(type);
+            }
+
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, limit.Token);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return DigestLookup.Absent;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return DigestLookup.Unavailable($"registry answered {(int)response.StatusCode}");
+            }
+
+            if (!response.Headers.TryGetValues("Docker-Content-Digest", out var values))
+            {
+                return DigestLookup.Absent;
+            }
+
+            return DigestLookup.FromValue(values.FirstOrDefault());
+        }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException && !ct.IsCancellationRequested)
+        {
+            return DigestLookup.Unavailable(e is OperationCanceledException ? "registry lookup timed out" : e.Message);
+        }
+    }
+
+    /// <summary>The digest in the engine's image record of <paramref name="name"/> that belongs to the pushed repository (<c>RepoDigests</c>).</summary>
+    public async Task<DigestLookup> LookupEngineDigestAsync(string name, string tag, CancellationToken ct)
+    {
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(EngineCallPolicy.RegistryLookupLimit);
+        try
+        {
+            using var response = await _http.GetAsync($"/images/{Uri.EscapeDataString(name + ":" + tag)}/json", limit.Token);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return DigestLookup.Absent;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return DigestLookup.Unavailable($"engine answered {(int)response.StatusCode}");
+            }
+
+            using var record = JsonDocument.Parse(await response.Content.ReadAsStringAsync(limit.Token));
+            if (!record.RootElement.TryGetProperty("RepoDigests", out var digests) || digests.ValueKind != JsonValueKind.Array)
+            {
+                return DigestLookup.Absent;
+            }
+
+            var prefix = name + "@";
+            var value = digests.EnumerateArray()
+                .Select(d => d.ValueKind == JsonValueKind.String ? d.GetString()! : string.Empty)
+                .FirstOrDefault(d => d.StartsWith(prefix, StringComparison.Ordinal));
+            return value is null ? DigestLookup.Absent : DigestLookup.FromValue(value[prefix.Length..]);
+        }
+        catch (Exception e) when (e is HttpRequestException or JsonException or OperationCanceledException && !ct.IsCancellationRequested)
+        {
+            return DigestLookup.Unavailable(e is OperationCanceledException ? "engine lookup timed out" : e.Message);
+        }
+    }
+
+    private static readonly string[] ManifestMediaTypes =
+    [
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    ];
 
     public async Task DeleteImageAsync(string name)
     {
