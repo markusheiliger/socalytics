@@ -7,7 +7,7 @@ import test from 'node:test';
 import { ATTENTION_LABEL } from './speckit-implement-core.mjs';
 import { MAIN_HEALTH_LABEL, renderCause } from './speckit-main-health.mjs';
 import {
-  HEAL_LABEL, HEAL_STOP_MARKER, MAX_HEAL_ATTEMPTS, decideHeal, healAttempts, healthBlock, healthState, parseNameStatus, renderCauseGuidance,
+  HEAL_CHECK_NAME, HEAL_LABEL, HEAL_STOP_MARKER, MAX_HEAL_ATTEMPTS, decideHeal, healAttempts, healthBlock, healthState, parseNameStatus, renderCauseGuidance,
   renderHealAttempt, renderHealPrompt, runDecide, runLand, runReport, validateHealChange,
 } from './speckit-heal.mjs';
 import { FakeGitHub } from './speckit-test-helpers.mjs';
@@ -152,7 +152,9 @@ test('land commits a valid change to the healing branch and opens a draft healin
     assert.equal(calls[0], `checkout -B main-heal/${issue.number}-1 ${BASE}`);
     const pull = github.repo.pulls.at(-1);
     assert.deepEqual([pull.head.ref, pull.base.ref, pull.draft], [`main-heal/${issue.number}-1`, 'trunk', true]);
-    assert.match(pull.body, /Root cause: a typo\.[\s\S]*never merged automatically/);
+    assert.match(pull.body, /\[this Main heal run\]\(https:\/\/github\.com\/octo\/repo\/actions\/runs\/5\)[\s\S]*Root cause: a typo\.[\s\S]*never merged automatically/);
+    const check = github.repo.checkRuns.find((run) => run.name === HEAL_CHECK_NAME);
+    assert.deepEqual([check?.head_sha, check?.status, check?.details_url], ['h'.repeat(40), 'in_progress', 'https://github.com/octo/repo/actions/runs/5']);
     assert.ok(github.labels.has(HEAL_LABEL));
     assert.deepEqual(healAttempts(github.comments), [{ attempt: 1, outcome: 'verifying', pull: pull.number }]);
     assert.equal(outputsOf(output).landed, 'true');
@@ -191,8 +193,10 @@ test('report hands a passed healing pull request to a person and closes a failed
   const issue = await openIssue(github);
   github.repo.branches['main-heal/1-1'] = 'h1';
   const pull = await github.createPullRequest({ title: 'Heal', head: 'main-heal/1-1', base: 'trunk', body: '', draft: true });
+  await github.createCheckRun({ name: HEAL_CHECK_NAME, head_sha: 'h1', status: 'in_progress' });
   const reportEnv = { ...env, SPECKIT_HEAL_ISSUE: String(issue.number), SPECKIT_HEAL_ATTEMPT: '1', SPECKIT_HEAL_PULL: String(pull.number), SPECKIT_HEAL_REVIEWER: 'owner' };
   assert.equal((await runReport({ client: github, env: { ...reportEnv, SPECKIT_HEAL_RESULT: 'success' }, log: () => {} })).outcome, 'ready');
+  assert.deepEqual(github.repo.checkRuns.map((run) => [run.status, run.conclusion]), [['completed', 'success']], 'the check run is completed, not duplicated');
   const ready = github.repo.pulls.find((item) => item.number === pull.number);
   assert.equal(ready.draft, false);
   assert.deepEqual(github.repo.reviewRequests, [{ number: pull.number, reviewers: ['owner'] }]);
@@ -210,6 +214,7 @@ test('report hands a passed healing pull request to a person and closes a failed
     writeFileSync(path.join(dir, 'verification.log'), '=== Shard 3/4 (failure): platform end-to-end ===\n');
     const result = await runReport({ client: other, env: { ...reportEnv, SPECKIT_HEAL_ISSUE: String(otherIssue.number), SPECKIT_HEAL_PULL: String(failing.number), SPECKIT_HEAL_RESULT: 'failure', SPECKIT_HEAL_LOG: path.join(dir, 'verification.log') }, log: () => {} });
     assert.equal(result.outcome, 'failed');
+    assert.deepEqual(other.repo.checkRuns.map((run) => [run.name, run.head_sha, run.conclusion]), [[HEAL_CHECK_NAME, 'h2', 'failure']]);
     assert.equal(other.repo.pulls.find((item) => item.number === failing.number).state, 'closed');
     assert.equal(other.repo.branches['main-heal/2-1'], undefined);
     assert.deepEqual(healAttempts(other.comments).map((item) => [item.outcome, item.reasons]), [['failed verification', 'shard 3/4 (failure): platform end-to-end']]);

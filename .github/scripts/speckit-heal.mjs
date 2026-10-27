@@ -22,6 +22,9 @@ export const MAX_HEAL_ATTEMPTS = 3;
 const ATTEMPT_PATTERN = /<!-- speckit:heal-attempt (\{[^\n]*?\}) -->/g;
 export const renderHealAttempt = (data) => `<!-- speckit:heal-attempt ${JSON.stringify(data)} -->`;
 export const HEAL_STOP_MARKER = '<!-- speckit:heal-stopped -->';
+// The check run on the healing pull request's head that shows the healer's verification while it runs.
+export const HEAL_CHECK_NAME = 'Main heal verification';
+const runUrlOf = (env) => (env.GITHUB_RUN_ID ? `${env.GITHUB_SERVER_URL ?? 'https://github.com'}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : '');
 
 const TEST_FILE = /(^|\/)(tests?|Tests?)\/|(^|\/)[^/]*Tests?\/|\.(test|spec)\.[cm]?[jt]sx?$|Tests?\.cs$|(^|\/)test_[^/]*\.py$|_test\.py$/;
 const DISABLED_TEST = /\bSkip\s*=|\[(Fact|Theory)\s*\(\s*Skip|\b(it|test|describe)\.(skip|only|fixme)\s*\(|\bx(it|describe|test)\s*\(|pytest\.mark\.(skip|xfail)|@unittest\.skip|Assert\.Skip\(|\[Ignore/;
@@ -146,7 +149,7 @@ export function renderHealPrompt({ issue, attempt, evidence, failed, previous = 
     '- You may change product code and tests, and the folders .github/actions/environment-setup and .github/actions/environment-verify for environment problems. Never change other files under .github/, .specify/, or specs/.',
     '- Never weaken a test: do not delete, skip, disable, or loosen tests or their assertions, and do not mark them flaky. A flaky test is fixed by making it deterministic.',
     '- Do not commit, push, or open pull requests; leave the change in the working tree.',
-    `- Finally write ${evidence}/summary.md: the root cause, the fix, and how you checked it, in a few sentences.`,
+    `- As soon as you have a fix, write ${evidence}/summary.md (the root cause and the fix, in a few sentences) before you run long checks, then add how you checked it. The run can end while a long check still runs, so never leave the summary for last.`,
     '',
     `This is attempt ${attempt} of ${MAX_HEAL_ATTEMPTS}.`,
   ].join('\n');
@@ -234,6 +237,7 @@ export async function runLand({ client, env, git, resultDir, log = console.log }
   }
   const head = git(['rev-parse', 'HEAD']).stdout.trim();
   const run = env.SPECKIT_HEAL_EVIDENCE_URL ?? '';
+  const healRun = runUrlOf(env);
   const pull = await client.createPullRequest({
     title: `Heal the default branch (#${issue})`,
     head: branch,
@@ -242,11 +246,24 @@ export async function runLand({ client, env, git, resultDir, log = console.log }
     body: [
       `Heals the default branch, whose full verification fails (#${issue}); attempt ${attempt} of ${MAX_HEAL_ATTEMPTS}${run ? `, from [this failing run](${run})` : ''}.`,
       '',
-      summary || 'The agent wrote no summary.',
+      `The change was written by a Copilot agent in ${healRun ? `[this Main heal run](${healRun})` : 'the Main heal workflow'}, which also runs its full verification now (check **${HEAL_CHECK_NAME}**). No action is needed until it passes.`,
       '',
-      'This pull request is being verified in full now. It is never merged automatically: once it passed, a person reviews and merges it. While it is open, every Spec Kit implementation waits.',
+      summary || `The agent wrote no summary; its log is in the \`main-heal-result\` artifact of ${healRun ? `[the run](${healRun})` : 'the run'}.`,
+      '',
+      'It is never merged automatically: once it passed, a person reviews and merges it. While it is open, every Spec Kit implementation waits.',
     ].join('\n'),
   });
+  try {
+    await client.createCheckRun({
+      name: HEAL_CHECK_NAME,
+      head_sha: head,
+      status: 'in_progress',
+      ...(healRun ? { details_url: healRun } : {}),
+      output: { title: 'Verifying the healing change in full', summary: `The full verification of attempt ${attempt} runs in ${healRun || 'the Main heal run'}.` },
+    });
+  } catch {
+    // The pull request body links the run as well.
+  }
   try {
     await client.ensureLabel({ name: HEAL_LABEL, color: '0e8a16', description: 'Heals the default branch' });
     await client.addLabels(pull.number, [HEAL_LABEL]);
@@ -259,6 +276,24 @@ export async function runLand({ client, env, git, resultDir, log = console.log }
   return { landed: true, pull: pull.number, head };
 }
 
+async function completeHealCheck(client, sha, result, runUrl) {
+  if (!sha) return;
+  const passed = result === 'success';
+  const fields = {
+    status: 'completed',
+    conclusion: passed ? 'success' : 'failure',
+    ...(runUrl ? { details_url: runUrl } : {}),
+    output: { title: passed ? 'The full verification passed' : 'The full verification failed', summary: passed ? 'Ready for a person to review and merge.' : `The verification ended with ${result || 'no result'}; this attempt is closed.` },
+  };
+  try {
+    const existing = (await client.listCheckRuns(sha, HEAL_CHECK_NAME)).at(-1);
+    if (existing) await client.updateCheckRun(existing.id, fields);
+    else await client.createCheckRun({ name: HEAL_CHECK_NAME, head_sha: sha, ...fields });
+  } catch {
+    // The comments report the outcome as well.
+  }
+}
+
 // Main heal, job "Record the healing verification": a passed healing pull request is marked ready and handed to a
 // person for review and merge; a failed one is closed, and the next attempt starts.
 export async function runReport({ client, env, log = console.log }) {
@@ -266,8 +301,9 @@ export async function runReport({ client, env, log = console.log }) {
   const attempt = Number(env.SPECKIT_HEAL_ATTEMPT);
   const pullNumber = Number(env.SPECKIT_HEAL_PULL);
   const result = String(env.SPECKIT_HEAL_RESULT ?? '');
-  const runUrl = `${env.GITHUB_SERVER_URL ?? 'https://github.com'}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
+  const runUrl = runUrlOf(env);
   const pull = await client.getPullRequest(pullNumber);
+  await completeHealCheck(client, pull.head?.sha, result, runUrl);
   if (result === 'success') {
     try {
       if (pull.draft && pull.node_id) await client.markReadyForReview(pull.node_id);

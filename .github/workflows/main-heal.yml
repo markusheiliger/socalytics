@@ -150,6 +150,8 @@ jobs:
         uses: ./tooling/.github/actions/speckit-copilot
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
+          # Full end-to-end runs take longer than the CLI's default ten-minute wait for background commands.
+          COPILOT_TASK_WAIT_TIMEOUT_SECONDS: "2400"
         with:
           level: strong
           mode: agent
@@ -194,6 +196,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      checks: write
       actions: write
     outputs:
       landed: ${{ steps.land.outputs.landed }}
@@ -355,6 +358,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      checks: write
       actions: write
     steps:
       - name: Check out the trusted tooling
