@@ -371,7 +371,7 @@ test('repair fallback: finalize dispatches real product verification commands wi
   write(repos.work, 'src/analysts/manager/SocAlytics.Analysts.Manager.slnx', '');
   write(repos.work, 'src/analysts/manager/Worker.Tests.csproj', '');
   write(repos.work, 'src/analysts/manager/global.json', '{"sdk":{"version":"10.0.100"}}');
-  write(repos.work, 'src/clients/web/package.json', '{}');
+  write(repos.work, 'src/clients/web/package.json', '{"scripts":{"build":"b","test":"t","test:e2e":"e"}}');
   write(repos.work, 'src/clients/web/node_modules/@playwright/test/package.json', '{"version":"1.63.0"}');
   write(repos.base, 'markdown.mjs', '');
   const mode = repairVerificationScope({ scope: 'phase', repairChangedFiles: '' }).mode;
@@ -381,12 +381,14 @@ test('repair fallback: finalize dispatches real product verification commands wi
     GITHUB_OUTPUT: path.join(repos.base, 'output'), GITHUB_STEP_SUMMARY: path.join(repos.base, 'summary'),
     MARKDOWN_CHECK: path.join(repos.base, 'markdown.mjs'), CALLS: path.join(repos.base, 'calls'),
     ANALYST_PROJECTS: fileURLToPath(new URL('../actions/environment-verify/analyst-projects.py', import.meta.url)),
+    VERIFICATION_PLAN: fileURLToPath(new URL('../actions/environment-verify/verification-plan.mjs', import.meta.url)),
     SOCALYTICS_PYTHON: PYTHON, ENVIRONMENT_TESTS: '',
   } });
-  assert.equal(run.status, 0, run.stderr);
+  assert.equal(run.status, 0, run.stderr + readFileSync(path.join(repos.base, 'verification.log'), 'utf8'));
   const calls = readFileSync(path.join(repos.base, 'calls'), 'utf8');
-  assert.match(calls, /dotnet test src\/platform\/Tests\/Host.Tests.csproj --no-build/);
-  assert.match(calls, /dotnet test src\/platform\/Tests\/Integration.Tests.csproj --no-build/);
+  // Each component builds and tests from its own folder.
+  assert.match(calls, /dotnet test Tests\/Host.Tests.csproj --no-build/);
+  assert.match(calls, /dotnet test Tests\/Integration.Tests.csproj --no-build/);
   assert.match(calls, /dotnet test Worker.Tests.csproj --no-build/);
   assert.match(calls, /npm test\nnpm run test:e2e/);
 }));
