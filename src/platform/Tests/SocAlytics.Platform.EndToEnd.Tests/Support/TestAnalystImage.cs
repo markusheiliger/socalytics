@@ -119,13 +119,68 @@ internal static class TestAnalystImage
     }
 }
 
+/// <summary>Reads the pushed manifest digest from a Docker Engine push response, whichever form the engine reports it in.</summary>
+internal static partial class PushOutput
+{
+    public static string ReadDigest(string body)
+    {
+        string? auxDigest = null;
+        string? statusDigest = null;
+        foreach (var line in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(line);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+
+            using (document)
+            {
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                if (root.TryGetProperty("errorDetail", out var error))
+                {
+                    throw new InvalidOperationException("Pushing the Test Analyst image failed: " + error.GetRawText());
+                }
+
+                if (root.TryGetProperty("aux", out var aux)
+                    && aux.ValueKind == JsonValueKind.Object
+                    && aux.TryGetProperty("Digest", out var value)
+                    && value.ValueKind == JsonValueKind.String)
+                {
+                    auxDigest = value.GetString();
+                }
+
+                if (root.TryGetProperty("status", out var status) && status.ValueKind == JsonValueKind.String)
+                {
+                    var match = StatusDigestLine().Match(status.GetString()!);
+                    if (match.Success)
+                    {
+                        statusDigest = match.Groups[1].Value;
+                    }
+                }
+            }
+        }
+
+        return auxDigest ?? statusDigest ?? throw new InvalidOperationException("The push did not report a manifest digest:\n" + body);
+    }
+
+    [GeneratedRegex(@"^\S+: digest: (sha256:[0-9a-f]{64}) size: \d+$")]
+    private static partial Regex StatusDigestLine();
+}
+
 /// <summary>The few Docker Engine calls the end-to-end test needs, on the local engine socket.</summary>
-internal sealed partial class DockerEngine : IDisposable
+internal sealed class DockerEngine : IDisposable
 {
     private const string SocketPath = "/var/run/docker.sock";
-
-    [GeneratedRegex(@": digest: (?<digest>sha256:[0-9a-f]{64}) size: \d+$")]
-    private static partial Regex PushedDigest();
 
     private readonly HttpClient _http = new(new SocketsHttpHandler
     {
@@ -148,30 +203,7 @@ internal sealed partial class DockerEngine : IDisposable
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadAsStringAsync(ct);
-        string? digest = null;
-        foreach (var line in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            using var document = JsonDocument.Parse(line);
-            if (document.RootElement.TryGetProperty("errorDetail", out var error))
-            {
-                throw new InvalidOperationException("Pushing the Test Analyst image failed: " + error.GetRawText());
-            }
-
-            if (document.RootElement.TryGetProperty("aux", out var aux) && aux.TryGetProperty("Digest", out var value))
-            {
-                digest = value.GetString();
-            }
-            else if (digest is null
-                && document.RootElement.TryGetProperty("status", out var status)
-                && status.ValueKind == JsonValueKind.String
-                && PushedDigest().Match(status.GetString()!) is { Success: true } match)
-            {
-                // Newer engines report the pushed manifest only in the final status line, without an aux record.
-                digest = match.Groups["digest"].Value;
-            }
-        }
-
-        return digest ?? throw new InvalidOperationException("The push did not report a manifest digest:\n" + body);
+        return PushOutput.ReadDigest(body);
     }
 
     public async Task DeleteImageAsync(string name)

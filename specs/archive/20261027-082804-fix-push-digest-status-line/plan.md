@@ -2,7 +2,7 @@
 
 **Branch**: `20261027-082804-fix-push-digest-status-line` | **Date**: 2026-10-27 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261027-082804-fix-push-digest-status-line/spec.md`
+**Input**: Feature specification from `specs/archive/20261027-082804-fix-push-digest-status-line/spec.md`
 
 ## Summary
 
@@ -48,7 +48,7 @@ Post-design re-check: unchanged, all gates pass. No complexity tracking is neede
 ### Documentation (this feature)
 
 ```text
-specs/20261027-082804-fix-push-digest-status-line/
+specs/archive/20261027-082804-fix-push-digest-status-line/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output
