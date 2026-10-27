@@ -1,8 +1,9 @@
 {
   "$comment": "Verification declaration read by .github/actions/environment-verify (see its README). Changing this file tests the component in full and holds the change for review.",
   "version": 1,
-  "check": "Web UI build and tests",
+  "check": "Web UI build and {tests}",
   "order": 30,
   "triggers": ["src/platform/SocAlytics.Platform.Api/"],
+  "browserTests": "tests/e2e/",
   "tools": ["node", "kiota", "playwright", "dotnet", "docker", "analyst-media"]
 }

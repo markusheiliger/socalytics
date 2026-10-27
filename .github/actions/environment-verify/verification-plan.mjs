@@ -87,7 +87,7 @@ export function readDeclaration(root, component, errors) {
     errors.push(`${file}: must be a JSON object`);
     return null;
   }
-  const known = ['$comment', 'version', 'check', 'order', 'triggers', 'covers', 'alwaysRun', 'sdkPinOf', 'tools', 'shards'];
+  const known = ['$comment', 'version', 'check', 'order', 'triggers', 'covers', 'alwaysRun', 'sdkPinOf', 'browserTests', 'tools', 'shards'];
   for (const key of Object.keys(data)) if (!known.includes(key)) problems.push(`unknown setting "${key}"`);
   if (data.version !== 1) problems.push('version must be 1');
   if (data.check !== undefined && (typeof data.check !== 'string' || !data.check.trim() || data.check.length > 80 || data.check.includes(','))) {
@@ -110,6 +110,12 @@ export function readDeclaration(root, component, errors) {
     if (component.kind !== 'dotnet-solution') problems.push('sdkPinOf applies only to a .NET solution');
     else if (typeof data.sdkPinOf !== 'string' || !RELATIVE_FILE.test(data.sdkPinOf) || !data.sdkPinOf.endsWith('global.json')) {
       problems.push('sdkPinOf must name a global.json by its repository path');
+    }
+  }
+  if (data.browserTests !== undefined) {
+    if (component.kind !== 'npm-package') problems.push('browserTests applies only to an npm package');
+    else if (typeof data.browserTests !== 'string' || !/^(?:[^/.][^/]*\/)+$/.test(data.browserTests)) {
+      problems.push('browserTests must name a folder relative to the component folder, ending with "/"');
     }
   }
   if (data.tools !== undefined && (!isStringArray(data.tools) || data.tools.some((tool) => !TOOL_GROUPS.includes(tool)))) {
@@ -208,6 +214,7 @@ export function buildPlan({ root, mode, changedFiles }) {
       alwaysRun: always,
       alwaysRunPattern: always.length ? `^(${always.map(escapeRegExp).join('|')})$` : '',
       sdkPinOf: declaration.sdkPinOf ?? '',
+      browserTests: declaration.browserTests ?? '',
       tools: [...new Set([...KIND_TOOLS[component.kind], ...(declaration.tools ?? [])])].sort(),
       shards: [...declaredShards, { name: 'default', tests: [], runner: 'linux-x64', docker: (declaration.tools ?? []).includes('docker'), budgetMinutes: null }],
     });

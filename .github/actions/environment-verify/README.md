@@ -33,6 +33,7 @@ A component may declare more in a `verification.json` next to its manifest:
 | `triggers` | Folders under `src/` or `contracts/` that select the component without being covered by it |
 | `alwaysRun` | .NET only: test project files, relative to the component folder, that every task runs in full |
 | `sdkPinOf` | .NET only: a `global.json` whose `sdk` object the component's own `global.json` must equal |
+| `browserTests` | npm only: the browser test folder relative to the component folder, ending with `/`, which enables [touched browser tests](#test-selection) in task mode |
 | `tools` | Tool groups the component needs: `dotnet`, `node`, `docker`, `softhsm`, `kiota`, `playwright`, `analyst-media`, `markdown` |
 | `shards` | Named groups of test projects (`name`, `tests`, `runner` out of `linux-x64`, `linux-x64-gpu`, `windows-x64`, `macos-arm64`, `docker`, `budgetMinutes`); the remaining tests form the shard `default` |
 
@@ -41,6 +42,8 @@ Unknown settings and invalid values fail the check "Verification plan" with the 
 ### Test selection
 
 All tests (phase, finalize, or a changed declaration): every test project, one after another in sorted order, because Docker-backed projects must never share the one daemon. Affected tests (task): the `alwaysRun` projects; the test classes declared in the changed `.cs` files of a test project; the whole test project when other files of it changed. A test project the task did not touch is skipped; the phase verification and the merge run it.
+
+An npm component always builds and runs all its unit tests (`test`). Its browser tests (`test:e2e`, with `--retries=1`) follow the same rule when it declares `browserTests`: with affected tests, only the existing spec files (`*.spec.ts` and similar) under that folder that the task changed run, passed to `npm run test:e2e -- --retries=1 <files>`, so Playwright also runs the projects they depend on; a task that changed no spec runs no browser test. A change to anything else under the folder (support files, fixtures), the Playwright configuration, `package.json`, or `package-lock.json` runs every browser test, as do all tests and a component without `browserTests`. The Web UI's simulated browser project takes about 88 % of its browser test time on its single worker, so this is the tier that keeps a task fast; the phase verification runs every spec before the phase ends.
 
 ## Documentation-only changes
 

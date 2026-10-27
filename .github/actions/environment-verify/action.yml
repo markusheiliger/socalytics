@@ -15,13 +15,14 @@ description: >-
   per selected component in declared order, then folder (today "platform build and tests" for src/platform/ and
   contracts/, always running its Architecture tests; "Analyst Manager build and tests" for src/analysts/manager/, also
   triggered by contracts/analyst-manager/ and failing when its global.json sdk object differs from the platform's;
-  "Web UI build and tests" for src/clients/web/, also triggered by src/platform/SocAlytics.Platform.Api/, with all its
-  tests in every mode); "Analyst Python projects" and "Agent Python projects" (the locked uv stages of the selected
+  "Web UI build and tests" for src/clients/web/, also triggered by src/platform/SocAlytics.Platform.Api/, running in
+  task mode all unit tests but only the browser spec files the task touched); "Analyst Python projects" and "Agent Python projects" (the locked uv stages of the selected
   projects; a failed discovery fails its check in every mode); "Environment action tests" (the Node tests of both
   environment actions, when either action folder changed or in finalize mode); "Markdown check". A .NET component
   restores, builds, and tests from its own folder; an npm component runs npm ci (no browser download), the Playwright
   pin check when it uses @playwright/test (1.63.0, the version environment-setup installs), and its build, test, and
-  test:e2e scripts (browser tests with --retries=1), stopping at the first failure. Every .NET test project runs with
+  test:e2e scripts (browser tests with --retries=1; with affected tests and a declared browserTests folder only the
+  touched spec files), stopping at the first failure. Every .NET test project runs with
   a TRX log; when it fails with at most 10 failed tests, only those run once more, and a project whose rerun passes
   passes. Tests that passed only on their rerun (and Playwright's flaky tests) are listed in the log, the step
   summary, and the flaky output.
@@ -347,17 +348,43 @@ runs:
             process.exit(found ? 0 : 1);
           ' "$PWD/package.json" "$1" "$2"
         }
-        # The browser tests retry a failed test once; the tests that passed on their retry are recorded as flaky.
+        # The browser tests retry a failed test once; the tests that passed on their retry are recorded as flaky. Extra
+        # arguments (spec files) limit the run to those files.
         npm_browser_tests() {
           local before result
           before="$(wc -l < "$LOG_FILE")"
-          step npm run test:e2e -- --retries=1
+          step npm run test:e2e -- --retries=1 "$@"
           result=$?
           tail -n "+$((before + 1))" "$LOG_FILE" | playwright_flaky >> "$FLAKY_FILE"
           return "$result"
         }
+        # npm_touched_specs <component folder> <browser test folder>: for affected tests, the existing spec files under
+        # the browser test folder that the change touched (relative to the component folder, one per line), or FULL
+        # when no browser test folder is declared or the change touched anything else the browser tests share (support
+        # files, fixtures, the Playwright configuration, package.json, or package-lock.json).
+        npm_touched_specs() {
+          local root="$1" folder="$2" file rel full=0 specs=""
+          [ -n "$folder" ] || { echo FULL; return; }
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            case "$file" in "$root/"*) ;; *) continue ;; esac
+            rel="${file#"$root/"}"
+            case "$rel" in
+              playwright.config.*|package.json|package-lock.json) full=1 ;;
+              "$folder"*)
+                if [[ "$rel" =~ \.spec\.[cm]?[jt]sx?$ ]]; then
+                  [ -f "$rel" ] && specs+="$rel"$'\n'
+                else
+                  full=1
+                fi
+                ;;
+            esac
+          done <<< "$changed"
+          if [ "$full" -eq 1 ]; then echo FULL; else printf '%s' "$specs"; fi
+        }
         npm_component() {
-          local root="$1" label="$2" name="${2%% build*}" result=0
+          local root="$1" label="$2" scope="$3" browser="$4" name="${2%% build*}" result=0 specs
+          local -a touched
           pushd "$root" > /dev/null
           npm_step "$name" install step env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci || result=1
           if [ "$result" -eq 0 ] && { [ -d node_modules/@playwright/test ] || npm_declares dependency @playwright/test; }; then
@@ -365,22 +392,33 @@ runs:
           fi
           if [ "$result" -eq 0 ] && npm_declares script build; then npm_step "$name" build step npm run build || result=1; fi
           if [ "$result" -eq 0 ] && npm_declares script test; then npm_step "$name" 'unit tests' step npm test || result=1; fi
-          if [ "$result" -eq 0 ] && npm_declares script test:e2e; then npm_step "$name" 'browser tests' npm_browser_tests || result=1; fi
+          if [ "$result" -eq 0 ] && npm_declares script test:e2e; then
+            specs=FULL
+            [ "$scope" = affected ] && specs="$(npm_touched_specs "$root" "$browser")"
+            if [ "$specs" = FULL ]; then
+              npm_step "$name" 'browser tests' npm_browser_tests || result=1
+            elif [ -n "$specs" ]; then
+              mapfile -t touched < <(grep -v '^$' <<< "$specs")
+              npm_step "$name" 'browser tests (touched specs)' npm_browser_tests "${touched[@]}" || result=1
+            else
+              echo "$name step: browser tests skipped: the change touched no browser test; the phase verification runs them all" | tee -a "$LOG_FILE"
+            fi
+          fi
           popd > /dev/null
           return "$result"
         }
         # The selected components in the plan's order (declared order, then folder), one check each; the first failed
         # check stops the later ones. Fields are separated by the unit separator, so empty fields survive.
-        while IFS=$'\x1f' read -r -u 3 kind root manifest always pin scope label; do
+        while IFS=$'\x1f' read -r -u 3 kind root manifest always pin browser scope label; do
           [ "$status" -eq 0 ] || break
           if [ "$scope" = affected ]; then label="${label//\{tests\}/affected tests}"; else label="${label//\{tests\}/tests}"; fi
           checks+=("$label")
           case "$kind" in
             dotnet-solution) dotnet_component "$root" "$manifest" "$always" "$pin" "$label" "$scope" || status=1 ;;
-            npm-package) npm_component "$root" "$label" || status=1 ;;
+            npm-package) npm_component "$root" "$label" "$scope" "$browser" || status=1 ;;
             *) echo "$label: no handler for the component kind $kind" | tee -a "$LOG_FILE"; status=1 ;;
           esac
-        done 3< <([ "$plan_status" -eq 0 ] && plan 'p.components.filter((c) => c.selected).map((c) => [c.kind, c.root, c.manifest, c.alwaysRunPattern, c.sdkPinOf, c.tests, c.check].join("\x1f"))')
+        done 3< <([ "$plan_status" -eq 0 ] && plan 'p.components.filter((c) => c.selected).map((c) => [c.kind, c.root, c.manifest, c.alwaysRunPattern, c.sdkPinOf, c.browserTests, c.tests, c.check].join("\x1f"))')
         # Analyst and agent Python projects: the environment owns the exact command sequence, run with the interpreter
         # that environment-setup installed (SOCALYTICS_PYTHON) and Python downloads disabled. The first failing stage
         # stops the check; the committed declarations and locks are never changed. The label (Analyst or Agent) only

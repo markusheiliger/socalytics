@@ -651,10 +651,10 @@ exit 0
       const root = fullRepository();
       const bin = toolBin();
       const web = run(root, { mode: 'task', changed: ['src/clients/web/src/a.ts'], bin });
-      assert.equal(web.outputs.checks, names.web);
+      assert.equal(web.outputs.checks, names.web.replace('tests', 'affected tests'));
       assert.equal(web.outputs.uncovered, '');
       const api = run(root, { mode: 'task', changed: ['src/platform/SocAlytics.Platform.Api/a.cs'], bin });
-      assert.equal(api.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.web].join(','));
+      assert.equal(api.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.web.replace('tests', 'affected tests')].join(','));
       const fixtures = run(root, { mode: 'task', changed: ['contracts/analyst-manager/queue-depth/a.json'], bin });
       assert.equal(fixtures.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.manager.replace('tests', 'affected tests')].join(','));
       assert.equal(fixtures.outputs.uncovered, '');

@@ -206,7 +206,7 @@ describe('declaration validation', () => {
     const checks = Object.fromEntries(result.components.map((item) => [item.root, item.check]));
     assert.equal(checks['src/platform'], 'platform build and {tests}');
     assert.equal(checks['src/analysts/manager'], 'Analyst Manager build and {tests}');
-    assert.equal(checks['src/clients/web'], 'Web UI build and tests');
+    assert.equal(checks['src/clients/web'], 'Web UI build and {tests}');
     assert.deepEqual(result.components.slice(0, 3).map((item) => item.root), ['src/platform', 'src/analysts/manager', 'src/clients/web']);
     for (const item of result.components) assert.ok(item.tools.every((tool) => TOOL_GROUPS.includes(tool)));
   });
@@ -287,5 +287,92 @@ describe('verification of a new component', () => {
     assert.equal(result.outputs.uncovered, 'src/tools/reporter/verification.json');
     assert.ok(result.calls.map((call) => call.replace(/ --logger trx --results-directory \S+/, ''))
       .includes(`${root}/src/tools/reporter|dotnet|test Tests/Reporter.Tests/Reporter.Tests.csproj --no-build`));
+  });
+});
+
+describe('Web UI browser test tiers', () => {
+  const actionText = readFileSync(path.join(here, 'action.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const script = actionText.split('      run: |\n')[1].split('\n').map((line) => line.slice(8)).join('\n');
+
+  function web({ browserTests = 'tests/e2e/' } = {}) {
+    const root = repository();
+    touch(root, 'src/clients/web/package.json', JSON.stringify({ scripts: { build: 'b', test: 't', 'test:e2e': 'e' }, devDependencies: { '@playwright/test': '1.63.0' } }));
+    touch(root, 'src/clients/web/node_modules/@playwright/test/package.json', '{"version":"1.63.0"}');
+    declare(root, 'src/clients/web', { check: 'Web UI build and {tests}', ...(browserTests ? { browserTests } : {}) });
+    touch(root, 'src/clients/web/tests/e2e/simulated/sign-in.spec.ts');
+    touch(root, 'src/clients/web/tests/e2e/platform/triage.spec.ts');
+    return root;
+  }
+
+  function npmCalls(root, mode, changed) {
+    const dir = path.join(temporary, `web-${counter++}`);
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(path.join(bin, 'npm'), '#!/bin/bash\necho "$*" >> "$TOOL_CALLS"\nexit 0\n', { mode: 0o755 });
+    const files = { changed: path.join(dir, 'changed.txt'), log: path.join(dir, 'log.txt'), output: path.join(dir, 'output.txt'), calls: path.join(dir, 'calls.txt') };
+    writeFileSync(files.changed, changed.join('\n'));
+    for (const file of [files.calls, files.output]) writeFileSync(file, '');
+    const result = spawnSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME, WORKSPACE: root, MODE: mode, CHANGED_FILES: files.changed,
+        LOG_FILE: files.log, MARKDOWN_CHECK: path.join(dir, 'none.mjs'), ANALYST_PROJECTS: path.join(here, 'analyst-projects.py'),
+        VERIFICATION_PLAN: path.join(here, 'verification-plan.mjs'), GITHUB_STEP_SUMMARY: path.join(dir, 'summary.md'),
+        GITHUB_OUTPUT: files.output, TOOL_CALLS: files.calls,
+      },
+    });
+    const outputs = Object.fromEntries(readFileSync(files.output, 'utf8').split('\n').filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
+    return { status: result.status, checks: outputs.checks, log: readFileSync(files.log, 'utf8'), calls: readFileSync(files.calls, 'utf8').split('\n').filter(Boolean) };
+  }
+
+  it('runs the build and all unit tests but no browser test when a task touches none', () => {
+    const result = npmCalls(web(), 'task', ['src/clients/web/src/session.ts', 'src/platform/SocAlytics.Platform.Api/a.cs']);
+    assert.equal(result.status, 0, result.log);
+    assert.equal(result.checks, 'Web UI build and affected tests');
+    assert.deepEqual(result.calls, ['ci', 'run build', 'test']);
+    assert.match(result.log, /Web UI step: browser tests skipped: the change touched no browser test; the phase verification runs them all/);
+  });
+
+  it('runs only the browser spec files a task touched', () => {
+    const result = npmCalls(web(), 'task', [
+      'src/clients/web/src/session.ts', 'src/clients/web/tests/e2e/platform/triage.spec.ts',
+      'src/clients/web/tests/e2e/simulated/sign-in.spec.ts', 'src/clients/web/tests/e2e/simulated/removed.spec.ts',
+    ]);
+    assert.equal(result.status, 0, result.log);
+    assert.deepEqual(result.calls, ['ci', 'run build', 'test', 'run test:e2e -- --retries=1 tests/e2e/platform/triage.spec.ts tests/e2e/simulated/sign-in.spec.ts']);
+    assert.match(result.log, /Web UI step: browser tests \(touched specs\)/);
+  });
+
+  for (const shared of ['src/clients/web/tests/e2e/support/fakeObjectStorage.mjs', 'src/clients/web/playwright.config.ts', 'src/clients/web/package-lock.json', 'src/clients/web/package.json']) {
+    it(`runs every browser test when a task changes ${path.posix.basename(shared)}`, () => {
+      const result = npmCalls(web(), 'task', ['src/clients/web/tests/e2e/simulated/sign-in.spec.ts', shared]);
+      assert.equal(result.status, 0, result.log);
+      assert.deepEqual(result.calls, ['ci', 'run build', 'test', 'run test:e2e -- --retries=1']);
+    });
+  }
+
+  it('runs every browser test in phase and finalize mode and without a declared browser test folder', () => {
+    for (const mode of ['phase', 'finalize']) {
+      assert.deepEqual(npmCalls(web(), mode, ['src/clients/web/src/session.ts']).calls, ['ci', 'run build', 'test', 'run test:e2e -- --retries=1']);
+    }
+    assert.deepEqual(npmCalls(web({ browserTests: '' }), 'task', ['src/clients/web/src/session.ts']).calls, ['ci', 'run build', 'test', 'run test:e2e -- --retries=1']);
+  });
+
+  it('runs every browser test when the declaration changed', () => {
+    const result = npmCalls(web(), 'task', ['src/clients/web/verification.json']);
+    assert.equal(result.checks, 'Web UI build and tests');
+    assert.deepEqual(result.calls, ['ci', 'run build', 'test', 'run test:e2e -- --retries=1']);
+  });
+
+  it('accepts browserTests only as a folder of an npm package', () => {
+    const root = repository();
+    touch(root, 'src/tools/reporter/Reporter.slnx');
+    declare(root, 'src/tools/reporter', { browserTests: 'tests/e2e/' });
+    touch(root, 'src/clients/web/package.json', '{}');
+    declare(root, 'src/clients/web', { browserTests: '../e2e/' });
+    assert.deepEqual(plan(root, 'task', []).errors.sort(), [
+      'src/clients/web/verification.json: browserTests must name a folder relative to the component folder, ending with "/"',
+      'src/tools/reporter/verification.json: browserTests applies only to an npm package',
+    ]);
   });
 });
