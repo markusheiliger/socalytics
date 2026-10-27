@@ -30,7 +30,7 @@
 
 ## Dependencies & Execution Order
 
-- T001 and T004 to T007 were removed because a task that only runs commands or reads files changes nothing and cannot land (the land job rejects an empty change). The restore, build, and read steps are the start of T002; the Docker-free test run (SC-001), the regression probes (SC-003), the Linux-engine image tests (SC-002, FR-008), and the scope check (SC-004) are covered by the phase verification, the convergence, and the final merge verification. T002 → T003; T003 depends on the helper of T002.
+- T001 and T004 to T007 were removed because a task that only runs commands or reads files changes nothing and cannot land (the land job rejects an empty change). The restore, build, and read steps are the start of T002; the Docker-free test run (SC-001), the Linux-engine image tests (SC-002, FR-008), and the scope check (SC-004) are covered by the phase verification, the convergence, and the final merge verification. The regression probes (SC-003) run no automated task: they are satisfied by the assertion design of T003 (each parsing test asserts the exact digest and the refusal reasons, so ignoring the status line or accepting a 63-character digest fails at least one test), and the convergence may confirm that design by inspection. T002 → T003; T003 depends on the helper of T002.
 - US1 is the only story and the MVP.
 
 ## Parallel Opportunities
