@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace SocAlytics.Platform.EndToEnd.Tests.Support;
 
@@ -8,6 +9,8 @@ namespace SocAlytics.Platform.EndToEnd.Tests.Support;
 internal sealed class DockerEngine : IDisposable
 {
     private const string SocketPath = "/var/run/docker.sock";
+
+    private static readonly Regex StatusDigest = new(@"digest: (sha256:[0-9a-f]{64})", RegexOptions.CultureInvariant);
 
     private readonly HttpClient _http;
 
@@ -51,6 +54,7 @@ internal sealed class DockerEngine : IDisposable
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadAsStringAsync(ct);
         string? digest = null;
+        string? statusDigest = null;
         foreach (var line in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             using var document = JsonDocument.Parse(line);
@@ -63,9 +67,15 @@ internal sealed class DockerEngine : IDisposable
             {
                 digest = value.GetString();
             }
+            else if (document.RootElement.TryGetProperty("status", out var status)
+                && status.ValueKind == JsonValueKind.String
+                && StatusDigest.Match(status.GetString()!) is { Success: true } match)
+            {
+                statusDigest = match.Groups[1].Value;
+            }
         }
 
-        return digest ?? throw new InvalidOperationException("The push did not report a manifest digest:\n" + body);
+        return digest ?? statusDigest ?? throw new InvalidOperationException("The push did not report a manifest digest:\n" + body);
     }
 
     public async Task DeleteImageAsync(string name)
