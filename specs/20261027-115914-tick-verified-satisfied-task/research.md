@@ -10,7 +10,7 @@ All technical-context unknowns were resolved from the existing tooling; none is 
 
 ## R2: What the verification of an unchanged branch checks today
 
-- **Finding**: `runPackage` writes `changed-files.txt` from the agent's staged paths. For an empty change that file is empty, `environment-verify` in `task` mode selects no check, and `runVerdict` records `verification: configured`, `checks: []`, `verified: true`. A passing verification of an unchanged branch therefore proves nothing about the task. Even with named files selected, the files exist and their tests pass on an unchanged branch, so the land job additionally requires evidence that the task's work exists on the branch: at least one named file differs from the base branch (`branchPaths` diff against `origin/<base>`, or a non-workflow commit touched it). Only test or build checks qualify; the "Markdown check" selected for Markdown-only files does not.
+- **Finding**: `runPackage` writes `changed-files.txt` from the agent's staged paths. For an empty change that file is empty, `environment-verify` in `task` mode selects no check, and `runVerdict` records `verification: configured`, `checks: []`, `verified: true`. A passing verification of an unchanged branch therefore proves nothing about the task. Even with named files selected, the files exist and their tests pass on an unchanged branch, so the land job additionally requires evidence that the task's work exists on the branch: at least one named file that no other task in `tasks.md` names differs from the base branch (`branchPaths` diff against `origin/<base>`); files several tasks name cannot show that this task's work exists, so a task none of whose files is specific to it is refused. Only test or build checks qualify; the "Markdown check" selected for Markdown-only files does not.
 - **Decision**: for an empty change, `runPackage` writes the existing files that the task names in `tasks.md` into `changed-files.txt` (and into a new `result.taskFiles`), so the existing selection logic picks the checks for exactly those files. `result.changedFiles` stays empty.
 - **Rationale**: matches the clarification (FR-002): the verification covers the task's work only when it passed and ran at least one check selected for the files the task names. No new selection logic and no change to `environment-verify`.
 - **Alternatives considered**: running the full verification (rejected: slow, and covers more than the task); trusting a passing empty verification (rejected: lets an agent skip a task).
@@ -41,7 +41,7 @@ All technical-context unknowns were resolved from the existing tooling; none is 
 
 ## R6: Marking the landing (FR-007)
 
-- **Decision**: add an `unchanged-verified` flag to what `runLand` hands the reporting code. The task comment, commit message, and check-run title say "already satisfied" and name the checks that passed; the task is ticked and the implementation continues automatically (no hold for review). The attempt marker format is unchanged, so attempt counting (FR-006) is untouched.
+- **Decision**: add a boolean `verifiedUnchanged` flag (set from the helper `isVerifiedUnchanged(result, headNow)`) to what `runLand` hands the reporting code. The task comment, commit message, and check-run title say "already satisfied" and name the checks that passed; the task is ticked and the implementation continues automatically (no hold for review). The attempt marker format is unchanged, so attempt counting (FR-006) is untouched.
 
 ## R7: Documentation
 

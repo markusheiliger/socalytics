@@ -24,9 +24,9 @@ Rules: `unchanged` never adds to `reasons` and never changes `verified`; the lan
 An empty agent change lands when either holds:
 
 1. `doneByPush` is true (existing rule, unchanged); or
-2. all of: `unchanged.status === 'passed'`, `unchanged.checks.length >= 1`, `unchanged.uncovered` is empty, `unchanged.files` is non-empty, `unchanged.head` equals the pull request's current head (the tip fetched before the land checkout, not the detached checkout of the work head, which always equals `unchanged.head`), at least one check in `unchanged.checks` qualifies (a check qualifies unless its name is exactly "Markdown check"; the land job identifies it by that name alone), and the task's work is evidenced on the branch: at least one file in `unchanged.files` differs from the base branch (the `branchPaths` diff against `origin/<base>`, or a non-workflow commit touched it).
+2. all of: `unchanged.status === 'passed'`, `unchanged.checks.length >= 1`, `unchanged.uncovered` is empty, `unchanged.files` is non-empty, `unchanged.head` equals the pull request's current head (the tip fetched before the land checkout, not the detached checkout of the work head, which always equals `unchanged.head`), at least one check in `unchanged.checks` qualifies (a check qualifies unless its name is exactly "Markdown check"; the land job identifies it by that name alone), and the task's work is evidenced on the branch: at least one file in `unchanged.files` that no other task in `tasks.md` names (a file specific to this task, recomputed by the land job) differs from the base branch (the `branchPaths` diff against `origin/<base>`).
 
-Otherwise the attempt fails with the first applicable reason: `the agent made no changes` plus the cause — head mismatch, verification failed, verification not run or not configured, task names no verifiable file, no (qualifying) check covered the task's files, or no named file differs from the base branch.
+Otherwise the attempt fails with the first applicable reason: `the agent made no changes` plus the cause — head mismatch, verification failed, verification not run or not configured, task names no verifiable file, no (qualifying) check covered the task's files, no named file is specific to this task, or no specific named file differs from the base branch.
 
 ## State transitions
 

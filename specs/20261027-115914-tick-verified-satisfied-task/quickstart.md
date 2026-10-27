@@ -35,4 +35,4 @@ node .github/scripts/check-markdown.mjs
 
 ## Manual evidence after merge
 
-Continue the stopped implementation of `specs/20261026-100223-environment-guard-archive-rewrites` (pull request #344) with `/speckit retry`; T004 and T005 should land as already satisfied. SC-004 is observed manually after the merge rather than by an automated task.
+The stopped implementation of `specs/20261026-100223-environment-guard-archive-rewrites` (pull request #344) is not continued by this path: its T004 and T005 name only files under `.github/scripts/`, which no check covers, so `/speckit retry` still fails them without a push by a person or Copilot to its branch (`doneByPush`). Observe SC-004 manually after the merge on a task that names at least one file covered by a test or build check and whose work was pushed before its first attempt: the comment says the task was already satisfied and ticked on the verification of the unchanged branch.
