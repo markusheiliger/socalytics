@@ -161,7 +161,15 @@ A task's agent leaves `tasks.md` alone: after the verification passed, the land 
 (an agent's own correct tick is still accepted, any other change of `tasks.md` is refused).
 A task whose work a push already did (a person's, or Copilot's for them, after the task's first attempt or at the branch
 head) lands without a change of its agent: the land job only ticks it. Without such a push, an agent that changes
-nothing fails the attempt.
+nothing may land only when verification of the unchanged branch passes on the current head, includes a test or build
+check for the files the task names, leaves none of them uncovered, and a file only this task names either differs on
+the implementation branch from its base or changed on the base branch since the implementation pull request was
+opened (the work landed elsewhere and was merged in). A task with no such evidence (including a missing or failed
+verification, a head mismatch, or files named by another task only) fails the attempt; a Markdown-only check does not
+qualify. A task ticked without its agent's change is never ticked silently: the land job appends a provenance note to
+its line in `tasks.md` (for example `— already satisfied by 8e71cbfd on main (verified; no change by this task)`),
+and its comment and check run say the same, so the tick never claims work this spec did not do; agents cannot add
+such a note themselves.
 The verification reruns failing tests once: a .NET test project with at most 10 failed tests reruns only those, and
 the Web UI browser tests run with `--retries=1`. A test that passes on the rerun lets the check pass but is reported as
 **flaky** in the comment (marker `speckit-implement:flaky`); a test that fails twice fails the check. After each

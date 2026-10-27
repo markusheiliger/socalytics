@@ -83,7 +83,8 @@ export function resolveValidationCommand(
     ...validation,
     command: nodeExecutable,
     args: [
-      path.join(path.dirname(shimPath), 'node_modules', packageName, entryPoint),
+      // Windows paths, also when the resolution itself is tested on another platform.
+      path.win32.join(path.win32.dirname(shimPath), 'node_modules', packageName, entryPoint),
       ...validation.args,
     ],
   };
