@@ -54,25 +54,31 @@ a task gate.
   2 seconds (a bounded backoff between attempts, not a sleep to wait out a failure; read through `TimeProvider` so tests
   do not wait), and `RegistryLookupLimit` 30 seconds. `HttpClient.Timeout` becomes infinite; each call runs under a
   linked token (the test's token plus `CancelAfter(limit)`), and the limit ending the call is reported as the named
-  limit. Transient: `HttpRequestException` or `IOException` (reset or closed connection, refused connection), Docker.DotNet connection and timeout exceptions, a Testcontainers build exception whose inner exception chain contains any of these, a call
+  limit. Transient: `HttpRequestException` or `IOException` (reset or closed connection, refused connection), a Testcontainers build exception whose inner exception chain contains any of these, a call
   timeout that was not a cancellation, HTTP 502, 503, 504, and 429, and a registry that is not yet answering. Not
   transient and never retried: an error in the response, a malformed response, a digest conflict, other 4xx, and a
   build failure Testcontainers reports for the image's own content (a Dockerfile or build-step failure, or any build
   exception without a transient cause in its inner exception chain). Cancellation of the test's token is never retried.
-  The final failure lists every attempt's reason.
+  The final failure lists every attempt's reason. Builds go through Testcontainers' own Docker client, whose request
+  timeout is not touched by the `HttpClient` change; T001 records the value it applies, and if it is shorter than
+  `BuildLimit` the build is configured or run so that `BuildLimit` and the test's token end it, or the limitation is
+  documented in the README.
 - **Rationale**: FR-005, FR-006; the 214 MB image under load exceeded or reset on the shared limit.
 - **Alternatives considered**: raising only the client timeout (still one anonymous limit and no cancellation tie);
   retrying every exception (would hide the deterministic digest defect).
 
 ### D4 Bound across builds and pushes
 
-- **Decision**: `ImageBuildGate`, one static `SemaphoreSlim` with `MaxConcurrentBuildsAndPushes` 1 (builds and pushes
-  of the whole assembly run one at a time; the collection already serializes the tests, so this is a guard if the
+- **Decision**: `ImageBuildGate`, an instance type with a constructor limit, its own `SemaphoreSlim`, and its own
+  observed-maximum counter; the process-wide gate is a single static instance created with
+  `MaxConcurrentBuildsAndPushes` 1 (builds and pushes of the whole assembly run one at a time; the collection already serializes the tests, so this is a guard if the
   collection structure changes), acquired in exactly one place: inside each helper's uncached `BuildAndPushAsync`,
   around the build and the push of one image together, with the token passed in, and released in `finally`. The cache
   and the call sites never acquire it, so a cached build cannot acquire it twice and deadlock. Only code that builds
-  or pushes waits for it. The gate keeps an observed-maximum concurrency counter that tests read and that is logged
-  once when the class fixture is disposed.
+  or pushes waits for it. Each gate instance keeps an observed-maximum concurrency counter that tests read (the static
+  gate's is logged once when the class fixture is disposed). Unit tests (`ImageBuildGateTests`, `AnalystImageCacheTests`)
+  use fresh gate instances injected into the cache and the build delegate, never the static one, so they neither wait
+  for nor are polluted by real builds.
 - **Rationale**: FR-007; a value of 1 keeps the single engine and registry unloaded and is simplest to document.
 - **Alternatives considered**: a cross-process named lock (would also bound `Images.Tests`, but it adds a lock file and
   a hang risk, and the other assembly's code is out of scope); a higher value (no evidence it helps).
@@ -83,7 +89,8 @@ a task gate.
   `registry:2` through `OciRegistryContainerFixture`), keyed by helper, mode or variant, and inputs, holding a
   single-flight entry that follows the state machine of [data-model.md](data-model.md). A failed build or push faults the entry for every
   waiting test and is removed so a later test may retry; cancellation of one waiting test does not cancel the build for
-  the others (the build runs under the cache's own token bounded by the limits, which the cache passes to the helper's uncached
+  the others, but the cache's build token is cancelled when the class fixture is disposed or when the last waiting test
+  has cancelled, which stops the build, releases the gate, and removes the entry (the build runs under the cache's own token bounded by the limits, which the cache passes to the helper's uncached
   `BuildAndPushAsync` that takes the gate; the cache keeps a per-key build count that is logged with the gate's
   observed maximum), and the fixture removes the images and
   disposes the registry at the end of the class. A test that deletes, mutates, or otherwise depends on the image being

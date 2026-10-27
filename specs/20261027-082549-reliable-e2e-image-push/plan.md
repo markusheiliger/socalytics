@@ -108,7 +108,8 @@ src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/
 │   ├── PushDigestTests.cs
 │   ├── EngineCallPolicyTests.cs
 │   ├── ImageBuildGateTests.cs
-│   └── AnalystImageCacheTests.cs
+│   ├── AnalystImageCacheTests.cs
+│   └── DockerEngineLookupTests.cs     # registry and engine lookups through the DockerEngine constructor seam
 └── (existing Docker-backed test classes; those that build images take the cached image where the rule allows)
 
 src/platform/README.md                 # edited: points to the project README, corrects the test description

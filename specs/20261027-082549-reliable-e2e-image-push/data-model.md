@@ -27,6 +27,11 @@ Lines: progress (`status`, `id`, `progressDetail`), error (`errorDetail`, `error
   agree; the registry and the engine are consulted only when the response yielded none and must agree when both were
   consulted; an error line fails the push before any digest.
 
+## DockerEngine constructor seam
+
+`DockerEngine` accepts an `HttpMessageHandler` and a registry base address, so the registry manifest lookup and the
+engine image-record lookup run in Docker-free unit tests (`DockerEngineLookupTests`) against a fake endpoint.
+
 ## EngineCallPolicy
 
 | Name | Value | Meaning |
@@ -54,6 +59,9 @@ absent --first request--> building --success--> ready   (served to every later t
                               |
                               +--failure--> faulted for the waiting tests --> removed (a later test may retry)
 ```
+
+The build runs under the cache's own token, which is cancelled when the class fixture is disposed or when the last
+waiting test has cancelled; the build then stops, releases the gate, and the entry is removed.
 
 Per test class lifetime: created with the class fixture, images removed and the class's registry disposed when the
 class ends. An entry is never served a variant or inputs it was not built for.

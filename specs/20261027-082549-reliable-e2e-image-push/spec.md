@@ -20,6 +20,8 @@
 - Q: When a push response already carries a valid manifest digest (a progress record or the final status line), must the support code still query the local registry and the engine's image record to cross-check it, or may it stop at the first valid digest? → A: Stop at the first valid digest (no extra lookups); the mismatch failure applies only to sources that were actually read, so the registry and engine are consulted only when the response yields none.
 - Q: How is the stability criterion of at least 5 consecutive full end-to-end runs (including 2 after an engine restart and 1 under CPU load) to be evidenced, given that the implementation automation runs the verification once with a single rerun? → A: Only the unit tests without Docker and one full Docker-backed run (plus the Images tests) are required as automated verification; the 5-run, engine-restart, and CPU-load evidence is recorded manually by a maintainer in `research.md` and is not a task gate.
 - Q: Which cause comes first, recent change on main or runner load? → A: Both are investigated with evidence before the fix is chosen; the fix has to hold under either.
+- Q: All Docker-backed classes share one xunit collection and run serially in the assembly, so does a load cause from parallel tests still hold, and what does the build and push bound guard? → A: No concurrent load comes from tests of this assembly. The load cause is repeated large builds and pushes (one per test method) and the shared client timeout; reuse per class reduces them, and the bound is a guard for a changed collection structure. Load from other assemblies or the runner is out of scope. The `## Evidence` record of `research.md` settles this.
+- Q: Must a final status line naming a digest for a different repository be rejected? → A: Only the tag can be checked from the status line (it carries no repository); the repository is checked for the registry and engine sources only.
 
 ## Problem
 
@@ -33,7 +35,7 @@ Evidence from the stopped implementation of #335:
 Suspected causes, to be confirmed by evidence before they are fixed:
 
 - **Digest taken from one source only** (most likely): the engine in the runner does not always emit the progress record the support code expects (a difference of engine or image-store version, or of how a push is served), although the digest is reported by the final status line, the registry, and the engine's image record.
-- **Runner load and timeouts**: parallel tests build and push large images at the same time to one engine and one registry, so a push or build exceeds the shared client timeout of five minutes, a connection is reset, or the registry is not ready yet.
+- **Load and timeouts**: every test method builds and pushes its large image again to one engine and one registry, so a push or build exceeds the shared client timeout of five minutes, a connection is reset, or the registry is not ready yet. The Docker-backed classes of the project share one xunit collection and run one after another, so the load does not come from tests of this assembly running at the same time; load from other assemblies of a solution-wide run or from the runner is outside what this spec can bound.
 - **A recent change on main**: a change merged to `main` (a larger image, a new image-building test, an engine setting, a base image) that increased the load or changed the push response. The implementation checks the history of the project and of the image inputs between the passing and the failing branch.
 
 The implementation first reproduces the failure or demonstrates it with a recorded push response of each shape, identifies which cause (or another) produces it, and then removes it.
@@ -77,17 +79,17 @@ A maintainer sees a slow push or build of a large image finish within an explici
 
 ---
 
-### User Story 3 - Parallel tests do not overload the engine and the registry (Priority: P3)
+### User Story 3 - Repeated large pushes are avoided and builds and pushes stay bounded (Priority: P3)
 
-A maintainer sees image builds and pushes of parallel tests serialised or bounded across the whole run, and an image that is already built and pushed in the run reused instead of built and pushed again, so the single engine and the single local registry are not overloaded.
+A maintainer sees an image that is already built and pushed for a test class reused instead of built and pushed again for every test, so the single engine and the single local registry carry far fewer large pushes, and sees image builds and pushes bounded in-process by one shared limit that guards against a changed collection structure (today the classes run one after another in one xunit collection). Load from other assemblies or the runner is out of scope.
 
-**Why this priority**: Load is the second suspected cause and the reason a failure appears with the full project and not with a single test; it reduces the chance of any transient failure.
+**Why this priority**: Repeated large pushes are the second suspected cause and the reason a failure appears with the full project and not with a single test; reuse reduces the chance of any transient failure.
 
-**Independent Test**: Run the end-to-end project and check from the recorded timings or a probe that no more than the declared number of builds and pushes run at the same time, and that tests using the same image variant in one class share one build and push (reuse never serves an image that a test changes or that has another variant).
+**Independent Test**: Check with a probe of concurrent builds that no more than the declared number of builds and pushes run at the same time, and with the recorded timings or counts that tests using the same image variant in one class share one build and push (reuse never serves an image that a test changes or that has another variant).
 
 **Acceptance Scenarios**:
 
-1. **Given** several tests start at the same time, **When** they build or push images, **Then** no more than the declared number run at once across all test classes of the run.
+1. **Given** several tests would build or push images at the same time (for example if the collection structure changes), **When** they do, **Then** no more than the declared number run at once across all test classes of the run.
 2. **Given** tests of one class need the same image variant with the same inputs, **When** they run, **Then** the image is built and pushed once for them, and each test still has the registry and digest it registers.
 3. **Given** a test needs a different variant (another mode or another inputs), **When** it runs, **Then** it gets its own image and is never served one that does not match.
 4. **Given** the bound or the reuse, **When** a test fails or is cancelled while it holds the bound or builds a shared image, **Then** the bound is released and no other test is left waiting or served a partial image.
@@ -109,7 +111,7 @@ A maintainer reading the end-to-end tests' documentation finds the evidenced cau
 
 ### Edge Cases
 
-- A response whose last status line names a digest for a different repository or tag than the one pushed MUST NOT be used.
+- A response whose last status line names a digest for a different tag than the one pushed MUST NOT be used (the status line carries no repository; the repository is checked only for the registry and engine sources).
 - A response digest that is valid MUST end the determination without a registry or engine lookup, even if those would report another digest.
 - A digest of a malformed form (not `sha256:` plus 64 hex characters) MUST NOT be accepted from any source.
 - A registry that is not yet answering at the first lookup MUST be handled as a transient condition within the bound, not as a missing digest.
@@ -125,7 +127,7 @@ A maintainer reading the end-to-end tests' documentation finds the evidenced cau
 - **FR-002**: Determining the manifest digest of a push MUST use, in this order, the progress record that carries the digest, the final status line `<tag>: digest: sha256:<64 hex> size: <n>` for the pushed repository and tag, the manifest digest reported by the local test registry for the pushed repository and tag, and the repository digests of the engine's image record. The first valid digest wins and ends the determination, except that the progress record and the final status line, both read from the response, are compared (FR-004): a later source (the registry, then the engine's image record) is consulted only when every earlier source yielded none, so a digest the response carries is never cross-checked against the registry or the engine.
 - **FR-003**: An error reported in the push response MUST fail the push with that error before any digest is determined, and a digest MUST be accepted only in the form `sha256:` plus 64 hexadecimal characters.
 - **FR-004**: If two sources that were actually read report different digests for the pushed image (the progress record and the final status line of the response, or the registry and the engine's image record when the response yielded none and both were consulted), or no source reports one, the push MUST fail with the full response body and the result of each source it tried; the message MUST NOT contain credentials.
-- **FR-005**: The push and the image build MUST each have an explicit, named time limit that is generous for the largest test image, set in one place, and MUST be cancelled by the test's cancellation token; the shared client timeout MUST NOT be what ends a push or build.
+- **FR-005**: The push and the image build MUST each have an explicit, named time limit that is generous for the largest test image, set in one place, and MUST be cancelled by the test's cancellation token (for a shared build, the test's token cancels it when no other waiting test remains); the shared client timeout MUST NOT be what ends a push or build.
 - **FR-006**: A push or build that fails with a transient condition (a reset or closed connection, a timeout of the call, a registry or engine not yet ready) MUST be repeated at most a named, bounded number of times with a short bounded delay, MUST report the reason of every failed attempt in the final failure, and MUST NOT be repeated after cancellation. A failure the engine reports for the image itself, a malformed response, and a digest conflict MUST NOT be retried.
 - **FR-007**: Image builds and pushes across all test classes of the run MUST be bounded by one shared limit on the number running at the same time, with a documented value, released on success, failure, and cancellation, and tests that do not build or push MUST NOT wait for it.
 - **FR-008**: An image built and pushed for one test class MUST be reused within that class for tests that need the same variant and inputs, instead of built and pushed per test; tests that change, delete, or otherwise depend on the image being their own MUST keep their own, and a failed shared build MUST be reported to every test that needs it and not cached as a success.
@@ -142,7 +144,7 @@ A maintainer reading the end-to-end tests' documentation finds the evidenced cau
 - **SC-001**: The end-to-end project passes 33 of 33 tests (or all of its tests if the count changed) in one full run against a Linux engine as automated verification, and in at least 5 consecutive full runs, including at least 2 runs started after an engine restart and 1 run under CPU load, with no test needing a rerun, as evidence a maintainer records manually in `research.md` (not verified by a task of this spec, like SC-007).
 - **SC-002**: The digest determination returns the correct digest for each recorded response shape (record present, only the status line, neither with the registry reporting it, neither with only the engine record) and fails with diagnostics in the case of none, an error, a mismatch, or a malformed digest, in 100% of the unit cases, and no registry or engine lookup is made when the response yields a valid digest.
 - **SC-003**: In the fake-endpoint tests, a stalled call ends at the named limit or the cancellation, a transient failure is repeated exactly up to the bound with every reason reported, and a deterministic failure is not repeated, in 100% of cases.
-- **SC-004**: In a full run no more than the declared number of image builds and pushes run at the same time, and the number of builds and pushes of one image variant in one test class is one.
+- **SC-004**: In the probe of concurrent builds no more than the declared number of image builds and pushes run at the same time (a guard, since the collection already serializes the tests of the assembly), and the number of builds and pushes of one image variant in one test class is one.
 - **SC-005**: The Images tests (`SocAlytics.Platform.Images.Tests`) pass against the same engine in the same run, and no test of either project is skipped, weakened, or loosened (the comparison of the assertions and attributes before and after shows no removal).
 - **SC-006**: The documentation and `research.md` name the evidenced cause, the change touches only the end-to-end support code, its tests, the documentation, and this spec folder, and no fixed sleep is added other than the named bounded `RetryDelay` of `EngineCallPolicy`, and none in tests.
 - **SC-007** (post-merge evidence, observed when #345 retries and not verified by a task of this spec): the full platform verification of #345 reports no failing end-to-end test of this cause.
