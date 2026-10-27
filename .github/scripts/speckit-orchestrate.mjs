@@ -24,7 +24,6 @@ import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWi
 import { maintainAmendment } from './speckit-amend.mjs';
 import { maintainBacklog } from './speckit-backlog.mjs';
 import { maintainFixSpec, maintainIndependentSpecs, startFixAuthoring } from './speckit-fix.mjs';
-import { healthBlock, healthState, liftHealthBlock } from './speckit-heal.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
@@ -172,8 +171,6 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   const merged = [];
   const amendmentNotes = [];
   let amendmentActions = 0;
-  // An unhealthy default branch (an open health issue or healing pull request) blocks every implementation.
-  const health = await healthState(client, env);
   for (const [folder, issue] of [...byFolder.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const open = issue.state === 'open';
     const entry = specs.get(folder);
@@ -217,7 +214,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       }
       // Prerequisites: a spec authored by `/speckit author` holds the implementation until the twin depends on it;
       // open dependencies of the twin block it, and once none is open, the implementation retries.
-      const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number, rootDir, health }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
+      const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number, rootDir }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
       inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active, blocked: isBlocked, blockers });
@@ -240,7 +237,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
     if (openBlocking.length > 0) blocked.push({ number: issue.number, folder, blockers: openBlocking });
     else ready.push({ number: issue.number, folder, requester: requester.login, reset: lifecycle.reset, prerequisite: false });
   }
-  const unblocked = await sweepBlocked(client, env, { handled: new Set(inProgress.map((twin) => twin.pull)), now: now(), notes: amendmentNotes, rootDir, health });
+  const unblocked = await sweepBlocked(client, env, { handled: new Set(inProgress.map((twin) => twin.pull)), now: now(), notes: amendmentNotes, rootDir });
   amendmentActions += unblocked;
   amendmentActions += await maintainIndependentSpecs(client, env, { now: now(), report: (line) => amendmentNotes.push(line) });
   // Requested prerequisites of running implementations first, however the dependency came about: each unblocks an
@@ -276,12 +273,12 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   report.flush();
   setOutput(env, 'count', String(ready.length));
   setOutput(env, 'matrix', JSON.stringify({ include: ready }));
-  return { exitCode: 0, ready, blocked, inconsistent, inProgress, fallback, merged, amendmentActions, health };
+  return { exitCode: 0, ready, blocked, inconsistent, inProgress, fallback, merged, amendmentActions };
 }
 
 // Maintains what holds an open implementation pull request: the spec `/speckit author` authored for it (maintainFixSpec)
 // and the open dependencies of its twin (maintainDependencyBlock). Returns whether it is blocked and by which twins.
-async function maintainBlock(client, env, { implementation, twin, rootDir = null, health = null }, { now, notes, count }) {
+async function maintainBlock(client, env, { implementation, twin, rootDir = null }, { now, notes, count }) {
   const report = (line) => notes.push(line);
   let hold = false;
   try {
@@ -290,23 +287,6 @@ async function maintainBlock(client, env, { implementation, twin, rootDir = null
     hold = fix.blocked === true;
   } catch (error) {
     notes.push(`- Warning: could not check the prerequisite spec of #${implementation.number}: ${error.message}`);
-  }
-  // An unhealthy default branch blocks every implementation; once it is healthy again, the health block is lifted with
-  // a required synchronization, and the dependencies are checked as usual.
-  if (health?.unhealthy) {
-    await setBlocked(client, implementation.number, true, { explain: healthBlock(health) });
-    return { blocked: true, blockers: [], outcome: 'unhealthy' };
-  }
-  if (health) {
-    try {
-      const waiting = (await client.listBlockedBy(twin)).some((blocker) => blocker.state === 'open');
-      if (await liftHealthBlock(client, env, { implementation, twin, waiting })) {
-        count();
-        notes.push(`- Lifted the health block of #${implementation.number}; it merges the healed default branch first.`);
-      }
-    } catch (error) {
-      notes.push(`- Warning: could not lift the health block of #${implementation.number}: ${error.message}`);
-    }
   }
   try {
     const dependency = await maintainDependencyBlock(client, env, { implementation, twin, hold }, { report });
@@ -321,7 +301,7 @@ async function maintainBlock(client, env, { implementation, twin, rootDir = null
 // Every open implementation pull request labelled BLOCKED_LABEL that the twin loop did not handle (for example because
 // its twin is inconsistent) is maintained as well, so an implemented prerequisite always lifts the block and retries
 // it. Returns the number of actions taken.
-async function sweepBlocked(client, env, { handled, now, notes, rootDir = null, health = null }) {
+async function sweepBlocked(client, env, { handled, now, notes, rootDir = null }) {
   let actions = 0;
   let pulls;
   try {
@@ -336,7 +316,7 @@ async function sweepBlocked(client, env, { handled, now, notes, rootDir = null, 
     if (!(pull.labels ?? []).some((label) => (typeof label === 'string' ? label : label.name) === BLOCKED_LABEL)) continue;
     const twin = Number(String(pull.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
     if (!twin) continue;
-    const result = await maintainBlock(client, env, { implementation: pull, twin, rootDir, health }, { now, notes, count: () => { actions += 1; } });
+    const result = await maintainBlock(client, env, { implementation: pull, twin, rootDir }, { now, notes, count: () => { actions += 1; } });
     if (!result.blocked) notes.push(`- Lifted the block of #${pull.number} (${result.outcome}).`);
   }
   return actions;
@@ -440,13 +420,7 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     report.line(`- Continued #${twin.number} (pull request #${twin.pull}): ${describeDecision(twin)}.`);
     actions += 1;
   }
-  // An unhealthy default branch starts no spec at all: each would be blocked right away.
-  const health = selection.health ?? { unhealthy: false };
   for (const twin of selection.ready) {
-    if (health.unhealthy) {
-      report.line(`- Waiting: #${twin.number} \`${twin.folder}\` starts once the default branch is healthy again (${health.issue ? `#${health.issue}` : `healing pull request #${health.heal}`}).`);
-      continue;
-    }
     // A prerequisite of a running implementation starts even at the limit: the implementation it unblocks holds a slot
     // while it waits.
     if (active >= maxActive && !twin.prerequisite) {
