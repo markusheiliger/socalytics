@@ -333,10 +333,6 @@ export class FakeGitHub {
     return structuredClone(this.repo.pulls.filter((pull) => pull.state === 'open'));
   }
 
-  async listPullRequestsForCommit(sha) {
-    return structuredClone(this.repo.pulls.filter((pull) => pull.merge_commit_sha === sha));
-  }
-
   async listClosedPullRequestsSince(since) {
     return structuredClone(this.repo.pulls.filter((pull) => pull.state === 'closed' && Date.parse(pull.updated_at ?? pull.closed_at ?? 0) >= Date.parse(since)));
   }
