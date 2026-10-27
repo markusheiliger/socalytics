@@ -26,7 +26,7 @@ The environment setup and verification already restore, build, and test the solu
 
 **⚠️ CRITICAL**: The capture added here only reports on failure and MUST be removed again in T007; no probe or capture remains in the final change.
 
-- [ ] T003 Add failure capture to `RunToEndAsync` in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadBehaviorTests.cs` that, when the run fails, also dumps the `agent_attempts` rows (`attempt_number`, `state`, `end_reason`, `lease_expires_at`), the `agent_lineage_entries` kinds in order, the outbox rows of the invocation, and the `AGENT_WORK` consumer info, next to the existing last-read, attempt, and runner-log message; report the baseline (one run of `FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests` with `--no-build`, all four tests passing) in the task summary
+- [x] T003 Add failure capture to `RunToEndAsync` in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadBehaviorTests.cs` that, when the run fails, also dumps the `agent_attempts` rows (`attempt_number`, `state`, `end_reason`, `lease_expires_at`), the `agent_lineage_entries` kinds in order, the outbox rows of the invocation, and the `AGENT_WORK` consumer info, next to the existing last-read, attempt, and runner-log message; report the baseline (one run of `FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests` with `--no-build`, all four tests passing) in the task summary
 
 ---
 
