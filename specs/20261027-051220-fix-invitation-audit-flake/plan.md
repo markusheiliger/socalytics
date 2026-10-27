@@ -16,7 +16,7 @@
 
 **Storage**: PostgreSQL in a disposable container (existing tables `socalytics.security_audit_event`, `socalytics.email_messages`, `socalytics.member_invitation_links`); no schema change, no migration
 
-**Testing**: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter` on `MemberInvitationSafetyTests`, repeated alone and under CPU load; one full run of the project
+**Testing** (the baseline and the reproduction are the first steps of task T003; the repeated, load, and probe runs and the whole-project run are convergence checks made by `/speckit-converge` and the phase verification and reported in the pull request, see [research.md](research.md) R5): `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter` on `MemberInvitationSafetyTests`, repeated alone and under CPU load; one full run of the project
 
 **Target Platform**: Linux runner with a Docker-compatible container runtime
 

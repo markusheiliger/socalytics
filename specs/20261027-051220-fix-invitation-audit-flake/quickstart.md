@@ -2,6 +2,8 @@
 
 **Prerequisites**: a running Docker-compatible container runtime, the .NET 10 SDK from `src/platform/global.json`.
 
+> **Who runs which step** ([research.md](research.md) R5): steps 1 and 2 (baseline and reproduction) are the first steps of task T003, and the probe is removed before it ends. Steps 3 to 6 are convergence checks made by `/speckit-converge` and the phase verification, with the results reported in the pull request.
+
 1. Build: `dotnet build src/platform/Tests/SocAlytics.Platform.Integration.Tests`.
 2. Reproduce (before the fix) as in [research.md](research.md) R1: with a test-only temporary probe that, after creating `audit-c` and before revoking it, calls the delivery once exactly as the worker's iteration does (`await h.DeliverAsync(ct)`, or a scoped `EmailDeliveryProcessor.ProcessDueAsync`), query `socalytics.security_audit_event` for `invitation.issued` grouped by `resource_id`, and run
    `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded"`; expect three `invitation.issued` events with the same `maskedAddress`, one of them for the invitation of `audit-c`.
