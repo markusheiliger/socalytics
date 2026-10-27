@@ -259,11 +259,6 @@ export class GitHubClient {
     return (await this.request('GET', this.repoPath(`/pulls/${number}`))).data;
   }
 
-  // The pull requests a commit belongs to (for a squash merge, the merged pull request).
-  async listPullRequestsForCommit(sha) {
-    return (await this.request('GET', this.repoPath(`/commits/${sha}/pulls`))).data ?? [];
-  }
-
   async updatePullRequest(number, fields) {
     return (await this.request('PATCH', this.repoPath(`/pulls/${number}`), fields)).data;
   }
