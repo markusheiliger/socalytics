@@ -111,6 +111,53 @@ describe('selection and coverage', () => {
     assert.deepEqual(result.uncovered, ['src/other/a.cs', '.github/workflows/x.yml']);
   });
 
+  it('covers Spec Kit tooling scripts and their tests, also as the task-named change list', () => {
+    const root = sample();
+    const tooling = [
+      '.github/scripts/speckit-implement-core.mjs',
+      '.github/scripts/speckit-implement-work.mjs',
+      '.github/scripts/speckit-implement-core.test.mjs',
+    ];
+    for (const mode of ['task', 'phase', 'finalize']) {
+      const result = plan(root, mode, tooling);
+      assert.deepEqual(result.uncovered, []);
+      assert.equal(result.documentationOnly, false);
+      assert.equal(result.scope, `full: ${tooling[0]} is a Spec Kit tooling file covered by the Spec Kit tooling tests`);
+    }
+    const named = plan(root, 'task', ['.github/scripts/speckit-implement-core.mjs', '.github/scripts/speckit-implement-work.mjs']);
+    assert.deepEqual(named.uncovered, []);
+    assert.equal(named.scope, 'full: .github/scripts/speckit-implement-core.mjs is a Spec Kit tooling file covered by the Spec Kit tooling tests');
+    assert.ok(named.components.every((item) => !item.selected));
+  });
+
+  it('keeps every other .github path uncovered and protected paths protected next to tooling files', () => {
+    const root = sample();
+    const others = [
+      '.github/workflows/speckit-implement.yml',
+      '.github/scripts/helper.mjs',
+      '.github/scripts/sub/speckit-x.mjs',
+      '.github/scripts/speckit-x.sh',
+      '.github/skills/speckit-plan/SKILL.mjs',
+      '.github/actions/speckit-copilot/action.yml',
+      '.specify/memory/constitution.mjs',
+    ];
+    assert.deepEqual(plan(root, 'task', others).uncovered, others);
+    const mixed = plan(root, 'task', ['.github/scripts/speckit-implement-core.mjs', ...others]);
+    assert.deepEqual(mixed.uncovered, others);
+  });
+
+  it('keeps a changed Markdown file under .github/scripts covered as before', () => {
+    const root = sample();
+    touch(root, '.github/scripts/README.md');
+    const result = plan(root, 'task', ['.github/scripts/README.md']);
+    assert.deepEqual(result.uncovered, []);
+    assert.equal(result.documentationOnly, true);
+    assert.match(result.scope, /^documentation-only: /);
+    const mixed = plan(root, 'task', ['.github/scripts/README.md', '.github/scripts/speckit-implement-core.test.mjs']);
+    assert.deepEqual(mixed.uncovered, []);
+    assert.equal(mixed.documentationOnly, false);
+  });
+
   it('tests a component in full and keeps its declaration uncovered when the declaration changes', () => {
     const root = sample();
     const result = plan(root, 'task', ['src/platform/verification.json']);
