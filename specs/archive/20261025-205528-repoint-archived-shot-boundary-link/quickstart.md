@@ -28,7 +28,7 @@ Expected: line 83 changed, with only `archive/` added to the Shot Boundary Analy
 git diff $(git merge-base HEAD origin/HEAD) --name-only
 ```
 
-Expected: only files under `specs/20261025-205528-repoint-archived-shot-boundary-link/` and `specs/20261025-003459-deterministic-agent-workload-test/spec.md`.
+Expected: only files under `specs/archive/20261025-205528-repoint-archived-shot-boundary-link/` and `specs/20261025-003459-deterministic-agent-workload-test/spec.md`.
 
 ## Scenario 4: The link opens the archived spec (acceptance scenario 2)
 

@@ -2,7 +2,7 @@
 
 **Branch**: `20261025-205528-repoint-archived-shot-boundary-link` | **Date**: 2026-10-25 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261025-205528-repoint-archived-shot-boundary-link/spec.md`
+**Input**: Feature specification from `/specs/archive/20261025-205528-repoint-archived-shot-boundary-link/spec.md`
 
 ## Summary
 
@@ -48,7 +48,7 @@ Post-design re-check: unchanged, no violations; Complexity Tracking stays empty.
 ### Documentation (this feature)
 
 ```text
-specs/20261025-205528-repoint-archived-shot-boundary-link/
+specs/archive/20261025-205528-repoint-archived-shot-boundary-link/
 ├── plan.md              # This file (/speckit-plan command output)
 ├── research.md          # Phase 0 output (/speckit-plan command)
 ├── data-model.md        # Phase 1 output (/speckit-plan command)
