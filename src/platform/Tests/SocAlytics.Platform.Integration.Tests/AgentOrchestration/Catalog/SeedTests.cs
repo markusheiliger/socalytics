@@ -190,6 +190,9 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 	// Evidence: specs/20261025-003459-deterministic-agent-workload-test (comments only; agents cannot change files under specs/).
 	// Baseline: build of src/platform/SocAlytics.Platform.slnx succeeded (0 warnings, 0 errors).
 	// Baseline: SeedTests (--filter "FullyQualifiedName~SeedTests"): 6 passed, 0 failed, 0 skipped (total 6).
+	// Reproduction: unchanged test run alone 30 times (4-core runner): 30 passed, 0 failed; no failure message observed.
+	// Reproduction: unchanged test run 10 times under CPU load (4 busy-loop processes, one per core): 10 passed, 0 failed; no failure message observed.
+	// Reproduction: the failure did not reproduce naturally; the causes are to be established by the deliberate widening of the suspected windows.
 	[Fact]
 	public async Task TheSimulatedAgentWorkloadCompletesAnInvocationOfTheSeededVersionWithItsPinnedReferences()
 	{
