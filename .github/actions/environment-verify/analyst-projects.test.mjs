@@ -1201,6 +1201,155 @@ it('${id}', () => {
     });
   });
 
+  describe('capability projects', () => {
+    const capabilities = 'src/analysts/capabilities';
+    const alpha = `${capabilities}/alpha`;
+    const beta = `${capabilities}/beta`;
+    const gamma = `${capabilities}/gamma`;
+    const stageNames = ['library pin', 'bootstrap sync', 'project sync', 'wheel build', 'tests'];
+    const setupFolder = path.join(here, '..', 'environment-setup');
+    const declarationFiles = [
+      path.join(setupFolder, 'analyst-cv-libraries.json'),
+      path.join(setupFolder, 'analyst-media-toolchain.json'),
+    ];
+
+    const stageLines = (log) => log.split('\n').filter((line) => /^Analyst Python stage: /.test(line));
+    const projectLines = (log) => log.split('\n').filter((line) => /^Analyst Python project: /.test(line));
+    const stagesOf = (log, root) => stageLines(log).filter((line) => line.endsWith(`(${root})`)).map((line) => line.slice('Analyst Python stage: '.length, line.lastIndexOf(' (')));
+
+    function several() {
+      const root = repository();
+      project(root, alpha, { name: 'alpha' });
+      project(root, beta, { name: 'beta', dependencies: ['alpha'], sources: { alpha: '../alpha' } });
+      project(root, gamma, { name: 'gamma' });
+      return root;
+    }
+
+    it('runs nothing in any mode without a capability project', () => {
+      for (const mode of ['task', 'phase', 'finalize']) {
+        const result = run(repository(), { mode, changed: [`${alpha}/src/x.py`] });
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.calls.length, 0);
+        assert.equal(stageLines(result.log).length, 0);
+        assert.equal(result.outputs.uncovered, `${alpha}/src/x.py`);
+      }
+    });
+
+    it('runs the five stages once for one project in every mode', () => {
+      const root = repository();
+      project(root, alpha, { name: 'alpha' });
+      for (const mode of ['task', 'phase', 'finalize']) {
+        const result = run(root, { mode, changed: [`${alpha}/src/x.py`] });
+        assert.equal(result.status, 0, result.log);
+        assert.deepEqual(projectLines(result.log), [`Analyst Python project: ${alpha}`]);
+        assert.deepEqual(stagesOf(result.log, alpha), stageNames);
+        assert.deepEqual(result.calls.map((call) => call[3]), stages);
+        assert.equal(result.outputs.uncovered ?? '', '');
+      }
+    });
+
+    it('checks the changed project and its dependents in task and phase mode', () => {
+      const root = several();
+      for (const mode of ['task', 'phase']) {
+        const changed = run(root, { mode, changed: [`${alpha}/src/x.py`] });
+        assert.equal(changed.status, 0, changed.log);
+        assert.deepEqual(projectLines(changed.log), [`Analyst Python project: ${alpha}`, `Analyst Python project: ${beta}`]);
+        for (const name of [alpha, beta]) assert.deepEqual(stagesOf(changed.log, name), stageNames);
+        assert.equal(changed.calls.length, 8);
+        const leaf = run(root, { mode, changed: [`${beta}/tests/test_b.py`] });
+        assert.deepEqual(projectLines(leaf.log), [`Analyst Python project: ${beta}`]);
+        const other = run(root, { mode, changed: [`${gamma}/src/x.py`] });
+        assert.deepEqual(projectLines(other.log), [`Analyst Python project: ${gamma}`]);
+      }
+    });
+
+    it('checks every project once in finalize mode, dependencies first', () => {
+      const root = several();
+      const result = run(root, { mode: 'finalize', changed: [`${gamma}/src/x.py`] });
+      assert.equal(result.status, 0, result.log);
+      const projects = projectLines(result.log).map((line) => line.slice('Analyst Python project: '.length));
+      assert.deepEqual([...projects].sort(), [alpha, beta, gamma]);
+      assert.ok(projects.indexOf(alpha) < projects.indexOf(beta));
+      for (const name of [alpha, beta, gamma]) assert.deepEqual(stagesOf(result.log, name), stageNames);
+      assert.equal(result.calls.length, 12);
+    });
+
+    it('covers a capability root only while its pyproject.toml exists', () => {
+      const root = several();
+      const kept = [`${alpha}/src/x.py`, `${beta}/README.md`, `${gamma}/pyproject.toml`];
+      const present = run(root, { mode: 'task', changed: kept });
+      assert.equal(present.status, 0, present.log);
+      assert.equal(present.outputs.uncovered ?? '', '');
+      unlinkSync(path.join(root, gamma, 'pyproject.toml'));
+      const deleted = run(root, { mode: 'task', changed: [...kept, `${gamma}/src/y.py`] });
+      assert.equal(deleted.status, 0, deleted.log);
+      assert.equal(deleted.outputs.uncovered, `${gamma}/pyproject.toml,${gamma}/src/y.py`);
+      assert.ok(!projectLines(deleted.log).some((line) => line.endsWith(gamma)));
+      const finalize = run(root, { mode: 'finalize' });
+      assert.ok(!projectLines(finalize.log).some((line) => line.endsWith(gamma)));
+      assert.equal(projectLines(finalize.log).length, 2);
+    });
+
+    it('covers no other path under src/analysts', () => {
+      const root = several();
+      const other = [
+        'src/analysts/sdk/src/x.py', 'src/analysts/manager/a.cs', 'src/analysts/other/a.py', `${capabilities}/stray.py`,
+        `${capabilities}/alpha/nested/pyproject.toml`.replace('alpha/nested', 'missing'), 'src/analysts/capabilities-extra/a.py', 'src/analysts/a.py',
+      ];
+      const result = run(root, { mode: 'task', changed: other });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.outputs.uncovered, other.join(','));
+      assert.equal(result.calls.length, 0);
+    });
+
+    it('reports a failing stage with project, stage, and one recommended action', () => {
+      for (const [index, stage] of stageNames.entries()) {
+        const root = several();
+        const env = {};
+        if (index === 0) {
+          const wheel = 'https://files.pythonhosted.org/packages/ab/cd/opencv_python-4.12.0.88-cp37-abi3-manylinux2014_x86_64.whl';
+          writeFileSync(path.join(root, alpha, 'uv.lock'), [
+            'version = 1', '', '[[package]]', 'name = "opencv-python"', 'version = "4.12.0.88"',
+            'source = { registry = "https://pypi.org/simple" }',
+            `wheels = [{ url = "${wheel}", hash = "sha256:${'8'.repeat(64)}", size = 1000 }]`, '',
+          ].join('\n'));
+        } else {
+          env.FAIL_STAGE = stages[index - 1];
+        }
+        const result = run(root, { mode: 'task', changed: [`${alpha}/src/x.py`], env });
+        assert.equal(result.status, 1, stage);
+        assert.equal(result.outputs.checks, 'Analyst Python projects');
+        const failure = result.log.split('\n').filter((line) => line.startsWith('Analyst Python stage failed: '));
+        assert.equal(failure.length, 1, stage);
+        assert.ok(failure[0].startsWith(`Analyst Python stage failed: ${stage} in ${alpha} (command: `), failure[0]);
+        assert.equal(failure[0].match(/Recommended action:/g).length, 1);
+        assert.deepEqual(stagesOf(result.log, alpha), stageNames.slice(0, index + 1));
+        assert.ok(!projectLines(result.log).some((line) => line.endsWith(beta)));
+        assert.equal(result.calls.length, Math.max(0, index));
+      }
+    });
+
+    it('triggers no extra check for a documentation-only change outside the projects', () => {
+      const root = several();
+      const result = run(root, { mode: 'task', changed: ['docs/architecture/overview.md', 'README.md'] });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.calls.length, 0);
+      assert.equal(stageLines(result.log).length, 0);
+      assert.equal(result.outputs.checks, 'Markdown check');
+      assert.equal(result.outputs.uncovered ?? '', '');
+    });
+
+    it('leaves the committed declarations and project files unchanged', () => {
+      const root = several();
+      const read = () => [
+        ...declarationFiles, ...[alpha, beta, gamma].flatMap((name) => ['pyproject.toml', 'uv.lock'].map((file) => path.join(root, name, file))),
+      ].map((file) => readFileSync(file, 'utf8'));
+      const before = read();
+      for (const mode of ['task', 'phase', 'finalize']) assert.equal(run(root, { mode, changed: [`${alpha}/src/x.py`] }).status, 0);
+      assert.deepEqual(read(), before);
+    });
+  });
+
   const uvReal = spawnSync('uv', ['--version']).status === 0;
   it('passes every stage for a real isolated package fixture without changing declarations', { skip: !uvReal }, () => {
     const root = repository();
