@@ -417,7 +417,7 @@ describe('environment-setup action integration', () => {
   });
 
   it('runs the installer after the existing tool setup and publishes no new action output', () => {
-    assert.equal(steps.at(-1), installerStep);
+    assert.equal(steps.at(-2), installerStep);
     const outputs = header.slice(header.indexOf('\noutputs:'));
     assert.deepEqual(names(outputs), [
       'nuget-key', 'npm-key', 'nuget-path', 'npm-path', 'nuget-hit', 'npm-hit', 'npm-tools', 'kiota-version',
@@ -444,6 +444,7 @@ describe('environment-setup action integration', () => {
       'Install the Kiota client generator',
       'Install the Playwright Chromium browser',
       'Install the Analyst Python and media toolchain',
+      'Install the Analyst computer-vision libraries',
     ];
     assert.deepEqual(steps.map((step) => step.name), expected);
     for (const step of steps.filter((candidate) => candidate.name.startsWith('Install '))) {
@@ -461,6 +462,35 @@ describe('environment-setup action integration', () => {
   it('adds no dependency-cache path, key input, or save step', () => {
     assert.doesNotMatch(actionText, /actions\/cache\/save|actions\/cache@/);
     assert.doesNotMatch(readFileSync(path.join(here, 'cache-keys.mjs'), 'utf8'), /analyst-media|toolchain/i);
+  });
+});
+
+describe('environment-setup computer-vision step integration', () => {
+  const cvSteps = steps.filter((step) => step.block.includes('install-analyst-cv.sh'));
+
+  it('runs one gated step directly after the toolchain step', () => {
+    assert.equal(cvSteps.length, 1);
+    const [cvStep] = cvSteps;
+    assert.equal(cvStep.name, 'Install the Analyst computer-vision libraries');
+    assert.equal(cvStep.condition, "inputs.install-tools == 'true'");
+    assert.match(cvStep.block, /shell: bash/);
+    assert.match(cvStep.block, /run: bash "\$GITHUB_ACTION_PATH\/install-analyst-cv\.sh"/);
+    const toolchainIndex = steps.findIndex((step) => step.block.includes('install-analyst-media.sh'));
+    assert.equal(steps[toolchainIndex + 1], cvStep);
+  });
+
+  it('downloads nothing in tools-disabled mode', () => {
+    const installing = steps.filter((step) => /install-analyst-|npm install|apt-get|dotnet tool|playwright/.test(step.block));
+    assert.ok(installing.includes(cvSteps[0]));
+    for (const step of installing) {
+      assert.equal(step.condition, "inputs.install-tools == 'true'", step.name);
+    }
+  });
+
+  it('keeps the toolchain declaration and the cache keys free of the libraries', () => {
+    assert.deepEqual(realDeclaration.tools.map((tool) => tool.id), ['cpython', 'uv', 'ffmpeg']);
+    assert.doesNotMatch(JSON.stringify(realDeclaration), /opencv|onnxruntime|numpy|analyst-cv/i);
+    assert.doesNotMatch(readFileSync(path.join(here, 'cache-keys.mjs'), 'utf8'), /analyst-cv|opencv|onnxruntime/i);
   });
 });
 
