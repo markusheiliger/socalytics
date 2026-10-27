@@ -571,6 +571,14 @@ test('ticks a task in tasks.md and syncs the pull request body with it', () => {
   assert.equal(ticked.replace('- [x] T003', '- [ ] T003'), PARALLEL_TASKS);
   assert.equal(tickTask(PARALLEL_TASKS, 'T001'), null);
   assert.equal(tickTask(PARALLEL_TASKS, 'T999'), null);
+  const noted = tickTask(PARALLEL_TASKS, 'T003', 'already satisfied by abc1234 on main (verified;\nno change by this task)');
+  assert.match(noted, /- \[x\] T003 \[P\] \[US1\] B — already satisfied by abc1234 on main \(verified; no change by this task\)\r\n/, 'the note stays on the task line and keeps its line ending');
+  assert.ok(listTasks(noted).some((task) => task.id === 'T003' && task.done), 'a noted task still parses as done');
+  const note = 'already satisfied by abc1234 on main (verified; no change by this task)';
+  const change = (after, extra = {}) => validateTaskChange({ folder: 'f', taskId: 'T003', before: PARALLEL_TASKS, after, changedPaths: ['specs/f/tasks.md'], ...extra });
+  assert.match(change(tickTask(PARALLEL_TASKS, 'T003', note)).join(), /may only change by checking T003/, 'an agent cannot add a provenance note');
+  assert.deepEqual(change(tickTask(PARALLEL_TASKS, 'T003', note), { note }), [], 'the land job may add its own note');
+  assert.match(change(tickTask(PARALLEL_TASKS, 'T003', 'another note'), { note }).join(), /may only change by checking T003/, 'only that exact note');
   const body = '## Tasks\n\n- [ ] T001 Setup\n- [ ] T002 A\n- [ ] T003 B\n';
   assert.equal(syncPullRequestTicks(body, ticked), '## Tasks\n\n- [x] T001 Setup\n- [ ] T002 A\n- [x] T003 B\n');
 });
