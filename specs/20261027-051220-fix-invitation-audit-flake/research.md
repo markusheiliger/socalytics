@@ -23,10 +23,9 @@
 
 - **Decision**: Out of scope unless they fail; only this test is changed (FR-006, spec out-of-scope). The shared harness is unchanged, so other invitation, password recovery, and email delivery tests are unaffected.
 
-## Refined decision: verification-only tasks are retired
+## R5: Which tasks carry the evidence checks? (refined decision)
 
 - **Decision**: T001, T002, and T004 to T008 are no longer tasks. The baseline (T001) and the reproduction probe (T002) become the first steps of T003, which keeps the one committed change; the repeated runs, load runs, three probes, whole-project run, and diff checks are made by the phase verification and `/speckit-converge`, with evidence in the pull request.
 - **Rationale**: The implementation workflow lands a task only when its attempt changes files. T001 changes none, so both attempts ended with "the agent made no changes" although restore, build, and the filtered test passed (2 of 2); no further attempt can succeed. T002 and T004 to T008 are of the same kind.
 - **Rejected alternatives**: a placeholder change to satisfy T001 (no purpose); more retries (they fail the same way); relaxing SC-001 to SC-004 (they stay as they are).
 - **Evidence**: T001 attempts 1 and 2 both failed with "the agent made no changes" and summaries reporting a clean build and a passing run.
-

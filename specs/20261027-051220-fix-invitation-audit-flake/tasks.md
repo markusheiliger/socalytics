@@ -33,7 +33,7 @@ T001 is retired as a task (see Retired verification tasks); the baseline is the 
 
 T002 is retired as a task (see Retired verification tasks); the reproduction is the first step of T003.
 
-**Checkpoint**: The cause is evidenced or the non-reproduction is recorded.
+**Checkpoint**: The cause is evidenced or the non-reproduction is recorded, as the code comment of T003 (see the Phase 3 checkpoint).
 
 ---
 
@@ -47,7 +47,7 @@ T002 is retired as a task (see Retired verification tasks); the reproduction is 
 
 - [ ] T003 [US1] First restore, build, and run the filtered `AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded` test against the Docker runtime (`dotnet restore`, `dotnet build --no-restore`, `dotnet test --no-build --filter "FullyQualifiedName~AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded"`), then reproduce the extra `invitation.issued` event of `research.md` R1 with a temporary test-only probe in the same test file (after creating `audit-c` and before revoking it, call `await h.DeliverAsync(ct)` once, as the worker's iteration does, and read the `invitation.issued` rows of `socalytics.security_audit_event` grouped by `resource_id`; the third event belongs to the invitation of `audit-c` and carries the masked address of `audit-a`), remove the probe, and if a different cause shows (a message of `audit-a` prepared twice) stop and report it; then, in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/MemberInvitationSafetyTests.cs`, in `AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded`, create `audit-a` with an explicit address whose masked form differs from the one of every `EmailApiHarness.NewAddress()` address (`m***@e***.test`), for example `$"audit-a-{Guid.NewGuid():N}@invitee.test"` (masked `a***@i***.test`), passed as the `address` argument of `InviteAsync`; keep `audit-b` on the first invitee's address and `audit-c` on the generated address, and add a short comment next to the address naming the evidenced cause of the probe (generated addresses all mask to the same value, so the legitimate link the host's background delivery worker issues to `audit-c` was counted with the first invitee's) and, if applicable, that the failure was not reproduced. Do not remove, loosen, or reorder any assertion, add a retry, a fixed delay, or a longer timeout, and do not change `EmailApiHarness` or the platform code
 
-**Checkpoint**: The test is deterministic and still detects wrong behavior.
+**Checkpoint**: The test is deterministic and still detects wrong behavior. The evidence for the cause (FR-001) is the code comment T003 adds next to the address (the evidenced cause, or that the failure was not reproduced); the committed diff contains no probe.
 
 ---
 
@@ -61,7 +61,7 @@ The plan's Architecture Updates section is `None` (the change alters no document
 
 T001, T002, and T004 to T008 were tasks whose only outcome is evidence and no committed change. The implementation workflow accepts a task only when its attempt changes files and fails one that changes nothing ("the agent made no changes"), so both attempts at T001 ended in the attempt limit although the baseline passed (restore and build clean, the filtered test passed 2 of 2). They are no longer tasks and their IDs are not reused. T001 and T002 move into the first steps of T003; the other checks are made by the phase verification and `/speckit-converge`:
 
-- SC-001 (30 runs alone and 10 runs under CPU load, each with exactly two `invitation.issued` events for the first invitee) and SC-002 (the three probes of `quickstart.md` step 4 make the unchanged assertions fail without hanging) are checked by `/speckit-converge` and recorded as evidence in the pull request, following `quickstart.md`; probes stay temporary and are reverted.
+- **Convergence checks** (the instruction to `/speckit-converge`, which performs them, reports each result in the pull request, and appends a task only for a check that fails): SC-001 (30 runs alone and 10 runs under CPU load, each with exactly two `invitation.issued` events for the first invitee) and SC-002 (the three probes of `quickstart.md` step 4 make the unchanged assertions fail without hanging), following `quickstart.md`; probes stay temporary and are reverted.
 - SC-003 and FR-007 (no assertion line removed from the test, the changed files limited to the test file and this spec folder, the other spec folder untouched) and the Markdown check are made by `/speckit-converge` and the phase and finalize verification.
 - SC-004 (the invitation, password recovery, and email delivery tests pass unchanged, so Acceptance Scenarios 2 and 3 are preserved) is the phase verification of the whole Integration test project.
 
