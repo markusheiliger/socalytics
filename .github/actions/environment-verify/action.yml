@@ -82,7 +82,7 @@ runs:
         LOG_FILE: ${{ inputs.log-file }}
         MARKDOWN_CHECK: ${{ github.action_path }}/../../scripts/check-markdown.mjs
         ANALYST_PROJECTS: ${{ github.action_path }}/analyst-projects.py
-        ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs
+        ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs ${{ github.action_path }}/../environment-setup/cv-libraries.test.mjs
       run: |
         # GitHub runs `shell: bash` with `-e`; this script handles failures itself (status) and must always write its
         # outputs, so a non-matching grep (for example when every changed file is covered) must not end it early.
@@ -371,6 +371,7 @@ runs:
         python_project() {
           local root="$1" label="$2" stage
           local -a commands=(
+            "library pin|python3 $GITHUB_ACTION_PATH/analyst-library-pins.py --declaration $GITHUB_ACTION_PATH/../environment-setup/analyst-cv-libraries.json --lock uv.lock --project $root|if the finding names a consuming project's uv.lock (a version, platform tag, digest, source distribution, missing wheel, or disallowed package), align that lock with the pinned library set or remove the disallowed package and retry verification; if it says the declaration or lock is unreadable or the pin set itself is wrong, the environment is broken: run environment-setup with install-tools true or correct the environment declaration in a standalone environment change, then retry verification"
             "bootstrap sync|uv sync --locked --all-groups --no-install-local --no-build|correct the consuming project's dependency declarations (manifest, uv.lock, locked wheels, and locked build backends) and commit them, then retry verification; verification never repairs or unlocks them"
             "project sync|uv sync --locked --all-groups --no-build-isolation|reproduce this command in the named project, correct its package or local-dependency declarations so the locked backends build it, and retry verification"
             "wheel build|uv build --wheel --no-build-isolation --python .venv/bin/python|reproduce this command in the named project, correct the package build failure in its source or build configuration, and retry verification"
@@ -380,10 +381,14 @@ runs:
           echo "$label Python project: $root" | tee -a "$LOG_FILE"
           for entry in "${commands[@]}"; do
             stage="${entry%%|*}"
+            # The pinned computer-vision libraries only apply to Analyst projects.
+            [ "$stage" != 'library pin' ] || [ "$label" = Analyst ] || continue
             rest="${entry#*|}"
             command="${rest%%|*}"
             recommendation="${rest#*|}"
             read -r -a words <<< "$command"
+            # The pin check runs with the interpreter environment-setup installed, like the uv stages.
+            [ "${words[0]}" != python3 ] || words[0]="$SOCALYTICS_PYTHON"
             echo "$label Python stage: $stage ($root)" | tee -a "$LOG_FILE"
             step env UV_PYTHON_DOWNLOADS=never UV_PYTHON="$SOCALYTICS_PYTHON" "${words[@]}" || {
               echo "$label Python stage failed: $stage in $root (command: $command). Recommended action: $recommendation" | tee -a "$LOG_FILE"

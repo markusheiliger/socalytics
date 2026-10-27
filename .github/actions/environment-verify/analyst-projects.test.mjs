@@ -412,7 +412,7 @@ exit 0
       env: {
         PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME,
         WORKSPACE: root, MODE: mode, CHANGED_FILES: files.changed, LOG_FILE: files.log,
-        MARKDOWN_CHECK: markdownStub, ANALYST_PROJECTS: helper,
+        MARKDOWN_CHECK: markdownStub, ANALYST_PROJECTS: helper, GITHUB_ACTION_PATH: here,
         GITHUB_STEP_SUMMARY: files.summary, GITHUB_OUTPUT: files.output, UV_CALLS: files.calls,
         ...(withPython ? { SOCALYTICS_PYTHON: python } : {}), ...env,
       },
