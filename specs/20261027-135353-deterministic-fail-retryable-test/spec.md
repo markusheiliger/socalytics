@@ -61,7 +61,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 ### Functional Requirements
 
-- **FR-001**: The implementation MUST first establish the cause of the intermittent failure of the test with evidence (the code, or repeated runs with and without CPU load and the logs of failing runs) and record it in the Evidence section of `research.md` and in the code comment next to the fix.
+- **FR-001**: The implementation MUST first establish the cause of the intermittent failure of the test with evidence (the code, or repeated runs with and without CPU load and the logs of failing runs) and record it in the code comment next to the fix and in the implementation pull request comments and task summaries; findings MUST NOT be written to `research.md`.
 - **FR-002**: The cause MUST be removed where it lives (the test, `RunToEndAsync`, the fixture, the simulated workload runner, or the platform code it covers) by waiting on the awaited condition or by controlling the racing input; not by retries, fixed sleeps, skipping, or lengthening a limit. A bounded wait on a condition is allowed.
 - **FR-003**: Every assertion of the test (`failed`, `attempts-exhausted`, exactly three attempts) MUST remain, and no assertion, expected value, or test of `SimulatedAgentWorkloadBehaviorTests` MAY be removed, loosened, or skipped.
 - **FR-004**: The documented behavior of invocation submission, work delivery, fenced claim, lease, failure, retry, and attempt exhaustion MUST NOT change: any platform change MUST keep the Agent Orchestration semantics documented in `docs/architecture/`.
