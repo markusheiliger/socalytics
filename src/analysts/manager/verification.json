@@ -1,0 +1,9 @@
+{
+  "$comment": "Verification declaration read by .github/actions/environment-verify (see its README). Changing this file tests the component in full and holds the change for review.",
+  "version": 1,
+  "check": "Analyst Manager build and {tests}",
+  "order": 20,
+  "triggers": ["contracts/analyst-manager/"],
+  "sdkPinOf": "src/platform/global.json",
+  "tools": ["dotnet", "softhsm"]
+}

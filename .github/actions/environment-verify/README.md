@@ -2,7 +2,45 @@
 
 `environment-verify` is the optional composite action the Spec Kit workflows run to verify a change. This page describes only what the action executes today. It is build-environment behavior, not product documentation, and it neither approves a product nor shows production readiness.
 
-The action keeps its inputs (`workspace`, `mode`, `changed-files`, `log-file`) and outputs (`checks`, `uncovered`, `flaky`). It runs in a read-only job without token environment variables, because the checks execute agent-written code. Its header in [`action.yml`](action.yml) is the authoritative description of the platform, Analyst Manager, Web UI, Analyst Python, and Agent Python checks; this page adds documentation-only changes, the environment action tests, the rerun of failed tests, and the shared coverage rules.
+The action keeps its inputs (`workspace`, `mode`, `changed-files`, `log-file`) and outputs (`checks`, `uncovered`, `flaky`), and adds the output `plan`. It runs in a read-only job without token environment variables, because the checks execute agent-written code. Its header in [`action.yml`](action.yml) summarizes every check; this page describes the components and their declarations, documentation-only changes, the environment action tests, the rerun of failed tests, and the shared coverage rules.
+
+## Components and declarations
+
+[`verification-plan.mjs`](verification-plan.mjs) is the only selection logic. It writes the verification plan (JSON, the `plan` output, next to the log file) and the action executes it.
+
+Components are discovered by convention under `src/` (hidden, dependency, and output folders such as `node_modules`, `bin`, and `obj` are skipped):
+
+| Kind | Found by | Runs, from the component folder |
+| --- | --- | --- |
+| `dotnet-solution` | exactly one `*.slnx` or `*.sln` in a folder | `dotnet restore`, `dotnet build --no-restore`, then the test projects (`*Tests.csproj`) as [selected](#test-selection) |
+| `npm-package` | `package.json` in a folder | `npm ci` without a browser download, the Playwright pin check when it uses `@playwright/test`, and its `build`, `test`, and `test:e2e` scripts when declared |
+| Python projects | the [Analyst](#project-layout) and [agent](#agent-project-layout) conventions | the [command stages](#command-stages) |
+
+Several solutions in one folder, or a solution and a `package.json` in one folder, fail the check "Verification plan". Other manifests (for example the Manager's `Package.swift`) are no component; their files are covered by the component that contains them.
+
+A component is selected in finalize mode, when a changed path lies in its folder, a covered folder, or a trigger folder, or when its declaration changed. In task mode it tests the affected tests, otherwise all of them. Its folder and covered folders are covered; files no component, Python project, or static rule (Markdown, `specs/`, `.gitignore`, `.gitattributes`, `.editorconfig`, the two environment action folders) covers stay uncovered.
+
+### Declarations
+
+A component may declare more in a `verification.json` next to its manifest:
+
+| Setting | Meaning |
+| --- | --- |
+| `version` | `1` (required) |
+| `check` | Check name; `{tests}` becomes `affected tests` or `tests` (default: `<folder> build and {tests}`) |
+| `order` | Check order, lower first (default 100; ties by folder) |
+| `covers` | Folders under `src/` or `contracts/`, each ending with `/`, that select the component and that it covers |
+| `triggers` | Folders under `src/` or `contracts/` that select the component without being covered by it |
+| `alwaysRun` | .NET only: test project files, relative to the component folder, that every task runs in full |
+| `sdkPinOf` | .NET only: a `global.json` whose `sdk` object the component's own `global.json` must equal |
+| `tools` | Tool groups the component needs: `dotnet`, `node`, `docker`, `softhsm`, `kiota`, `playwright`, `analyst-media`, `markdown` |
+| `shards` | Named groups of test projects (`name`, `tests`, `runner` out of `linux-x64`, `linux-x64-gpu`, `windows-x64`, `macos-arm64`, `docker`, `budgetMinutes`); the remaining tests form the shard `default` |
+
+Unknown settings and invalid values fail the check "Verification plan" with the file and the problem, and nothing else runs. Any change to a `verification.json` under `src/` (added, changed, or deleted) selects its component with all tests in every mode and stays uncovered, so the workflows hold it for a person's review: a declaration can narrow verification, so it never passes unreviewed. The repository declares [`src/platform`](../../../src/platform/verification.json), [`src/analysts/manager`](../../../src/analysts/manager/verification.json), and [`src/clients/web`](../../../src/clients/web/verification.json).
+
+### Test selection
+
+All tests (phase, finalize, or a changed declaration): every test project, one after another in sorted order, because Docker-backed projects must never share the one daemon. Affected tests (task): the `alwaysRun` projects; the test classes declared in the changed `.cs` files of a test project; the whole test project when other files of it changed. A test project the task did not touch is skipped; the phase verification and the merge run it.
 
 ## Documentation-only changes
 

@@ -196,18 +196,23 @@ describe('verification with a documentation-only change', () => {
     return bin;
   }
 
+  const declaration = (root) => readFileSync(path.join(here, '..', '..', '..', root, 'verification.json'), 'utf8');
+
   function fullRepository() {
     const root = repository();
     touch(root, 'src/platform/SocAlytics.Platform.slnx');
+    touch(root, 'src/platform/verification.json', declaration('src/platform'));
     touch(root, 'src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/SocAlytics.Platform.EndToEnd.Tests.csproj',
       '<Project><ItemGroup><None Include="TestAnalyst\\**" /></ItemGroup></Project>');
     touch(root, 'src/platform/Tests/SocAlytics.Platform.Contracts.Tests/SocAlytics.Platform.Contracts.Tests.csproj',
       '<Project><ItemGroup><None Include="..\\..\\..\\..\\contracts\\**\\*" /></ItemGroup></Project>');
     touch(root, 'src/platform/global.json', '{"sdk":{"version":"10.0.100"}}');
     touch(root, 'src/analysts/manager/SocAlytics.Analysts.Manager.slnx');
+    touch(root, 'src/analysts/manager/verification.json', declaration('src/analysts/manager'));
     touch(root, 'src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/SocAlytics.Analysts.Manager.Tests.csproj');
     touch(root, 'src/analysts/manager/global.json', '{"sdk":{"version":"10.0.100"}}');
-    touch(root, 'src/clients/web/package.json', '{}');
+    touch(root, 'src/clients/web/package.json', '{"scripts":{"build":"b","test":"t","test:e2e":"e"}}');
+    touch(root, 'src/clients/web/verification.json', declaration('src/clients/web'));
     touch(root, 'src/clients/web/node_modules/@playwright/test/package.json', '{"version":"1.63.0"}');
     touch(root, 'contracts/README.md');
     return root;
@@ -232,7 +237,7 @@ describe('verification with a documentation-only change', () => {
         PATH: `${toolBin()}:${process.env.PATH}`, HOME: process.env.HOME,
         WORKSPACE: root, MODE: mode, CHANGED_FILES: changed === undefined ? '' : files.changed, LOG_FILE: files.log,
         MARKDOWN_CHECK: files.stub, ANALYST_PROJECTS: path.join(here, 'analyst-projects.py'),
-        VERIFICATION_SCOPE: path.join(here, 'verification-scope.mjs'),
+        VERIFICATION_PLAN: path.join(here, 'verification-plan.mjs'),
         GITHUB_STEP_SUMMARY: files.summary, GITHUB_OUTPUT: files.output, TOOL_CALLS: files.calls, SOCALYTICS_PYTHON: python,
         ...env,
       },
@@ -301,12 +306,16 @@ describe('verification with a documentation-only change', () => {
     assert.ok(empty.outputs.checks.includes('Web UI build and tests'));
   });
 
-  it('keeps the previous behavior when the classifier is not configured', () => {
+  it('fails closed when the verification plan is not configured', () => {
     const root = fullRepository();
     touch(root, readme);
-    const result = run(root, { mode: 'finalize', changed: [readme], env: { VERIFICATION_SCOPE: '' } });
-    assert.match(result.log, /Verification scope: full: the scope classifier is not configured/);
-    assert.ok(result.outputs.checks.includes('platform build and tests'));
+    const result = run(root, { mode: 'finalize', changed: [readme], env: { VERIFICATION_PLAN: '' } });
+    assert.equal(result.status, 1);
+    assert.match(result.log, /Verification scope: full: no verification plan/);
+    assert.match(result.log, /Verification plan: the verification plan is not configured/);
+    assert.equal(result.outputs.checks, 'Verification plan');
+    assert.equal(result.outputs.uncovered, readme);
+    assert.deepEqual(result.calls, []);
   });
 
   it('still fails an invalid Python project and still fails the Markdown check', () => {
@@ -336,6 +345,6 @@ describe('verification with a documentation-only change', () => {
 
   it('is listed among the environment action tests', () => {
     assert.match(actionText.match(/ENVIRONMENT_TESTS: (.*)/)[1], /action_path \}\}\/verification-scope\.test\.mjs/);
-    assert.match(actionText, /VERIFICATION_SCOPE: \$\{\{ github\.action_path \}\}\/verification-scope\.mjs/);
+    assert.match(actionText, /VERIFICATION_PLAN: \$\{\{ github\.action_path \}\}\/verification-plan\.mjs/);
   });
 });

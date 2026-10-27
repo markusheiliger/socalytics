@@ -1,0 +1,9 @@
+{
+  "$comment": "Verification declaration read by .github/actions/environment-verify (see its README). Changing this file tests the component in full and holds the change for review.",
+  "version": 1,
+  "check": "platform build and {tests}",
+  "order": 10,
+  "covers": ["contracts/"],
+  "alwaysRun": ["Tests/SocAlytics.Platform.Architecture.Tests/SocAlytics.Platform.Architecture.Tests.csproj"],
+  "tools": ["dotnet", "docker", "softhsm", "analyst-media"]
+}
