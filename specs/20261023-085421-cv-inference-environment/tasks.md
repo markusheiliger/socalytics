@@ -34,7 +34,7 @@ completion markers of this file. Do not change anything under `src/`, `docs/`, `
 **Purpose**: Nothing blocks all stories beyond the declaration in T001; the shared test fixture helpers are the only
 prerequisite of the story tests.
 
-- [ ] T002 Add the shared fixture helpers to the new `.github/actions/environment-setup/cv-libraries.test.mjs`: a builder that writes fixture wheels (zip files with `METADATA`, `*.dist-info/licenses/`, and `*.libs/` members) into a temporary directory, a declaration generator that computes their SHA-256 values, stub `curl`, `uv`, `python3`, and `ffmpeg` commands on a temporary `PATH`, and a runner for `install-analyst-cv.sh` with `ANALYST_CV_LIBRARIES`, `ANALYST_MEDIA_INSTALL_ROOT`, `ANALYST_MEDIA_HOST_OS`, and `ANALYST_MEDIA_HOST_ARCH` set; follow the helper style of `.github/actions/environment-setup/toolchain.test.mjs` without editing it
+- [x] T002 Add the shared fixture helpers to the new `.github/actions/environment-setup/cv-libraries.test.mjs`: a builder that writes fixture wheels (zip files with `METADATA`, `*.dist-info/licenses/`, and `*.libs/` members) into a temporary directory, a declaration generator that computes their SHA-256 values, stub `curl`, `uv`, `python3`, and `ffmpeg` commands on a temporary `PATH`, and a runner for `install-analyst-cv.sh` with `ANALYST_CV_LIBRARIES`, `ANALYST_MEDIA_INSTALL_ROOT`, `ANALYST_MEDIA_HOST_OS`, and `ANALYST_MEDIA_HOST_ARCH` set; follow the helper style of `.github/actions/environment-setup/toolchain.test.mjs` without editing it
 
 **Checkpoint**: Declaration and fixture helpers exist; story work can begin.
 
