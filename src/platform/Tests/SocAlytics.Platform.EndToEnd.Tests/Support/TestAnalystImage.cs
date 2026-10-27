@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Images;
 
@@ -119,9 +120,12 @@ internal static class TestAnalystImage
 }
 
 /// <summary>The few Docker Engine calls the end-to-end test needs, on the local engine socket.</summary>
-internal sealed class DockerEngine : IDisposable
+internal sealed partial class DockerEngine : IDisposable
 {
     private const string SocketPath = "/var/run/docker.sock";
+
+    [GeneratedRegex(@": digest: (?<digest>sha256:[0-9a-f]{64}) size: \d+$")]
+    private static partial Regex PushedDigest();
 
     private readonly HttpClient _http = new(new SocketsHttpHandler
     {
@@ -156,6 +160,14 @@ internal sealed class DockerEngine : IDisposable
             if (document.RootElement.TryGetProperty("aux", out var aux) && aux.TryGetProperty("Digest", out var value))
             {
                 digest = value.GetString();
+            }
+            else if (digest is null
+                && document.RootElement.TryGetProperty("status", out var status)
+                && status.ValueKind == JsonValueKind.String
+                && PushedDigest().Match(status.GetString()!) is { Success: true } match)
+            {
+                // Newer engines report the pushed manifest only in the final status line, without an aux record.
+                digest = match.Groups["digest"].Value;
             }
         }
 
