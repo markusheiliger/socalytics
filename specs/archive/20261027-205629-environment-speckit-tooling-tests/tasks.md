@@ -5,7 +5,7 @@ description: "Task list for Spec Kit Tooling Tests in Environment Verification"
 
 # Tasks: Spec Kit Tooling Tests in Environment Verification
 
-**Input**: Design documents from `/specs/20261027-205629-environment-speckit-tooling-tests/`
+**Input**: Design documents from `/specs/archive/20261027-205629-environment-speckit-tooling-tests/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [quickstart.md](quickstart.md)
 
