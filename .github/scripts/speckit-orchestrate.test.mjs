@@ -658,25 +658,58 @@ test('a blocker closed as not planned lifts the block and asks for a person inst
   }
 });
 
-test('a new spec waits while the latest Main health run failed, unless the gate is off or the default branch is green again', async () => {
-  const healthRun = (github, conclusion) => github.repo.runs.push({
-    id: github.repo.nextRun++, workflow: 'main-health.yml', status: 'completed', conclusion, head_branch: 'main',
-    created_at: new Date(github.clock).toISOString(), html_url: 'https://github.com/octo/repo/actions/runs/77',
-  });
-  for (const [label, prepare, starts] of [
-    ['red', (github) => healthRun(github, 'failure'), false],
-    ['red, gate off', (github) => healthRun(github, 'failure'), true],
-    ['green again', (github) => { healthRun(github, 'failure'); github.clock += 1000; healthRun(github, 'success'); }, true],
+const openHealthIssue = (github) => github.createIssue({ title: 'The default branch is unhealthy', body: '<!-- speckit:main-health -->', labels: ['main-health'] });
+
+test('no spec starts while the default branch is unhealthy (open health issue or healing pull request), unless the gate is off', async () => {
+  for (const [label, prepare, env, starts] of [
+    ['health issue', (github) => openHealthIssue(github), {}, false],
+    ['healing pull request', (github) => { github.repo.branches['main-heal/9-1'] = github.repo.branches.main; return github.createPullRequest({ title: 'Heal', head: 'main-heal/9-1', base: 'main', body: '', draft: true }); }, {}, false],
+    ['gate off', (github) => openHealthIssue(github), { SPECKIT_HEALTH_GATE: 'false' }, true],
+    ['closed health issue', async (github) => { const issue = await openHealthIssue(github); github.find(issue.number).state = 'closed'; }, {}, true],
   ]) {
     const { root, github, twin } = await flaggedRepo();
     try {
-      prepare(github);
-      const result = await orchestrate(github, root, label === 'red, gate off' ? { SPECKIT_HEALTH_GATE: 'false' } : {});
+      await prepare(github);
+      const result = await orchestrate(github, root, env);
       assert.equal(chainRuns(github).length, starts ? 1 : 0, label);
-      if (!starts) assert.match(result.text, new RegExp(`Waiting: #${twin.number} \`a\` starts once the default branch is healthy again \\(its \\[latest full verification\\]\\(https://github\\.com/octo/repo/actions/runs/77\\) failed\\)`));
+      if (!starts) assert.match(result.text, new RegExp(`Waiting: #${twin.number} \`a\` starts once the default branch is healthy again`), label);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  }
+});
+
+test('an unhealthy default branch blocks every running implementation, and healing lifts the block with a required sync', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await orchestrate(github, root);
+    const pull = github.repo.pulls.find((item) => item.head.ref === 'speckit/a');
+    github.completeRun(github.repo.runs.at(-1).id, 'success');
+    const health = await openHealthIssue(github);
+    await orchestrate(github, root);
+    assert.ok(pull.labels.some((label) => label.name === BLOCKED_LABEL));
+    assert.ok(!pull.labels.some((label) => label.name === ATTENTION_LABEL), 'nothing is needed from a person');
+    const blocked = github.comments.filter((comment) => comment.number === pull.number).at(-1);
+    assert.match(blocked.body, new RegExp(`\\*\\*Blocked\\*\\* while the default branch is unhealthy: its full verification fails \\(#${health.number}\\)`));
+    const runs = chainRuns(github).length;
+    const explained = github.comments.length;
+    await orchestrate(github, root);
+    assert.equal(github.comments.length, explained, 'explained once');
+    assert.equal(chainRuns(github).length, runs, 'a blocked implementation is not continued');
+
+    github.find(health.number).state = 'closed';
+    await orchestrate(github, root);
+    assert.ok(!pull.labels.some((label) => label.name === BLOCKED_LABEL));
+    const after = github.comments.filter((comment) => comment.number === pull.number).slice(-2);
+    assert.match(after[0].body, /^<!-- speckit-implement:unblocked -->\n\*\*The default branch is healthy again\*\*: the block is lifted/);
+    assert.match(after[1].body, /Required synchronization requested after the default branch was healed/);
+    assert.ok(chainRuns(github).length > runs, 'the implementation continues');
+    const lifted = github.comments.length;
+    await orchestrate(github, root);
+    assert.equal(github.comments.filter((comment) => /\*\*The default branch is healthy again\*\*/.test(comment.body)).length, 1, 'lifted once');
+    assert.ok(github.comments.length >= lifted);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
