@@ -3,8 +3,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // Spec Kit implement verify, job "Record the phase verification": combines the verification of every shard (one
-// downloaded artifact folder per shard, named after its shard number) into the one phase verification the repair flow
-// reads: each shard folder under shards/<number>/, one verification.log with every shard's log under a heading, the
+// downloaded artifact folder per shard, holding the shard input it ran in shard.txt) into the one phase verification the
+// repair flow reads: each shard folder under shards/<number>/, one verification.log with every shard's log under a heading, the
 // change list, and the deduplicated flaky tests of all shards.
 
 const read = (file) => (existsSync(file) ? readFileSync(file, 'utf8') : '');
@@ -14,9 +14,12 @@ export function combineShards(sourceDir, targetDir) {
     ? readdirSync(sourceDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
     : [];
   const shards = folders
-    .map((name) => ({ name, number: Number(/(\d+)$/.exec(name)?.[1] ?? Number.NaN) }))
+    .map((name) => {
+      const declared = /^(\d+)\/\d+$/.exec(read(path.join(sourceDir, name, 'shard.txt')).trim());
+      return { name, number: Number(declared?.[1] ?? /(\d+)$/.exec(name)?.[1] ?? Number.NaN), label: declared?.[0] ?? '' };
+    })
     .filter((shard) => Number.isInteger(shard.number))
-    .sort((a, b) => a.number - b.number);
+    .sort((a, b) => a.number - b.number || a.name.localeCompare(b.name));
   mkdirSync(targetDir, { recursive: true });
   const logs = [];
   const flaky = [];
@@ -26,7 +29,7 @@ export function combineShards(sourceDir, targetDir) {
     cpSync(folder, path.join(targetDir, 'shards', String(shard.number)), { recursive: true });
     const outcome = read(path.join(folder, 'outcome.txt')).trim() || 'unknown';
     const checks = read(path.join(folder, 'checks.txt')).trim() || 'no check';
-    logs.push(`=== Shard ${shard.number} (${outcome}): ${checks} ===\n${read(path.join(folder, 'verification.log')).trimEnd()}\n`);
+    logs.push(`=== Shard ${shard.label || shard.number} (${outcome}): ${checks} ===\n${read(path.join(folder, 'verification.log')).trimEnd()}\n`);
     for (const name of read(path.join(folder, 'flaky.txt')).split(',').map((item) => item.trim()).filter(Boolean)) {
       if (!flaky.includes(name)) flaky.push(name);
     }

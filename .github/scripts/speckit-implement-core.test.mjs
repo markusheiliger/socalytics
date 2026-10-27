@@ -806,7 +806,7 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.equal(needsOf(chain, 'continue'), 'decide');
   for (const [action, jobs, names] of [
     ['tasks', ['implement', 'verify', 'report'], ['${{ matrix.name }}', 'Verify the parallel tasks together', 'Report the group verification']],
-    ['verify', ['verify', 'report'], ['Verify the phase', 'Record the phase verification']],
+    ['verify', ['shards', 'verify', 'report'], ['Plan the verification shards', 'Verify the phase', 'Record the phase verification']],
     ['repair', ['implement', 'verify', 'report'], ['${{ matrix.name }}', 'Verify the repair', 'Report the repair']],
     ['merge', ['archive', 'verify', 'report'], ['Archive the spec before the merge', 'Verify the merged result', 'Merge into the base branch']],
   ]) {
@@ -853,10 +853,14 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.match(job(phase, 'verify'), /BASE_BRANCH: \$\{\{ needs\.decide\.outputs\.base_branch \}\}[\s\S]*git merge-base HEAD "origin\/\$BASE_BRANCH"/, 'the phase verification covers all changes of the branch');
   assert.match(job(phase, 'verify'), /- name: Verify the phase\n\s+if: [^\n]+\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify[\s\S]*mode: phase/, 'a failed phase verification fails the job');
   assert.match(job(phase, 'report'), /needs: \[decide, verify\][\s\S]*SPECKIT_VERIFY_RESULT: \$\{\{ needs\.verify\.result \}\}[\s\S]*speckit-spec\.mjs verify-report/);
-  // The phase verification runs in shards side by side; the report combines their artifacts into the one the repair reads.
-  assert.match(job(phase, 'verify'), /strategy:\n\s+fail-fast: false\n\s+matrix:\n\s+shard: \[1, 2, 3, 4\]\n/);
-  assert.match(job(phase, 'verify'), /mode: phase\n[\s\S]*shard: \$\{\{ matrix\.shard \}\}\/\$\{\{ strategy\.job-total \}\}\n/);
-  assert.match(job(phase, 'verify'), /name: speckit-phase-verification-shard-\$\{\{ matrix\.shard \}\}\n/);
+  // The phase verification runs in the shards its plan names, side by side; the report combines their artifacts into the
+  // one the repair reads.
+  assert.match(job(phase, 'shards'), /needs: decide\n[\s\S]*contents: read\n[\s\S]*verification-plan\.mjs --root workspace --mode phase --changed-files "\$RUNNER_TEMP\/changed-files\.txt" --matrix 4\)"\n[\s\S]*echo "matrix=\$matrix" >> "\$GITHUB_OUTPUT"/);
+  assert.doesNotMatch(job(phase, 'shards'), /environment-setup|environment-verify\n|copilot/);
+  assert.match(job(phase, 'verify'), /needs: \[decide, shards\]\n[\s\S]*needs\.shards\.result == 'success'[\s\S]*strategy:\n\s+fail-fast: false\n\s+matrix: \$\{\{ fromJSON\(needs\.shards\.outputs\.matrix\) \}\}\n/);
+  assert.match(job(phase, 'verify'), /mode: phase\n[\s\S]*shard: \$\{\{ matrix\.shard \}\}\n/);
+  assert.match(job(phase, 'verify'), /name: speckit-phase-verification-shard-\$\{\{ strategy\.job-index \}\}\n/);
+  assert.match(job(phase, 'verify'), /SHARD: \$\{\{ matrix\.shard \}\}[\s\S]*"\$SPECKIT_RESULT_DIR\/shard\.txt"/);
   assert.match(job(phase, 'report'), /pattern: speckit-phase-verification-shard-\*[\s\S]*speckit-verify-shards\.mjs combine[\s\S]*name: speckit-phase-verification\n[\s\S]*SPECKIT_VERIFY_FLAKY: \$\{\{ steps\.combine\.outputs\.flaky \}\}/);
   // A repair is reverified with its original failed scope and reported.
   assert.match(job(kinds.repair, 'report'), /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}[\s\S]*speckit-repair\.mjs repair-report/);

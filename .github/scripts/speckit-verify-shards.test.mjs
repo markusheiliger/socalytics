@@ -36,6 +36,19 @@ test('combines the shard verifications in shard order with every log, the change
   assert.equal(readFileSync(path.join(target, 'shards', '2', 'verification-plan.json'), 'utf8'), '{}');
 });
 
+test('names and orders the shards by their recorded shard input, not by the artifact name', () => {
+  const source = path.join(temporary, `source-${counter++}`);
+  const target = path.join(temporary, `target-${counter++}`);
+  shard(source, 0, { 'shard.txt': '4/4\n', 'verification.log': 'web\n', 'outcome.txt': 'success', 'checks.txt': 'Web UI build and tests' });
+  shard(source, 1, { 'shard.txt': '1/4\n', 'verification.log': 'shared\n', 'outcome.txt': 'success', 'checks.txt': 'Markdown check' });
+  combineShards(source, target);
+  assert.equal(readFileSync(path.join(target, 'verification.log'), 'utf8'), [
+    '=== Shard 1/4 (success): Markdown check ===\nshared\n',
+    '=== Shard 4/4 (success): Web UI build and tests ===\nweb\n',
+  ].join('\n'));
+  assert.equal(readFileSync(path.join(target, 'shards', '4', 'verification.log'), 'utf8'), 'web\n');
+});
+
 test('reports no shard when nothing was downloaded, and writes the outputs', () => {
   const output = path.join(temporary, `output-${counter++}`);
   writeFileSync(output, '');

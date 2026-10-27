@@ -52,7 +52,7 @@ With the input `shard` (`<index>/<count>`, at most 20 shards), the action runs o
 
 Tests of a shard declared for a `runner` other than `linux-x64` never run here, sharded or not: the log names them (`Not run: …`), and the component's `verification.json` stays uncovered, so the change is held for a person's review.
 
-Spec Kit implement verify runs the phase verification in four shards and combines them (see [its workflow](../../workflows/speckit-implement-verify.yml)); the task, merge, and conflict-resolution verifications still run in one job.
+Spec Kit implement verify plans the phase verification's shards in a job of its own (`verification-plan.mjs --matrix 4`, which prints one matrix entry per shard with work, the first shard always), runs them as a matrix whose jobs GitHub names after their work, for example `Verify the phase (platform integration, 3/4)`, starts no runner for an empty shard, and combines the shards (see [its workflow](../../workflows/speckit-implement-verify.yml)); the task, merge, and conflict-resolution verifications still run in one job.
 
 ## Documentation-only changes
 

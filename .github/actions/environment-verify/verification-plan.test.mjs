@@ -6,7 +6,7 @@ import path from 'node:path';
 import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { buildPlan, MAIN_MINUTES, packShards, TOOL_GROUPS } from './verification-plan.mjs';
+import { buildPlan, MAIN_MINUTES, packShards, shardMatrix, TOOL_GROUPS } from './verification-plan.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(here, '..', '..', '..');
@@ -514,6 +514,31 @@ describe('shards', () => {
     assert.deepEqual(packShards([], 3).map((bin) => bin.minutes), [MAIN_MINUTES, 0, 0]);
     const root = sharded();
     assert.deepEqual(plan(root, 'finalize', [], '2/4').shards, plan(root, 'finalize', [], '3/4').shards);
+  });
+
+  it('names the shards with work for a workflow matrix and leaves out the empty ones', () => {
+    const root = sharded();
+    assert.deepEqual(shardMatrix(plan(root, 'finalize', [], '1/4')), { include: [
+      { name: 'platform, manager, shared checks', shard: '1/4' },
+      { name: 'platform end-to-end', shard: '2/4' },
+      { name: 'platform integration', shard: '3/4' },
+      { name: 'web', shard: '4/4' },
+    ] });
+    assert.deepEqual(shardMatrix(plan(root, 'task', ['src/platform/Domain/a.cs'], '1/3')), { include: [
+      { name: 'shared checks', shard: '1/3' },
+      { name: 'platform', shard: '2/3' },
+    ] });
+    assert.deepEqual(shardMatrix(plan(root, 'phase', ['docs/a.md'], '1/4')), { include: [{ name: 'shared checks', shard: '1/4' }] });
+  });
+
+  it('prints the matrix on the command line', () => {
+    const root = sharded();
+    const result = spawnSync('node', [path.join(here, 'verification-plan.mjs'), '--root', root, '--mode', 'finalize', '--matrix', '4'], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).include.length, 4);
+    assert.equal(result.stdout.trim().includes('\n'), false, 'one line for GITHUB_OUTPUT');
+    const both = spawnSync('node', [path.join(here, 'verification-plan.mjs'), '--root', root, '--mode', 'finalize', '--matrix', '4', '--shard', '1/4'], { encoding: 'utf8' });
+    assert.equal(both.status, 2);
   });
 });
 

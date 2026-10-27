@@ -353,21 +353,39 @@ export function buildPlan({ root, mode, changedFiles, shard = '' }) {
   };
 }
 
+// The matrix for a workflow that runs the shards side by side: one entry per shard with work (the first shard always,
+// for the shared checks), each with its shard input and a name that says what it verifies.
+export function shardMatrix(plan) {
+  const label = (unit) => `${path.posix.basename(unit.root)}${unit.name === 'default' ? '' : ` ${unit.name}`}`;
+  const include = plan.shards
+    .filter((bin) => bin.main || bin.units.length > 0)
+    .map((bin) => ({
+      name: [...bin.units.map(label), ...(bin.main ? ['shared checks'] : [])].join(', '),
+      shard: `${bin.index}/${plan.shards.length}`,
+    }));
+  return { include };
+}
+
 export function main(argv) {
-  const usage = 'usage: verification-plan.mjs --root <workspace> --mode <task|phase|finalize> [--changed-files <list>] [--shard <index>/<count>]';
+  const usage = 'usage: verification-plan.mjs --root <workspace> --mode <task|phase|finalize> [--changed-files <list>] [--shard <index>/<count> | --matrix <count>]';
   const options = {};
   for (let index = 0; index < argv.length; index += 2) {
-    if (!['--root', '--mode', '--changed-files', '--shard'].includes(argv[index]) || argv[index + 1] === undefined) {
+    if (!['--root', '--mode', '--changed-files', '--shard', '--matrix'].includes(argv[index]) || argv[index + 1] === undefined) {
       console.error(usage);
       return 2;
     }
     options[argv[index].slice(2)] = argv[index + 1];
   }
-  if (!options.root || !options.mode) {
+  if (!options.root || !options.mode || (options.shard && options.matrix)) {
     console.error(usage);
     return 2;
   }
   try {
+    if (options.matrix) {
+      const plan = buildPlan({ root: options.root, mode: options.mode, changedFiles: options['changed-files'], shard: `1/${options.matrix}` });
+      console.log(JSON.stringify(shardMatrix(plan)));
+      return 0;
+    }
     console.log(JSON.stringify(buildPlan({ root: options.root, mode: options.mode, changedFiles: options['changed-files'], shard: options.shard ?? '' }), null, 2));
     return 0;
   } catch (error) {

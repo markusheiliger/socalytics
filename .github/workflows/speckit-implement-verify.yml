@@ -74,16 +74,58 @@ jobs:
 
   # Read-only token; it runs agent-written code. The work is split into shards (environment-verify packs it by estimated
   # minutes) that run side by side on their own runners, each with its own Docker daemon; the report combines them.
-  verify:
-    name: Verify the phase
+  # The plan of the shards comes first, so the run graph names each shard after its work and empty shards start no
+  # runner. Read-only: it only reads the implementation branch.
+  shards:
+    name: Plan the verification shards
     needs: decide
     if: ${{ !cancelled() && needs.decide.outputs.action == 'verify' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.decide.outputs.head }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Plan the shards
+        id: plan
+        env:
+          BASE_BRANCH: ${{ needs.decide.outputs.base_branch }}
+        run: |
+          git -C workspace diff --name-only --no-renames "$(git -C workspace merge-base HEAD "origin/$BASE_BRANCH")" HEAD > "$RUNNER_TEMP/changed-files.txt"
+          matrix="$(node tooling/.github/actions/environment-verify/verification-plan.mjs --root workspace --mode phase --changed-files "$RUNNER_TEMP/changed-files.txt" --matrix 4)"
+          echo "$matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify the phase
+    needs: [decide, shards]
+    if: ${{ !cancelled() && needs.decide.outputs.action == 'verify' && needs.shards.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
+      matrix: ${{ fromJSON(needs.shards.outputs.matrix) }}
     permissions:
       contents: read
     outputs:
@@ -142,17 +184,19 @@ jobs:
           mode: phase
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
-          shard: ${{ matrix.shard }}/${{ strategy.job-total }}
+          shard: ${{ matrix.shard }}
 
       # Matrix outputs keep only one shard's values, so each shard records its own for the report to combine.
       - name: Record the shard outcome
         if: always()
         env:
+          SHARD: ${{ matrix.shard }}
           OUTCOME: ${{ steps.verify.outcome }}
           CHECKS: ${{ steps.verify.outputs.checks }}
           FLAKY: ${{ steps.verify.outputs.flaky }}
         run: |
           mkdir -p "$SPECKIT_RESULT_DIR"
+          printf '%s\n' "$SHARD" > "$SPECKIT_RESULT_DIR/shard.txt"
           printf '%s\n' "$OUTCOME" > "$SPECKIT_RESULT_DIR/outcome.txt"
           printf '%s\n' "$CHECKS" > "$SPECKIT_RESULT_DIR/checks.txt"
           printf '%s\n' "$FLAKY" > "$SPECKIT_RESULT_DIR/flaky.txt"
@@ -161,7 +205,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: speckit-phase-verification-shard-${{ matrix.shard }}
+          name: speckit-phase-verification-shard-${{ strategy.job-index }}
           path: ${{ env.SPECKIT_RESULT_DIR }}
           retention-days: 7
           if-no-files-found: ignore
