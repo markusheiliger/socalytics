@@ -30,7 +30,7 @@ description: "Task list for Deterministic Evidence Part State Test"
 
 **Purpose**: A restored and built baseline to measure against
 
-- [ ] T001 Run `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore`, then confirm that Docker and the pinned `ffmpeg` and `ffprobe` are available as listed in `specs/20261028-005033-deterministic-evidence-part-state-test/quickstart.md`, and write the commands, exit codes, and tool versions as the section `## T001` of `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md`
+- [x] T001 Run `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore`, then confirm that Docker and the pinned `ffmpeg` and `ffprobe` are available as listed in `specs/20261028-005033-deterministic-evidence-part-state-test/quickstart.md`, and write the commands, exit codes, and tool versions as the section `## T001` of `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md`
 
 ---
 
