@@ -219,7 +219,7 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 			});
 		var runId = await f.SeedRunAsync(SeededRunState.Completed, ct: ct);
 
-		async Task<JsonElement> SendAsync(HttpMethod method, string path, object? body, string? ifMatch)
+		async Task<JsonElement> SendAsync(HttpMethod method, string path, object? body, string? ifMatch, CancellationToken token)
 		{
 			using var request = new HttpRequestMessage(method, path);
 			if (body is not null)
@@ -238,20 +238,20 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 				request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
 			}
 
-			using var response = await f.Admin.Client.SendAsync(request, ct);
-			((int)response.StatusCode).ShouldBeInRange(200, 202, await response.Content.ReadAsStringAsync(ct));
-			var element = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)).RootElement.Clone();
+			using var response = await f.Admin.Client.SendAsync(request, token);
+			((int)response.StatusCode).ShouldBeInRange(200, 202, await response.Content.ReadAsStringAsync(token));
+			var element = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token)).RootElement.Clone();
 			return method == HttpMethod.Post && response.Headers.ETag is { } etag
 				? JsonDocument.Parse($"{{\"etag\":\"{etag.Tag.Replace("\"", "\\\"")}\",\"body\":{element.GetRawText()}}}").RootElement.Clone()
 				: element;
 		}
 
-		var created = await SendAsync(HttpMethod.Post, $"/api/v1/matches/{f.Hierarchy.MatchId}/agent-conversations", new { analysisRunId = runId }, null);
+		var created = await SendAsync(HttpMethod.Post, $"/api/v1/matches/{f.Hierarchy.MatchId}/agent-conversations", new { analysisRunId = runId }, null, ct);
 		var conversationId = created.GetProperty("body").GetProperty("conversationId").GetGuid();
 		await SendAsync(
-			HttpMethod.Post, $"/api/v1/agent-conversations/{conversationId}/participants", new { agentId = Tactics }, created.GetProperty("etag").GetString());
+			HttpMethod.Post, $"/api/v1/agent-conversations/{conversationId}/participants", new { agentId = Tactics }, created.GetProperty("etag").GetString(), ct);
 		var submitted = await SendAsync(
-			HttpMethod.Post, $"/api/v1/agent-conversations/{conversationId}/invocations", new { agentId = Tactics, question = "What should we change?" }, null);
+			HttpMethod.Post, $"/api/v1/agent-conversations/{conversationId}/invocations", new { agentId = Tactics, question = "What should we change?" }, null, ct);
 		var invocationId = (submitted.TryGetProperty("body", out var wrapped) ? wrapped : submitted).GetProperty("invocationId").GetGuid();
 
 		var options = new SimulatedAgentWorkloadOptions
@@ -272,27 +272,38 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 		run.CancelAfter(limit + TimeSpan.FromSeconds(5));
 		var worker = runner.RunAsync(run.Token);
 
-		JsonElement? invocation = null;
-		var deadline = DateTime.UtcNow.Add(limit);
-		while (invocation is null && DateTime.UtcNow < deadline)
+		// The success condition is a terminal state; the linked token is only the safety net against a hung platform.
+		JsonElement invocation = default;
+		string? state = null;
+		string? failureReason = null;
+		try
 		{
-			var read = await SendAsync(HttpMethod.Get, $"/api/v1/agent-invocations/{invocationId}", null, null);
-			if (read.GetProperty("state").GetString() == "succeeded")
+			while (true)
 			{
-				invocation = read;
-			}
-			else
-			{
-				await Task.Delay(250, ct);
+				invocation = await SendAsync(HttpMethod.Get, $"/api/v1/agent-invocations/{invocationId}", null, null, run.Token);
+				state = invocation.GetProperty("state").GetString();
+				failureReason = invocation.TryGetProperty("failureReason", out var reason) && reason.ValueKind == JsonValueKind.String ? reason.GetString() : null;
+				if (state is "succeeded" or "failed" or "lifecycle-suppressed")
+				{
+					break;
+				}
+
+				await Task.Delay(250, run.Token);
 			}
 		}
+		catch (OperationCanceledException) when (run.IsCancellationRequested && !ct.IsCancellationRequested)
+		{
+			Assert.Fail($"The invocation {invocationId} did not reach a terminal state within {limit.TotalSeconds:0} s: state '{state}', failureReason '{failureReason}'.");
+		}
+		finally
+		{
+			await run.CancelAsync();
+			await worker;
+		}
 
-		await run.CancelAsync();
-		await worker;
-
-		invocation.ShouldNotBeNull();
-		invocation.Value.GetProperty("advice").GetString().ShouldBe($"Simulated advice from {Tactics}");
-		var pin = invocation.Value.GetProperty("agent");
+		state.ShouldBe("succeeded", $"failureReason: '{failureReason}'");
+		invocation.GetProperty("advice").GetString().ShouldBe($"Simulated advice from {Tactics}");
+		var pin = invocation.GetProperty("agent");
 		pin.GetProperty("version").GetString().ShouldBe(SeedVersion);
 		var digest = await RowsAsync(f, $"SELECT digest FROM socalytics.agent_versions WHERE agent_id = '{Tactics}' AND agent_version = '{SeedVersion}'", ct);
 		pin.GetProperty("digest").GetString().ShouldBe(digest.Single()[0]);
