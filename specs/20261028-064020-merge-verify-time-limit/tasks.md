@@ -49,13 +49,12 @@ No blocking prerequisite exists beyond the action itself, which is changed in Ph
 
 User Story 1 (the 150-minute limit) is delivered by the direct workflow edit of the Scope Note and has no task: a task that targets `.github/workflows/` can never land, and a test that asserts the edit would fail on the implementation branch.
 
-- [ ] T004 Run the validation of quickstart.md from the repository root: `node --test .github/actions/environment-verify/*.test.mjs .github/actions/environment-setup/toolchain.test.mjs`, `node --test .github/scripts/speckit-*.test.mjs`, and `node .github/scripts/check-markdown.mjs`; fix any failure in the files changed by T001 to T003 without weakening a test.
+This phase has no task: running the validation of `quickstart.md` changes no file, so such a task can never land (an unchanged task whose named repository tooling no check covers fails its attempts). The verification of every phase and the convergence run that validation.
 
 ## Dependencies and Execution Order
 
 - T001 first: T002 and T003 depend on the implemented input.
 - T002 and T003 touch different files and run in parallel (the group above).
-- T004 runs last.
 - US1 and US2 are both P1 and needed together (research.md, Decision 2): the limit alone does not fit a repeated full verification.
 
 ## Parallel Example
@@ -68,4 +67,4 @@ T002 (analyst-projects.test.mjs)  ||  T003 (environment-verify/README.md)   afte
 
 1. MVP: T001 and T002 deliver the narrowed self-test with its evidence.
 2. T003 corrects the documentation of the action; the workflows README and the workflow itself are edited directly (Scope Note).
-3. T004 verifies everything.
+3. The phase verification, the convergence, and the final merge verification run the validation of quickstart.md; no task repeats it, because a task that only runs checks changes no file and can never land.
