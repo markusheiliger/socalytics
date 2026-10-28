@@ -162,7 +162,7 @@ export function samplesTarget(run, env = process.env) {
   const [owner, repo] = result.stdout.trim().split('/');
   if (result.status !== 0 || !owner || !repo) throw new SamplesError(`Could not tell the repository: run the command inside a clone of the repository (${result.stderr.trim() || 'gh repo view found none'}).`);
   const name = validatePackageName(env.SOCALYTICS_SAMPLES_PACKAGE || `${repo.toLowerCase()}-samples`);
-  return { owner: owner.toLowerCase(), name, repository: `${owner.toLowerCase()}/${name}`, image: `${REGISTRY}/${owner.toLowerCase()}/${name}` };
+  return { owner: owner.toLowerCase(), name, repository: `${owner.toLowerCase()}/${name}`, image: `${REGISTRY}/${owner.toLowerCase()}/${name}`, sourceRepository: `${owner}/${repo}` };
 }
 
 // A version of the sample package: a tag (`latest`, `20261028-153012`) or a digest (`sha256:<64 hex>`).
@@ -195,13 +195,17 @@ export function deleteVersion(run, name, id) {
   if (result.status !== 0) throw new SamplesError(`Could not delete version ${id} of ${name}: ${result.stderr.trim()}`);
 }
 
-// Refuses a package that is not private or that is linked to a repository (whose access it may inherit). A package
-// that does not exist yet (null) is created private by GHCR.
-export function privacyProblems(pkg) {
+// Refuses a package that is not private or that is linked to another repository than `allowedRepository` (the
+// repository whose samples it holds; linking it there gives that repository's workflows read access). A package that
+// does not exist yet (null) is created private by GHCR. The anonymous pull check is what proves privacy.
+export function privacyProblems(pkg, { allowedRepository = null } = {}) {
   if (!pkg) return [];
   const problems = [];
   if (pkg.visibility !== 'private') problems.push(`its visibility is ${pkg.visibility ?? 'unknown'}, not private`);
-  if (pkg.repository) problems.push(`it is linked to the repository ${pkg.repository.full_name ?? pkg.repository.name}, so it may inherit that repository's access`);
+  const linked = pkg.repository?.full_name ?? pkg.repository?.name ?? null;
+  if (pkg.repository && String(linked ?? '').toLowerCase() !== String(allowedRepository ?? '').toLowerCase()) {
+    problems.push(`it is linked to the repository ${linked}, not to ${allowedRepository ?? 'this repository'}, so it may inherit that repository's access`);
+  }
   return problems;
 }
 

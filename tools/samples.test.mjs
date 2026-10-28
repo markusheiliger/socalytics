@@ -79,7 +79,7 @@ test('helpers: tag, package names, digest references, scopes, arguments, and the
   assert.deepEqual(parseVersion(DIGEST), { digest: DIGEST, tag: null });
   for (const bad of ['ghcr.io/dev/s:latest', 'sha256:abc', '-x', '']) assert.throws(() => parseVersion(bad), /Expected a tag like latest/, bad);
   const repo = (stdout, status = 0) => () => ({ status, stdout, stderr: status ? 'no git repository' : '' });
-  assert.deepEqual(samplesTarget(repo('MarkusHeiliger/SocAlytics\n'), {}), { owner: 'markusheiliger', name: 'socalytics-samples', repository: 'markusheiliger/socalytics-samples', image: 'ghcr.io/markusheiliger/socalytics-samples' });
+  assert.deepEqual(samplesTarget(repo('MarkusHeiliger/SocAlytics\n'), {}), { owner: 'markusheiliger', name: 'socalytics-samples', repository: 'markusheiliger/socalytics-samples', image: 'ghcr.io/markusheiliger/socalytics-samples', sourceRepository: 'MarkusHeiliger/SocAlytics' });
   assert.equal(samplesTarget(repo('dev/socalytics'), { SOCALYTICS_SAMPLES_PACKAGE: 'socalytics-samples-selftest' }).image, 'ghcr.io/dev/socalytics-samples-selftest');
   assert.throws(() => samplesTarget(repo('', 1), {}), /inside a clone of the repository/);
   assert.deepEqual(tokenScopes("  - Token scopes: 'gist', 'read:packages', 'repo'"), ['gist', 'read:packages', 'repo']);
@@ -188,6 +188,7 @@ test('upload pushes every video with its relative path, checks privacy, and only
   assert.ok(tools.calls.every((call) => !call.args.join(' ').includes('gho_secret')), 'never in arguments');
   assert.equal(existsSync(push.args[push.args.indexOf('--registry-config') + 1]), false, 'the temporary registry config is deleted');
   assert.deepEqual(result.files, [{ path: 'a.mp4', size: 3, digest: sha('aaa') }, { path: 'match/half-1.mkv', size: 2, digest: sha('h1') }]);
+  assert.ok(lines.includes('Privacy check passed: the package is private, linked to no repository other than Dev/socalytics, and refuses anonymous pulls.'));
   assert.ok(lines.includes('Uploaded 2 file(s) as ghcr.io/dev/socalytics-samples:latest (also :20261028-150000).'));
   assert.ok(lines.includes(`Digest:   ghcr.io/dev/socalytics-samples@${DIGEST}`));
   assert.ok(lines.includes('Download: node tools/download-samples.mjs'));
@@ -215,8 +216,14 @@ test('upload refreshes missing scopes, and a dry run checks everything but pushe
   await assert.rejects(uploadSamples([folder({ 'a.mp4': 'a' })], { run: fakeTools({ scopes: "'repo'", refresh: 1 }).run, fetchImpl: registry(), log: silent, now: NOW }), /Could not add the scopes write:packages, read:packages, delete:packages/);
 });
 
-test('upload never pushes into a public or linked package', async () => {
-  for (const [before, reason] of [[{ visibility: 'public' }, /visibility is public, not private/], [{ visibility: 'private', repository: { full_name: 'dev/socalytics' } }, /linked to the repository dev\/socalytics/]]) {
+test('upload accepts a package linked to this repository, which gives its workflows read access', async () => {
+  const tools = fakeTools({ before: { visibility: 'private', repository: { full_name: 'dev/SocAlytics' } }, after: { visibility: 'private', repository: { full_name: 'dev/SocAlytics' } } });
+  assert.equal((await uploadSamples([folder({ 'a.mp4': 'a' })], { run: tools.run, fetchImpl: registry(), log: silent, now: NOW })).exitCode, 0);
+  assert.deepEqual(tools.state.tags, [[`ghcr.io/dev/socalytics-samples@${DIGEST}`, 'latest']]);
+});
+
+test('upload never pushes into a public package or one linked to another repository', async () => {
+  for (const [before, reason] of [[{ visibility: 'public' }, /visibility is public, not private/], [{ visibility: 'private', repository: { full_name: 'dev/other' } }, /linked to the repository dev\/other, not to Dev\/socalytics/]]) {
     const tools = fakeTools({ before });
     await assert.rejects(uploadSamples([folder({ 'a.mp4': 'a' })], { run: tools.run, fetchImpl: registry(), log: silent, now: NOW }), reason);
     assert.ok(!tools.calls.some((call) => call.command === 'oras' && ['login', 'push', 'tag'].includes(call.args[0])), 'nothing was pushed');

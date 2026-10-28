@@ -55,7 +55,7 @@ export async function uploadSamples(argv, { run = defaultRun, fetchImpl = fetch,
   ensureGhAuth(run, UPLOAD_SCOPES, { log });
   requireTool(run, 'oras');
   const login = ghLogin(run);
-  const { owner, name, repository } = samplesTarget(run, env);
+  const { owner, name, repository, sourceRepository } = samplesTarget(run, env);
   if (login.toLowerCase() !== owner) {
     throw new SamplesError(`The sample package ${REGISTRY}/${repository} belongs to ${owner}; you are logged in to gh as ${login}. Only ${owner} can upload samples.`);
   }
@@ -64,7 +64,7 @@ export async function uploadSamples(argv, { run = defaultRun, fetchImpl = fetch,
 
   // 3. Never push into a package that is not private.
   const before = getPackage(run, name);
-  const problems = privacyProblems(before);
+  const problems = privacyProblems(before, { allowedRepository: sourceRepository });
   if (problems.length > 0) {
     throw new SamplesError(`Refusing to push to ${REGISTRY}/${repository}: ${problems.join('; ')}. A public package cannot be made private again; fix or delete it on GitHub first.`);
   }
@@ -95,7 +95,7 @@ export async function uploadSamples(argv, { run = defaultRun, fetchImpl = fetch,
     const after = getPackage(run, name);
     const failures = [];
     if (!after) failures.push('GitHub does not list the package');
-    else failures.push(...privacyProblems(after));
+    else failures.push(...privacyProblems(after, { allowedRepository: sourceRepository }));
     if (await canPullManifest(fetchImpl, repository, digest, null)) failures.push('an anonymous pull is allowed');
     if (!(await canPullManifest(fetchImpl, repository, digest, token))) failures.push('an authenticated pull failed, so the anonymous check cannot be trusted');
     if (failures.length > 0) {
@@ -103,7 +103,7 @@ export async function uploadSamples(argv, { run = defaultRun, fetchImpl = fetch,
       if (version) deleteVersion(run, name, version.id);
       throw new SamplesError(`The pushed version ${digest} failed the privacy check (${failures.join('; ')}), ${version ? 'so it was deleted' : 'and it could not be found to delete'}. Check the package settings of ${REGISTRY}/${repository} on GitHub before trying again.`);
     }
-    log('Privacy check passed: the package is private, not linked to a repository, and refuses anonymous pulls.');
+    log(`Privacy check passed: the package is private, linked to no repository other than ${sourceRepository}, and refuses anonymous pulls.`);
 
     // 6. Only a verified version becomes `latest`.
     const tagged = run('oras', ['tag', `${REGISTRY}/${repository}@${digest}`, LATEST_TAG, '--registry-config', session.config]);

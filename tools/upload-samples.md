@@ -54,18 +54,19 @@ The package must stay private: the repository is public, and the videos must nev
 fails closed:
 
 1. **Before uploading**, it reads the package from the GitHub API. A package that exists and is not private, or is
-   linked to a repository (whose access it may inherit), is refused, and nothing is uploaded. A package that does not
-   exist yet is created private by GHCR.
-2. **While uploading**, it never sets the `org.opencontainers.image.source` annotation, which would link the package to
-   a repository. It passes gh's token to ORAS through stdin and a temporary registry configuration that is deleted
+   linked to another repository than this one, is refused, and nothing is uploaded. A package that does not exist yet
+   is created private by GHCR. A link to this repository is expected: it is how this repository's workflows get read
+   access (see [After uploading](#after-uploading)).
+2. **While uploading**, it never sets the `org.opencontainers.image.source` annotation, so an upload never links the
+   package by itself. It passes gh's token to ORAS through stdin and a temporary registry configuration that is deleted
    afterwards, so the token never appears in a command line, a log, or your ORAS configuration.
-3. **After uploading**, it checks that GitHub reports the package as private and unlinked, that an **anonymous**
-   download of the new version is refused, and that an authenticated one works (so the refusal is real, not a broken
-   check). Only then does it move `latest`. When a check fails, it deletes the version it just uploaded, and `latest`
-   stays where it was.
+3. **After uploading**, it checks that GitHub reports the package as private and linked to no other repository, that
+   an **anonymous** download of the new version is refused, and that an authenticated one works (so the refusal is
+   real, not a broken check). Only then does it move `latest`. When a check fails, it deletes the version it just
+   uploaded, and `latest` stays where it was.
 
-GitHub cannot make a public package private again. Never change the package's visibility to public, and never turn on
-"Inherit access from source repository" in its settings.
+GitHub cannot make a public package private again. Never change the package's visibility to public. A link to this
+repository does not change the visibility: the package stays private, and anonymous downloads stay refused.
 
 ## Examples
 
@@ -96,7 +97,7 @@ Skipped 1 other file(s):
   match-2026-10-12/notes.txt (not a video)
 The package ghcr.io/markusheiliger/socalytics-samples does not exist yet; GHCR creates it private.
 Pushing ghcr.io/markusheiliger/socalytics-samples:20261028-153012 ...
-Privacy check passed: the package is private, not linked to a repository, and refuses anonymous pulls.
+Privacy check passed: the package is private, linked to no repository other than markusheiliger/socalytics, and refuses anonymous pulls.
 
 Uploaded 4 file(s) as ghcr.io/markusheiliger/socalytics-samples:latest (also :20261028-153012).
 Digest:   ghcr.io/markusheiliger/socalytics-samples@sha256:3f1c…9a2e
@@ -126,7 +127,7 @@ Dry run: would push 4 file(s) as ghcr.io/markusheiliger/socalytics-samples:20261
 
 ### A refused upload
 
-When the package is public (or linked to a repository), nothing is uploaded:
+When the package is public (or linked to another repository), nothing is uploaded:
 
 ```text
 upload-samples: Refusing to push to ghcr.io/markusheiliger/socalytics-samples: its visibility is public, not private. A public package cannot be made private again; fix or delete it on GitHub first.
@@ -140,9 +141,10 @@ upload-samples: The pushed version sha256:3f1c…9a2e failed the privacy check (
 
 ## After uploading
 
-- **CI access:** open the package on GitHub (your profile > Packages > `socalytics-samples` > Package settings) and add
-  the repository under **Manage Actions access** with the role **Read**. A workflow then downloads with its own
-  `GITHUB_TOKEN` and `permissions: packages: read`, without a stored secret; workflows of forks get no access. Download
+- **CI access:** the package is connected to this repository (Package settings > **Manage Actions access**, the
+  repository with the role **Read**). A workflow then downloads with its own `GITHUB_TOKEN` and
+  `permissions: packages: read`, without a stored secret; workflows of forks get no access. This was verified with a
+  workflow run that read `latest` with the workflow token alone while an anonymous request got HTTP 401. Download
   sample videos only in jobs that need them, never in jobs that run agent-written code, and pin the digest there.
 - **Other people:** add them under **Manage access** with the role **Read**; they download with their own `gh` login.
 - **Check by hand** that anonymous access is refused (the answer must say `authentication required`):
