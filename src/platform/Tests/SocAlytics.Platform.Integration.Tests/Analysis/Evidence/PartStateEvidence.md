@@ -147,3 +147,11 @@ Result: the check passed.
 - No assertion is textually removed or loosened: the diff of `src/platform/Tests/` outside this record has no removed line and no changed assertion.
 - Scope: only the file of the evidenced cause (`EvidenceScenario.cs`), this evidence record, and the spec folder `specs/20261028-005033-deterministic-evidence-part-state-test/` changed; no platform file changed (`## T006`).
 - No `docs/architecture/` change: `git diff --stat 85511d0a -- docs` is empty (SC-003).
+
+## T011
+
+Command: `node .github/scripts/check-markdown.mjs --files specs/20261028-005033-deterministic-evidence-part-state-test/tasks.md src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md`
+
+Result: exit code 0 with no finding. The script reads the first argument after `--files` as a list file, so this literal form reads `tasks.md` as that list and prints `No changed Markdown files to check.`
+
+Check of both files: the same two paths in a newline-separated list file, `node .github/scripts/check-markdown.mjs --files <list>`, checked 2 Markdown files and reported `Summary: 0 issues in 0 files` (exit code 0), so no finding needed a fix.
