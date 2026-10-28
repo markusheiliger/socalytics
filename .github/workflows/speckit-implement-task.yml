@@ -226,7 +226,8 @@ jobs:
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-${{ inputs.kind }}.mjs" package
 
       # A task with the tests it touched, a conflict resolution with the full verification; the convergence changes no
-      # code, and a repair is verified again after it landed.
+      # code, and a repair is verified again after it landed. A task completed without a change runs this step only for
+      # an assessed environment-verify requirement, in its mode over its files.
       - name: Verify the change
         id: verify
         if: >-
@@ -236,9 +237,19 @@ jobs:
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: ${{ inputs.kind == 'resolve' && 'finalize' || 'task' }}
+          mode: ${{ inputs.kind == 'resolve' && 'finalize' || steps.package.outputs.verify_mode || 'task' }}
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      # A task claimed and independently assessed as verified without a change: the trusted runner executes exactly the
+      # assessed requirements (tests, filters, consecutive passing runs) on the unchanged workspace, never the agent.
+      # The land job checks its record (completion-runs.json).
+      - name: Run the task's own verification
+        if: inputs.kind == 'implement' && steps.package.outputs.completion == 'verified'
+        continue-on-error: true
+        env:
+          SPECKIT_COMPLETION_BUDGET_MINUTES: ${{ vars.SPECKIT_COMPLETION_BUDGET_MINUTES || '25' }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-completion.mjs" verify
 
       - name: Self-test the synchronized environment setup
         id: sync_setup
