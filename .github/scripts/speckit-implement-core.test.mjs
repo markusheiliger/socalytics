@@ -571,6 +571,14 @@ test('ticks a task in tasks.md and syncs the pull request body with it', () => {
   assert.equal(ticked.replace('- [x] T003', '- [ ] T003'), PARALLEL_TASKS);
   assert.equal(tickTask(PARALLEL_TASKS, 'T001'), null);
   assert.equal(tickTask(PARALLEL_TASKS, 'T999'), null);
+  const noted = tickTask(PARALLEL_TASKS, 'T003', 'already satisfied by abc1234 on main (verified;\nno change by this task)');
+  assert.match(noted, /- \[x\] T003 \[P\] \[US1\] B — already satisfied by abc1234 on main \(verified; no change by this task\)\r\n/, 'the note stays on the task line and keeps its line ending');
+  assert.ok(listTasks(noted).some((task) => task.id === 'T003' && task.done), 'a noted task still parses as done');
+  const note = 'already satisfied by abc1234 on main (verified; no change by this task)';
+  const change = (after, extra = {}) => validateTaskChange({ folder: 'f', taskId: 'T003', before: PARALLEL_TASKS, after, changedPaths: ['specs/f/tasks.md'], ...extra });
+  assert.match(change(tickTask(PARALLEL_TASKS, 'T003', note)).join(), /may only change by checking T003/, 'an agent cannot add a provenance note');
+  assert.deepEqual(change(tickTask(PARALLEL_TASKS, 'T003', note), { note }), [], 'the land job may add its own note');
+  assert.match(change(tickTask(PARALLEL_TASKS, 'T003', 'another note'), { note }).join(), /may only change by checking T003/, 'only that exact note');
   const body = '## Tasks\n\n- [ ] T001 Setup\n- [ ] T002 A\n- [ ] T003 B\n';
   assert.equal(syncPullRequestTicks(body, ticked), '## Tasks\n\n- [x] T001 Setup\n- [ ] T002 A\n- [x] T003 B\n');
 });
@@ -807,8 +815,8 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   for (const [action, jobs, names] of [
     ['tasks', ['implement', 'verify', 'report'], ['${{ matrix.name }}', 'Verify the parallel tasks together', 'Report the group verification']],
     ['verify', ['shards', 'verify', 'report'], ['Plan the verification shards', 'Verify the phase', 'Record the phase verification']],
-    ['repair', ['implement', 'verify', 'report'], ['${{ matrix.name }}', 'Verify the repair', 'Report the repair']],
-    ['merge', ['archive', 'verify', 'report'], ['Archive the spec before the merge', 'Verify the merged result', 'Merge into the base branch']],
+    ['repair', ['implement', 'prepare', 'shards', 'selftest', 'verdict', 'report'], ['${{ matrix.name }}', 'Prepare the repair verification', 'Verify the repaired scope', 'Self-test the repaired environment actions', 'Record the repair verification', 'Report the repair']],
+    ['merge', ['archive', 'prepare', 'shards', 'selftest', 'verdict', 'report'], ['Archive the spec before the merge', 'Prepare the merged result', 'Verify the merged result', 'Self-test the changed environment actions', 'Record the verdict', 'Merge into the base branch']],
   ]) {
     const text = kinds[action];
     assert.deepEqual(jobsOf(text), ['refuse', 'decide', ...jobs, 'continue'], action);
@@ -840,7 +848,14 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.deepEqual([...inputs.matchAll(/^ {6}([a-z_]+):\n/gm)].map((match) => match[1]), ['issue', 'pull', 'folder', 'base', 'kind', 'order', 'entry']);
   assert.deepEqual([...new Set([...unit.matchAll(/fromJSON\(inputs\.entry\)\.([a-z_]+)/g)].map((match) => match[1]))].sort(),
     ['attempt', 'defer_progress', 'guidance', 'index', 'repair', 'required_sync', 'sync_repair', 'task']);
-  assert.match(unit, /mode: \$\{\{ inputs\.kind == 'resolve' && 'finalize' \|\| 'task' \}\}/, 'the verification mode follows the kind');
+  assert.match(unit, /mode: \$\{\{ inputs\.kind == 'resolve' && 'finalize' \|\| steps\.package\.outputs\.verify_mode \|\| 'task' \}\}/, 'the verification mode follows the kind, or the assessed environment-verify requirement');
+  // A task completed without a change: the trusted runner executes the assessed requirements before the verdict, in
+  // the read-only work job, without a token.
+  const runner = unit.slice(unit.indexOf("      - name: Run the task's own verification\n"), unit.indexOf('      - name: Record the verdict\n'));
+  assert.match(runner, /if: inputs\.kind == 'implement' && steps\.package\.outputs\.completion == 'verified'\n\s+continue-on-error: true\n/, 'only for an assessed verification');
+  assert.match(runner, /run: node "\$SPECKIT_TOOLING\/\.github\/scripts\/speckit-completion\.mjs" verify\n/, 'from the trusted tooling');
+  assert.doesNotMatch(runner, /TOKEN/, 'agent-written code runs here, so no token');
+  assert.ok(unit.indexOf("- name: Run the task's own verification") < unit.indexOf('- name: Record the verdict'), 'the verdict reads its record');
   // Parallel tasks are verified together only when a landing combined a sibling's edits, with the affected tests.
   const group = kinds.tasks;
   assert.match(job(group, 'verify'), /needs: \[decide, implement\][\s\S]*GROUP_START: \$\{\{ needs\.decide\.outputs\.head \}\}[\s\S]*- name: Find combined edits\n\s+id: combined\n[\s\S]*run: node tooling\/\.github\/scripts\/speckit-group\.mjs combined-edits/);
@@ -862,14 +877,34 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.match(job(phase, 'verify'), /name: speckit-phase-verification-shard-\$\{\{ strategy\.job-index \}\}\n/);
   assert.match(job(phase, 'verify'), /SHARD: \$\{\{ matrix\.shard \}\}[\s\S]*"\$SPECKIT_RESULT_DIR\/shard\.txt"/);
   assert.match(job(phase, 'report'), /pattern: speckit-phase-verification-shard-\*[\s\S]*speckit-verify-shards\.mjs combine[\s\S]*name: speckit-phase-verification\n[\s\S]*SPECKIT_VERIFY_FLAKY: \$\{\{ steps\.combine\.outputs\.flaky \}\}/);
-  // A repair is reverified with its original failed scope and reported.
-  assert.match(job(kinds.repair, 'report'), /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}[\s\S]*speckit-repair\.mjs repair-report/);
+  // A repair is reverified with its original failed scope and reported; the reverification runs in planned shards whose
+  // verdict fails when a shard or the self-test did not pass.
+  assert.match(job(kinds.repair, 'report'), /needs: \[decide, implement, prepare, verdict\][\s\S]*SPECKIT_VERIFY_RESULT: \$\{\{ needs\.prepare\.result != 'success' && needs\.prepare\.result \|\| needs\.verdict\.result \}\}\n\s+SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verdict\.outputs\.verification \}\}[\s\S]*speckit-repair\.mjs repair-report/);
   // The spec is archived on the implementation branch before the verification, which verifies and merges that head.
   const merge = kinds.merge;
   assert.match(job(merge, 'archive'), /SPECKIT_BASE_BRANCH: \$\{\{ needs\.decide\.outputs\.base_branch \}\}[\s\S]*run: node tooling\/\.github\/scripts\/speckit-merge\.mjs archive/);
   assert.doesNotMatch(job(merge, 'archive'), /environment-setup|environment-verify|copilot/);
-  assert.match(job(merge, 'verify'), /needs: \[decide, archive\][\s\S]*ref: \$\{\{ needs\.archive\.outputs\.head \}\}/);
-  assert.match(job(merge, 'report'), /SPECKIT_CHECK_RUN: \$\{\{ needs\.archive\.outputs\.check_run \|\| needs\.decide\.outputs\.check_run \}\}[\s\S]*speckit-merge\.mjs merge-land/);
+  assert.match(job(merge, 'prepare'), /needs: \[decide, archive\][\s\S]*ref: \$\{\{ needs\.archive\.outputs\.head \}\}/);
+  assert.match(job(merge, 'prepare'), /speckit-merge\.mjs" integrate\n[\s\S]*verification-plan\.mjs" --root "\$SPECKIT_WORKSPACE" --mode finalize --changed-files "\$SPECKIT_RESULT_DIR\/changed-files\.txt" --matrix 4\)"/);
+  assert.doesNotMatch(job(merge, 'prepare'), /environment-setup|environment-verify\n|copilot/);
+  assert.match(job(merge, 'report'), /needs: \[decide, archive, prepare, verdict\][\s\S]*SPECKIT_CHECK_RUN: \$\{\{ needs\.archive\.outputs\.check_run \|\| needs\.decide\.outputs\.check_run \}\}[\s\S]*needs\.verdict\.result \}\}[\s\S]*speckit-merge\.mjs merge-land/);
+  assert.match(job(merge, 'verdict'), /pattern: speckit-merge-verification-shard-\*[\s\S]*speckit-verify-shards\.mjs" combine "\$RUNNER_TEMP\/shards" "\$SPECKIT_RESULT_DIR" --expect "\$MATRIX"[\s\S]*SPECKIT_VERIFY_COMBINED: 'true'[\s\S]*SPECKIT_VERIFY_FAILED: \$\{\{ steps\.combine\.outputs\.failed \}\}[\s\S]*SPECKIT_SELFTEST_OUTCOME: \$\{\{ needs\.selftest\.outputs\.outcome \|\| needs\.selftest\.result \}\}[\s\S]*speckit-merge\.mjs" verdict[\s\S]*name: speckit-merge-result\n/);
+  assert.match(job(kinds.repair, 'verdict'), /pattern: speckit-repair-verification-shard-\*[\s\S]*--expect "\$MATRIX"[\s\S]*SELFTEST: \$\{\{ needs\.selftest\.result \}\}[\s\S]*name: speckit-repair-verification\n[\s\S]*- name: Fail on a failed verification\n/);
+  // Merge and repair verify in planned shards side by side, each rebuilding the planned tree; the changed environment
+  // actions are self-tested once, with their own tests only. No job that runs workspace code can write.
+  for (const [label, text, artifact] of [['merge', merge, 'speckit-merge-verification-shard-'], ['repair', kinds.repair, 'speckit-repair-verification-shard-']]) {
+    const shards = job(text, 'shards');
+    assert.match(shards, /timeout-minutes: 90\n\s+strategy:\n\s+fail-fast: false\n(?:\s+#[^\n]*\n)?\s+matrix: \$\{\{ fromJSON\(needs\.prepare\.outputs\.matrix \|\| '\{"include":\[\{"name":"no plan","shard":"1\/1"\}\]\}'\) \}\}\n/, label);
+    assert.match(shards, /PLANNED_TREE: \$\{\{ needs\.prepare\.outputs\.tree \}\}[\s\S]*tree="\$\(git (-C "\$SPECKIT_WORKSPACE" )?write-tree\)"[\s\S]*exit 1/, `${label}: a shard verifies the planned tree`);
+    assert.match(shards, /uses: \.\/tooling\/\.github\/actions\/environment-verify\n[\s\S]*shard: \$\{\{ matrix\.shard \}\}\n/, label);
+    assert.match(shards, new RegExp(`name: ${artifact}\\$\\{\\{ strategy\\.job-index \\}\\}\\n`), label);
+    assert.match(shards, /UNCOVERED: \$\{\{ steps\.verify\.outputs\.uncovered \}\}[\s\S]*"\$SPECKIT_RESULT_DIR\/uncovered\.txt"/, label);
+    assert.match(job(text, 'selftest'), /uses: \.\/workspace\/\.github\/actions\/environment-verify\n\s+with:\n[\s\S]*environment-tests-only: "true"\n/, label);
+    for (const name of ['prepare', 'shards', 'selftest', 'verdict']) {
+      assert.match(job(text, name), /timeout-minutes: (15|45|90)\n/, `${label} ${name}: within the 90-minute limit`);
+      assert.doesNotMatch(job(text, name), /: write\b|GITHUB_TOKEN|copilot/, `${label} ${name}: read-only`);
+    }
+  }
   // The pull request's base branch flows from decide to every job that merges or compares with git.
   assert.match(job(prepare, 'decide'), /base_branch: \$\{\{ steps\.decide\.outputs\.base_branch \}\}/);
   assert.match(unit, /^ {6}base:\n {8}description: [^\n]+\n {8}required: true/m);
@@ -972,4 +1007,69 @@ test('a Blocked comment tells a blocker with an implementation pull request from
   assert.match(waiting, /waits instead of continuing\. Nothing is needed on this pull request\./);
   assert.doesNotMatch(waiting, /Recommended next step|to finish first|to request first/);
   assert.match(waiting, /\*\*Requested, starting by itself\*\*/);
+});
+
+import { COPILOT_HANDOFF_MARKER, COPILOT_HANDOFF_MS, ATTENTION_LABEL as HELP, BLOCKED_LABEL as BLOCKED, isCopilotRequest, maintainCopilotHandoff, pendingCopilotHandoff } from './speckit-implement-core.mjs';
+import { diagnosisRepo } from './speckit-test-helpers.mjs';
+
+test('a handoff to Copilot is working until Copilot pushes, replies without a push, or the time runs out', () => {
+  assert.equal(isCopilotRequest('@copilot Merge main'), true);
+  assert.equal(isCopilotRequest('\n  @Copilot, please'), true);
+  assert.equal(isCopilotRequest('thanks @copilot'), false);
+  assert.equal(isCopilotRequest('@copilotx'), false);
+  const at = Date.parse('2026-10-28T13:20:00Z');
+  const comment = (id, login, body, offset) => ({ id, user: { login }, body, created_at: new Date(at + offset).toISOString() });
+  const handed = comment(1, 'github-actions[bot]', `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`, 0);
+  assert.equal(pendingCopilotHandoff([]), null);
+  assert.equal(pendingCopilotHandoff([handed], { now: at + 60_000 }).state, 'working');
+  assert.equal(pendingCopilotHandoff([handed], { now: at + COPILOT_HANDOFF_MS }).state, 'expired');
+  const reply = comment(2, 'Copilot', 'I could not resolve it.', 300_000);
+  assert.deepEqual(pendingCopilotHandoff([handed, reply], { now: at + 400_000 }).reply, reply);
+  assert.equal(pendingCopilotHandoff([handed, reply], { now: at + 400_000 }).state, 'finished');
+  assert.equal(pendingCopilotHandoff([handed, reply], { pushedAt: new Date(at + 200_000).toISOString(), now: at + 400_000 }), null, 'a push after the handoff continues the implementation');
+  assert.equal(pendingCopilotHandoff([handed], { pushedAt: new Date(at - 1000).toISOString(), now: at + COPILOT_HANDOFF_MS }).state, 'expired', 'an older push does not count');
+  const retried = comment(3, 'github-actions[bot]', '<!-- speckit-implement:retry -->\nImplementation retried', 100_000);
+  assert.equal(pendingCopilotHandoff([handed, retried, reply], { now: at + 400_000 }), null, 'a restart ends the handoff');
+  const ended = comment(4, 'github-actions[bot]', '<!-- speckit-implement:copilot-handoff-ended {"handoff":1} -->\n...', 500_000);
+  assert.equal(pendingCopilotHandoff([handed, reply, ended], { now: at + 600_000 }), null, 'it ends once');
+  assert.equal(pendingCopilotHandoff([handed, comment(5, 'dev', 'Copilot? any news', 100_000)], { now: at + 120_000 }).state, 'working', 'only Copilot\'s own reply finishes it');
+});
+
+test('the scheduler asks for help again when a handoff to Copilot ended without a push, once, with one next step', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const pull = github.repo.pulls[0];
+  const labels = () => (pull.labels ?? []).map((label) => label.name);
+  const diagnosis = await github.createComment(9, '<!-- speckit-implement:diagnosis -->\n**Diagnosis**: ...');
+  const handed = await github.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
+  const state = async (extra = {}) => maintainCopilotHandoff(github, { pull, comments: await github.listIssueComments(9), pushedAt: null, active: false, continues: false, blocked: false, now: Date.parse(handed.created_at) + 60_000, ...extra });
+  assert.equal(await state(), null, 'still working');
+  assert.equal(await state({ now: Date.parse(handed.created_at) + COPILOT_HANDOFF_MS, active: true }), null, 'a running chain decides itself');
+  assert.equal(await state({ now: Date.parse(handed.created_at) + COPILOT_HANDOFF_MS, continues: true }), null, 'a chain about to continue decides itself');
+  assert.equal(await state({ now: Date.parse(handed.created_at) + COPILOT_HANDOFF_MS, blocked: true }), null);
+  assert.deepEqual(labels(), []);
+  github.commentAuthor = 'Copilot';
+  const reply = await github.createComment(9, 'I could not find the conflict.');
+  github.commentAuthor = undefined;
+  assert.equal(await state(), 'finished');
+  assert.deepEqual(labels(), [HELP]);
+  const note = github.comments.at(-1).body;
+  assert.match(note, /^<!-- speckit-implement:copilot-handoff-ended \{"handoff":\d+\} -->\n\*\*Copilot finished without pushing\*\* to `speckit\/f`/);
+  assert.ok(note.includes(reply.html_url));
+  assert.match(note, new RegExp(`\\*\\*Recommended next step\\*\\*: Follow the \\[latest diagnosis\\]\\(${diagnosis.html_url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\) again`));
+  assert.equal(note.match(/Recommended next step/g).length, 1);
+  const count = github.comments.length;
+  assert.equal(await state(), null, 'reported once');
+  assert.equal(github.comments.length, count);
+
+  const quiet = diagnosisRepo({ amendment: false });
+  const quietPull = quiet.repo.pulls[0];
+  const quietHandoff = await quiet.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
+  quietPull.labels = [{ name: BLOCKED }];
+  assert.equal(await maintainCopilotHandoff(quiet, { pull: quietPull, comments: await quiet.listIssueComments(9), now: Date.parse(quietHandoff.created_at) + COPILOT_HANDOFF_MS }), 'expired');
+  assert.deepEqual(quietPull.labels.map((label) => label.name), [BLOCKED], 'a blocked pull request does not get the label');
+  quietPull.labels = [];
+  const fresh = await quiet.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
+  assert.equal(await maintainCopilotHandoff(quiet, { pull: quietPull, comments: await quiet.listIssueComments(9), now: Date.parse(fresh.created_at) + COPILOT_HANDOFF_MS }), 'expired');
+  assert.match(quiet.comments.at(-1).body, /\*\*Copilot has not pushed\*\* to `speckit\/f` within 60 minutes[\s\S]*\*\*Recommended next step\*\*: Post the `@copilot` request again/);
+  assert.deepEqual(quietPull.labels.map((label) => label.name), [HELP]);
 });
