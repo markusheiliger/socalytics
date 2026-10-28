@@ -357,6 +357,9 @@ export function validateReport(raw, { requireCategory = true } = {}) {
     } else if (!prompt || prompt.length > MAX_COPILOT_PROMPT || prompt.includes('```') || prompt.match(PLACEHOLDER_PATTERN)) {
       reasons.push(`option "${option.title}" has an invalid Copilot prompt`);
       option.copilot = null;
+    } else if (implementsTasks(prompt)) {
+      reasons.push(`option "${option.title}" asks Copilot to do the spec's tasks; a Copilot prompt may only remove what stops the automation, which implements the tasks itself`);
+      option.copilot = null;
     } else {
       option.copilot = prompt;
     }
@@ -372,6 +375,14 @@ export function validateReport(raw, { requireCategory = true } = {}) {
   }
   normalized.options.sort((a, b) => Number(b.recommended) - Number(a.recommended));
   return { reasons, report: normalized };
+}
+
+// Whether a Copilot prompt hands the spec's own work to Copilot: it names a task (`T012`), `tasks.md`, or asks to
+// implement tasks. A prompt may only remove what stops the automation (a file outside the spec's reach, a dead
+// link); the Spec Kit implementation implements, verifies, and ticks every task itself.
+export function implementsTasks(prompt) {
+  const text = String(prompt ?? '');
+  return /\bT\d{3,}\b/.test(text) || /\btasks\.md\b/i.test(text) || /\bimplement\b[^.\n]{0,80}\btasks?\b/i.test(text);
 }
 
 // One option of a report: { title, why, command, copilot, recommended }. An option given as plain text (agents sometimes write

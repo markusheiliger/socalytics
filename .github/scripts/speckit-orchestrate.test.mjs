@@ -658,6 +658,35 @@ test('a blocker closed as not planned lifts the block and asks for a person inst
   }
 });
 
+test('a blocked implementation holds its slot, so a new spec waits instead of starting at SPECKIT_MAX_ACTIVE_SPECS', async () => {
+  const tasks = '## Phase 1\n\n- [ ] T001 one\n';
+  const root = makeRepo([{ folder: 'a', plan: true, tasks }, { folder: 'b', plan: true, tasks }, { folder: 'c', plan: true, tasks }]);
+  try {
+    const github = new FakeGitHub();
+    await runSync({ client: github, rootDir: root, env: envFor(root), dryRun: false, promptFile: path.join(root, 'prompt.txt'), log: silent });
+    const [a, b, c] = github.issues;
+    for (const issue of github.issues) issue.labels = issue.labels.filter((label) => label.name !== 'speckit:deps-pending');
+    github.permissions.dev = 'write';
+    flag(github, a);
+    await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    assert.equal(chainRuns(github).length, 1);
+    github.completeRun(github.repo.runs.at(-1).id, 'success');
+    // a now waits for c, which nobody requested: it is blocked and has no running chain.
+    github.edges.push([a.number, c.number]);
+    flag(github, b);
+    const waiting = await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    assert.ok(github.repo.pulls.find((pull) => pull.head.ref === 'speckit/a').labels.some((label) => label.name === BLOCKED_LABEL));
+    assert.match(waiting.text, new RegExp(`Waiting: #${b.number} \`b\` starts when fewer than 1 implementations are active`));
+    assert.equal(github.repo.pulls.some((pull) => pull.head.ref === 'speckit/b'), false, 'the new spec did not start');
+    // Without the dependency the block is lifted, a runs again, and b still waits for the slot.
+    github.edges.splice(github.edges.findIndex(([from, to]) => from === a.number && to === c.number), 1);
+    await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    assert.equal(github.repo.pulls.some((pull) => pull.head.ref === 'speckit/b'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('an unrequested blocker of a running implementation never starts; once requested with /speckit implement it starts first at SPECKIT_MAX_ACTIVE_SPECS', async () => {
   const tasks = '## Phase 1\n\n- [ ] T001 one\n';
   const root = makeRepo([{ folder: 'a', plan: true, tasks }, { folder: 'b', plan: true, tasks }]);
@@ -1494,4 +1523,88 @@ test('the roadblock label marks the unblocked implementations most others wait f
   await maintainRoadblocks(client, { SPECKIT_ROADBLOCK_PULLS: '0' }, next);
   assert.deepEqual(labelled(), [], '0 turns the label off');
   assert.deepEqual([parseRoadblockPulls(''), parseRoadblockPulls('5'), parseRoadblockPulls('-1'), parseRoadblockPulls('x')], [3, 5, 3, 3]);
+});
+
+import { blockedTarget, maintainEscalations, parseMaxBlocked, parseMaxBlockedDays } from './speckit-orchestrate.mjs';
+
+const DAY = 24 * 60 * 60 * 1000;
+
+test('the blocked target is missed at SPECKIT_MAX_BLOCKED blocked implementations or one open longer than SPECKIT_MAX_BLOCKED_DAYS', () => {
+  assert.deepEqual([parseMaxBlocked(''), parseMaxBlocked('3'), parseMaxBlocked('0'), parseMaxBlocked('-1'), parseMaxBlocked('2.5')], [5, 3, 0, 5, 5]);
+  assert.deepEqual([parseMaxBlockedDays(undefined), parseMaxBlockedDays('1.5'), parseMaxBlockedDays('0'), parseMaxBlockedDays('x')], [2, 1.5, 0, 2]);
+  const now = Date.parse('2026-10-28T12:00:00Z');
+  const twin = (number, days, blocked = true) => ({ number, pull: number + 100, blocked, openedAt: new Date(now - days * DAY).toISOString() });
+  const fresh = [twin(1, 1), twin(2, 1), twin(3, 1), twin(4, 1), twin(5, 3, false)];
+  assert.equal(blockedTarget(fresh, {}, now).missed, false, 'four fresh blocks, and an old one that is not blocked');
+  const many = blockedTarget([...fresh, twin(6, 0.5)], {}, now);
+  assert.equal(many.missed, true);
+  assert.equal(many.reason, '5 implementations are blocked (target: fewer than 5)');
+  const old = blockedTarget([twin(1, 1), twin(7, 2.5), twin(8, 4)], {}, now);
+  assert.equal(old.reason, '2 blocked implementations are open longer than 2 days (the oldest, #108, for 4 days)');
+  assert.deepEqual(old.aged.map((item) => item.number), [8, 7]);
+  assert.equal(blockedTarget([twin(8, 4)], { SPECKIT_MAX_BLOCKED_DAYS: '0' }, now).missed, false, '0 turns the age off');
+  assert.equal(blockedTarget([...fresh, twin(6, 0.5)], { SPECKIT_MAX_BLOCKED: '0' }, now).missed, false, '0 turns the count off');
+});
+
+test('while the blocked target is missed only prerequisites start, and no specs are authored', async () => {
+  const tasks = '## Phase 1\n\n- [ ] T001 one\n';
+  const root = makeRepo([{ folder: 'a', plan: true, tasks }, { folder: 'b', plan: true, tasks }, { folder: 'c', plan: true, tasks }]);
+  try {
+    const github = new FakeGitHub();
+    await runSync({ client: github, rootDir: root, env: envFor(root), dryRun: false, promptFile: path.join(root, 'prompt.txt'), log: silent });
+    const [a, b, c] = github.issues;
+    for (const issue of github.issues) issue.labels = issue.labels.filter((label) => label.name !== 'speckit:deps-pending');
+    github.permissions.dev = 'write';
+    flag(github, a);
+    await orchestrate(github, root);
+    github.completeRun(github.repo.runs.at(-1).id, 'success');
+    // a waits for c; b is an unrelated spec.
+    github.edges.push([a.number, c.number]);
+    flag(github, b);
+    const env = { SPECKIT_MAX_ACTIVE_SPECS: '5', SPECKIT_MAX_BLOCKED: '1', SPECKIT_BACKLOG_SPECS: '5' };
+    const waiting = await orchestrate(github, root, env);
+    assert.match(waiting.text, /Blocked target missed: 1 implementation is blocked \(target: fewer than 1\)\. Only prerequisites of blocked implementations start/);
+    assert.match(waiting.text, new RegExp(`Waiting: #${b.number} \`b\` starts once the blocked target is met`));
+    assert.equal(github.repo.pulls.some((pull) => pull.head.ref === 'speckit/b'), false, 'the unrelated spec did not start below SPECKIT_MAX_ACTIVE_SPECS');
+    assert.match(waiting.text, /### Flaky tests\n\n- Paused while the blocked target is missed[\s\S]*### Spec backlog\n\n- Paused while the blocked target is missed/);
+    assert.equal(github.repo.runs.some((run) => run.workflow === 'speckit-backlog.yml'), false);
+    // The prerequisite c starts once requested; b still waits.
+    flag(github, c);
+    const started = await orchestrate(github, root, env);
+    assert.match(started.text, new RegExp(`Started the implementation of #${c.number}`));
+    assert.equal(github.repo.pulls.some((pull) => pull.head.ref === 'speckit/b'), false);
+    // With the target met again, b starts.
+    const met = await orchestrate(github, root, { ...env, SPECKIT_MAX_BLOCKED: '5' });
+    assert.doesNotMatch(met.text, /Blocked target missed/);
+    assert.ok(github.repo.pulls.some((pull) => pull.head.ref === 'speckit/b'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a chain head stopped for a person is escalated once per stop when implementations open too long wait for it', async () => {
+  const github = new FakeGitHub();
+  const now = Date.parse('2026-10-28T12:00:00Z');
+  for (const number of [10, 11, 12]) github.repo.pulls.push({ number, state: 'open', labels: [], head: { ref: `speckit/f${number}` }, base: { ref: 'main' } });
+  const diagnosis = await github.createComment(10, '<!-- speckit-implement:diagnosis -->\n**Diagnosis**: decide');
+  const stopped = (comments) => ({ action: 'failed', diagnosis: { state: 'reported' }, comments });
+  const inProgress = (comments, overrides = {}) => [
+    { number: 1, pull: 10, requester: 'dev', openedAt: new Date(now - 1 * DAY).toISOString(), blocked: false, decision: stopped(comments), blockers: [], ...overrides },
+    { number: 2, pull: 11, openedAt: new Date(now - 5 * DAY).toISOString(), blocked: true, blockers: [1] },
+    { number: 3, pull: 12, openedAt: new Date(now - 3 * DAY).toISOString(), blocked: true, blockers: [2] },
+  ];
+  assert.deepEqual(await maintainEscalations(github, {}, inProgress(await github.listIssueComments(10), { decision: { action: 'failed', diagnosis: { state: 'none' } } }), { now }), [], 'not while a diagnosis is still to come');
+  assert.deepEqual(await maintainEscalations(github, {}, inProgress(await github.listIssueComments(10), { active: true }), { now }), []);
+  assert.deepEqual(await maintainEscalations(github, { SPECKIT_MAX_BLOCKED_DAYS: '6' }, inProgress(await github.listIssueComments(10)), { now }), [], 'nothing waits long enough');
+  const lines = await maintainEscalations(github, {}, inProgress(await github.listIssueComments(10)), { now });
+  assert.deepEqual(lines, ['- Escalated #10 (spec #1): 2 implementations open longer than 2 days wait for its decision.']);
+  const escalation = github.comments.at(-1);
+  assert.equal(escalation.number, 10);
+  assert.match(escalation.body, new RegExp(`^<!-- speckit-implement:escalation \\{"key":"${diagnosis.id}"\\} -->\\n\\*\\*Escalation\\*\\* @dev: this implementation is stopped for a person's decision, and 2 implementations open longer than 2 days wait for it, directly or through a chain: #11 \\(spec #2, open 5 days\\), #12 \\(spec #3, open 3 days\\)\\.`));
+  assert.ok(escalation.body.includes(`**Recommended next step**: Follow the [latest diagnosis](${diagnosis.html_url})`));
+  assert.equal(escalation.body.match(/Recommended next step/g).length, 1);
+  assert.ok(github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL));
+  assert.deepEqual(await maintainEscalations(github, {}, inProgress(await github.listIssueComments(10)), { now }), [], 'once per stop');
+  await github.createComment(10, '<!-- speckit-implement:diagnosis -->\n**Diagnosis (round 2)**: decide');
+  assert.equal((await maintainEscalations(github, {}, inProgress(await github.listIssueComments(10)), { now })).length, 1, 'a new stop is escalated again');
 });

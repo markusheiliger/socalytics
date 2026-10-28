@@ -14,6 +14,9 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis.Results;
 
+// The meter SocAlytics.Platform.Analysis is process-wide and this class listens to it without scope while test collections run in
+// parallel in one process, so a foreign rejection could break its counts. The collection runs it apart from parallel collections.
+[Collection(AnalysisTelemetryCollection.Name)]
 public sealed class FactPayloadTelemetryTests(PostgresContainerFixture postgres, NatsContainerFixture nats, RustFsContainerFixture rustFs)
 {
     private const string Sentinel = "PAYLOAD-VALUE-MUST-NOT-LEAK";
