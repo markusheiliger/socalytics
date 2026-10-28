@@ -24,6 +24,10 @@ name: Spec Kit orchestrate
 #     authors the next SPECKIT_BACKLOG_SPECS (repository variable, default 5, 0 turns it off) specs like
 #     `/speckit-gha-author --repeat` and publishes them on the default branch. One at a time; after a failed refill
 #     the next one starts a day later.
+#   - works the blocked queue down: while SPECKIT_MAX_BLOCKED (repository variable, default 5) or more implementations
+#     are blocked, or one of them has been open longer than SPECKIT_MAX_BLOCKED_DAYS (default 2; 0 turns a part off),
+#     only prerequisites of blocked implementations start and the backlog refill and flaky-test specs pause; a stopped
+#     implementation that such old implementations wait for is escalated once per stop.
 # Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows, so the merge and
 # every dispatched, applying Spec Kit prepare run dispatch this workflow; that is the main path after a merge. The
 # schedule is only a fallback for runs that GitHub drops or delays.
@@ -104,4 +108,7 @@ jobs:
           SPECKIT_ROADBLOCK_PULLS: ${{ vars.SPECKIT_ROADBLOCK_PULLS || '3' }}
           SPECKIT_FLAKY_THRESHOLD: ${{ vars.SPECKIT_FLAKY_THRESHOLD }}
           SPECKIT_BACKLOG_SPECS: ${{ vars.SPECKIT_BACKLOG_SPECS || '5' }}
+          # The blocked target: fewer blocked implementations than this, none open longer than these days (0 turns a part off).
+          SPECKIT_MAX_BLOCKED: ${{ vars.SPECKIT_MAX_BLOCKED || '5' }}
+          SPECKIT_MAX_BLOCKED_DAYS: ${{ vars.SPECKIT_MAX_BLOCKED_DAYS || '2' }}
         run: node .github/scripts/speckit-orchestrate.mjs orchestrate

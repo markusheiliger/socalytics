@@ -92,7 +92,7 @@ They become ready only after final verification, immediately before an automatic
 | Workflow | File | Triggered by | Does |
 | --- | --- | --- | --- |
 | Spec Kit prepare | [speckit-prepare.yml](speckit-prepare.yml) | Push to `specs/**`, stage label changes (restored when a person made them), manual | Keeps one twin issue per spec folder, infers dependencies between new twins, validates implement requests; a dispatched, applying run then dispatches `Spec Kit orchestrate`. |
-| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; blocked implementations keep their slots; requested twins that block running implementations start regardless and first, the one that unblocks the most waiting implementations, also through chains of blocked ones, first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
+| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; blocked implementations keep their slots; requested twins that block running implementations start regardless and first, the one that unblocks the most waiting implementations, also through chains of blocked ones, first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Works the blocked queue down (see [Blocked target](#blocked-target)). Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
 | Spec Kit implement decide | [speckit-implement-decide.yml](speckit-implement-decide.yml) | Orchestrate, commands, the chain | The run without work: when the next work is none (a stop at an attempt limit, a failure, a running merge, a finished implementation) or cannot be told, it decides and acts on it (reports the stop, starts the diagnosis, marks the implementation done); work it finds after all is handed over to the workflow of its kind. |
 | Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Orchestrate, commands, the chain | A sequential group (consecutive tasks without `[P]`, one at a time), a parallel group (consecutive `[P]` tasks under one heading, at most 5 at once, verified together only when a landing merged a sibling's edits to the same files), or the convergence or a conflict resolution as a group of one; then starts the next run. |
 | Spec Kit implement verify | [speckit-implement-verify.yml](speckit-implement-verify.yml) | The chain | The full verification of a finished phase in a run of its own, in up to four shards side by side that a planning job names after their work (combined into the artifact `speckit-phase-verification`); a failure stops with a pending repair. |
@@ -404,6 +404,25 @@ before it (`repeatedFailure`), the evidence tells the agent, and a recommendatio
 options at publication, with `/speckit author` as the fallback.
 
 Architecture impact: none. This changes repository automation, not the product design in `docs/architecture/`.
+
+## Blocked target
+
+`Spec Kit orchestrate` prefers getting blocked implementations merged over starting or authoring new work. The target
+is fewer than `SPECKIT_MAX_BLOCKED` (repository variable, default 5) implementation pull requests labelled `blocked`,
+none of them open longer than `SPECKIT_MAX_BLOCKED_DAYS` (default 2); `0` turns that part off. While the target is
+missed, the scheduler report says why, and:
+
+- only requested prerequisites of blocked implementations start; every other requested spec waits, even below
+  `SPECKIT_MAX_ACTIVE_SPECS`;
+- the backlog refill and the flaky-test specs pause, because both author new specs;
+- an implementation that is not blocked itself but stopped for a person's decision (its diagnosis is reported), while
+  implementations open longer than `SPECKIT_MAX_BLOCKED_DAYS` wait for it directly or through a chain, gets one
+  **Escalation** comment per stop that mentions its requester, names the waiting implementations, and recommends
+  following the latest diagnosis.
+
+A requested spec whose twin still has open blockers never gets a pull request in the first place: it waits as
+*Blocked* in the scheduler report until its blockers are implemented. Blocked pull requests come from blocks added
+after the implementation started, mostly specs authored with `/speckit author` for a cause outside the stopped spec.
 
 ## Spec backlog
 
