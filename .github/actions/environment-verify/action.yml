@@ -18,14 +18,17 @@ description: >-
   "Web UI build and tests" for src/clients/web/, also triggered by src/platform/SocAlytics.Platform.Api/, running in
   task mode all unit tests but only the browser spec files the task touched); "Analyst Python projects" and "Agent Python projects" (the locked uv stages of the selected
   projects; a failed discovery fails its check in every mode); "Environment action tests" (the Node tests of both
-  environment actions, when either action folder changed or in finalize mode); "Markdown check". A .NET component
+  environment actions, when either action folder changed or in finalize mode); "Spec Kit tooling tests" (the Node
+  tests of .github/scripts/speckit-*.mjs, when such a script changed or in finalize mode); "Markdown check". A .NET component
   restores, builds, and tests from its own folder; an npm component runs npm ci (no browser download), the Playwright
   pin check when it uses @playwright/test (1.63.0, the version environment-setup installs), and its build, test, and
   test:e2e scripts (browser tests with --retries=1; with affected tests and a declared browserTests folder only the
   touched spec files), stopping at the first failure. Every .NET test project runs with
   a TRX log; when it fails with at most 10 failed tests, only those run once more, and a project whose rerun passes
   passes. Tests that passed only on their rerun (and Playwright's flaky tests) are listed in the log, the step
-  summary, and the flaky output.
+  summary, and the flaky output. With the input environment-tests-only set to "true" only "Environment action tests"
+  runs, in every mode and shard (the merge's self-test of a changed environment action): no plan is written, flaky is
+  empty, and every changed file stays uncovered.
 # Extending: a new component of a known kind (.NET solution, npm package, Python project of the convention) needs no
 # change here: it is discovered, covered, and verified from its own folder. Its verification.json may add triggers,
 # covered folders, always-run test projects, an SDK pin, tool groups, and shards (see README.md); any change to such a
@@ -51,10 +54,17 @@ inputs:
   shard:
     description: >-
       Optional <index>/<count> (for example 2/4): run only this shard of the work, as the verification plan packs it by
-      estimated minutes; the first shard also runs the Python projects, the environment action tests, and the Markdown
-      check. Empty runs everything in one job.
+      estimated minutes; the first shard also runs the Python projects, the environment action tests, the Spec Kit
+      tooling tests, and the Markdown check. Empty runs everything in one job.
     required: false
     default: ""
+  environment-tests-only:
+    description: >-
+      "true" runs only the check "Environment action tests" (the Node tests of both environment actions) and skips the
+      verification plan, the components, the Python projects, and the Markdown check; any other value runs the full
+      verification of the mode.
+    required: false
+    default: "false"
 outputs:
   checks:
     description: Comma-separated names of the checks that ran, in order; after a failure the last one failed
@@ -84,9 +94,11 @@ runs:
         CHANGED_FILES: ${{ inputs.changed-files }}
         LOG_FILE: ${{ inputs.log-file }}
         SHARD: ${{ inputs.shard }}
+        ENVIRONMENT_TESTS_ONLY: ${{ inputs.environment-tests-only }}
         MARKDOWN_CHECK: ${{ github.action_path }}/../../scripts/check-markdown.mjs
         ANALYST_PROJECTS: ${{ github.action_path }}/analyst-projects.py
         VERIFICATION_PLAN: ${{ github.action_path }}/verification-plan.mjs
+        SPECKIT_TOOLING_TESTS: .github/scripts
         ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/verification-scope.test.mjs ${{ github.action_path }}/verification-plan.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs ${{ github.action_path }}/../environment-setup/cv-libraries.test.mjs
       run: |
         # GitHub runs `shell: bash` with `-e`; this script handles failures itself (status) and must always write its
@@ -108,6 +120,43 @@ runs:
         RERUN_LIMIT=10
         changed=""
         [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ] && changed="$(cat "$CHANGED_FILES")"
+
+        # environment-tests-only=true: only the Node tests of both environment actions run, whatever the mode, the changed
+        # files, and the shard. No plan exists, so no plan output is written and every changed file stays uncovered.
+        if [ "${ENVIRONMENT_TESTS_ONLY:-false}" = true ]; then
+          echo "Verification scope: environment action tests only" | tee -a "$LOG_FILE"
+          printf '### Verification scope\n\n%s\n\n' "environment action tests only" >> "$GITHUB_STEP_SUMMARY"
+          only_status=0
+          only_checks=""
+          if [ -n "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ]; then
+            echo "Environment action tests: skipped in a nested run" | tee -a "$LOG_FILE"
+          elif [ -z "${ENVIRONMENT_TESTS:-}" ]; then
+            only_checks="Environment action tests"
+            echo "Environment action tests are not configured (ENVIRONMENT_TESTS). Recommended action: restore the ENVIRONMENT_TESTS list of the environment-verify action, and retry verification" | tee -a "$LOG_FILE"
+            only_status=1
+          else
+            only_checks="Environment action tests"
+            read -r -a environment_tests <<< "$ENVIRONMENT_TESTS"
+            pushd "$WORKSPACE" > /dev/null
+            only_start="$(date +%s%3N)"
+            echo "\$ env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test ${environment_tests[*]}" | tee -a "$LOG_FILE"
+            env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test "${environment_tests[@]}" 2>&1 | tee -a "$LOG_FILE"
+            only_status="${PIPESTATUS[0]}"
+            echo "Duration: $(($(date +%s%3N) - only_start)) ms; exit: $only_status; command: node --test ${environment_tests[*]}" | tee -a "$LOG_FILE"
+            popd > /dev/null
+            if [ "$only_status" -ne 0 ]; then
+              echo "Environment action tests failed (command: node --test ${environment_tests[*]}). Recommended action: reproduce this command, correct the failing environment action or its test without weakening the test, and retry verification" | tee -a "$LOG_FILE"
+              only_status=1
+            fi
+          fi
+          only_uncovered=""
+          [ -z "$changed" ] || only_uncovered="$(grep -v '^$' <<< "$changed" | paste -sd, -)"
+          rm -rf "$RESULTS_ROOT"
+          echo "checks=${only_checks}" >> "$GITHUB_OUTPUT"
+          echo "uncovered=${only_uncovered}" >> "$GITHUB_OUTPUT"
+          echo "flaky=" >> "$GITHUB_OUTPUT"
+          exit "$only_status"
+        fi
 
         # The verification plan (verification-plan.mjs) is the only selection logic: the documentation-only decision, the
         # components and how far each is tested, the Python projects, and the paths no check covers. A documentation-only
@@ -151,10 +200,10 @@ runs:
           agent_error="$(plan 'p.python.agents.error')"
           agent_selected="$(plan 'p.python.agents.selected')"
           # A shard other than the first runs only its components; the Python projects, the environment action tests,
-          # and the Markdown check belong to the first shard.
+          # the Spec Kit tooling tests, and the Markdown check belong to the first shard.
           MAIN="$(plan 'p.main ? 1 : 0')"
           if [ -n "${SHARD:-}" ]; then
-            echo "Verification shard $SHARD: $(plan 'p.shards[Number(p.shard.split("/")[0]) - 1].units.map((u) => u.root + "#" + u.name + " (" + u.minutes + " min)").join(", ") || "no component work"')$([ "$MAIN" -eq 1 ] && echo '; also the Python projects, environment action tests, and Markdown check')" | tee -a "$LOG_FILE"
+            echo "Verification shard $SHARD: $(plan 'p.shards[Number(p.shard.split("/")[0]) - 1].units.map((u) => u.root + "#" + u.name + " (" + u.minutes + " min)").join(", ") || "no component work"')$([ "$MAIN" -eq 1 ] && echo '; also the Python projects, environment action tests, Spec Kit tooling tests, and Markdown check')" | tee -a "$LOG_FILE"
           fi
           if [ "$MAIN" -eq 0 ]; then
             analyst_status=0; analyst_selected=""
@@ -561,7 +610,8 @@ runs:
             done <<< "$agent_selected"
           fi
         fi
-        # The environment-local Node tests of both environment actions run when either action folder changed and in
+        # The environment-local Node tests of both environment actions (a check of the first shard only, like the Spec
+        # Kit tooling tests and the Markdown check) run when either action folder changed and in
         # finalize mode, whether or not an Analyst Python project exists. They use the caller-provided node, and their
         # fixtures never start this check again: the marker below makes a nested run skip it.
         if [ "$status" -eq 0 ] && [ "$MAIN" -eq 1 ] && [ -n "${ENVIRONMENT_TESTS:-}" ] && [ -z "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ] && applies "$ENVIRONMENT_TRIGGER"; then
@@ -571,6 +621,27 @@ runs:
             echo "Environment action tests failed (command: node --test ${environment_tests[*]}). Recommended action: reproduce this command, correct the failing environment action or its test without weakening the test, and retry verification" | tee -a "$LOG_FILE"
             status=1
           }
+        fi
+        # The Node tests of the Spec Kit tooling scripts run when a speckit-*.mjs file changed (including a deletion or a
+        # task-named path) and in finalize mode. SPECKIT_TOOLING_TESTS is the workspace-relative tooling folder that holds
+        # the tests; it is unset in fixtures. The nested-run marker keeps a fixture from starting this check again.
+        if [ "$status" -eq 0 ] && [ "$MAIN" -eq 1 ] && [ -n "${SPECKIT_TOOLING_TESTS:-}" ] && [ -z "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ] && applies '^\.github/scripts/speckit-[^/]+\.mjs$'; then
+          checks+=("Spec Kit tooling tests")
+          shopt -s nullglob
+          tooling_tests=("$SPECKIT_TOOLING_TESTS"/speckit-*.test.mjs)
+          shopt -u nullglob
+          if ! command -v node > /dev/null; then
+            echo "Spec Kit tooling tests: node is required. Recommended action: run environment-setup before verification" | tee -a "$LOG_FILE"
+            status=1
+          elif [ "${#tooling_tests[@]}" -eq 0 ]; then
+            echo "Spec Kit tooling tests: no $SPECKIT_TOOLING_TESTS/speckit-*.test.mjs file exists. Recommended action: restore the Spec Kit tooling tests and retry verification" | tee -a "$LOG_FILE"
+            status=1
+          else
+            step env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test "${tooling_tests[@]}" || {
+              echo "Spec Kit tooling tests failed (command: node --test ${tooling_tests[*]}). Recommended action: reproduce this command, correct the failing Spec Kit tooling script or its test without weakening the test, and retry verification" | tee -a "$LOG_FILE"
+              status=1
+            }
+          fi
         fi
         if [ "$status" -eq 0 ] && [ "$MAIN" -eq 1 ] && applies '\.md$'; then
           checks+=("Markdown check")

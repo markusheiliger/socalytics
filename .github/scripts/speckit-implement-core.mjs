@@ -841,6 +841,69 @@ export async function setAttention(client, number, needed) {
   }
 }
 
+// A writer's `@copilot` request on a stopped implementation hands it to GitHub Copilot's cloud agent: the pull request
+// stops asking for help (the handoff comment says why), and Copilot's push continues the implementation like any push
+// that is not by github-actions[bot]. When Copilot replies without having pushed, or has not pushed within
+// COPILOT_HANDOFF_MS, the scheduler asks for help again (maintainCopilotHandoff), so a stop never goes unnoticed.
+export const COPILOT_HANDOFF_MARKER = '<!-- speckit-implement:copilot-handoff -->';
+export const COPILOT_HANDOFF_ENDED_MARKER = 'speckit-implement:copilot-handoff-ended';
+export const COPILOT_HANDOFF_MS = 60 * 60 * 1000;
+// The REST login of GitHub Copilot's cloud agent on comments and commits.
+export const COPILOT_LOGIN = 'Copilot';
+
+// Whether a comment asks Copilot's cloud agent for a change: it starts with the mention, like the requests diagnoses
+// recommend (renderCopilotRequest). A mention later in the text ("thanks @copilot") is not a handoff.
+export function isCopilotRequest(body) {
+  return /^\s*@copilot\b/i.test(String(body ?? ''));
+}
+
+// The latest handoff to Copilot that still decides whether the pull request asks for help, and its state: `working`
+// (Copilot may still push), `finished` (Copilot replied after the handoff without a push), or `expired` (no push within
+// COPILOT_HANDOFF_MS). A push that is not by github-actions[bot] (`pushedAt`), a restart or sync after the handoff, or
+// an ended marker for it closes the handoff (null).
+export function pendingCopilotHandoff(comments, { pushedAt = null, now = Date.now() } = {}) {
+  const handoff = [...comments]
+    .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, COPILOT_HANDOFF_MARKER))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  if (!handoff) return null;
+  const at = Date.parse(handoff.created_at);
+  const after = (comment) => Date.parse(comment.created_at) > at;
+  if (pushedAt && Date.parse(pushedAt) > at) return null;
+  if (comments.some((comment) => comment.user?.login === BOT_LOGIN && after(comment) &&
+    [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => startsWithMarker(comment.body, marker)))) return null;
+  if (comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').includes(`<!-- ${COPILOT_HANDOFF_ENDED_MARKER} ${JSON.stringify({ handoff: handoff.id })} -->`))) return null;
+  const reply = comments.find((comment) => comment.user?.login === COPILOT_LOGIN && after(comment)) ?? null;
+  if (reply) return { handoff, state: 'finished', reply };
+  return { handoff, state: now - at >= COPILOT_HANDOFF_MS ? 'expired' : 'working', reply: null };
+}
+
+// Spec Kit orchestrate, for every implementation in progress: asks for help again when a handoff to Copilot ended
+// without a push, unless the chain is running, will be continued (`continues`), or the implementation is blocked.
+export async function maintainCopilotHandoff(client, { pull, comments, pushedAt, active, continues, blocked, now = Date.now() }) {
+  if (active || continues || blocked) return null;
+  const pending = pendingCopilotHandoff(comments, { pushedAt, now });
+  if (!pending || pending.state === 'working') return null;
+  const link = (comment) => comment.html_url ?? `#issuecomment-${comment.id}`;
+  const diagnosis = [...comments]
+    .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, DIAGNOSIS_COMMENT_MARKER))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  const branch = `\`${pull.head?.ref ?? 'the implementation branch'}\``;
+  const what = pending.state === 'finished'
+    ? `**Copilot finished without pushing** to ${branch}, so the implementation is still stopped and needs a person again. [Copilot's reply](${link(pending.reply)}) says what it did instead.`
+    : `**Copilot has not pushed** to ${branch} within ${COPILOT_HANDOFF_MS / 60000} minutes of the [request](${link(pending.handoff)}), so the implementation is still stopped and needs a person again. Check that Copilot's cloud agent is enabled for this repository and whether its session failed.`;
+  const next = diagnosis
+    ? `**Recommended next step**: Follow the [latest diagnosis](${link(diagnosis)}) again: post its recommended command, or its \`@copilot\` request corrected by what Copilot's answer showed was missing.`
+    : '**Recommended next step**: Post the `@copilot` request again with what was missing, or push the change to the implementation branch yourself; either push continues the implementation by itself.';
+  await setAttention(client, pull.number, true);
+  await client.createComment(pull.number, [
+    `<!-- ${COPILOT_HANDOFF_ENDED_MARKER} ${JSON.stringify({ handoff: pending.handoff.id })} -->`,
+    what,
+    '',
+    next,
+  ].join('\n'));
+  return pending.state;
+}
+
 // Adds or removes BLOCKED_LABEL on an implementation pull request. Blocking needs `explain` ({ key, lines }): unless a
 // workflow comment already carries the marker of `key` (the comment that caused the block usually does), a comment with
 // `lines` says what the implementation waits for and how it is unblocked. A blocked pull request carries ATTENTION_LABEL

@@ -29,6 +29,7 @@ import {
   runVerdict,
 } from './speckit-implement.mjs';
 import { main as convergeMain } from './speckit-converge.mjs';
+import { main as completionMain, taskDigest } from './speckit-completion.mjs';
 import { main as groupMain } from './speckit-group.mjs';
 import { main as mergeMain } from './speckit-merge.mjs';
 import { main as repairMain, repairVerificationScope } from './speckit-repair.mjs';
@@ -103,8 +104,9 @@ const appendConvergence = (work, tasks = '- [ ] T003 Add the missing guard (FR-0
 );
 
 // Runs the work job of a kind: integrate (resolve, merge), the simulated agent, package (task, converge, resolve),
-// and verdict with a simulated environment-verify outcome (`verify: null` means no verify action).
-function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { outcome: 'success', checks: 'Markdown check' }, env: extraEnv = {} } = {}) {
+// `between` (the steps after package, for example the trusted runner of a completion without a change), and verdict
+// with a simulated environment-verify outcome (`verify: null` means no verify action).
+function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { outcome: 'success', checks: 'Markdown check' }, env: extraEnv = {}, between } = {}) {
   mkdirSync(repos.resultDir, { recursive: true });
   const outputFile = path.join(repos.resultDir, 'github-output.txt');
   writeFileSync(outputFile, '');
@@ -114,6 +116,7 @@ function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { 
   agent?.(repos);
   if (agentExit !== null && inputs.kind !== 'merge') writeFileSync(path.join(repos.resultDir, 'agent-exit.txt'), `${agentExit}\n`);
   const packaged = inputs.kind === 'merge' ? null : runPackage(run);
+  between?.(packaged);
   let result = packaged?.result ?? integrated.result;
   if (inputs.kind !== 'converge') {
     const ready = inputs.kind === 'merge' ? integrated.result.reasons.length === 0 && integrated.result.conflicts.length === 0 : packaged.verify;
@@ -348,6 +351,188 @@ test('task: empty-patch land survives a moved branch without reapplying the patc
   }
 });
 
+// A conditional task (T001) and a verification task (T002), as upstream Spec Kit writes them; neither needs a change.
+const COMPLETION_TASKS = '# Tasks\n\n## Phase 1\n\n- [ ] T001 Only if docs/evidence.md reports a platform defect, fix it in src/T/Fix.cs and add a test\n- [ ] T002 Run `dotnet test src/T/T.csproj --filter Evidence` 3 times in a row\n';
+const COMPLETION_BODY = '## Tasks (2)\n\n- [ ] T001 Only if docs/evidence.md reports a platform defect\n- [ ] T002 Run the evidence tests\n';
+const EVIDENCE_DOC = '# Evidence\n\n## T004\n\nThe cause is the test scenario; no platform defect.\n';
+const seedCompletion = (dir) => {
+  write(dir, 'docs/evidence.md', EVIDENCE_DOC);
+  write(dir, 'src/T/T.csproj', '<Project />\n');
+};
+const conditionFalse = {
+  format: 1,
+  task: 'T001',
+  verdict: 'accept',
+  outcome: 'not-applicable',
+  rationale: 'The task applies only to a platform defect; the evidence records a test-scenario cause.',
+  obligations: [{ text: 'Fix a platform defect if docs/evidence.md reports one', disposition: 'condition-false' }],
+  condition: { text: 'docs/evidence.md reports a platform defect', evidence: [{ path: 'docs/evidence.md', lines: [5, 5], excerpt: 'no platform defect.' }] },
+};
+const EVIDENCE_TESTS = { runner: 'dotnet-test', project: 'src/T/T.csproj', filter: 'Evidence', runs: 3 };
+const verifyOnly = {
+  format: 1,
+  task: 'T002',
+  verdict: 'accept',
+  outcome: 'verified',
+  rationale: 'The task only runs the evidence tests.',
+  obligations: [{ text: 'Run the evidence tests 3 times in a row', disposition: 'verify' }],
+  requirements: [EVIDENCE_TESTS],
+  unsupported: [],
+};
+const taskTextOf = (id) => COMPLETION_TASKS.split('\n').find((line) => line.includes(` ${id} `)).replace(/^- \[ \] T\d+ /, '');
+
+// What the implement-task workflow collects (workflow.json) when its assessment accepted a completion without a change.
+function recordCompletion(repos, { task = 'T001', assessment, head, status = 'completed', error = '' }) {
+  mkdirSync(repos.resultDir, { recursive: true });
+  const completion = {
+    format: 1,
+    task,
+    outcome: assessment.outcome,
+    taskDigest: taskDigest(taskTextOf(task)),
+    head,
+    claim: { format: 1, task, outcome: assessment.outcome, rationale: 'No change is needed.' },
+    assessment,
+  };
+  writeFileSync(path.join(repos.resultDir, 'workflow.json'), JSON.stringify({ workflow: 'implement-task', status, step: status === 'completed' ? 'result' : 'assess', error, result: status === 'completed' ? { completion } : null }));
+}
+
+const landedFiles = (repos) => git(repos.base, `--git-dir=${repos.bare}`, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'speckit/f').trim().split('\n');
+
+test('task: a conditional task whose condition does not hold lands as not applicable, with its evidence and no change', () => withRepos({
+  tasks: COMPLETION_TASKS,
+  seed: seedCompletion,
+}, async (repos) => {
+  const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+  const { packaged, result, output } = work(repos, {
+    env: { SPECKIT_HEAD: head },
+    agent: () => recordCompletion(repos, { assessment: conditionFalse, head }),
+    verify: { outcome: 'success', checks: 'platform build and tests' },
+  });
+  assert.deepEqual(result.reasons, []);
+  assert.equal(packaged.verify, false, 'no unrelated verification is imposed on a not-applicable task');
+  assert.match(output, /completion=not-applicable/);
+  assert.equal(result.completion.assessment.condition.evidence[0].blob, git(repos.work, 'rev-parse', `${head}:docs/evidence.md`).trim(), 'the citation is bound to the content it was read from');
+  const github = fakeGitHub({ body: COMPLETION_BODY });
+  github.repo.branches['speckit/f'] = head;
+  const landed = await land(repos, github);
+  assert.equal(landed.exitCode, 0, (landed.reasons ?? []).join('; '));
+  assert.equal(landed.check.output.title, 'T001 not applicable');
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), new RegExp(`- \\[x\\] T001 .* — not applicable: docs/evidence\\.md reports a platform defect \\(assessed at ${head.slice(0, 8)}; no change by this task\\)`));
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T002/);
+  assert.deepEqual(landedFiles(repos), ['specs/f/tasks.md'], 'only the tick lands');
+  assert.match(remoteHead(repos), /\|feat\(f\): T001 not applicable$/);
+  const comment = github.comments.at(-1).body;
+  assert.match(comment, /T001 not applicable and ticked[\s\S]*Condition: docs\/evidence\.md reports a platform defect[\s\S]*Evidence: \[`docs\/evidence\.md` lines 5-5\]\([^)]*\/blob\/[0-9a-f]{40}\/docs\/evidence\.md#L5-L5\)/);
+  assert.match(github.repo.pulls[0].body, /- \[x\] T001/);
+}));
+
+test('task: a verification task lands verified without changes only after the trusted runner passed every required run', async () => {
+  for (const failAt of [null, 2]) {
+    await withRepos({ tasks: COMPLETION_TASKS, seed: seedCompletion }, async (repos) => {
+      const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+      const commands = [];
+      let runs = 0;
+      const exec = (command, args) => {
+        commands.push([command, ...args].join(' '));
+        runs += 1;
+        return { status: runs === failAt ? 1 : 0, output: '', timedOut: false };
+      };
+      const { result, output } = work(repos, {
+        inputs: { ...TASK_INPUTS, task: 'T002' },
+        env: { SPECKIT_HEAD: head },
+        agent: () => recordCompletion(repos, { task: 'T002', assessment: verifyOnly, head }),
+        between: () => completionMain(['verify', '--workspace', repos.work, '--result-dir', repos.resultDir], { env: {}, log: silent, exec }),
+      });
+      assert.match(output, /completion=verified/);
+      assert.match(output, /verify=false/, 'the environment verification is not run without an environment-verify requirement');
+      const github = fakeGitHub({ body: COMPLETION_BODY });
+      github.repo.branches['speckit/f'] = head;
+      const landed = await land(repos, github, { inputs: { ...TASK_INPUTS, task: 'T002' } });
+      if (failAt === null) {
+        assert.deepEqual(commands, [
+          'dotnet test src/T/T.csproj --filter Evidence',
+          'dotnet test src/T/T.csproj --filter Evidence --no-build',
+          'dotnet test src/T/T.csproj --filter Evidence --no-build',
+        ]);
+        assert.equal(result.completion.execution.status, 'passed');
+        assert.equal(landed.exitCode, 0, (landed.reasons ?? []).join('; '));
+        assert.equal(landed.check.output.title, 'T002 verified without changes');
+        assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), new RegExp(`- \\[x\\] T002 .* — verified without changes by the assessed verification at ${head.slice(0, 8)} \\(no change by this task\\)`));
+        assert.deepEqual(landedFiles(repos), ['specs/f/tasks.md']);
+        assert.match(github.comments.at(-1).body, /T002 verified without changes and ticked[\s\S]*Verification: `dotnet test src\/T\/T\.csproj --filter Evidence`, 3 consecutive passing runs passed 3 of 3 runs/);
+      } else {
+        assert.equal(commands.length, 2, 'a failed run is never retried');
+        assert.equal(landed.exitCode, 1);
+        assert.match(landed.reasons.join('; '), /passed 1 of 3 required runs/);
+        assert.equal(remoteSha(repos, 'speckit/f'), head);
+        assert.match(github.comments.at(-1).body, /T002 attempt 2 failed/);
+      }
+    });
+  }
+});
+
+test('task: a rejected, tampered, or stale completion without a change fails without ticking', async () => {
+  const scenarios = [
+    ['the assessment rejected it', (repos, head) => recordCompletion(repos, { assessment: conditionFalse, head, status: 'failed', error: 'The independent assessment rejected the completion of T001 without a change:\n- The task requires a fix.' }), /rejected the completion of T001 without a change/],
+    ['an obligation needs a change', (repos, head) => recordCompletion(repos, { assessment: { ...conditionFalse, obligations: [...conditionFalse.obligations, { text: 'Record the decision in docs/evidence.md', disposition: 'change' }] }, head }), /the task still requires a change: Record the decision/],
+    ['the claim is for another commit', (repos) => recordCompletion(repos, { assessment: conditionFalse, head: 'c'.repeat(40) }), /assessed on another commit/],
+    ['the evidence does not say so', (repos, head) => recordCompletion(repos, { assessment: { ...conditionFalse, condition: { ...conditionFalse.condition, evidence: [{ path: 'docs/evidence.md', lines: [5, 5], excerpt: 'a platform defect was found' }] } }, head }), /excerpt does not appear/],
+    ['the verification was not run', (repos, head) => recordCompletion(repos, { task: 'T001', assessment: { ...verifyOnly, task: 'T001' }, head }), /T001 attempt 2 failed|did not run on the current head/],
+  ];
+  for (const [name, record, reason] of scenarios) {
+    await withRepos({ tasks: COMPLETION_TASKS, seed: seedCompletion }, async (repos) => {
+      const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+      work(repos, { env: { SPECKIT_HEAD: head }, agent: () => record(repos, head) });
+      const github = fakeGitHub({ body: COMPLETION_BODY });
+      github.repo.branches['speckit/f'] = head;
+      const landed = await land(repos, github);
+      assert.equal(landed.exitCode, 1, name);
+      assert.match(landed.reasons.join('; '), reason, name);
+      assert.equal(remoteSha(repos, 'speckit/f'), head, name);
+    });
+  }
+});
+
+test('task: a completion without a change is assessed again when the branch moved before or during the landing', () => withRepos({
+  tasks: COMPLETION_TASKS,
+  seed: seedCompletion,
+}, async (repos) => {
+  const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+  work(repos, { env: { SPECKIT_HEAD: head }, agent: () => recordCompletion(repos, { assessment: conditionFalse, head }) });
+  const moved = fakeGitHub({ body: COMPLETION_BODY });
+  moved.repo.branches['speckit/f'] = 'd'.repeat(40);
+  const stale = await land(repos, moved);
+  assert.equal(stale.exitCode, 1);
+  assert.match(stale.reasons.join('; '), /assessed on a different head/);
+
+  const github = fakeGitHub({ body: COMPLETION_BODY });
+  github.repo.branches['speckit/f'] = head;
+  const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'in_progress', external_id: CHECK_ATTEMPT });
+  const realGit = defaultGit(repos.land);
+  let pushes = 0;
+  const racingGit = (args) => {
+    if (args.includes('push') && ++pushes === 1) {
+      const seed = path.join(repos.base, 'seed');
+      git(seed, 'fetch', '-q', repos.bare, 'speckit/f');
+      git(seed, 'reset', '-q', '--hard', 'FETCH_HEAD');
+      write(seed, 'docs/sibling.md', '# Parallel task\n');
+      git(seed, 'add', '-A');
+      git(seed, 'commit', '-q', '-m', 'parallel task');
+      git(seed, 'push', '-q', repos.bare, 'HEAD:refs/heads/speckit/f');
+      return { status: 1, stdout: '', stderr: 'push rejected: branch moved' };
+    }
+    return realGit(args);
+  };
+  const landed = await runLand({
+    client: github, git: racingGit, env: landEnv(repos), inputs: { ...TASK_INPUTS, checkRun: check.id },
+    folder: 'f', workspace: repos.land, resultDir: repos.resultDir, workResult: 'success', log: silent,
+  });
+  assert.equal(landed.exitCode, 0);
+  assert.match(landed.requeue.join('; '), /moved after the completion of T001 without a change was assessed/);
+  assert.equal(pushes, 1, 'the decision is never carried onto the new head');
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+}));
+
 // On Windows, `bash` on the PATH is often WSL's System32 launcher, which neither receives the environment these tests
 // pass nor understands Windows paths; Git for Windows' bash does both.
 function resolveBash() {
@@ -505,6 +690,7 @@ test('repair workflow: unchanged HEAD reverifies the original product scope, or 
     });
     assert.equal(run.status, 0, run.stderr);
     assert.match(readFileSync(output, 'utf8'), available ? /mode=phase/ : /mode=finalize/);
+    assert.match(readFileSync(output, 'utf8'), new RegExp(`^tree=${git(repos.work, 'rev-parse', 'HEAD^{tree}').trim()}$`, 'm'), 'the shards rebuild and compare this tree');
     assert.equal(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8'), available ? 'src/platform/Host.cs\n' : '');
   }
   assert.match(workflow, /mode: \$\{\{ steps\.tree\.outputs\.mode \}\}/);
@@ -512,7 +698,7 @@ test('repair workflow: unchanged HEAD reverifies the original product scope, or 
   assert.match(unit, /echo '\/\.speckit-repair-evidence\/' >> \.git\/info\/exclude/);
   assert.match(workflow, /ref: \$\{\{ needs\.decide\.outputs\.verify_only == 'true' && needs\.decide\.outputs\.head \|\| needs\.implement\.outputs\.head \}\}/);
   assert.match(workflow, /Require the verification action\n        run: test -f tooling\/\.github\/actions\/environment-verify\/action\.yml/);
-  assert.match(workflow, /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}/);
+  assert.match(workflow, /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verdict\.outputs\.verification \}\}/);
   const guard = workflow.match(/Require the verification action\n        run: ([^\n]+)/)[1];
   assert.equal(runBash(guard, { cwd: repos.land }).status, 1, 'missing verifier fails the job instead of skipping verification');
 }));
@@ -1582,6 +1768,58 @@ test('merge: integrate reports the changed paths and environment changes; the ve
     const { result } = work(repos, { inputs: MERGE_INPUTS, verify: { outcome: 'success', checks: 'Markdown check', selfTest: 'failure' } });
     assert.equal(result.verified, false);
     assert.match(result.reasons.join(), /changed environment actions failed their self-test \(failure\)/);
+  });
+});
+
+test('merge: integrate with a pinned base rebuilds the same merged tree after the base branch moved', async () => {
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n'), main: (dir) => write(dir, 'docs/m.md', '# M\n') }, (repos) => {
+    const planned = work(repos, { inputs: MERGE_INPUTS });
+    const { baseSha, tree } = planned.integrated.result;
+    assert.match(planned.output, new RegExp(`^base_sha=${baseSha}$`, 'm'));
+    assert.match(planned.output, new RegExp(`^tree=${tree}$`, 'm'));
+    assert.equal(tree, git(repos.work, 'write-tree').trim());
+    // The base branch moves on before a shard starts.
+    const mover = path.join(repos.base, 'mover');
+    git(repos.base, 'clone', '-q', '--branch', 'main', repos.bare, mover);
+    write(mover, 'docs/later.md', '# Later\n');
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-q', '-m', 'later');
+    git(mover, 'push', '-q', 'origin', 'HEAD:main');
+    git(repos.land, 'fetch', '-q', 'origin');
+    const run = (env) => runIntegrate({ git: defaultGit(repos.land), env: { SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_BASE_BRANCH: 'main', ...env }, inputs: MERGE_INPUTS, folder: 'f', resultDir: path.join(repos.base, `shard-${Object.keys(env).length}`), log: silent });
+    const pinned = run({ SPECKIT_BASE_SHA: baseSha });
+    assert.deepEqual([pinned.result.baseSha, pinned.result.tree], [baseSha, tree], 'a shard verifies exactly the planned tree');
+    git(repos.land, 'merge', '--abort');
+    assert.notEqual(run({}).result.tree, tree, 'without the pin the moved base branch changes the tree');
+    git(repos.land, 'merge', '--abort');
+    assert.throws(() => run({ SPECKIT_BASE_SHA: 'main' }), /SPECKIT_BASE_SHA is not a commit SHA/);
+  });
+});
+
+test('merge: the verdict of a sharded verification names every failed check and every missing shard', async () => {
+  const combined = {
+    SPECKIT_VERIFY_COMBINED: 'true',
+    SPECKIT_VERIFY_FAILED: 'platform build and tests,Web UI build and tests',
+    SPECKIT_VERIFY_PROBLEMS: 'verification shard 3/3 (manager) did not report\n',
+  };
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n') }, (repos) => {
+    const { result } = work(repos, { inputs: MERGE_INPUTS, env: combined, verify: { outcome: 'failure', checks: 'Markdown check,platform build and tests,Web UI build and tests' } });
+    assert.equal(result.verified, false);
+    assert.deepEqual(result.checks, [
+      { name: 'Markdown check', passed: true },
+      { name: 'platform build and tests', passed: false },
+      { name: 'Web UI build and tests', passed: false },
+    ]);
+    assert.deepEqual(result.reasons, ['platform build and tests, Web UI build and tests failed', 'verification shard 3/3 (manager) did not report']);
+  });
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n') }, (repos) => {
+    const { result } = work(repos, { inputs: MERGE_INPUTS, env: { SPECKIT_VERIFY_COMBINED: 'true' }, verify: { outcome: 'success', checks: 'Markdown check,platform build and tests' } });
+    assert.equal(result.verified, true);
+    assert.ok(result.checks.every((check) => check.passed));
+  });
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n') }, (repos) => {
+    const { result } = work(repos, { inputs: MERGE_INPUTS, env: { SPECKIT_VERIFY_COMBINED: 'true' }, verify: { outcome: 'failure', checks: '' } });
+    assert.deepEqual(result.reasons, ['the verification did not succeed (failure)']);
   });
 });
 

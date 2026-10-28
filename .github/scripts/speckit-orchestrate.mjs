@@ -35,6 +35,7 @@ import {
   BRANCH_PREFIX,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
+  DIAGNOSIS_COMMENT_MARKER,
   IMPLEMENT_CHAIN_WORKFLOW_FILES,
   LEGACY_IMPLEMENT_WORKFLOW_FILES,
   ORCHESTRATE_WORKFLOW_FILE,
@@ -45,6 +46,7 @@ import {
   defaultBranchOf,
   dispatchImplementation,
   maintainDependencyBlock,
+  maintainCopilotHandoff,
   extractTasks,
   implementationBranch,
   isImplementRunOf,
@@ -100,6 +102,85 @@ export function waitingSets(inProgress) {
 // How many implementations in progress wait for each twin (waitingSets).
 export function waitingBehind(inProgress) {
   return new Map([...waitingSets(inProgress)].map(([twin, set]) => [twin, set.size]));
+}
+
+// The blocked target: fewer than SPECKIT_MAX_BLOCKED (default 5) blocked implementations, and none of them open longer
+// than SPECKIT_MAX_BLOCKED_DAYS (default 2). `0` turns a part off. While it is missed, the scheduler starts only
+// prerequisites of blocked implementations and authors no new specs (backlog refill, flaky-test specs).
+export const DEFAULT_MAX_BLOCKED = 5;
+export const DEFAULT_MAX_BLOCKED_DAYS = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
+export function parseMaxBlocked(value) {
+  const text = String(value ?? '').trim();
+  const number = Number(text);
+  return text !== '' && Number.isInteger(number) && number >= 0 ? number : DEFAULT_MAX_BLOCKED;
+}
+export function parseMaxBlockedDays(value) {
+  const text = String(value ?? '').trim();
+  const number = Number(text);
+  return text !== '' && Number.isFinite(number) && number >= 0 ? number : DEFAULT_MAX_BLOCKED_DAYS;
+}
+const daysOpen = (twin, now) => (now - Date.parse(twin.openedAt)) / DAY_MS;
+const formatDays = (days) => `${Math.floor(days)} day${Math.floor(days) === 1 ? '' : 's'}`;
+
+export function blockedTarget(inProgress, env, now = Date.now()) {
+  const max = parseMaxBlocked(env.SPECKIT_MAX_BLOCKED);
+  const days = parseMaxBlockedDays(env.SPECKIT_MAX_BLOCKED_DAYS);
+  const blocked = inProgress.filter((twin) => twin.blocked);
+  const aged = days > 0
+    ? blocked.filter((twin) => twin.openedAt && daysOpen(twin, now) > days).sort((a, b) => Date.parse(a.openedAt) - Date.parse(b.openedAt))
+    : [];
+  const reasons = [];
+  if (max > 0 && blocked.length >= max) reasons.push(`${blocked.length} implementation${blocked.length === 1 ? ' is' : 's are'} blocked (target: fewer than ${max})`);
+  if (aged.length > 0) {
+    reasons.push(`${aged.length} blocked implementation${aged.length === 1 ? ' is' : 's are'} open longer than ${days} day${days === 1 ? '' : 's'} (the oldest, #${aged[0].pull}, for ${formatDays(daysOpen(aged[0], now))})`);
+  }
+  return { blocked, aged, days, missed: reasons.length > 0, reason: reasons.join('; ') };
+}
+
+// Escalates a chain head that waits for a person: an implementation that is not blocked, stopped with a diagnosis (or
+// another stop) that waits for a person's decision, while implementations open longer than SPECKIT_MAX_BLOCKED_DAYS wait
+// for it, directly or through a chain. It gets one comment per stop that mentions its requester, names the waiting
+// implementations, and recommends following the latest diagnosis; `help wanted` stays with it. Returns the summary lines.
+export const ESCALATION_MARKER = 'speckit-implement:escalation';
+export async function maintainEscalations(client, env, inProgress, { now = Date.now() } = {}) {
+  const days = parseMaxBlockedDays(env.SPECKIT_MAX_BLOCKED_DAYS);
+  if (days === 0) return [];
+  const sets = waitingSets(inProgress);
+  const byNumber = new Map(inProgress.map((twin) => [twin.number, twin]));
+  const lines = [];
+  for (const head of inProgress) {
+    const decision = head.decision ?? {};
+    if (head.blocked || head.active || decision.action !== 'failed' || decision.diagnosis?.state !== 'reported') continue;
+    const waiting = [...(sets.get(head.number) ?? [])]
+      .map((number) => byNumber.get(number))
+      .filter((twin) => twin?.openedAt && daysOpen(twin, now) > days)
+      .sort((a, b) => Date.parse(a.openedAt) - Date.parse(b.openedAt));
+    if (waiting.length === 0) continue;
+    const comments = decision.comments ?? [];
+    const diagnosis = [...comments]
+      .filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER))
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+    const key = String(diagnosis?.id ?? decision.diagnosis?.check?.id ?? 'stop');
+    const marker = `<!-- ${ESCALATION_MARKER} ${JSON.stringify({ key })} -->`;
+    if (comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(marker))) continue;
+    const refs = waiting.map((twin) => `#${twin.pull} (spec #${twin.number}, open ${formatDays(daysOpen(twin, now))})`);
+    try {
+      await setAttention(client, head.pull, true);
+      await client.createComment(head.pull, [
+        marker,
+        `**Escalation**${head.requester ? ` @${head.requester}` : ''}: this implementation is stopped for a person's decision, and ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for it, directly or through a chain: ${refs.join(', ')}. None of them moves until this one continues.`,
+        '',
+        diagnosis
+          ? `**Recommended next step**: Follow the [latest diagnosis](${diagnosis.html_url ?? `#issuecomment-${diagnosis.id}`}): post the command or \`@copilot\` request it recommends.`
+          : '**Recommended next step**: Follow the recommendation of the latest stop comment above: post the command it recommends.',
+      ].join('\n'));
+      lines.push(`- Escalated #${head.pull} (spec #${head.number}): ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for its decision.`);
+    } catch (error) {
+      lines.push(`- Warning: could not escalate #${head.pull}: ${error.message}`);
+    }
+  }
+  return lines;
 }
 
 // How many pull requests carry ROADBLOCK_LABEL at most (repository variable SPECKIT_ROADBLOCK_PULLS, default 3; 0
@@ -217,7 +298,22 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number, rootDir }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
-      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active, blocked: isBlocked, blockers });
+      // A handoff to Copilot that ended without a push asks for help again.
+      try {
+        const ended = await maintainCopilotHandoff(client, {
+          pull: lifecycle.pull,
+          comments: decision.comments ?? [],
+          pushedAt: decision.pushedAt ?? null,
+          active,
+          continues: needsRun(decision, env),
+          blocked: isBlocked,
+          now: now(),
+        });
+        if (ended) amendmentNotes.push(`- The handoff of #${issue.number} to Copilot ended without a push (${ended}); it asks for help again.`);
+      } catch (error) {
+        amendmentNotes.push(`- Warning: could not check the Copilot handoff of #${issue.number}: ${error.message}`);
+      }
+      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, openedAt: lifecycle.pull.created_at, requester: requester.login, decision, active, blocked: isBlocked, blockers });
       continue;
     }
     if (lifecycle.state === 'fallback') {
@@ -414,6 +510,12 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
   // instead of new specs that would most likely run into the same problems.
   const continues = (twin) => !twin.active && !twin.blocked && needsRun(twin.decision, env);
   let active = selection.inProgress.filter((twin) => twin.active || twin.blocked || continues(twin)).length;
+  // While too many implementations are blocked, or one of them has been open too long, the scheduler works the
+  // queue down: only prerequisites of blocked implementations start, and no new specs are authored.
+  const target = blockedTarget(selection.inProgress, env, now());
+  if (target.missed) {
+    report.line(`- Blocked target missed: ${target.reason}. Only prerequisites of blocked implementations start, and no new specs are authored until it is met.`);
+  }
   for (const twin of selection.inProgress) {
     if (!continues(twin)) continue;
     await dispatchImplementation(client, env, { twin: twin.number, pull: twin.pull });
@@ -421,6 +523,10 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     actions += 1;
   }
   for (const twin of selection.ready) {
+    if (target.missed && !twin.prerequisite) {
+      report.line(`- Waiting: #${twin.number} \`${twin.folder}\` starts once the blocked target is met.`);
+      continue;
+    }
     // A prerequisite of a running implementation starts even at the limit: the implementation it unblocks holds a slot
     // while it waits.
     if (active >= maxActive && !twin.prerequisite) {
@@ -435,6 +541,13 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     actions += 1;
   }
   if (actions === 0) report.line('- Nothing to do.');
+  const escalations = await maintainEscalations(client, env, selection.inProgress, { now: now() });
+  if (escalations.length > 0) {
+    report.line();
+    report.line('### Escalations');
+    report.line();
+    for (const line of escalations) report.line(line);
+  }
   const roadblocks = await maintainRoadblocks(client, env, selection.inProgress);
   if (roadblocks.length > 0) {
     report.line();
@@ -442,14 +555,15 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     report.line();
     for (const line of roadblocks) report.line(line);
   }
-  const flaky = await maintainFlakyTests(client, env, { now: now() });
+  const paused = `- Paused while the blocked target is missed (${target.reason}).`;
+  const flaky = target.missed ? { lines: [paused], started: [] } : await maintainFlakyTests(client, env, { now: now() });
   if (flaky.lines.length > 0) {
     report.line();
     report.line('### Flaky tests');
     report.line();
     for (const line of flaky.lines) report.line(line);
   }
-  const backlog = await maintainBacklog(client, env, { rootDir, now: now() });
+  const backlog = target.missed ? { lines: [paused], started: false } : await maintainBacklog(client, env, { rootDir, now: now() });
   if (backlog.lines.length > 0) {
     report.line();
     report.line('### Spec backlog');
