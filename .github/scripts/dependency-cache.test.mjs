@@ -66,7 +66,7 @@ test('agent-adjacent setup only restores exact caches and never saves or evaluat
   assert.doesNotMatch(setup, /uses: actions\/cache(?:\/save)?@|restore-keys:|dotnet restore|npm ci/);
   assert.equal((setup.match(/continue-on-error: true/g) || []).length, 2);
   assert.match(setup, /default: "true"/);
-  assert.equal((setup.match(/if: inputs\.install-tools == 'true'/g) || []).length, 4);
+  assert.equal((setup.match(/if: inputs\.install-tools == 'true'/g) || []).length, 6);
   assert.match(setup, /'_cacache'|npm-path/);
 });
 

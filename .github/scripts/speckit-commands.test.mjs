@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, PR_COMMANDS, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, PR_COMMANDS, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
 import {
   COMMAND_DOCS_END,
   COMMAND_DOCS_FILE,
@@ -227,9 +227,23 @@ test('restarts that leave a stopped implementation unchanged are refused, unless
   assert.match(github.comments.at(-1).body, /<summary>Other options<\/summary>[\s\S]*`\/speckit retry --force`/);
   assert.deepEqual([restarts(), github.repo.runs.length], before, 'nothing was restarted');
 
+  // When the latest diagnosis asks Copilot for the change, the refusal recommends posting that request.
+  await github.createComment(pull.number, '<!-- speckit-implement:diagnosis -->\n**Diagnosis**: a person has to decide how to continue.\n\n**Recommended next step**: Ask Copilot to repoint the link.\n\nComment this on the pull request (people with write access):\n\n```text\n@copilot Change line 83 of specs/other/spec.md.\n\nMake only this change.\n```');
+  assert.equal((await run(github, '/speckit retry')).outcome, 'refused');
+  const refusal = github.comments.at(-1).body;
+  assert.match(refusal, /\*\*Recommended next step\*\*: Ask Copilot to push the correction the \[latest diagnosis\]\([^)]+\) describes\.[\s\S]*```text\n@copilot Change line 83 of specs\/other\/spec\.md\.\n\nMake only this change\.\n```/);
+  assert.match(refusal, /<summary>Other options<\/summary>[\s\S]*Push the correction yourself to `speckit\/f`/);
+  assert.equal(refusal.match(/\*\*Recommended next step\*\*/g)?.length, 1);
+  assert.deepEqual([restarts(), github.repo.runs.length], before, 'still nothing was restarted');
+
   // New commits on the base branch do not change the current phase's retry guard.
   github.repo.branches.main = 'sha-main-2';
   assert.equal((await run(github, '/speckit retry Again')).outcome, 'refused');
+
+  // A blocked implementation whose attention label only asks for a blocker's /speckit implement is not stopped.
+  pull.labels = [{ name: ATTENTION_LABEL }, { name: BLOCKED_LABEL }];
+  assert.notEqual((await run(github, '/speckit retry While blocked')).outcome, 'refused');
+  stop();
 
   // The person insists: --force restarts, and is not part of the guidance, even with trailing punctuation.
   assert.equal((await run(github, '/speckit retry --force The registry outage is over')).outcome, 'retried');

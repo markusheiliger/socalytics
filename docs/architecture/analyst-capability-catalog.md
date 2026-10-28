@@ -54,7 +54,8 @@ Development reference capabilities are not part of this catalog. The first one,
 [Image Metadata And Packaging](analysts-models-and-hardware.md#image-metadata-and-packaging)),
 proves the Analyst SDK, segment media staging, and fact indexing with a real
 container; it passes none of the gates below and never enters a production
-workflow.
+workflow. The Wave 0 metrics harness described below is likewise not a catalog
+capability: it evidences no promotion and meets no gate.
 
 The first catalog-named capability, `media-context-classification`, exists as a
 shot-boundary baseline only (implemented as development evidence in
@@ -65,9 +66,10 @@ Shot type, live, replay, graphics, quality, and usable intervals, and the
 challenger, are not implemented, and the reference capability remains the only
 other development capability.
 
-The Wave 0 metrics harness is decided as development tooling, not a catalog
-capability: a Python project `analyst-evaluation-harness` under
-`src/analysts/capabilities/` that is decided but not implemented yet. It
+The Wave 0 metrics harness exists as development tooling, not a catalog
+capability: the Python project `analyst-evaluation-harness` under
+`src/analysts/capabilities/` (implemented as development evidence with the
+commands `evaluate`, `validate-corpus`, and `verify-report`). It
 stages each clip of a labelled corpus the way a Manager stages segment media,
 runs a capability through the Analyst SDK's container interface (a container run
 from a locally present image digest reference, never a pull, or a subprocess
@@ -237,7 +239,10 @@ nodes become ready.
 
 1. **Wave 0 - evidence and contracts:** audit licenses, SBOMs, dataset rights,
    and weights; establish the fixed and broadcast corpus, annotations, model
-   cards, metrics harness, and immutable versioning rules.
+   cards, metrics harness, and immutable versioning rules. Only the metrics
+   harness exists, as development tooling (`analyst-evaluation-harness`); the
+   corpus, annotations, and model cards remain future work, and the harness
+   evidences no gate and no promotion.
 2. **Wave 1 - dual-profile visual foundation:** implement media context, person
    and ball detection, person tracking, pitch calibration, and ball trajectory.
    Both fixed and broadcast acceptance subsets must pass. Wave 1 has started

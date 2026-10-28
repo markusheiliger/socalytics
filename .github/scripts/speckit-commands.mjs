@@ -7,14 +7,17 @@ import { startFixAuthoring } from './speckit-fix.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   ATTENTION_LABEL,
+  BLOCKED_LABEL,
   BOT_LOGIN,
   COMMAND_SCOPES,
+  DIAGNOSIS_COMMENT_MARKER,
   MAX_UNCHANGED_RESTARTS,
   ORCHESTRATE_WORKFLOW_FILE,
   PR_COMMANDS,
   RESTART_FORCE_FLAG,
   baseBranchOf,
   continuationOf,
+  copilotRequestOf,
   defaultBranchOf,
   describeGuidanceReach,
   dispatchImplementation,
@@ -263,21 +266,44 @@ export async function restartState(client, implementation) {
 // Refuses a restart while the implementation is stopped and the last MAX_UNCHANGED_RESTARTS restarts left its branch
 // where it is: another one would most likely stop the same way.
 async function refuseUnchangedRestart(client, { name, number, implementation, folder, state }) {
-  const stopped = (implementation.labels ?? []).some((label) => (label?.name ?? label) === ATTENTION_LABEL);
+  const labels = (implementation.labels ?? []).map((label) => label?.name ?? label);
+  // A blocked implementation that only waits for a blocker to be requested is not stopped.
+  const stopped = labels.includes(ATTENTION_LABEL) && !labels.includes(BLOCKED_LABEL);
   if (!stopped) return false;
-  const restarts = unchangedRestarts(await client.listIssueComments(implementation.number), state.head);
+  const comments = await client.listIssueComments(implementation.number);
+  const restarts = unchangedRestarts(comments, state.head);
   if (restarts.length < MAX_UNCHANGED_RESTARTS) return false;
   const base = baseBranchOf(implementation);
+  // The change the latest diagnosis asks Copilot's cloud agent to push, when it named one.
+  const diagnosis = [...comments].reverse().find((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER));
+  const request = diagnosis ? copilotRequestOf(diagnosis.body) : null;
+  const recommendation = request
+    ? [
+      `**Recommended next step**: Ask Copilot to push the correction the [latest diagnosis](${diagnosis.html_url ?? `#issuecomment-${diagnosis.id}`}) describes.`,
+      '',
+      '- **Why**: Two restarts left the branch unchanged; the diagnosis names a change only a push to the implementation branch can make.',
+      `- **What it does**: GitHub Copilot's cloud agent (it must be enabled for the repository) makes the change and pushes it to \`${implementationBranch(folder)}\`; that push continues the implementation by itself with a fresh attempt count.`,
+      '',
+      'Comment this on the pull request (people with write access):',
+      '',
+      '```text',
+      ...request.split('\n'),
+      '```',
+    ]
+    : [
+      `**Recommended next step**: Review the latest diagnosis on #${implementation.number}, apply its requested correction, and push it to \`${implementationBranch(folder)}\`.`,
+      '',
+      '- **Why**: Two restarts left the branch unchanged; another blind retry is unlikely to fix the cause.',
+      '- **What it does**: A push continues the implementation automatically with a fresh attempt count and the corrected branch.',
+    ];
   await reply(client, number, [
     `**\`/speckit ${name}\` was not run**: the implementation stopped again after each of the last ${restarts.length} restarts, and \`${implementationBranch(folder)}\` is still at \`${state.head.slice(0, 7)}\`. Restarting it unchanged would most likely stop the same way.`,
     '',
-    `**Recommended next step**: Review the latest diagnosis on #${implementation.number}, apply its requested correction, and push it to \`${implementationBranch(folder)}\`.`,
-    '',
-    '- **Why**: Two restarts left the branch unchanged; another blind retry is unlikely to fix the cause.',
-    '- **What it does**: A push continues the implementation automatically with a fresh attempt count and the corrected branch.',
+    ...recommendation,
     '',
     '<details><summary>Other options</summary>',
     '',
+    ...(request ? [`- Push the correction yourself to \`${implementationBranch(folder)}\`; a push continues the implementation by itself.`] : []),
     `- If the diagnosis locates the cause on \`${base}\`, post \`/speckit author\` with its concrete findings to author a new spec for it.`,
     `- Only if the cause has already cleared (for example an outage has ended), insist with \`/speckit ${name} ${RESTART_FORCE_FLAG}\`; add the evidence after the command as guidance.`,
     '',

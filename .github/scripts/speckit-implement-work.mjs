@@ -8,6 +8,9 @@ import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prep
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import { workflowFailure } from './speckit-workflow-job.mjs';
 import {
+  BOT_LOGIN,
+  latestHumanCommit,
+  parseAttempts,
   CHECK_CONFLICT,
   CHECK_DONE,
   CHECK_LIMIT,
@@ -54,6 +57,7 @@ import {
   syncBarrier,
   renderSyncBarrierMarker,
   setAttention,
+  taskNamedFiles,
   unresolvedRepair,
   tasksPathOf,
   taskProgress,
@@ -218,11 +222,71 @@ function branchPaths(git, baseBranch) {
   return splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', base.stdout.trim()]));
 }
 
+function taskFiles(text, workspace) {
+  return taskNamedFiles(text, {
+    exists: (file) => existsSync(path.join(workspace, file)),
+    isSafe: isSafeRelativePath,
+    max: MAX_CHANGED_FILES,
+  });
+}
+
+// Whether an unchanged task is already satisfied, and by what: the verification of the very head passed with a test or
+// build check over the files the task names, and a file only this task names either differs on the implementation
+// branch (someone pushed the work) or changed on the base branch since the implementation started and is merged into
+// the branch (the work landed elsewhere). Returns { reasons, provenance: { where, commit } }.
+function verifiedUnchangedCheck({ result, headNow, git, workspace, folder, task, baseBranch, since = '' }) {
+  const fail = (reason) => ({ reasons: [reason], provenance: null });
+  const unchanged = result?.unchanged;
+  if (!unchanged) return fail('verification of the unchanged branch was not recorded');
+  if (!headNow || unchanged.head !== headNow) return fail('verification of the unchanged branch ran on a different head');
+  if (unchanged.status === 'failed') return fail('verification of the unchanged branch failed');
+  if (unchanged.status === 'not-configured') return fail('verification of the unchanged branch was not configured');
+  if (unchanged.status !== 'passed') return fail('verification of the unchanged branch did not run');
+
+  const tasksMarkdown = tasksFiles(git, workspace, folder).before;
+  const tasks = listTasks(tasksMarkdown);
+  const currentTask = tasks.find((item) => item.id === task);
+  const named = taskFiles(currentTask?.text ?? '', workspace);
+  if (named.length === 0) return fail('the task names no verifiable file');
+  if (JSON.stringify(unchanged.files) !== JSON.stringify(named)) return fail('verification did not cover the task named files');
+  const checks = Array.isArray(unchanged.checks) ? unchanged.checks : [];
+  if (!checks.some((check) => check !== 'Markdown check')) return fail('no test or build check covered the task named files');
+  if ((unchanged.uncovered ?? []).length > 0) return fail('verification left task named files uncovered');
+
+  const namedElsewhere = new Set(tasks
+    .filter((item) => item.id !== task)
+    .flatMap((item) => taskFiles(item.text, workspace)));
+  const specific = named.filter((file) => !namedElsewhere.has(file));
+  if (specific.length === 0) return fail('no named file is specific to this task');
+  const mergeBase = git(['merge-base', 'HEAD', `refs/remotes/origin/${baseBranch}`]);
+  if (mergeBase.status !== 0) return fail(`the branch cannot be compared with its base branch ${baseBranch}`);
+  const fork = mergeBase.stdout.trim();
+  const lastCommit = (range, files, after = '') => {
+    const log = git(['log', '-1', '--format=%h', ...(after ? [`--since=${after}`] : []), range, '--', ...files]);
+    return log.status === 0 ? log.stdout.trim() : '';
+  };
+  const branch = splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', fork]));
+  const onBranch = specific.filter((file) => branch.includes(file));
+  if (onBranch.length > 0) return { reasons: [], provenance: { where: 'branch', commit: lastCommit(`${fork}..HEAD`, onBranch) } };
+  const onBase = since ? lastCommit(fork, specific, since) : '';
+  if (onBase) return { reasons: [], provenance: { where: 'base', commit: onBase } };
+  return fail(`no file only this task names differs on the branch or changed on ${baseBranch} since the implementation started`);
+}
+
+// The note on the task line of a task ticked without its agent's change.
+function provenanceNote({ provenance, baseBranch }) {
+  if (!provenance) return 'already done by a push to the implementation branch (verified; no change by this task)';
+  const by = provenance.commit ? ` by ${provenance.commit}` : '';
+  return provenance.where === 'base'
+    ? `already satisfied${by} on ${baseBranch} (verified; no change by this task)`
+    : `already satisfied${by} on the implementation branch (verified; no change by this task)`;
+}
+
 // Validates the staged change of one task and returns the reasons it cannot be accepted.
-export function checkStagedTask({ git, workspace, folder, task, patchBytes, baseBranch }) {
+export function checkStagedTask({ git, workspace, folder, task, patchBytes, baseBranch, note = '' }) {
   const paths = changedPaths(git);
   const reasons = sizeReasons(patchBytes, paths);
-  reasons.push(...validateTaskChange({ folder, taskId: task, ...tasksFiles(git, workspace, folder), changedPaths: paths }));
+  reasons.push(...validateTaskChange({ folder, taskId: task, ...tasksFiles(git, workspace, folder), changedPaths: paths, note }));
   const branch = branchPaths(git, baseBranch);
   if (branch === null) reasons.push(`the branch cannot be compared with its base branch ${baseBranch}, because ${baseBranch} is not in the checkout`);
   else reasons.push(...environmentExclusivityReasons({ folder, branchPaths: branch }));
@@ -338,6 +402,11 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
     const staged = checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes: result.patchBytes, baseBranch: baseBranchFromEnv(env) });
     paths = staged.paths;
     result.changedFiles = paths;
+    if (result.patchBytes === 0) {
+      const task = listTasks(tasksFiles(git, workspace, folder).before).find((item) => item.id === inputs.task);
+      result.taskFiles = taskFiles(task?.text ?? '', workspace);
+      paths = result.taskFiles;
+    }
     result.reasons.push(...staged.reasons);
   } else if (inputs.kind === 'converge') {
     const agent = agentReasons(resultDir);
@@ -446,9 +515,28 @@ export function runVerdict({ env, inputs, resultDir, log }) {
   result.verification = configured ? 'configured' : 'not-configured';
   result.verificationMode = String(env.SPECKIT_VERIFY_MODE ?? '');
   result.flaky = configured ? parseFlakyList(env.SPECKIT_VERIFY_FLAKY) : [];
+  const unchangedTask = inputs.kind === 'task' && result.patchBytes === 0;
+  if (unchangedTask) {
+    const outcome = String(env.SPECKIT_VERIFY_OUTCOME ?? '');
+    const names = configured ? String(env.SPECKIT_VERIFY_CHECKS ?? '').split(',').map((name) => name.trim()).filter(Boolean) : [];
+    if (configured) {
+      result.checks = names.map((name, index) => ({ name, passed: outcome === 'success' || index < names.length - 1 }));
+      result.uncovered = String(env.SPECKIT_VERIFY_UNCOVERED ?? '').split(',').map((file) => file.trim()).filter(Boolean);
+    } else {
+      result.checks = [];
+      result.uncovered = [];
+    }
+    result.unchanged = {
+      status: !configured ? 'not-configured' : outcome === 'success' ? 'passed' : outcome === 'skipped' || !outcome ? 'not-run' : 'failed',
+      head: result.base ?? result.head ?? null,
+      checks: names,
+      uncovered: result.uncovered,
+      files: result.taskFiles ?? [],
+    };
+  }
   const pendingConflicts = inputs.kind === 'merge' && (result.conflicts ?? []).length > 0;
   if (env.SPECKIT_REQUIRED_SYNC && !configured) result.reasons.push('required synchronization needs configured verification');
-  if (result.reasons.length === 0 && configured && !pendingConflicts) {
+  if (!unchangedTask && result.reasons.length === 0 && configured && !pendingConflicts) {
     const names = String(env.SPECKIT_VERIFY_CHECKS ?? '').split(',').map((name) => name.trim()).filter(Boolean);
     const outcome = String(env.SPECKIT_VERIFY_OUTCOME ?? '');
     if (outcome === 'success') {
@@ -465,7 +553,7 @@ export function runVerdict({ env, inputs, resultDir, log }) {
     result.selfTest = selfTest || 'skipped';
     if (selfTest && !['success', 'skipped'].includes(selfTest)) result.reasons.push(`the changed environment actions failed their self-test (${selfTest})`);
   }
-  result.verified = result.reasons.length === 0 && !pendingConflicts;
+  if (!unchangedTask) result.verified = result.reasons.length === 0 && !pendingConflicts;
   if (result.syncRepair) {
     const selfTestRequired = result.syncRepair.scope === 'merge' && result.environment;
     const selfTestPassed = !selfTestRequired ||
@@ -618,7 +706,7 @@ async function publicationBlocked(client, inputs, syncRequest = null) {
   return Boolean(barrier && (inputs.kind !== 'resolve' || barrier.request !== syncRequest));
 }
 
-async function pushTask({ client, inputs, git, env, folder, task, message, resultDir, workspace }) {
+async function pushTask({ client, inputs, git, env, folder, task, message, resultDir, workspace, taskNote = '' }) {
   const branch = implementationBranch(folder);
   const tasksPath = tasksPathOf(folder, { archived: isArchivedIn(workspace, folder) });
   const patchFile = path.join(resultDir, 'changes.patch');
@@ -643,19 +731,21 @@ async function pushTask({ client, inputs, git, env, folder, task, message, resul
     const overlap = ours.filter((file) => moved.has(file));
     gitOrThrow(git, ['checkout', '-q', '--detach', newHead]);
     // --binary patches record full blob ids, so --3way can merge the overlapping files with the branch's versions.
-    const applied = git(['apply', ...(overlap.length > 0 ? ['--3way'] : []), '--index', '--whitespace=nowarn', `--exclude=${tasksPath}`, patchFile]);
-    if (applied.status !== 0) {
-      git(['reset', '-q', '--hard']);
-      if (overlap.length > 0) return { requeue: [`${overlap.map((file) => `\`${file}\``).join(', ')} changed on the branch since the task started, and the changes conflict`] };
-      return { requeue: [`the change no longer applies to the branch (${applied.stderr.trim().split('\n').at(-1)})`] };
+    if (statSync(patchFile).size > 0) {
+      const applied = git(['apply', ...(overlap.length > 0 ? ['--3way'] : []), '--index', '--whitespace=nowarn', `--exclude=${tasksPath}`, patchFile]);
+      if (applied.status !== 0) {
+        git(['reset', '-q', '--hard']);
+        if (overlap.length > 0) return { requeue: [`${overlap.map((file) => `\`${file}\``).join(', ')} changed on the branch since the task started, and the changes conflict`] };
+        return { requeue: [`the change no longer applies to the branch (${applied.stderr.trim().split('\n').at(-1)})`] };
+      }
     }
     combined = [...new Set([...combined, ...overlap])].sort();
     const tasksFile = path.join(workspace, tasksPath);
-    const ticked = tickTask(readFileSync(tasksFile, 'utf8'), task);
+    const ticked = tickTask(readFileSync(tasksFile, 'utf8'), task, taskNote);
     if (ticked === null) return { requeue: [`${task} is already checked on the branch`] };
     writeFileSync(tasksFile, ticked);
     gitOrThrow(git, ['add', '--', tasksPath]);
-    const staged = checkStagedTask({ git, workspace, folder, task, patchBytes: statSync(patchFile).size, baseBranch: baseBranchFromEnv(env) });
+    const staged = checkStagedTask({ git, workspace, folder, task, patchBytes: statSync(patchFile).size, baseBranch: baseBranchFromEnv(env), note: taskNote });
     if (staged.reasons.length > 0) return { reasons: staged.reasons };
     const note = combined.length > 0 ? [`${COMBINED_EDITS_NOTE}${combined.join(', ')}; verified together after the parallel tasks.`] : [];
     gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...[...message, ...note].flatMap((part) => ['-m', part])]);
@@ -736,7 +826,9 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     if (workResult !== 'success') reasons.push(`the repair work job did not succeed (result: ${workResult || 'unknown'})`);
     if (result.agentExit !== 0) reasons.push('the repair agent did not exit successfully');
   }
-  if (result && !result.verified && result.reasons.length === 0) reasons.push('the change was not verified');
+  const patchFile = path.join(resultDir, 'changes.patch');
+  const emptyTaskPatch = inputs.kind === 'task' && existsSync(patchFile) && statSync(patchFile).size === 0;
+  if (result && !result.verified && result.reasons.length === 0 && !emptyTaskPatch) reasons.push('the change was not verified');
   const barrier = inputs.kind === 'resolve' ? pendingSync : null;
   if (barrier) env = { ...env, SPECKIT_REQUIRED_SYNC: barrier.request };
   if (barrier && result) {
@@ -775,9 +867,23 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     report.flush();
     return { exitCode: 1, reasons };
   }
+  let pull = null;
+  let verifiedUnchanged = false;
+  let taskNote = '';
   if (reasons.length === 0 && inputs.kind === 'task') {
-    reasons.push(...applyPatch({ git, resultDir, check: (patchBytes) => checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes, baseBranch: baseBranchFromEnv(env) }).reasons }));
-    if (reasons.length === 0) reasons.push(...tickLandedTask({ git, workspace, folder, task: inputs.task }));
+    const pushedWork = emptyTaskPatch && await doneByPush(client, { pull: inputs.pull, task: inputs.task });
+    let allowEmpty = pushedWork;
+    if (pushedWork) taskNote = provenanceNote({ provenance: null, baseBranch: baseBranchFromEnv(env) });
+    if (emptyTaskPatch && !allowEmpty) {
+      pull = await client.getPullRequest(inputs.pull);
+      const check = verifiedUnchangedCheck({ result, headNow: pull.head?.sha, git, workspace, folder, task: inputs.task, baseBranch: baseBranchFromEnv(env), since: pull.created_at ?? '' });
+      verifiedUnchanged = check.reasons.length === 0;
+      if (verifiedUnchanged) taskNote = provenanceNote({ provenance: check.provenance, baseBranch: baseBranchFromEnv(env) });
+      else reasons.push(...check.reasons);
+      allowEmpty = verifiedUnchanged;
+    }
+    if (reasons.length === 0) reasons.push(...applyPatch({ git, resultDir, allowEmpty, check: (patchBytes) => checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes, baseBranch: baseBranchFromEnv(env) }).reasons }));
+    if (reasons.length === 0) reasons.push(...tickLandedTask({ git, workspace, folder, task: inputs.task, note: taskNote }));
   }
   if (reasons.length === 0 && inputs.kind === 'repair') {
     reasons.push(...applyPatch({
@@ -824,7 +930,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     return { exitCode: 1, reasons };
   }
 
-  const pull = await client.getPullRequest(inputs.pull);
+  pull ??= await client.getPullRequest(inputs.pull);
   if (await publicationBlocked(client, inputs, barrier?.request)) {
     const requeue = ['required synchronization was requested or replaced while the landing was prepared'];
     await reportRequeue({ client, inputs, reasons: requeue });
@@ -863,20 +969,32 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   let body = pull.body;
   if (inputs.kind === 'task') {
     const task = listTasks(tasksMarkdown).find((item) => item.id === inputs.task);
-    message = [`feat(${folder}): ${inputs.task} ${task?.text ?? ''}`.trimEnd(), `Implemented by the Spec Kit implement task workflow (attempt ${inputs.attempt}).`];
-    checkTitle = `${inputs.task} implemented`;
+    const unchangedChecks = (result.unchanged?.checks ?? []).join(', ');
+    message = verifiedUnchanged
+      ? [`feat(${folder}): ${inputs.task} already satisfied`, `Ticked without a change: ${taskNote}. Verified on the unchanged branch by ${unchangedChecks}.`]
+      : [`feat(${folder}): ${inputs.task} ${task?.text ?? ''}`.trimEnd(), `Implemented by the Spec Kit implement task workflow (attempt ${inputs.attempt}).`];
+    checkTitle = verifiedUnchanged ? `${inputs.task} already satisfied` : `${inputs.task} implemented`;
     const checks = (result.checks ?? []).map((check) => `${check.name} passed`);
     const verification = result.verification === 'not-configured'
       ? 'no verification configured (no environment-verify action)'
       : checks.join(', ') || 'no checks apply to these files';
-    comment = [
-      `**${inputs.task} implemented** (attempt ${inputs.attempt}): ${task?.text ?? ''}`.trimEnd(),
-      '',
-      `- Changed files: ${(result.changedFiles ?? []).map((file) => `\`${file}\``).join(', ') || 'none'}`,
-      `- Verification: ${verification}`,
-      ...((result.uncovered ?? []).length > 0 ? [`- Not covered by any check: ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
-      ...renderFlakyLines(result.flaky),
-    ];
+    comment = verifiedUnchanged
+      ? [
+        `**${inputs.task} already satisfied and ticked** (attempt ${inputs.attempt}): the task's work was already there, and the verification passed on the unchanged branch. This spec made no change for it.`,
+        '',
+        `- Task: ${task?.text ?? ''}`,
+        `- Provenance: ${taskNote}`,
+        `- Verification: ${unchangedChecks}`,
+        ...renderFlakyLines(result.flaky),
+      ]
+      : [
+        `**${inputs.task} implemented** (attempt ${inputs.attempt}): ${task?.text ?? ''}`.trimEnd(),
+        '',
+        `- Changed files: ${(result.changedFiles ?? []).map((file) => `\`${file}\``).join(', ') || 'none'}`,
+        `- Verification: ${verification}`,
+        ...((result.uncovered ?? []).length > 0 ? [`- Not covered by any check: ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
+        ...renderFlakyLines(result.flaky),
+      ];
   } else if (inputs.kind === 'converge') {
     const round = convergenceRounds(tasksMarkdown);
     const heading = tasksMarkdown.split(/\r?\n/).filter((line) => /^##\s+Phase\s+\d+\s*:\s*Convergence\b/i.test(line)).at(-1)?.replace(/^##\s+/, '') ?? `Convergence round ${round}`;
@@ -937,7 +1055,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   let head;
   let combined = [];
   if (inputs.kind === 'task') {
-    const landed = await pushTask({ client, inputs, git, env, folder, task: inputs.task, message, resultDir, workspace });
+    const landed = await pushTask({ client, inputs, git, env, folder, task: inputs.task, message, resultDir, workspace, taskNote });
     if (landed.requeue) {
       await reportRequeue({ client, inputs, reasons: landed.requeue });
       report.line(`${title(inputs)} is redone from the new head: ${landed.requeue.join('; ')}`);
@@ -1243,6 +1361,24 @@ export async function runRepairReport({ client, env, log }) {
   report.flush();
   return { exitCode: 1, verified: false };
 }
+// Whether a task may land without a change of its agent: a commit that is not the workflow's (a person's, or GitHub
+// Copilot's for them) reached the implementation branch after the task's first attempt, or is the branch head. The work
+// was then done by that push, and the agent correctly found nothing left to change; the land job only ticks the task.
+// Without such a push an empty change still fails, so an agent cannot skip a task.
+export async function doneByPush(client, { pull, task }) {
+  try {
+    const commits = await client.listPullRequestCommits(pull);
+    const pushed = latestHumanCommit(commits);
+    if (!pushed) return false;
+    const head = commits.at(-1);
+    if (head && head.author?.login !== BOT_LOGIN && head.committer?.login !== BOT_LOGIN) return true;
+    const first = parseAttempts(await client.listIssueComments(pull)).find((attempt) => attempt.kind === 'task' && attempt.task === task);
+    return Boolean(first) && Date.parse(pushed) >= Date.parse(first.at);
+  } catch {
+    return false;
+  }
+}
+
 function applyPatch({ git, resultDir, check, allowEmpty = false }) {
   const patchFile = path.join(resultDir, 'changes.patch');
   if (!existsSync(patchFile)) return ['the agent patch is missing'];
@@ -1255,12 +1391,12 @@ function applyPatch({ git, resultDir, check, allowEmpty = false }) {
 
 // Checks the verified task in tasks.md and stages it, unless the agent checked it already (tickTask keeps the line
 // endings). Returns the reasons the task cannot be checked.
-function tickLandedTask({ git, workspace, folder, task }) {
+function tickLandedTask({ git, workspace, folder, task, note = '' }) {
   const tasksPath = tasksPathOf(folder, { archived: isArchivedIn(workspace, folder) });
   const file = path.join(workspace, tasksPath);
   const markdown = existsSync(file) ? readFileSync(file, 'utf8') : '';
   if (listTasks(markdown).some((item) => item.id === task && item.done)) return [];
-  const ticked = tickTask(markdown, task);
+  const ticked = tickTask(markdown, task, note);
   if (ticked === null) return [`${task} is not a task in \`${tasksPath}\``];
   writeFileSync(file, ticked);
   gitOrThrow(git, ['add', '--', tasksPath]);

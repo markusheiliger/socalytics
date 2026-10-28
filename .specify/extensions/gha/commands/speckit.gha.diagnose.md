@@ -149,7 +149,7 @@ workflow started you): never ask, and turn every open question into a report que
   "cause": "the root cause and the reasoning, in Markdown",
   "evidence": ["one line per piece of evidence, with numbers, files, and runs"],
   "artifacts": [{ "file": "specs/<folder>/research.md", "reason": "what changed and why" }],
-  "options": [{ "title": "what the option does, in a few words", "why": "why it solves this problem, from the evidence", "command": "/speckit retry Rerun the verification unchanged; only UploadSessionExpiryTests failed on timing.", "recommended": true }],
+  "options": [{ "title": "what the option does, in a few words", "why": "why it solves this problem, from the evidence", "command": "/speckit retry Rerun the verification unchanged; only UploadSessionExpiryTests failed on timing.", "copilot": null, "recommended": true }],
   "questions": [{ "question": "a decision a person must make", "choices": ["recommended choice", "other choice"] }]
 }
 ```
@@ -159,8 +159,9 @@ workflow started you): never ask, and turn every open question into a report que
   fail. The person decides from the comment alone: `why` explains in one or two sentences why the option solves this
   problem (the comment adds what the command does).
 - The recommended command must fit the category: `retry` → `/speckit retry`; `outside` → `/speckit author`,
-  or `/speckit sync`; `decision` → `/speckit retry` with the recommended answers as guidance (the categories each
-  command fits are also listed under **Commands you can recommend**).
+  or `/speckit sync`; `decision` → `/speckit retry` with the recommended answers as guidance, or a Copilot prompt
+  (below) when the decision is carried out as a push (the categories each command fits are also listed under
+  **Commands you can recommend**).
   `artifacts` must create an amendment pull request, and `unknown` starts another diagnosis automatically.
   Inconsistent reports are rejected at publication, not replaced with a retry. A required fix
   already on the base branch is `outside`, not `retry`; recommend `/speckit sync` so the merge and verification
@@ -198,6 +199,24 @@ workflow started you): never ask, and turn every open question into a report que
   itself (task, repair, or conflict-resolution guidance) over asking a person to push it. Reviewing and merging the
   amendment pull request has `"command": null`. Add other options only when they are real alternatives, each with its
   `why`, and give each the command that does what its title says.
+- When the remedy is a change only a push to the implementation branch can make (a file the implementation agents
+  may not change, such as another spec's folder, `.github/`, or `.specify/`, or the concrete change a person's
+  decision needs), give that option a `copilot` prompt and `"command": null` instead of telling the person to push
+  it. A person posts it as a comment, GitHub Copilot's cloud agent pushes the change to the pull request's branch,
+  and that push continues the implementation by itself. The prompt is plain text for that agent, self-contained and
+  ready to post (no placeholders, no code fences, at most 3000 characters): name every file, the exact change (old
+  and new text where it is short), and how to check it (for example the Markdown check or the one test to run). The
+  comment adds `@copilot` and the scope (only this change, no task ticks, no other pull request). A Copilot prompt
+  fits the category `decision`, and it is recommended instead of a command that already failed the same way.
+  Prefer a command whenever the automation can make the change itself.
+- A Copilot prompt is a fallback that removes **what stops the automation**, so the automation can finish the
+  implementation itself; it never does the spec's own work. Never ask Copilot to implement, finish, or check tasks,
+  never name a task ID or `tasks.md` in the prompt (the report is rejected), and never push the changes a task
+  describes through it: the Spec Kit implementation implements, verifies, and ticks every task. When the spec's own
+  tasks must change files the implementation agents may not change (for example Spec Kit tooling under `.github/` or
+  `.specify/`), the automation cannot implement this spec at all: say so in the summary, classify it as `outside`
+  (the cause is what the automation may change, not this spec's artifacts), and recommend `/speckit author` with
+  guidance that names the protected files the spec's tasks must change, not a Copilot prompt that implements them.
 - `artifacts` lists the changed files of the amendment; leave it empty otherwise. Ask at most three questions, each
   with its recommended choice first.
 

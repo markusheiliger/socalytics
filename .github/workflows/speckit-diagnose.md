@@ -186,9 +186,9 @@ safe-outputs:
           description: >-
             The report as one JSON object, as described in the speckit-gha-diagnose skill: for a diagnosis the fields
             category, confidence, summary, cause, evidence, artifacts, options, and questions, where every option is
-            an object {title, why, command, recommended}, exactly one is recommended, and its command fits the
-            category and can be posted as it is (no placeholders); for a rework the fields summary, artifacts, and
-            responses.
+            an object {title, why, command, copilot, recommended}, exactly one is recommended, and its command (or,
+            for a change only a push can make, its Copilot prompt) fits the category and can be posted as it is (no
+            placeholders); for a rework the fields summary, artifacts, and responses.
           required: true
           type: string
       steps:

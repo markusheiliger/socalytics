@@ -2,7 +2,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { PENDING_LABEL, TWIN_LABEL, countOpenChecklistItems, hasLabel, isValidFolderName, parseFixForLine, resolveTwins } from './speckit-prepare-core.mjs';
+import { IMPLEMENT_STAGE, PENDING_LABEL, TWIN_LABEL, countOpenChecklistItems, deriveStage, hasLabel, implementBlockers, isImplementRequested, isValidFolderName, parseFixForLine, parseTwinFolder, resolveTwins, stageLabelChange } from './speckit-prepare-core.mjs';
+import { readSpecFolder, renderImplementRequested, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import { beginAmendment, decodeTracked, guardPullRequest, maintainOpenSpecPull, resolveAmendment } from './speckit-amend.mjs';
 import { defaultGit } from './speckit-orchestrate.mjs';
@@ -866,13 +867,38 @@ function cycleNote(prerequisite, twin) {
   return `- Warning: spec twin #${prerequisite} already depends on #${twin}, so #${twin} cannot depend on it without a dependency cycle; remove the wrong one of the two dependencies.`;
 }
 
+// A prerequisite spec that `/speckit author` authored to unblock an implementation exists only to let that
+// implementation continue, so the scheduler requests its implementation as soon as it is ready, like `/speckit implement`
+// would (tasked, checklists checked on the default branch checkout in rootDir), on behalf of the person who asked for
+// it. Returns true when it requested it now.
+export async function requestAuthoredPrerequisite(client, env, { prerequisite, requester, implementation, rootDir }, { report = () => {} } = {}) {
+  if (!rootDir || !requester || prerequisite?.state !== 'open') return false;
+  const folder = parseTwinFolder(prerequisite.body);
+  const entry = folder ? readSpecFolder(rootDir, folder) : null;
+  if (!entry) return false;
+  const computedStage = deriveStage(entry.artifacts, entry.tasks);
+  if (isImplementRequested(prerequisite, computedStage)) return false;
+  const reasons = implementBlockers({ folder, computedStage, openChecklistItems: entry.openChecklistItems });
+  if (reasons.length > 0) {
+    report(`- Spec twin #${prerequisite.number} (authored for #${implementation.number}) is not ready to request yet: ${reasons.join('; ')}.`);
+    return false;
+  }
+  await client.createComment(prerequisite.number, [
+    renderImplementRequested({ by: requester }),
+    `**Implementation requested automatically** for @${requester}: \`/speckit author\` wrote this spec to unblock implementation pull request #${implementation.number}, and \`specs/${folder}\` is \`tasked\` with its checklists checked on the default branch. It starts ahead of other specs; its implementation pull request is opened by the scheduler and assigned to @${requester}.`,
+  ].join('\n'));
+  await updateIssueWithLabels(client, prerequisite, stageLabelChange(prerequisite, IMPLEMENT_STAGE));
+  report(`- Requested the implementation of #${prerequisite.number}, authored to unblock #${implementation.number}.`);
+  return true;
+}
+
 // Scheduler side (Spec Kit orchestrate), for every implementation in progress: maintains the open pull request of the
 // spec `/speckit author` authored for it like an amendment, settles a closed one, and once a merged one has a twin
 // (after its dependency inference), makes this spec depend on it and names the twin with the command that signs it
 // off. From then on the generic dependency handling (maintainDependencyBlock) blocks and retries the implementation.
 // `blocked` tells whether the spec holds the implementation before that dependency exists. An authoring run that
 // never reported is closed.
-export async function maintainFixSpec(client, env, { implementation, twin }, { now = Date.now(), report = () => {} } = {}) {
+export async function maintainFixSpec(client, env, { implementation, twin, rootDir = null }, { now = Date.now(), report = () => {} } = {}) {
   const comments = await client.listIssueComments(implementation.number);
   try {
     await maintainUnlinkedSpec(client, env, { implementation, twin, comments }, { now, report });
@@ -925,8 +951,12 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     report(`- Spec #${pull.number} is merged; its twin does not exist yet.`);
     return { outcome: 'waiting', blocked: await hold() };
   }
-  // A linked prerequisite is a dependency like any other, as long as the dependency exists.
-  if (state.linked && (prerequisite.state !== 'open' || (await client.listBlockedBy(twin)).some((blocker) => blocker.number === prerequisite.number))) return { outcome: 'linked', blocked: false };
+  // A linked prerequisite is a dependency like any other, as long as the dependency exists; it is requested once ready.
+  const requester = state.requested?.by ?? null;
+  if (state.linked && (prerequisite.state !== 'open' || (await client.listBlockedBy(twin)).some((blocker) => blocker.number === prerequisite.number))) {
+    await requestAuthoredPrerequisite(client, env, { prerequisite, requester, implementation, rootDir }, { report });
+    return { outcome: 'linked', blocked: false };
+  }
   // Dependency inference of the new twin runs first, so it never sees (and is never rejected for) a cycle with this
   // link.
   if (hasLabel(prerequisite, PENDING_LABEL)) {
@@ -939,14 +969,16 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     return { outcome: link.outcome, blocked: await hold() };
   }
   if (state.linked) return { outcome: 'linked', blocked: false };
-  // Like every spec, the new twin starts only once someone signs it off with `/speckit implement`; the comment names
-  // the twin with that command, and the block it explains is the generic dependency block.
-  const requester = state.requested?.by ?? null;
+  // The new twin exists only to unblock this implementation, so it is requested right away once ready; otherwise the
+  // comment names it with `/speckit implement`, and the block it explains is the generic dependency block.
+  const requested = await requestAuthoredPrerequisite(client, env, { prerequisite, requester, implementation, rootDir }, { report });
   const block = await explainDependencyBlock(client, (await client.listBlockedBy(twin)).filter((blocker) => blocker.state === 'open'));
   await client.createComment(implementation.number, [
     renderFixEvent('linked', { pull: pull.number, folder: fixFolder, twin: prerequisite.number }),
     renderBlockedMarker(block.key),
-    `**Spec #${pull.number} is spec twin [#${prerequisite.number}](${prerequisite.html_url ?? `#${prerequisite.number}`})**, and this spec now depends on it.${requester ? ` @${requester}, you asked for it with \`/speckit author\`:` : ''} it is implemented once someone with write access signs it off with \`/speckit implement\` on #${prerequisite.number}; this implementation retries by itself once #${prerequisite.number} is implemented.`,
+    requested
+      ? `**Spec #${pull.number} is spec twin [#${prerequisite.number}](${prerequisite.html_url ?? `#${prerequisite.number}`})**, and this spec now depends on it. Its implementation was requested automatically${requester ? ` for @${requester}, who asked for it with \`/speckit author\`` : ''}; this implementation retries by itself once #${prerequisite.number} is implemented.`
+      : `**Spec #${pull.number} is spec twin [#${prerequisite.number}](${prerequisite.html_url ?? `#${prerequisite.number}`})**, and this spec now depends on it.${requester ? ` @${requester}, you asked for it with \`/speckit author\`:` : ''} it is implemented once someone with write access signs it off with \`/speckit implement\` on #${prerequisite.number}; this implementation retries by itself once #${prerequisite.number} is implemented.`,
     '',
     ...block.lines,
   ].join('\n'));
