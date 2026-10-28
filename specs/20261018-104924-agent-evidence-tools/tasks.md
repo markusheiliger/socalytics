@@ -114,7 +114,7 @@ description: "Task list for Agent Evidence Tools API"
 
 ### Simulated workload
 
-- [ ] T024 [US3] Make the simulated agent workload in `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/` call `get_match` and `get_formations` in every attempt, interpret the question markers `[simulate:tools-facts]` (a fact selection of the first stream with accepted facts), `[simulate:tools-clip]` (a clip of the first returned fact), and `[simulate:tools-denied]` (a tool outside the pinned policy), and list the tool outcomes and evidence references it used in its deterministic, simulated advice (FR-019; research R12)
+- [x] T024 [US3] Make the simulated agent workload in `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/` call `get_match` and `get_formations` in every attempt, interpret the question markers `[simulate:tools-facts]` (a fact selection of the first stream with accepted facts), `[simulate:tools-clip]` (a clip of the first returned fact), and `[simulate:tools-denied]` (a tool outside the pinned policy), and list the tool outcomes and evidence references it used in its deterministic, simulated advice (FR-019; research R12)
 
 ### Tests for User Story 3
 
