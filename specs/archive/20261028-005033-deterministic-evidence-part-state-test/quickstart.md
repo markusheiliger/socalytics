@@ -23,7 +23,7 @@ Run the filter `FullyQualifiedName~Never_materialized_segment_is_materializing` 
 
 ## 4. Probes (SC-002, temporary, removed afterward)
 
-- The before-fix reproduction is the T003 result recorded in `research.md`. After the fix, optionally re-enable the real worker in a temporary run through `extraSettings` (`Analysis:Workers:Enabled=true` with a short `Segments:Materialization:PollInterval`) as a still-reproduces check. The default scenario (workers off) passes the same probe-free run 20 times.
+- The before-fix reproduction is the T003 result recorded in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md`. After the fix, optionally re-enable the real worker in a temporary run through `extraSettings` (`Analysis:Workers:Enabled=true` with a short `Segments:Materialization:PollInterval`) as a still-reproduces check. The default scenario (workers off) passes the same probe-free run 20 times.
 - Break demand recording or report `available` before materialization: expect the test to fail on its unchanged assertions.
 
 Confirm with `git diff` that no probe remains and no assertion is removed.
