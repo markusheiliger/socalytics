@@ -5,7 +5,7 @@ description: "Task list for removing the flakiness of the member invitation audi
 
 # Tasks: Remove the Flakiness of the Member Invitation Audit Trail Test
 
-**Input**: Design documents from `/specs/20261027-051220-fix-invitation-audit-flake/`
+**Input**: Design documents from `/specs/archive/20261027-051220-fix-invitation-audit-flake/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, quickstart.md
 

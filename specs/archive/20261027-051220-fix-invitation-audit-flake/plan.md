@@ -2,7 +2,7 @@
 
 **Branch**: `20261027-051220-fix-invitation-audit-flake` | **Date**: 2026-10-27 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261027-051220-fix-invitation-audit-flake/spec.md`
+**Input**: Feature specification from `/specs/archive/20261027-051220-fix-invitation-audit-flake/spec.md`
 
 ## Summary
 
@@ -46,7 +46,7 @@ Post-design re-check: unchanged, pass.
 ### Documentation (this feature)
 
 ```text
-specs/20261027-051220-fix-invitation-audit-flake/
+specs/archive/20261027-051220-fix-invitation-audit-flake/
 ├── plan.md
 ├── research.md
 ├── data-model.md
