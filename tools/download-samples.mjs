@@ -8,10 +8,8 @@ import { pathToFileURL } from 'node:url';
 
 import {
   ARTIFACT_TYPE,
-  DEFAULT_PACKAGE,
   DOWNLOAD_SCOPES,
   LATEST_TAG,
-  REGISTRY,
   SamplesError,
   defaultRun,
   ensureGhAuth,
@@ -20,14 +18,14 @@ import {
   isVideo,
   orasSession,
   parseArguments,
-  parseReference,
+  parseVersion,
   resolveDigest,
+  samplesTarget,
   sha256File,
   toPosix,
-  validatePackageName,
 } from './samples-lib.mjs';
 
-const USAGE = 'Usage: node tools/download-samples.mjs [<ghcr.io/<owner>/<package>@sha256:<digest> | :<tag>>] [--package <name>] [--output <folder>]';
+const USAGE = 'Usage: node tools/download-samples.mjs [<tag> | sha256:<digest>] [--output <folder>]   (default: latest)';
 export const DEFAULT_OUTPUT = '.samples';
 // Written into the output folder; a folder that has it was filled by this script and may be brought up to date.
 export const MARKER_FILE = '.samples-reference';
@@ -50,14 +48,14 @@ function removeEmptyFolders(dir, root = dir) {
   if (dir !== root && readdirSync(dir).length === 0) rmdirSync(dir);
 }
 
-export async function downloadSamples(argv, { run = defaultRun, log = console.log } = {}) {
-  const { positional, options } = parseArguments(argv, { values: ['output', 'package'], flags: ['help'] });
+export async function downloadSamples(argv, { run = defaultRun, log = console.log, env = process.env } = {}) {
+  const { positional, options } = parseArguments(argv, { values: ['output'], flags: ['help'] });
   if (options.help) {
     log(USAGE);
     return { exitCode: 0 };
   }
   if (positional.length > 1) throw new SamplesError(USAGE);
-  if (positional.length === 1 && options.package) throw new SamplesError('Pass either a reference or --package, not both.');
+  const version = parseVersion(positional[0] ?? LATEST_TAG);
   const output = path.resolve(options.output ?? DEFAULT_OUTPUT);
   if (existsSync(output)) {
     if (!statSync(output).isDirectory()) throw new SamplesError(`The output ${output} is not a folder.`);
@@ -68,15 +66,15 @@ export async function downloadSamples(argv, { run = defaultRun, log = console.lo
 
   ensureGhAuth(run, DOWNLOAD_SCOPES, { log });
   const login = ghLogin(run);
-  const reference = positional[0] ?? `${REGISTRY}/${login.toLowerCase()}/${validatePackageName(options.package ?? DEFAULT_PACKAGE)}:${LATEST_TAG}`;
-  const target = parseReference(reference);
+  const target = samplesTarget(run, env);
+  const reference = version.digest ? `${target.image}@${version.digest}` : `${target.image}:${version.tag}`;
   const session = orasSession(run, { login, token: ghToken(run) });
   const result = { kept: [], copied: [], downloaded: [], removed: [] };
   let pinned;
   try {
-    const digest = target.digest ?? resolveDigest(run, reference, session.config);
-    pinned = `${REGISTRY}/${target.repository}@${digest}`;
-    if (target.tag) log(`${reference} is ${pinned}`);
+    const digest = version.digest ?? resolveDigest(run, reference, session.config);
+    pinned = `${target.image}@${digest}`;
+    if (version.tag) log(`${reference} is ${pinned}`);
     const fetched = run('oras', ['manifest', 'fetch', pinned, '--registry-config', session.config]);
     if (fetched.status !== 0) throw new SamplesError(`Could not read ${pinned}: ${fetched.stderr.trim()}. Check that you have read access to the package.`);
     const manifest = JSON.parse(fetched.stdout);
@@ -111,7 +109,7 @@ export async function downloadSamples(argv, { run = defaultRun, log = console.lo
       if (copyFrom) {
         copyFileSync(path.join(output, ...copyFrom.split('/')), partial);
       } else {
-        const blob = run('oras', ['blob', 'fetch', `${REGISTRY}/${target.repository}@${layer.digest}`, '--output', partial, '--registry-config', session.config]);
+        const blob = run('oras', ['blob', 'fetch', `${target.image}@${layer.digest}`, '--output', partial, '--registry-config', session.config]);
         if (blob.status !== 0) {
           rmSync(partial, { force: true });
           throw new SamplesError(`Could not download ${layer.title}: ${blob.stderr.trim()}`);

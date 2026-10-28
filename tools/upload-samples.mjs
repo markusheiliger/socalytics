@@ -6,7 +6,6 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
-  DEFAULT_PACKAGE,
   LATEST_TAG,
   REGISTRY,
   SamplesError,
@@ -27,20 +26,19 @@ import {
   pushArguments,
   requireTool,
   sha256File,
+  samplesTarget,
   utcTag,
-  validatePackageName,
 } from './samples-lib.mjs';
 
-const USAGE = 'Usage: node tools/upload-samples.mjs <folder> [--package <name>] [--dry-run]';
+const USAGE = 'Usage: node tools/upload-samples.mjs <folder> [--dry-run]';
 
-export async function uploadSamples(argv, { run = defaultRun, fetchImpl = fetch, log = console.log, now = () => new Date() } = {}) {
-  const { positional, options } = parseArguments(argv, { values: ['package'], flags: ['dry-run', 'help'] });
+export async function uploadSamples(argv, { run = defaultRun, fetchImpl = fetch, log = console.log, now = () => new Date(), env = process.env } = {}) {
+  const { positional, options } = parseArguments(argv, { values: [], flags: ['dry-run', 'help'] });
   if (options.help) {
     log(USAGE);
     return { exitCode: 0 };
   }
   if (positional.length !== 1) throw new SamplesError(USAGE);
-  const name = validatePackageName(options.package ?? DEFAULT_PACKAGE);
 
   // 1. The videos to package.
   const { root, videos, skipped } = discoverVideos(positional[0]);
@@ -53,20 +51,22 @@ export async function uploadSamples(argv, { run = defaultRun, fetchImpl = fetch,
     for (const item of skipped) log(`  ${item.path} (${item.reason})`);
   }
 
-  // 2. The tools and the account.
+  // 2. The tools, the account, and the package of this repository. Only the repository owner's account can push to it.
   ensureGhAuth(run, UPLOAD_SCOPES, { log });
   requireTool(run, 'oras');
   const login = ghLogin(run);
-  const owner = login.toLowerCase();
+  const { owner, name, repository } = samplesTarget(run, env);
+  if (login.toLowerCase() !== owner) {
+    throw new SamplesError(`The sample package ${REGISTRY}/${repository} belongs to ${owner}; you are logged in to gh as ${login}. Only ${owner} can upload samples.`);
+  }
   const tag = utcTag(now());
-  const repository = `${owner}/${name}`;
   const reference = `${REGISTRY}/${repository}:${tag}`;
 
   // 3. Never push into a package that is not private.
   const before = getPackage(run, name);
   const problems = privacyProblems(before);
   if (problems.length > 0) {
-    throw new SamplesError(`Refusing to push to ${REGISTRY}/${repository}: ${problems.join('; ')}. A public package cannot be made private again; use another name with --package.`);
+    throw new SamplesError(`Refusing to push to ${REGISTRY}/${repository}: ${problems.join('; ')}. A public package cannot be made private again; fix or delete it on GitHub first.`);
   }
   log(before ? `The package ${REGISTRY}/${repository} exists and is private.` : `The package ${REGISTRY}/${repository} does not exist yet; GHCR creates it private.`);
   if (options['dry-run']) {
@@ -116,7 +116,7 @@ export async function uploadSamples(argv, { run = defaultRun, fetchImpl = fetch,
   log('');
   log(`Uploaded ${videos.length} file(s) as ${REGISTRY}/${repository}:${LATEST_TAG} (also :${tag}).`);
   log(`Digest:   ${pinned}`);
-  log(`Download: node tools/download-samples.mjs${name === DEFAULT_PACKAGE ? '' : ` --package ${name}`}`);
+  log('Download: node tools/download-samples.mjs');
   return { exitCode: 0, reference: pinned, tag, files: videos.map(({ path: file, size, digest: fileDigest }) => ({ path: file, size, digest: fileDigest })) };
 }
 

@@ -12,8 +12,9 @@ import {
   canPullManifest,
   discoverVideos,
   parseArguments,
-  parseReference,
+  parseVersion,
   pushArguments,
+  samplesTarget,
   tokenScopes,
   utcTag,
   validatePackageName,
@@ -73,9 +74,14 @@ test('helpers: tag, package names, digest references, scopes, arguments, and the
   assert.equal(utcTag(new Date('2026-10-28T09:05:03Z')), '20261028-090503');
   assert.equal(validatePackageName('socalytics-samples'), 'socalytics-samples');
   for (const bad of ['Samples', 'a--b', '-a', 'a/b', '']) assert.throws(() => validatePackageName(bad), SamplesError, bad);
-  assert.deepEqual(parseReference(`ghcr.io/dev/socalytics-samples@${DIGEST}`), { owner: 'dev', name: 'socalytics-samples', digest: DIGEST, tag: null, repository: 'dev/socalytics-samples' });
-  assert.deepEqual(parseReference('ghcr.io/dev/socalytics-samples:latest'), { owner: 'dev', name: 'socalytics-samples', digest: null, tag: 'latest', repository: 'dev/socalytics-samples' });
-  for (const bad of ['ghcr.io/dev/socalytics-samples', 'docker.io/dev/s:latest', 'ghcr.io/dev/s@sha256:abc']) assert.throws(() => parseReference(bad), /Expected ghcr\.io/, bad);
+  assert.deepEqual(parseVersion('latest'), { digest: null, tag: 'latest' });
+  assert.deepEqual(parseVersion('20261028-153012'), { digest: null, tag: '20261028-153012' });
+  assert.deepEqual(parseVersion(DIGEST), { digest: DIGEST, tag: null });
+  for (const bad of ['ghcr.io/dev/s:latest', 'sha256:abc', '-x', '']) assert.throws(() => parseVersion(bad), /Expected a tag like latest/, bad);
+  const repo = (stdout, status = 0) => () => ({ status, stdout, stderr: status ? 'no git repository' : '' });
+  assert.deepEqual(samplesTarget(repo('MarkusHeiliger/SocAlytics\n'), {}), { owner: 'markusheiliger', name: 'socalytics-samples', repository: 'markusheiliger/socalytics-samples', image: 'ghcr.io/markusheiliger/socalytics-samples' });
+  assert.equal(samplesTarget(repo('dev/socalytics'), { SOCALYTICS_SAMPLES_PACKAGE: 'socalytics-samples-selftest' }).image, 'ghcr.io/dev/socalytics-samples-selftest');
+  assert.throws(() => samplesTarget(repo('', 1), {}), /inside a clone of the repository/);
   assert.deepEqual(tokenScopes("  - Token scopes: 'gist', 'read:packages', 'repo'"), ['gist', 'read:packages', 'repo']);
   assert.deepEqual(tokenScopes("  - Token scopes: 'delete:packages', 'repo', 'write:packages'"), ['delete:packages', 'repo', 'write:packages', 'read:packages'], 'write:packages implies read:packages');
   assert.equal(tokenScopes('no scopes listed'), null);
@@ -107,7 +113,7 @@ test('the anonymous pull check asks the token service first; a refused token or 
 
 // A fake gh and oras: records every call and answers like the real tools. `registry` maps layer digests to contents
 // for blob downloads; `manifest` is what `oras manifest fetch` returns.
-function fakeTools({ scopes = "'repo', 'write:packages', 'delete:packages'", before = null, after = { visibility: 'private' }, pushDigest = DIGEST, manifest = null, refresh = 0, registry: blobs = {}, latest = DIGEST } = {}) {
+function fakeTools({ scopes = "'repo', 'write:packages', 'delete:packages'", before = null, after = { visibility: 'private' }, pushDigest = DIGEST, manifest = null, refresh = 0, registry: blobs = {}, latest = DIGEST, login = 'Dev' } = {}) {
   const calls = [];
   const state = { deleted: [], refreshed: false, tags: [] };
   const run = (command, args, options = {}) => {
@@ -119,7 +125,8 @@ function fakeTools({ scopes = "'repo', 'write:packages', 'delete:packages'", bef
       state.refreshed = refresh === 0;
       return { status: refresh, stdout: '', stderr: '' };
     }
-    if (key === 'gh api user --jq .login') return { status: 0, stdout: 'Dev\n', stderr: '' };
+    if (key === 'gh api user --jq .login') return { status: 0, stdout: `${login}\n`, stderr: '' };
+    if (key.startsWith('gh repo view')) return { status: 0, stdout: 'Dev/socalytics\n', stderr: '' };
     if (key.startsWith('gh auth token')) return { status: 0, stdout: 'gho_secret\n', stderr: '' };
     if (key.startsWith('gh api /user/packages/container/') && !key.includes('/versions')) {
       const pkg = calls.some((call) => call.command === 'oras' && call.args[0] === 'push') ? after : before;
@@ -186,6 +193,16 @@ test('upload pushes every video with its relative path, checks privacy, and only
   assert.ok(lines.includes('Download: node tools/download-samples.mjs'));
   assert.ok(lines.some((line) => /notes\.txt \(not a video\)/.test(line)));
   await assert.rejects(uploadSamples([root, '--manifest', 'x.json'], { run: tools.run, fetchImpl: registry(), log: silent, now: NOW }), /Unknown option: --manifest/);
+  await assert.rejects(uploadSamples([root, '--package', 'x'], { run: tools.run, fetchImpl: registry(), log: silent, now: NOW }), /Unknown option: --package/, 'the repository defines the package');
+});
+
+test('upload only works for the repository owner, and the package can be overridden for a throwaway test', async () => {
+  const stranger = fakeTools({ login: 'someone' });
+  await assert.rejects(uploadSamples([folder({ 'a.mp4': 'a' })], { run: stranger.run, fetchImpl: registry(), log: silent, now: NOW }), /belongs to dev; you are logged in to gh as someone\. Only dev can upload samples/);
+  assert.ok(!stranger.calls.some((call) => call.command === 'oras' && call.args[0] === 'push'));
+  const tools = fakeTools();
+  await uploadSamples([folder({ 'a.mp4': 'a' })], { run: tools.run, fetchImpl: registry(), log: silent, now: NOW, env: { SOCALYTICS_SAMPLES_PACKAGE: 'socalytics-samples-selftest' } });
+  assert.equal(tools.calls.find((call) => call.args[0] === 'push').args[1], 'ghcr.io/dev/socalytics-samples-selftest:20261028-150000');
 });
 
 test('upload refreshes missing scopes, and a dry run checks everything but pushes nothing', async () => {
@@ -233,12 +250,18 @@ test('download fetches the latest version by default, restores nested folders, a
   assert.equal(readFileSync(path.join(output, 'match', 'half-1.mkv'), 'utf8'), 'h1');
   assert.equal(readFileSync(path.join(output, '.samples-reference'), 'utf8'), `ghcr.io/dev/socalytics-samples@${DIGEST}\n`);
   assert.ok(!tools.calls.some((call) => call.args[1] === 'refresh'), 'read:packages (implied by write:packages) is enough');
-  const other = fakeTools({ manifest: sampleManifest([layer('a.mp4', 'aaa')]), registry: { [sha('aaa')]: 'aaa' } });
-  await downloadSamples(['--package', 'socalytics-samples-edge', '--output', path.join(temporary, `out-${counter++}`)], { run: other.run, log: silent });
-  assert.equal(other.calls.find((call) => call.args[0] === 'resolve').args[1], 'ghcr.io/dev/socalytics-samples-edge:latest');
+  const tagged = fakeTools({ manifest: sampleManifest([layer('a.mp4', 'aaa')]), registry: { [sha('aaa')]: 'aaa' } });
+  await downloadSamples(['20261028-153012', '--output', path.join(temporary, `out-${counter++}`)], { run: tagged.run, log: silent });
+  assert.equal(tagged.calls.find((call) => call.args[0] === 'resolve').args[1], 'ghcr.io/dev/socalytics-samples:20261028-153012', 'a tag of the repository package');
+  assert.ok(tagged.calls.find((call) => call.args[0] === 'blob').args[2].startsWith('ghcr.io/dev/socalytics-samples@sha256:'));
   const pinned = fakeTools({ manifest: sampleManifest([layer('a.mp4', 'aaa')]), registry: { [sha('aaa')]: 'aaa' } });
-  await downloadSamples([`ghcr.io/dev/socalytics-samples@${DIGEST}`, '--output', path.join(temporary, `out-${counter++}`)], { run: pinned.run, log: silent });
+  const pinnedResult = await downloadSamples([DIGEST, '--output', path.join(temporary, `out-${counter++}`)], { run: pinned.run, log: silent });
   assert.ok(!pinned.calls.some((call) => call.args[0] === 'resolve'), 'a digest needs no resolving');
+  assert.equal(pinnedResult.reference, `ghcr.io/dev/socalytics-samples@${DIGEST}`);
+  const throwaway = fakeTools({ manifest: sampleManifest([layer('a.mp4', 'aaa')]), registry: { [sha('aaa')]: 'aaa' } });
+  await downloadSamples(['--output', path.join(temporary, `out-${counter++}`)], { run: throwaway.run, log: silent, env: { SOCALYTICS_SAMPLES_PACKAGE: 'socalytics-samples-selftest' } });
+  assert.equal(throwaway.calls.find((call) => call.args[0] === 'resolve').args[1], 'ghcr.io/dev/socalytics-samples-selftest:latest');
+  await downloadSamples(['--output', path.join(temporary, `out-${counter++}`)], { run: fakeTools({ login: 'reader', manifest: sampleManifest([layer('a.mp4', 'aaa')]), registry: { [sha('aaa')]: 'aaa' } }).run, log: silent });
 });
 
 test('download brings a folder it filled in line with a newer version: new, changed, unchanged, moved, and removed videos', async () => {
@@ -266,8 +289,8 @@ test('download refuses foreign folders, other artifacts, unsafe paths, and corru
   const foreign = folder({ 'mine.mp4': 'x' });
   await assert.rejects(downloadSamples(['--output', foreign], { run: fakeTools({ manifest }).run, log: silent }), /not empty and was not filled by this script/);
   assert.ok(existsSync(path.join(foreign, 'mine.mp4')));
-  await assert.rejects(downloadSamples(['ghcr.io/dev/s:latest', '--package', 'x'], { run: fakeTools().run, log: silent }), /either a reference or --package/);
-  await assert.rejects(downloadSamples(['docker.io/dev/s:latest'], { run: fakeTools().run, log: silent }), /Expected ghcr\.io/);
+  await assert.rejects(downloadSamples(['ghcr.io/dev/s:latest'], { run: fakeTools().run, log: silent }), /Expected a tag like latest/, 'only the version, not a reference');
+  await assert.rejects(downloadSamples(['--package', 'x'], { run: fakeTools().run, log: silent }), /Unknown option: --package/);
   const other = fakeTools({ manifest: { ...manifest, artifactType: 'application/vnd.oci.image.config.v1+json' } });
   await assert.rejects(downloadSamples(['--output', path.join(temporary, `out-${counter++}`)], { run: other.run, log: silent }), /is not a sample artifact/);
   for (const title of ['../escape.mp4', '/abs.mp4', 'C:/x.mp4', 'a//b.mp4']) {

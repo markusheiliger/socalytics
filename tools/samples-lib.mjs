@@ -6,7 +6,7 @@ import { createReadStream, existsSync, lstatSync, mkdtempSync, readdirSync, real
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-export const DEFAULT_PACKAGE = 'socalytics-samples';
+export const LATEST_TAG = 'latest';
 export const ARTIFACT_TYPE = 'application/vnd.socalytics.samples.v1';
 export const REGISTRY = 'ghcr.io';
 export const UPLOAD_SCOPES = ['write:packages', 'read:packages', 'delete:packages'];
@@ -86,15 +86,6 @@ export function validatePackageName(name) {
   return name;
 }
 
-// `ghcr.io/<owner>/<package>` followed by `@sha256:<64 hex>` (exactly that version) or `:<tag>` (resolved to a digest
-// before downloading, so the download is still exactly one version).
-export const LATEST_TAG = 'latest';
-export function parseReference(reference) {
-  const match = /^ghcr\.io\/([a-z0-9-]+)\/([a-z0-9]+(?:[._-][a-z0-9]+)*)(?:@(sha256:[0-9a-f]{64})|:([A-Za-z0-9_][A-Za-z0-9._-]{0,127}))$/.exec(String(reference ?? ''));
-  if (!match) throw new SamplesError(`Expected ghcr.io/<owner>/<package>@sha256:<64 hex> or ghcr.io/<owner>/<package>:<tag>, not: ${reference}`);
-  return { owner: match[1], name: match[2], digest: match[3] ?? null, tag: match[4] ?? null, repository: `${match[1]}/${match[2]}` };
-}
-
 // The digest `oras resolve` reports for a reference.
 export function resolveDigest(run, reference, config) {
   const result = run('oras', ['resolve', reference, '--registry-config', config]);
@@ -161,6 +152,25 @@ export function ghToken(run) {
   const result = run('gh', ['auth', 'token', '-h', 'github.com']);
   if (result.status !== 0 || !result.stdout.trim()) throw new SamplesError('Could not read gh\'s token. Run `gh auth login` first.');
   return result.stdout.trim();
+}
+
+// The sample package of the repository the command runs in: `ghcr.io/<repository owner>/<repository name>-samples`,
+// read with `gh repo view` from the current checkout. SOCALYTICS_SAMPLES_PACKAGE overrides the package name (for trying
+// the tools on a throwaway package).
+export function samplesTarget(run, env = process.env) {
+  const result = run('gh', ['repo', 'view', '--json', 'owner,name', '--jq', '.owner.login + "/" + .name']);
+  const [owner, repo] = result.stdout.trim().split('/');
+  if (result.status !== 0 || !owner || !repo) throw new SamplesError(`Could not tell the repository: run the command inside a clone of the repository (${result.stderr.trim() || 'gh repo view found none'}).`);
+  const name = validatePackageName(env.SOCALYTICS_SAMPLES_PACKAGE || `${repo.toLowerCase()}-samples`);
+  return { owner: owner.toLowerCase(), name, repository: `${owner.toLowerCase()}/${name}`, image: `${REGISTRY}/${owner.toLowerCase()}/${name}` };
+}
+
+// A version of the sample package: a tag (`latest`, `20261028-153012`) or a digest (`sha256:<64 hex>`).
+export function parseVersion(version) {
+  const text = String(version ?? '');
+  if (/^sha256:[0-9a-f]{64}$/.test(text)) return { digest: text, tag: null };
+  if (/^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/.test(text)) return { digest: null, tag: text };
+  throw new SamplesError(`Expected a tag like latest or 20261028-153012, or a digest sha256:<64 hex>, not: ${version}`);
 }
 
 // The container package `name` of the logged-in user, or null when it does not exist yet.

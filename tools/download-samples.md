@@ -5,8 +5,11 @@ that [upload-samples](upload-samples.md) uploaded, by default the latest. It dow
 the ones that already match, removes videos the version no longer has, and verifies every file.
 
 ```text
-node tools/download-samples.mjs [<reference>] [--package <name>] [--output <folder>]
+node tools/download-samples.mjs [<tag> | sha256:<digest>] [--output <folder>]
 ```
+
+Run it inside a clone of the repository: the repository defines where the samples come from, `ghcr.io/<repository
+owner>/<repository name>-samples`, here `ghcr.io/markusheiliger/socalytics-samples`. You only choose the version.
 
 ## Prerequisites
 
@@ -18,8 +21,7 @@ it when it is missing. You also need read access to the private package (its own
 
 | Option | Meaning |
 | --- | --- |
-| `<reference>` | Optional. `ghcr.io/<owner>/<package>@sha256:<digest>` for exactly that version, or `ghcr.io/<owner>/<package>:<tag>`, which is resolved to its digest first. Without it: `latest` of your own package. |
-| `--package <name>` | Without a reference: the package under your account. Default: `socalytics-samples`. |
+| `<tag>` or `sha256:<digest>` | Optional; default `latest`. A tag (`latest`, or an upload's time tag such as `20261028-153012`) is resolved to its digest first; a digest selects exactly that version. |
 | `--output <folder>` | Where the videos go. Default: `.samples` in the current folder (ignored by Git). |
 | `--help` | Prints the usage. |
 
@@ -45,13 +47,13 @@ node tools/download-samples.mjs
 ```
 
 ```text
-ghcr.io/octocat/socalytics-samples:latest is ghcr.io/octocat/socalytics-samples@sha256:3f1c…9a2e
+ghcr.io/markusheiliger/socalytics-samples:latest is ghcr.io/markusheiliger/socalytics-samples@sha256:3f1c…9a2e
 Bringing D:\socalytics\.samples in line with 4 file(s) ...
   + kickoff.mp4
   + match-2026-10-12/half-1.mkv
   + match-2026-10-12/half-2.mkv
   + training/drills.mov
-D:\socalytics\.samples matches ghcr.io/octocat/socalytics-samples@sha256:3f1c…9a2e: 4 downloaded, 0 moved locally, 0 unchanged, 0 removed.
+D:\socalytics\.samples matches ghcr.io/markusheiliger/socalytics-samples@sha256:3f1c…9a2e: 4 downloaded, 0 moved locally, 0 unchanged, 0 removed.
 ```
 
 ### Update after a new upload
@@ -59,12 +61,12 @@ D:\socalytics\.samples matches ghcr.io/octocat/socalytics-samples@sha256:3f1c…
 Someone added a match and moved the training video:
 
 ```text
-ghcr.io/octocat/socalytics-samples:latest is ghcr.io/octocat/socalytics-samples@sha256:8b20…41d7
+ghcr.io/markusheiliger/socalytics-samples:latest is ghcr.io/markusheiliger/socalytics-samples@sha256:8b20…41d7
 Bringing D:\socalytics\.samples in line with 5 file(s) ...
   + match-2026-10-19/half-1.mkv
   > training/2026/drills.mov (from training/drills.mov)
   - training/drills.mov
-D:\socalytics\.samples matches ghcr.io/octocat/socalytics-samples@sha256:8b20…41d7: 1 downloaded, 1 moved locally, 3 unchanged, 1 removed.
+D:\socalytics\.samples matches ghcr.io/markusheiliger/socalytics-samples@sha256:8b20…41d7: 1 downloaded, 1 moved locally, 3 unchanged, 1 removed.
 ```
 
 ### Exactly one version
@@ -73,13 +75,13 @@ For results you want to repeat (a test, an evaluation report, CI), pin the diges
 printed:
 
 ```powershell
-node tools/download-samples.mjs ghcr.io/octocat/socalytics-samples@sha256:3f1c…9a2e --output D:\videos\pinned
+node tools/download-samples.mjs sha256:3f1c…9a2e --output D:\videos\pinned
 ```
 
-### Someone else's package
+### An earlier upload by its time tag
 
 ```powershell
-node tools/download-samples.mjs ghcr.io/octocat/socalytics-samples:latest
+node tools/download-samples.mjs 20261028-153012 --output D:\videos\october
 ```
 
 ## What it checks

@@ -5,8 +5,12 @@
 repository; [download-samples](download-samples.md) fetches them.
 
 ```text
-node tools/upload-samples.mjs <folder> [--package <name>] [--dry-run]
+node tools/upload-samples.mjs <folder> [--dry-run]
 ```
+
+Run it inside a clone of the repository: the repository defines where the samples go, `ghcr.io/<repository
+owner>/<repository name>-samples`, here `ghcr.io/markusheiliger/socalytics-samples`. Only the repository owner's gh
+account can upload.
 
 ## Prerequisites
 
@@ -25,9 +29,11 @@ the browser once.
 | Option | Meaning |
 | --- | --- |
 | `<folder>` | The folder with the videos. Every file with the extension `.mp4`, `.m4v`, `.mov`, `.mkv`, `.webm`, `.avi`, or `.ts` (in any case) below it is uploaded, also in nested folders. Other files are listed as skipped. |
-| `--package <name>` | The GHCR package, under your GitHub account: `ghcr.io/<you>/<name>`. Default: `socalytics-samples`. |
 | `--dry-run` | Finds the videos and runs every check, but uploads nothing. |
 | `--help` | Prints the usage. |
+
+To try the tools without touching the real samples, set `SOCALYTICS_SAMPLES_PACKAGE` to a throwaway package name (for
+example `socalytics-samples-selftest`) for both scripts, and delete that package afterwards.
 
 ## A growing set
 
@@ -88,12 +94,12 @@ Found 4 video file(s), 1.2 GiB, below D:\videos\samples:
   training/drills.mov (161.9 MiB)
 Skipped 1 other file(s):
   match-2026-10-12/notes.txt (not a video)
-The package ghcr.io/octocat/socalytics-samples does not exist yet; GHCR creates it private.
-Pushing ghcr.io/octocat/socalytics-samples:20261028-153012 ...
+The package ghcr.io/markusheiliger/socalytics-samples does not exist yet; GHCR creates it private.
+Pushing ghcr.io/markusheiliger/socalytics-samples:20261028-153012 ...
 Privacy check passed: the package is private, not linked to a repository, and refuses anonymous pulls.
 
-Uploaded 4 file(s) as ghcr.io/octocat/socalytics-samples:latest (also :20261028-153012).
-Digest:   ghcr.io/octocat/socalytics-samples@sha256:3f1c…9a2e
+Uploaded 4 file(s) as ghcr.io/markusheiliger/socalytics-samples:latest (also :20261028-153012).
+Digest:   ghcr.io/markusheiliger/socalytics-samples@sha256:3f1c…9a2e
 Download: node tools/download-samples.mjs
 ```
 
@@ -114,8 +120,8 @@ node tools/upload-samples.mjs D:\videos\samples --dry-run
 ```text
 Found 4 video file(s), 1.2 GiB, below D:\videos\samples:
   …
-The package ghcr.io/octocat/socalytics-samples exists and is private.
-Dry run: would push 4 file(s) as ghcr.io/octocat/socalytics-samples:20261028-153512 and tag it latest. Nothing was pushed.
+The package ghcr.io/markusheiliger/socalytics-samples exists and is private.
+Dry run: would push 4 file(s) as ghcr.io/markusheiliger/socalytics-samples:20261028-153512 and tag it latest. Nothing was pushed.
 ```
 
 ### A refused upload
@@ -123,13 +129,13 @@ Dry run: would push 4 file(s) as ghcr.io/octocat/socalytics-samples:20261028-153
 When the package is public (or linked to a repository), nothing is uploaded:
 
 ```text
-upload-samples: Refusing to push to ghcr.io/octocat/socalytics-samples: its visibility is public, not private. A public package cannot be made private again; use another name with --package.
+upload-samples: Refusing to push to ghcr.io/markusheiliger/socalytics-samples: its visibility is public, not private. A public package cannot be made private again; fix or delete it on GitHub first.
 ```
 
 When the privacy check after the upload fails, the new version is removed again and `latest` does not move:
 
 ```text
-upload-samples: The pushed version sha256:3f1c…9a2e failed the privacy check (an anonymous pull is allowed), so it was deleted. Check the package settings of ghcr.io/octocat/socalytics-samples on GitHub before trying again.
+upload-samples: The pushed version sha256:3f1c…9a2e failed the privacy check (an anonymous pull is allowed), so it was deleted. Check the package settings of ghcr.io/markusheiliger/socalytics-samples on GitHub before trying again.
 ```
 
 ## After uploading
@@ -142,7 +148,7 @@ upload-samples: The pushed version sha256:3f1c…9a2e failed the privacy check (
 - **Check by hand** that anonymous access is refused (the answer must say `authentication required`):
 
   ```powershell
-  curl.exe -s "https://ghcr.io/token?scope=repository:octocat/socalytics-samples:pull"
+  curl.exe -s "https://ghcr.io/token?scope=repository:markusheiliger/socalytics-samples:pull"
   ```
 
 - **List or delete versions:**
@@ -153,8 +159,8 @@ upload-samples: The pushed version sha256:3f1c…9a2e failed the privacy check (
 
   ```powershell
   $cfg = "$env:TEMP\oras-tag.json"
-  gh auth token | oras login ghcr.io -u <you> --password-stdin --registry-config $cfg
-  oras tag ghcr.io/<you>/socalytics-samples@sha256:<digest> latest --registry-config $cfg
+  gh auth token | oras login ghcr.io -u markusheiliger --password-stdin --registry-config $cfg
+  oras tag ghcr.io/markusheiliger/socalytics-samples@sha256:<digest> latest --registry-config $cfg
   Remove-Item $cfg
   ```
 
