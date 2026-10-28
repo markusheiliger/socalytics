@@ -1008,3 +1008,68 @@ test('a Blocked comment tells a blocker with an implementation pull request from
   assert.doesNotMatch(waiting, /Recommended next step|to finish first|to request first/);
   assert.match(waiting, /\*\*Requested, starting by itself\*\*/);
 });
+
+import { COPILOT_HANDOFF_MARKER, COPILOT_HANDOFF_MS, ATTENTION_LABEL as HELP, BLOCKED_LABEL as BLOCKED, isCopilotRequest, maintainCopilotHandoff, pendingCopilotHandoff } from './speckit-implement-core.mjs';
+import { diagnosisRepo } from './speckit-test-helpers.mjs';
+
+test('a handoff to Copilot is working until Copilot pushes, replies without a push, or the time runs out', () => {
+  assert.equal(isCopilotRequest('@copilot Merge main'), true);
+  assert.equal(isCopilotRequest('\n  @Copilot, please'), true);
+  assert.equal(isCopilotRequest('thanks @copilot'), false);
+  assert.equal(isCopilotRequest('@copilotx'), false);
+  const at = Date.parse('2026-10-28T13:20:00Z');
+  const comment = (id, login, body, offset) => ({ id, user: { login }, body, created_at: new Date(at + offset).toISOString() });
+  const handed = comment(1, 'github-actions[bot]', `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`, 0);
+  assert.equal(pendingCopilotHandoff([]), null);
+  assert.equal(pendingCopilotHandoff([handed], { now: at + 60_000 }).state, 'working');
+  assert.equal(pendingCopilotHandoff([handed], { now: at + COPILOT_HANDOFF_MS }).state, 'expired');
+  const reply = comment(2, 'Copilot', 'I could not resolve it.', 300_000);
+  assert.deepEqual(pendingCopilotHandoff([handed, reply], { now: at + 400_000 }).reply, reply);
+  assert.equal(pendingCopilotHandoff([handed, reply], { now: at + 400_000 }).state, 'finished');
+  assert.equal(pendingCopilotHandoff([handed, reply], { pushedAt: new Date(at + 200_000).toISOString(), now: at + 400_000 }), null, 'a push after the handoff continues the implementation');
+  assert.equal(pendingCopilotHandoff([handed], { pushedAt: new Date(at - 1000).toISOString(), now: at + COPILOT_HANDOFF_MS }).state, 'expired', 'an older push does not count');
+  const retried = comment(3, 'github-actions[bot]', '<!-- speckit-implement:retry -->\nImplementation retried', 100_000);
+  assert.equal(pendingCopilotHandoff([handed, retried, reply], { now: at + 400_000 }), null, 'a restart ends the handoff');
+  const ended = comment(4, 'github-actions[bot]', '<!-- speckit-implement:copilot-handoff-ended {"handoff":1} -->\n...', 500_000);
+  assert.equal(pendingCopilotHandoff([handed, reply, ended], { now: at + 600_000 }), null, 'it ends once');
+  assert.equal(pendingCopilotHandoff([handed, comment(5, 'dev', 'Copilot? any news', 100_000)], { now: at + 120_000 }).state, 'working', 'only Copilot\'s own reply finishes it');
+});
+
+test('the scheduler asks for help again when a handoff to Copilot ended without a push, once, with one next step', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const pull = github.repo.pulls[0];
+  const labels = () => (pull.labels ?? []).map((label) => label.name);
+  const diagnosis = await github.createComment(9, '<!-- speckit-implement:diagnosis -->\n**Diagnosis**: ...');
+  const handed = await github.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
+  const state = async (extra = {}) => maintainCopilotHandoff(github, { pull, comments: await github.listIssueComments(9), pushedAt: null, active: false, continues: false, blocked: false, now: Date.parse(handed.created_at) + 60_000, ...extra });
+  assert.equal(await state(), null, 'still working');
+  assert.equal(await state({ now: Date.parse(handed.created_at) + COPILOT_HANDOFF_MS, active: true }), null, 'a running chain decides itself');
+  assert.equal(await state({ now: Date.parse(handed.created_at) + COPILOT_HANDOFF_MS, continues: true }), null, 'a chain about to continue decides itself');
+  assert.equal(await state({ now: Date.parse(handed.created_at) + COPILOT_HANDOFF_MS, blocked: true }), null);
+  assert.deepEqual(labels(), []);
+  github.commentAuthor = 'Copilot';
+  const reply = await github.createComment(9, 'I could not find the conflict.');
+  github.commentAuthor = undefined;
+  assert.equal(await state(), 'finished');
+  assert.deepEqual(labels(), [HELP]);
+  const note = github.comments.at(-1).body;
+  assert.match(note, /^<!-- speckit-implement:copilot-handoff-ended \{"handoff":\d+\} -->\n\*\*Copilot finished without pushing\*\* to `speckit\/f`/);
+  assert.ok(note.includes(reply.html_url));
+  assert.match(note, new RegExp(`\\*\\*Recommended next step\\*\\*: Follow the \\[latest diagnosis\\]\\(${diagnosis.html_url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\) again`));
+  assert.equal(note.match(/Recommended next step/g).length, 1);
+  const count = github.comments.length;
+  assert.equal(await state(), null, 'reported once');
+  assert.equal(github.comments.length, count);
+
+  const quiet = diagnosisRepo({ amendment: false });
+  const quietPull = quiet.repo.pulls[0];
+  const quietHandoff = await quiet.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
+  quietPull.labels = [{ name: BLOCKED }];
+  assert.equal(await maintainCopilotHandoff(quiet, { pull: quietPull, comments: await quiet.listIssueComments(9), now: Date.parse(quietHandoff.created_at) + COPILOT_HANDOFF_MS }), 'expired');
+  assert.deepEqual(quietPull.labels.map((label) => label.name), [BLOCKED], 'a blocked pull request does not get the label');
+  quietPull.labels = [];
+  const fresh = await quiet.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
+  assert.equal(await maintainCopilotHandoff(quiet, { pull: quietPull, comments: await quiet.listIssueComments(9), now: Date.parse(fresh.created_at) + COPILOT_HANDOFF_MS }), 'expired');
+  assert.match(quiet.comments.at(-1).body, /\*\*Copilot has not pushed\*\* to `speckit\/f` within 60 minutes[\s\S]*\*\*Recommended next step\*\*: Post the `@copilot` request again/);
+  assert.deepEqual(quietPull.labels.map((label) => label.name), [HELP]);
+});

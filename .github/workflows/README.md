@@ -473,6 +473,13 @@ stops the automation, never the spec's own work: a prompt that names a task, `ta
 is rejected, because the Spec Kit implementation implements, verifies, and ticks every task itself. A `/speckit retry` that is refused
 after unchanged restarts recommends the latest diagnosis' `@copilot` request when it has one.
 
+Posting such a request is a handoff: when a person with write access comments `@copilot …` (the mention first) on an
+implementation pull request that waits for a person (`help wanted`, not `blocked`), job "Hand a stopped implementation
+over to Copilot" of `Spec Kit commands` removes `help wanted` at once and comments that Copilot is working on it and
+that its push continues the implementation by itself. If Copilot replies without having pushed, or has not pushed
+within 60 minutes, `Spec Kit orchestrate` puts `help wanted` back with a comment that says so and recommends following
+the latest diagnosis again. A push, a `/speckit retry`, or a `/speckit sync` after the handoff ends it.
+
 Implementation, amendment, and authored spec pull requests carry GitHub's default label `help wanted` ("Extra attention is
 needed") while they wait for a person, and lose it as soon as a person's action puts automation back to work or the
 pull request is merged or closed. The label is a convenience; the comments and check runs stay authoritative.
