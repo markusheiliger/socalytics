@@ -24,7 +24,7 @@
 
 **Performance Goals**: N/A
 
-**Constraints**: no assertion removed or loosened, no retry, fixed delay, or longer timeout; the stopped spec `specs/20261025-113505-deterministic-fact-payload-telemetry-test` is not touched
+**Constraints**: no assertion removed or loosened, no retry, fixed delay, or longer timeout; the stopped spec `specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test` is not touched
 
 **Scale/Scope**: one test file (the harness and platform code stay unchanged)
 

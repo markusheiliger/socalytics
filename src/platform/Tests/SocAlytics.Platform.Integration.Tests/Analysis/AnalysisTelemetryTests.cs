@@ -17,6 +17,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis;
 
+[Collection(AnalysisTelemetryCollection.Name)]
 public sealed class AnalysisTelemetryTests(PostgresContainerFixture postgres, NatsContainerFixture nats, RustFsContainerFixture rustFs)
 {
     private sealed class ThrowingTransport : IMessageTransport
