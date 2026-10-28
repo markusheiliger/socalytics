@@ -50,3 +50,16 @@ Temporary probe `Probe_worker_iteration_between_resolution_steps` in `EvidencePa
 | `explicit-after-count` | same, between the count and `MaterializeSegmentsAsync` | 0/10 |
 
 In every failing run the first resolution reported `materializing` and one demanded row, `MaterializeSegmentsAsync` processed 0 rows, the row was still `materializing` (claimed by the worker), and the second resolution read `materializing`: the expected signature. The explicit call completes synchronously, so it never reproduces the failure; only the real background worker does.
+
+## T004
+
+Summary of the runs, failure captures, and probe results of T002 and T003, and the confirmed cause.
+
+Runs and captures:
+
+- T002: the target test passed in 25 of 25 runs (20 alone, 5 inside the class under CPU load). One of 5 class runs under load failed in the sibling `Purged_segment_is_rematerializing_beside_available_parts_until_the_worker_ran` (expected `["available", "available"]`, got `["available", "rematerializing"]`): the explicit `MaterializeSegmentsAsync` left a row not `available`, the signature of a row that something else had already claimed. Segment rows, explicit outcomes, and `Factory.Logs` were not captured by that run.
+- T003: with the real worker enabled through `extraSettings` (`Analysis:Workers:Enabled=true`, `Segments:Materialization:PollInterval` 50 ms), the never-materialized scenario would fail the target test in 10 of 10 runs after the first resolution and in 10 of 10 runs after the count. The explicit `ProcessDueAsync` from a second scope with a distinct lease owner never reproduced it (0 of 20 runs), because it completes synchronously.
+
+Confirmed cause: the candidate "the default-on background segment worker races the explicit materialization" is confirmed. `EvidenceScenario.Settings` does not set `Analysis:Workers:Enabled`, so the API host's `SegmentMaterializationWorker` runs by default beside the test's explicit `MaterializeSegmentsAsync` and `MaterializeAllAsync` calls. When the worker claims a demanded row first, the explicit call finds nothing due and the second resolution reads `materializing` (or `rematerializing`) instead of `available`. The race depends on runner load, which is why it appears intermittently. It is a test-scenario cause, not a platform defect, so T005 applies and T006 does not.
+
+The temporary probe `Probe_worker_iteration_between_resolution_steps` and its helper `RunWorkerIterationAsync` have been removed from `EvidencePartStateTests.cs`; the file is back to its content before T003.
