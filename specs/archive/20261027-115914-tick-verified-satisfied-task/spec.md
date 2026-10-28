@@ -1,5 +1,7 @@
 # Feature Specification: Tick a Verified, Already-Satisfied Task
 
+> **Implemented directly on the default branch** in 237a03c4, as repository tooling rather than through the Spec Kit implementation (#367 was closed without merging; Spec Kit implementations may not change `.github/scripts/`). It builds on the implementation Copilot pushed to #367 and goes beyond this spec in two ways: a task is also accepted when a file only it names changed on the base branch since the implementation pull request was opened (the work landed elsewhere and was merged in), not only when that file differs on the implementation branch (FR-002); and a task ticked this way carries a provenance note on its line in `tasks.md` that only the land job may add, in addition to the comment and check run of FR-007.
+
 **Feature Branch**: `20261027-115914-tick-verified-satisfied-task`
 
 **Created**: 2026-10-27
