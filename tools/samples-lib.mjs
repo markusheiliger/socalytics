@@ -86,11 +86,21 @@ export function validatePackageName(name) {
   return name;
 }
 
-// `ghcr.io/<owner>/<package>@sha256:<64 hex>`; tags are refused, so a download is always exactly the uploaded content.
-export function parseDigestReference(reference) {
-  const match = /^ghcr\.io\/([a-z0-9-]+)\/([a-z0-9]+(?:[._-][a-z0-9]+)*)@(sha256:[0-9a-f]{64})$/.exec(String(reference ?? ''));
-  if (!match) throw new SamplesError(`Expected a reference pinned by digest, ghcr.io/<owner>/<package>@sha256:<64 hex>, not: ${reference}`);
-  return { owner: match[1], name: match[2], digest: match[3], repository: `${match[1]}/${match[2]}` };
+// `ghcr.io/<owner>/<package>` followed by `@sha256:<64 hex>` (exactly that version) or `:<tag>` (resolved to a digest
+// before downloading, so the download is still exactly one version).
+export const LATEST_TAG = 'latest';
+export function parseReference(reference) {
+  const match = /^ghcr\.io\/([a-z0-9-]+)\/([a-z0-9]+(?:[._-][a-z0-9]+)*)(?:@(sha256:[0-9a-f]{64})|:([A-Za-z0-9_][A-Za-z0-9._-]{0,127}))$/.exec(String(reference ?? ''));
+  if (!match) throw new SamplesError(`Expected ghcr.io/<owner>/<package>@sha256:<64 hex> or ghcr.io/<owner>/<package>:<tag>, not: ${reference}`);
+  return { owner: match[1], name: match[2], digest: match[3] ?? null, tag: match[4] ?? null, repository: `${match[1]}/${match[2]}` };
+}
+
+// The digest `oras resolve` reports for a reference.
+export function resolveDigest(run, reference, config) {
+  const result = run('oras', ['resolve', reference, '--registry-config', config]);
+  const digest = /sha256:[0-9a-f]{64}/.exec(result.stdout)?.[0];
+  if (result.status !== 0 || !digest) throw new SamplesError(`Could not resolve ${reference}: ${result.stderr.trim() || result.stdout.trim()}. Check that it exists and that you have read access.`);
+  return digest;
 }
 
 // Runs a command without a shell; `input` goes to stdin (used for the token, which never appears in arguments).
@@ -216,7 +226,8 @@ export function orasSession(run, { login, token }) {
 }
 
 // The arguments of `oras push`, run with the sample folder as working directory, so every layer is titled with its
-// relative path. No org.opencontainers.image.source annotation: it would link the package to a repository.
+// relative path. No org.opencontainers.image.source annotation: it would link the package to a repository. ORAS
+// uploads only the files the registry does not have yet, so a grown set sends only its new videos.
 export function pushArguments({ reference, config, videos, manifestFile, description }) {
   const args = [
     'push', reference,

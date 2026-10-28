@@ -1025,10 +1025,10 @@ node --test .github/scripts/check-markdown.test.mjs
 ### Sample videos
 
 Sample videos stay out of the repository in a private OCI artifact in the GitHub Container Registry. Upload a folder of
-videos (nested folders included) with `node tools/upload-samples.mjs <folder> --manifest samples.json`, commit only the
-manifest, and download it with `node tools/download-samples.mjs <reference@sha256:…>`. Both need the GitHub CLI and
-ORAS; see [upload-samples](tools/upload-samples.md) and [download-samples](tools/download-samples.md). Their tests run
-with `node --test tools/samples.test.mjs`. Using real match footage remains an unrecorded decision.
+videos (nested folders included) with `node tools/upload-samples.mjs <folder>`, which tags the upload `latest`, and get
+the latest videos into `.samples/` with `node tools/download-samples.mjs`. Both need the GitHub CLI and ORAS; see
+[upload-samples](tools/upload-samples.md) and [download-samples](tools/download-samples.md). Their tests run with
+`node --test tools/samples.test.mjs`. Using real match footage remains an unrecorded decision.
 
 ## License
 
