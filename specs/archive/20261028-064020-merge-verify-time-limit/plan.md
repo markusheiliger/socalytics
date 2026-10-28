@@ -2,7 +2,7 @@
 
 **Branch**: `20261028-064020-merge-verify-time-limit` | **Date**: 2026-10-28 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261028-064020-merge-verify-time-limit/spec.md`
+**Input**: Feature specification from `/specs/archive/20261028-064020-merge-verify-time-limit/spec.md`
 
 ## Summary
 
@@ -72,7 +72,7 @@ Post-design re-check: pass; the design adds no dependency and removes no check.
 ### Documentation (this feature)
 
 ```text
-specs/20261028-064020-merge-verify-time-limit/
+specs/archive/20261028-064020-merge-verify-time-limit/
 ├── plan.md
 ├── research.md
 ├── data-model.md
