@@ -71,6 +71,35 @@ describe('documentation-only classification', () => {
     }
   });
 
+  it('reports Spec Kit tooling files with the tooling reason', () => {
+    const root = repository();
+    for (const tooling of ['.github/scripts/speckit-implement-core.mjs', '.github/scripts/speckit-implement-core.test.mjs']) {
+      const result = scope(root, [tooling]);
+      assert.equal(result.documentationOnly, false, tooling);
+      assert.equal(result.reason, `${tooling} is a Spec Kit tooling file covered by the Spec Kit tooling tests`);
+    }
+  });
+
+  it('reports the first non-Markdown file of a mixed list', () => {
+    const root = repository();
+    const tooling = '.github/scripts/speckit-implement-core.mjs';
+    const first = scope(root, ['docs/a.md', tooling, 'src/platform/a.cs']);
+    assert.equal(first.documentationOnly, false);
+    assert.equal(first.reason, `${tooling} is a Spec Kit tooling file covered by the Spec Kit tooling tests`);
+    const other = scope(root, ['docs/a.md', 'src/platform/a.cs', tooling]);
+    assert.equal(other.documentationOnly, false);
+    assert.equal(other.reason, 'src/platform/a.cs is not Markdown');
+  });
+
+  it('keeps other .github/scripts files as not Markdown', () => {
+    const root = repository();
+    for (const other of ['.github/scripts/helper.mjs', '.github/scripts/sub/speckit-x.mjs', '.github/scripts/speckit-x.sh']) {
+      const result = scope(root, [other]);
+      assert.equal(result.documentationOnly, false, other);
+      assert.equal(result.reason, `${other} is not Markdown`);
+    }
+  });
+
   it('refuses Markdown that a project file includes through a glob, and ignores globs for other file types', () => {
     const root = repository();
     touch(root, 'src/platform/Tests/Contracts.Tests/Contracts.Tests.csproj',
