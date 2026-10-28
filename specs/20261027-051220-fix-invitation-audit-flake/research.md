@@ -32,7 +32,7 @@
 
 ## R6: Where is the evidence of the probes recorded? (refined decision)
 
-- **Decision**: Task T010 runs the three probes of `quickstart.md` step 4, reverts them, and records each result in a section `R6: Probe results (SC-002)` appended to this file; that record is its only committed change.
+- **Decision**: Task T010 runs the three probes of `quickstart.md` step 4, reverts them, and records each result in a section `R7: Probe results (SC-002)` appended to this file; that record is its only committed change.
 - **Rationale**: T010 was appended by the convergence, and both attempts failed with "no file only this task names differs on the branch" because the probes are reverted and the task then changes no file, the same cause as R5. A recorded result is a real, reviewable change and keeps SC-002 evidenced in the repository as well as in the pull request.
 - **Rejected alternatives**: committing a probe (forbidden, probes are temporary); a placeholder change (no purpose); retrying (fails the same way); dropping SC-002 (it stays as it is).
 - **Evidence**: T010 attempts 1 and 2 both failed with the same message although restore, build, and the architecture tests passed.
