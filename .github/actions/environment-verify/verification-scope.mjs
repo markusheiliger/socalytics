@@ -20,6 +20,9 @@ const PROJECT_FILE = /\.(csproj|fsproj|vbproj|props|targets)$/;
 const ITEM_PATTERN = /\b(?:Include|Update)\s*=\s*"([^"]*)"/g;
 const QUOTED = /"([^"\n]*)"|'([^'\n]*)'/g;
 
+// Spec Kit tooling scripts and their tests, directly under .github/scripts/ only.
+export const TOOLING_FILE = /^\.github\/scripts\/speckit-[^/]+\.mjs$/;
+
 const toPosix = (value) => value.replace(/\\/g, '/');
 
 // Whether text names a path: an occurrence not preceded by another path or name character (a "/" is allowed when it
@@ -147,7 +150,12 @@ export function classify(root, changedFilesPath) {
   const changed = [...new Set(content.split(/\r?\n/).map((line) => toPosix(line.trim())).filter(Boolean))];
   if (changed.length === 0) return { documentationOnly: false, reason: 'the change list is empty' };
   const other = changed.find((file) => !file.endsWith('.md'));
-  if (other) return { documentationOnly: false, reason: `${other} is not Markdown` };
+  if (other) {
+    const reason = TOOLING_FILE.test(other)
+      ? `${other} is a Spec Kit tooling file covered by the Spec Kit tooling tests`
+      : `${other} is not Markdown`;
+    return { documentationOnly: false, reason };
+  }
   for (const [markdown, consumers] of consumersOf(root, changed)) {
     if (consumers.length > 0) {
       return { documentationOnly: false, reason: `${markdown} may be read by ${consumers.slice(0, 3).join(', ')}${consumers.length > 3 ? ', …' : ''}` };
