@@ -5,7 +5,7 @@
 - **Decision**: add the optional input `environment-tests-only` (default `false`) to `environment-verify`. When `true`,
   the script skips the verification plan, all components, the Python projects, and the Markdown check, and runs only
   "Environment action tests". It fails (with one recommended action) when the tests are not configured, so a
-  self-test never passes without running anything.
+  self-test never passes without running anything, except in a nested run, which the marker deliberately skips.
 - **Rationale**: the self-test must exercise the changed action from the workspace; only the action can narrow itself
   without a second copy of its logic in the workflow. The action's own tests already include the fixtures that run
   the action script with stubs, so the changed script is exercised. The preceding full verification runs every

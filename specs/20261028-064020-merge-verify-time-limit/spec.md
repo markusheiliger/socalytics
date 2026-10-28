@@ -8,6 +8,15 @@
 
 **Input**: User description: "Let the merge verification of environment specs finish within its time limit. Where it lives: the workflow `.github/workflows/speckit-implement-merge.yml` (job `verify`, \"Verify the merged result\", timeout-minutes 90), the composite action `.github/actions/environment-verify` (its README and tests), and, if it states the limit, `.github/workflows/README.md`. Cause: in an environment spec the job runs the full finalize verification (about 70 minutes) and then the steps `Self-test the changed environment setup` and `Self-test the changed environment verification` (mode finalize), which repeats the whole finalize verification a second time; the job is cancelled at 90 minutes before `Record the verdict`, so merge-land reports `the merged result was not verified`. Runs 40626069677, 40617220411, 40607738496, and 40597182107 of spec #382 were all cancelled this way, although its implementation and convergence are sound. Required change, without weakening any check: raise the timeout-minutes of the `verify` job so both runs fit with margin (at most 360), and, if possible, make the self-test of the changed environment verification run only the action's own tests and fixtures instead of repeating every component test already run by the preceding `Verify the merged result` step, while the self-test still exercises the changed action version from the workspace and still feeds the verdict (SPECKIT_SELFTEST_OUTCOME). Update the workflows README and the environment-verify README where they state the 90-minute limit or describe the self-test, and keep the Spec Kit tooling tests and the environment action tests passing. Why: the stopped spec `specs/20261027-205629-environment-speckit-tooling-tests` (twin #382, pull #383) cannot merge until the merge verification completes, and implementation agents may not change `.github/workflows/`. That spec depends on this one. Requested by @markusheiliger."
 
+**Ordering gate**: Do not request `/speckit implement` for this spec until the person's edit of `.github/workflows/speckit-implement-merge.yml` (the 150-minute limit and `environment-tests-only` on the verification self-test step, FR-008) is on the default branch. With the old workflow this spec's own merge verification is cancelled again at 90 minutes. Nothing in the implementation enforces this order; the person who requests the implementation does.
+
+## Clarifications
+
+### Session 2026-10-28
+
+- Q: Does SC-004 contradict FR-008, since the stopped spec's merge needs a person's workflow edit? → A: No contradiction once reworded: SC-004 now holds once the person's workflow edit is on the default branch, with no further manual change to the workflow.
+- Q: How is the order between the person's workflow edit and the implementation request enforced? → A: By an explicit ordering gate at the top of the spec and of `tasks.md`, and as a stated precondition in the handoff comment: do not request `/speckit implement` until the workflow edit is on the default branch. No task or automated check enforces it, because a task targeting `.github/workflows/` can never land.
+
 ## User Scenarios & Testing *(mandatory)*
 
 The users are the people who request implementations and the merge automation. An implementation that changes the trusted environment actions is verified twice before merging: once as the full verification of the merged result, and once as a self-test of the changed actions. Together they take longer than the time limit of the merge verification job, so the job is cancelled before it records its verdict and the merge reports that the result was not verified, although the implementation is sound.
@@ -22,7 +31,7 @@ A person requests the implementation of an environment spec. When every task and
 
 **Acceptance Scenarios**:
 
-1. **Given** an environment spec whose full verification takes about 70 minutes, **When** the merge verification runs the full verification and then the self-test, **Then** the job records its verdict and ends before its time limit, with a margin of at least one third of the time both runs need.
+1. **Given** an environment spec whose full verification takes about 70 minutes, **When** the merge verification runs the full verification and then the self-test, **Then** the job records its verdict and ends before its time limit, with a margin of at least one third of the time both runs need (the sum of all steps of the job `verify`, about 80 minutes by the Assumptions).
 2. **Given** the job's time limit, **When** it is read, **Then** it is larger than the 90 minutes that cancelled four runs of the stopped spec and at most 360 minutes.
 3. **Given** a spec that is not an environment spec, **When** the merge verification runs, **Then** it behaves as before: no self-test runs and the verdict comes from the full verification alone.
 
@@ -94,8 +103,8 @@ A maintainer reads the workflows README and the environment-verify README and fi
 
 - **SC-001**: The merge verification of an environment spec records its verdict in every run where the full verification takes up to 70 minutes; the four cancelled runs of the stopped spec no longer end without a verdict.
 - **SC-002**: Observed after the first environment merge (quickstart step 5), not a gate that the tasks implement: the self-test of the changed verification takes minutes, not an hour, and adds less than 10% to the duration of the full verification.
-- **SC-003**: The time limit is at most 360 minutes and at least one third above the time of the full verification plus the self-test.
-- **SC-004**: The stopped spec of twin #382 reaches a merge decision after its merge verification completes, without a person changing the workflow by hand.
+- **SC-003**: The time limit is at most 360 minutes and at least one third above the time of all steps of the job `verify` (the full verification plus the self-test, setup, and integrate; about 80 minutes by the Assumptions).
+- **SC-004**: The stopped spec of twin #382 reaches a merge decision after its merge verification completes: once the person's workflow edit (FR-008) is on the default branch, the merge verification completes with no further manual change to the workflow.
 - **SC-005**: Every check of the full verification of the merged result still runs in it, and the changed action's component, plan, and Markdown logic is still exercised by the action's own fixture tests (stubbed tools) in the self-test, not by a repeated real run; the existing Spec Kit tooling tests and environment action tests all pass.
 
 ## Assumptions
@@ -104,6 +113,6 @@ A maintainer reads the workflows README and the environment-verify README and fi
 - The self-test of the changed environment setup is unchanged; only the verification self-test narrows.
 - The action's own tests are those the "Environment action tests" check already runs, together with their fixtures; the self-test needs no new test inputs.
 - Narrowing the self-test does not remove a component test from the merge gate, because the full verification of the merged result runs every component test, but that run uses the trusted action from the tooling checkout. The changed action's component, plan, and Markdown logic is therefore covered by the action's own fixture tests (stubbed tools), not by a repeated real run on the merged tree; this is a bounded difference in how the changed action is exercised, accepted because the fixtures run the changed script for every component kind (FR-002, FR-006).
-- The edits of `.github/workflows/speckit-implement-merge.yml` and `.github/workflows/README.md` are made by a person directly on the default branch, outside the implementation (the Scope Note of `tasks.md`); they must be on the default branch before this spec's merge verification runs, or in the same change.
+- The edits of `.github/workflows/speckit-implement-merge.yml` and `.github/workflows/README.md` are made by a person directly on the default branch, outside the implementation (the Scope Note of `tasks.md`); they must be on the default branch before `/speckit implement` is requested.
 - The stopped spec of twin #382 depends on this spec; implementing this spec is the way its merge verification can complete. Implementation agents may not change `.github/workflows/`, so this change is made through this spec's own review and merge.
 - The platform's production limits and values are unaffected; no product behavior changes.

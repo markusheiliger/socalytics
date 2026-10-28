@@ -18,7 +18,7 @@ Prerequisites: Node.js 24, Python 3 (for the action's tests), run from the repos
    ```
 
 3. Workflow configuration (manual, after a person's direct edit of the workflow; it must be on the default branch
-   before this spec's merge verification runs, or in the same change, and an older workspace action ignores the input):
+   before `/speckit implement` is requested, and an older workspace action ignores the input):
 
    ```bash
    grep -n "timeout-minutes: 150" .github/workflows/speckit-implement-merge.yml
@@ -26,6 +26,10 @@ Prerequisites: Node.js 24, Python 3 (for the action's tests), run from the repos
    ```
 
    Expected: the job `verify` has `timeout-minutes: 150` and only the step `selftest-verify` passes the input.
+
+   Also read the two passages of `.github/workflows/README.md` that the Scope Note of `tasks.md` names (the merge
+   verification row of the table of where AI runs, and the sentence on merged environment-action repairs and their
+   self-tests): they must state the 150-minute limit and that the self-test runs only the action's own tests.
 
 4. Documentation: `node .github/scripts/check-markdown.mjs`.
 

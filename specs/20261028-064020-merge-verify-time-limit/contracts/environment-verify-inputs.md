@@ -12,9 +12,11 @@ The composite action `.github/actions/environment-verify` keeps its inputs `work
 - `checks` is `Environment action tests` when the tests ran; the step fails when they fail, with the existing single
   "Recommended action" line.
 - The step fails with one recommended action when the tests are not configured (`ENVIRONMENT_TESTS` empty), so a
-  self-test never succeeds without running a test.
+  self-test never succeeds without running a test, except in a nested run, which the marker deliberately skips.
 - `plan` and `flaky` are empty, and `uncovered` lists every line of `changed-files` (none when the input is not
   given), because no plan decides coverage.
+- The tests run independently of the `shard` input and of the `MAIN` and `ENVIRONMENT_TRIGGER` conditions that guard the
+  existing check, so a sharded caller also runs them.
 - The marker `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING` still makes a nested run skip the tests; a nested run does not
   fail.
 

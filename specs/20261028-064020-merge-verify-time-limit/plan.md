@@ -25,8 +25,10 @@ the trusted action, so the changed action's component, plan, and Markdown logic 
 tests (stubbed tools), which must exercise the changed script for every component kind.
 
 **Ordering**: the workflow edit (`timeout-minutes` 150 and `environment-tests-only` on the self-test step) is made by a
-person outside the implementation and must be on the default branch before this spec's merge verification runs, or in
-the same change. An older workspace action ignores the unknown input, so it is harmless there but not narrowed.
+person outside the implementation and must be on the default branch before `/speckit implement` is requested. An older workspace action ignores the unknown input, so it is harmless there but not narrowed. The
+spec's ordering gate states the precondition: do not request `/speckit implement` until that edit is on the default
+branch. No task or check enforces it, because a task that targets `.github/workflows/` can never land; the person who
+requests the implementation does, and the handoff comment repeats it (spec Clarifications, session 2026-10-28).
 
 **Manual verification (not tasks)**: after the workflow edit, a person runs the greps of quickstart step 3
 (`timeout-minutes: 150` and `environment-tests-only` in `.github/workflows/speckit-implement-merge.yml`) and checks the
