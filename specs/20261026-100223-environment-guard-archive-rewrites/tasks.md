@@ -37,7 +37,7 @@
 
 ### Acceptance tests for the guard and caller
 
-- [ ] T006 [P] [US1] Add pure guard cases in `.github/scripts/speckit-implement-core.test.mjs`: a reference rewrite next to an environment action change and the spec's own `tasks.md` gives no reason, also with several rewritten files (a second sync)
+- [x] T006 [P] [US1] Add pure guard cases in `.github/scripts/speckit-implement-core.test.mjs`: a reference rewrite next to an environment action change and the spec's own `tasks.md` gives no reason, also with several rewritten files (a second sync) — verified without changes by the assessed verification at ea30b548 (no change by this task)
 - [x] T007 [P] [US1] Add a `checkStagedTask` case in `.github/scripts/speckit-implement.test.mjs` against a temporary Git repository with an archived spec: the rewritten spec file outside the spec's folder is accepted next to an environment action change — verified without changes by the assessed verification at 28f54968 (no change by this task)
 
 **Checkpoint**: User Story 1 works and is independently testable.
