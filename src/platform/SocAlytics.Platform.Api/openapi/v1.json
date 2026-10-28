@@ -1002,6 +1002,119 @@
             ]
           },
           "details": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "argumentsDigest": {
+                    "type": "string"
+                  },
+                  "callId": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "properties": {
+                      "facts": {
+                        "items": {
+                          "properties": {
+                            "acceptedResultId": {
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "ordinal": {
+                              "format": "int32",
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "integer",
+                                "string"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "acceptedResultId",
+                            "ordinal"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "media": {
+                        "items": {
+                          "properties": {
+                            "endMs": {
+                              "format": "int64",
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "integer",
+                                "string"
+                              ]
+                            },
+                            "mediaDigest": {
+                              "type": "string"
+                            },
+                            "startMs": {
+                              "format": "int64",
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "integer",
+                                "string"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "mediaDigest",
+                            "startMs",
+                            "endMs"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "facts",
+                      "media"
+                    ],
+                    "type": "object"
+                  },
+                  "outcome": {
+                    "type": "string"
+                  },
+                  "producingCapability": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "resultDigest": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "toolId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "callId",
+                  "toolId",
+                  "outcome",
+                  "argumentsDigest",
+                  "evidence"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "The bounded payload of the entry. For the kind `tool-call` it has the shape of AgentToolCallLineageDetailsDto.",
             "type": "object"
           },
           "kind": {
