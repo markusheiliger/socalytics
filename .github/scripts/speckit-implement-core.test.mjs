@@ -848,7 +848,14 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.deepEqual([...inputs.matchAll(/^ {6}([a-z_]+):\n/gm)].map((match) => match[1]), ['issue', 'pull', 'folder', 'base', 'kind', 'order', 'entry']);
   assert.deepEqual([...new Set([...unit.matchAll(/fromJSON\(inputs\.entry\)\.([a-z_]+)/g)].map((match) => match[1]))].sort(),
     ['attempt', 'defer_progress', 'guidance', 'index', 'repair', 'required_sync', 'sync_repair', 'task']);
-  assert.match(unit, /mode: \$\{\{ inputs\.kind == 'resolve' && 'finalize' \|\| 'task' \}\}/, 'the verification mode follows the kind');
+  assert.match(unit, /mode: \$\{\{ inputs\.kind == 'resolve' && 'finalize' \|\| steps\.package\.outputs\.verify_mode \|\| 'task' \}\}/, 'the verification mode follows the kind, or the assessed environment-verify requirement');
+  // A task completed without a change: the trusted runner executes the assessed requirements before the verdict, in
+  // the read-only work job, without a token.
+  const runner = unit.slice(unit.indexOf("      - name: Run the task's own verification\n"), unit.indexOf('      - name: Record the verdict\n'));
+  assert.match(runner, /if: inputs\.kind == 'implement' && steps\.package\.outputs\.completion == 'verified'\n\s+continue-on-error: true\n/, 'only for an assessed verification');
+  assert.match(runner, /run: node "\$SPECKIT_TOOLING\/\.github\/scripts\/speckit-completion\.mjs" verify\n/, 'from the trusted tooling');
+  assert.doesNotMatch(runner, /TOKEN/, 'agent-written code runs here, so no token');
+  assert.ok(unit.indexOf("- name: Run the task's own verification") < unit.indexOf('- name: Record the verdict'), 'the verdict reads its record');
   // Parallel tasks are verified together only when a landing combined a sibling's edits, with the affected tests.
   const group = kinds.tasks;
   assert.match(job(group, 'verify'), /needs: \[decide, implement\][\s\S]*GROUP_START: \$\{\{ needs\.decide\.outputs\.head \}\}[\s\S]*- name: Find combined edits\n\s+id: combined\n[\s\S]*run: node tooling\/\.github\/scripts\/speckit-group\.mjs combined-edits/);
