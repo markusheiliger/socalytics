@@ -115,3 +115,14 @@ SC-002 probes, each temporary and removed afterward:
 | `available` reported before materialization (`ResolveEvidenceMedia.Preparing` returns `Available` for a never-purged record) | `ResolveEvidenceMedia.cs` | The test failed on its first resolution before reaching its state assertion (`EvidencePartStateTests.cs` line 112, in `ResolveAsync`) |
 
 Every probe is removed: `git status` and `git diff` show no change under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/` or the platform code beyond this section, and no assertion is removed.
+
+## T009
+
+Post-fix runs on the built tree of the fix of T005 (`Analysis:Workers:Enabled` is `false` in `EvidenceScenario.Settings`), Linux, 4 cores, `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build`, run after the removal of the probes of T008.
+
+| Filter | Load | Runs | Passed | Failed |
+| --- | --- | --- | --- | --- |
+| `FullyQualifiedName~Never_materialized_segment_is_materializing` | none | 5 | 5 | 0 |
+| `FullyQualifiedName~Analysis.Evidence` (78 tests) | none | 1 | 1 | 0 |
+
+Probe results: the probes are those of `## T008` and are not repeated here. With the workers on through `extraSettings`, the target test still failed in 10 of 10 runs; with demand recording broken it failed on its unchanged count assertion; with `available` reported before materialization it failed on its first resolution. The probe-free default scenario passes, and `git status` shows no probe and no change under the evidence folder or the platform code beyond this record.
