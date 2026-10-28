@@ -2,7 +2,7 @@
 
 **Branch**: `20261026-100223-environment-guard-archive-rewrites` | **Date**: 2026-10-26 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261026-100223-environment-guard-archive-rewrites/spec.md`
+**Input**: Feature specification from `/specs/archive/20261026-100223-environment-guard-archive-rewrites/spec.md`
 
 ## Summary
 
@@ -48,7 +48,7 @@ Post-design re-check: unchanged, all gates still pass.
 ### Documentation (this feature)
 
 ```text
-specs/20261026-100223-environment-guard-archive-rewrites/
+specs/archive/20261026-100223-environment-guard-archive-rewrites/
 ├── plan.md              # This file (/speckit-plan command output)
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output

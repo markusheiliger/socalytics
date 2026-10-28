@@ -28,7 +28,7 @@ When the agent of a task changes nothing, the land job today fails the attempt u
 
 **Implementation mode**: this plan changes protected tooling paths (`.github/scripts/`), so it is implemented locally (`SPECKIT_IMPLEMENT_MODE=local`) or by a person's or Copilot's push, not by the unattended agent; its pull request is held for review because changes under `.github/scripts/` are covered by no check.
 
-**Check coverage**: `environment-verify` selects no check for `.github/scripts/`, so tasks that name only such files (for example T004 and T005 of `specs/20261026-100223-environment-guard-archive-rewrites`) are not covered by the verified-unchanged path and still need a push by a person or Copilot (`doneByPush`).
+**Check coverage**: `environment-verify` selects no check for `.github/scripts/`, so tasks that name only such files (for example T004 and T005 of `specs/archive/20261026-100223-environment-guard-archive-rewrites`) are not covered by the verified-unchanged path and still need a push by a person or Copilot (`doneByPush`).
 
 **Scale/Scope**: three touched scripts (`speckit-implement-work.mjs`, `speckit-implement-core.mjs`, tests), one README, and one sentence of `AGENTS.md`
 

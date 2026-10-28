@@ -1,6 +1,6 @@
 # Tasks: Environment Exclusivity Guard Ignores Archive Reference Rewrites
 
-**Input**: Design documents from `/specs/20261026-100223-environment-guard-archive-rewrites/`
+**Input**: Design documents from `/specs/archive/20261026-100223-environment-guard-archive-rewrites/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/guard-inputs.md](contracts/guard-inputs.md), [quickstart.md](quickstart.md)
 

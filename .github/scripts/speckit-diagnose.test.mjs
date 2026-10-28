@@ -711,7 +711,7 @@ test('a change only a push can make is recommended as a ready-to-post @copilot p
 
 test('a Copilot prompt never implements the spec\'s tasks; it only removes what stops the automation', () => {
   // The prompt diagnosis round 3 recommended on #344: it handed the whole spec to Copilot and bypassed the automation.
-  const takeover = 'Implement the code changes of tasks T002 to T014 in specs/20261026-100223-environment-guard-archive-rewrites/tasks.md exactly as the tasks, plan.md, data-model.md and contracts of that folder describe. Do not edit tasks.md and do not tick any task.';
+  const takeover = 'Implement the code changes of tasks T002 to T014 in specs/archive/20261026-100223-environment-guard-archive-rewrites/tasks.md exactly as the tasks, plan.md, data-model.md and contracts of that folder describe. Do not edit tasks.md and do not tick any task.';
   const report = (copilot) => validateReport({ ...REPORT, category: 'decision', artifacts: [], questions: [], options: [{ title: 'Ask Copilot', why: 'x', copilot, recommended: true }] });
   for (const prompt of [takeover, 'Finish the work of T007 in .github/scripts/speckit-archive.mjs.', 'Implement the remaining tasks of this spec in .github/scripts/.', 'Do what tasks.md describes for the guard.']) {
     const checked = report(prompt);

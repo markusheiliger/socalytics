@@ -39,7 +39,7 @@
 | III. API-first control plane | Pass (not applicable) | No platform capability or contract |
 | IV. Evidence over claims | Pass | New cases in the action's own tests prove check, trigger, coverage, and skip; the tests fail when a rule is removed (SC-005) |
 | V. Focused, minimal changes | Pass | Limited to the two environment action folders (FR-013); no new dependency |
-| Environment constraint | Pass | This is the standalone environment feature: it changes only the two actions and is reviewed and merged first; the dependent spec `specs/20261026-100223-environment-guard-archive-rewrites` names it. It needs no framework, SDK, or tool the actions lack (Node.js is already provided) |
+| Environment constraint | Pass | This is the standalone environment feature: it changes only the two actions and is reviewed and merged first; the dependent spec `specs/archive/20261026-100223-environment-guard-archive-rewrites` names it. It needs no framework, SDK, or tool the actions lack (Node.js is already provided) |
 
 Post-design re-check: unchanged, all gates pass; no Complexity Tracking entries.
 
