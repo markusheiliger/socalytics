@@ -1,37 +1,39 @@
 name: Environment verify
 description: >-
   Verifies a change to this solution. Optional extension point of the Spec Kit workflows, which run it after the
-  agent implemented a task (mode task: only the checks the changed files call for, each building its solution but
-  running only the always-run test projects and the tests the task touched; mode phase, after the last task of a phase:
-  those checks with all their tests), after a conflict resolution, and before merging (mode finalize: every check
-  with all tests); the workflows skip it when this file does not exist. It runs in a job
-  with a read-only token and no token environment variables, because the checks execute agent-written code. The step
-  fails when a check fails. Checks, in order: "platform build and tests" covers src/platform/ and the repository-root
-  contracts/ folder and is active only while src/platform/SocAlytics.Platform.slnx exists; "Analyst Manager build and
-  tests" runs when src/analysts/manager/ or contracts/analyst-manager/ (the Manager's shared golden fixtures) changed
-  or in finalize mode, covers only src/analysts/manager/ (contract files stay covered by the platform scope), is
-  active only while src/analysts/manager/SocAlytics.Analysts.Manager.slnx exists, and fails when its global.json sdk
-  object differs from the platform's; other paths under src/analysts/ stay uncovered; "Web UI build and tests" runs
-  when src/clients/web/ or src/platform/SocAlytics.Platform.Api/ changed or in finalize mode (the full Web UI tests
-  run in every mode), covers only src/clients/web/ (API files stay covered by the platform scope), is active only
-  while src/clients/web/package.json exists, and runs the steps install (npm ci without a browser download),
-  playwright pin (the installed @playwright/test must be 1.63.0, the version environment-setup installs), build,
-  unit tests, and browser tests through the npm scripts build, test, and test:e2e (with --retries=1), stopping at the
-  first failure; other paths under src/clients/ stay uncovered; "Environment action tests" runs the Node test files of
-  environment-setup and environment-verify when either action folder changed or in finalize mode; "Markdown check"
-  follows. Every .NET test project runs with a TRX log; when it fails with at most 10 failed tests, only those run
-  once more, and a project whose rerun passes passes. Tests that passed only on their rerun (and Playwright's flaky
-  tests) are listed in the log, the step summary, and the flaky output.
-# Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
-# is reviewed and merged before the specs that need it start. For a new framework or source area, add one block below
-# that (1) adds its scope to COVERED only when its project exists, (2) runs only when the scope changed or in finalize
-# mode, (3) skips while its project does not exist yet, because the environment spec merges before the project is
-# created, and (4) runs its tests through run_tests, so mode task runs only the tests the change touched. Current
-# coverage: the platform scope (src/platform/ and contracts/) is covered while the platform solution
-# exists; the Analyst Manager scope (src/analysts/manager/) is covered while the Manager solution exists, and its
-# check also runs for contracts/analyst-manager/ changes without covering those files; the Web UI scope
-# (src/clients/web/) is covered while src/clients/web/package.json exists, and its check also runs for
-# src/platform/SocAlytics.Platform.Api/ changes without covering those files.
+  agent implemented a task (mode task: only the components the changed files call for, each building in full but
+  running only its always-run test projects and the tests the task touched; mode phase, after the last task of a
+  phase: those components with all their tests), after a conflict resolution, and before merging (mode finalize:
+  every component with all tests); the workflows skip it when this file does not exist. It runs in a job with a
+  read-only token and no token environment variables, because the checks execute agent-written code. The step fails
+  when a check fails. verification-plan.mjs is the only selection logic: it discovers components by convention under
+  src/ (a folder with one .NET solution, a folder with package.json), reads their optional verification.json
+  declarations, selects and scopes them, runs analyst-projects.py for the Analyst and agent Python projects, decides
+  which changed files stay uncovered, and writes the plan (output plan). A documentation-only change (only Markdown
+  that no build, package, or test reads, as verification-scope.mjs decides) selects nothing but the Markdown check, in
+  every mode. Checks, in order: "Verification plan" (only when the plan failed or a declaration is invalid); one check
+  per selected component in declared order, then folder (today "platform build and tests" for src/platform/ and
+  contracts/, always running its Architecture tests; "Analyst Manager build and tests" for src/analysts/manager/, also
+  triggered by contracts/analyst-manager/ and failing when its global.json sdk object differs from the platform's;
+  "Web UI build and tests" for src/clients/web/, also triggered by src/platform/SocAlytics.Platform.Api/, running in
+  task mode all unit tests but only the browser spec files the task touched); "Analyst Python projects" and "Agent Python projects" (the locked uv stages of the selected
+  projects; a failed discovery fails its check in every mode); "Environment action tests" (the Node tests of both
+  environment actions, when either action folder changed or in finalize mode); "Markdown check". A .NET component
+  restores, builds, and tests from its own folder; an npm component runs npm ci (no browser download), the Playwright
+  pin check when it uses @playwright/test (1.63.0, the version environment-setup installs), and its build, test, and
+  test:e2e scripts (browser tests with --retries=1; with affected tests and a declared browserTests folder only the
+  touched spec files), stopping at the first failure. Every .NET test project runs with
+  a TRX log; when it fails with at most 10 failed tests, only those run once more, and a project whose rerun passes
+  passes. Tests that passed only on their rerun (and Playwright's flaky tests) are listed in the log, the step
+  summary, and the flaky output. With the input environment-tests-only set to "true" only "Environment action tests"
+  runs, in every mode and shard (the merge's self-test of a changed environment action): no plan is written, flaky is
+  empty, and every changed file stays uncovered.
+# Extending: a new component of a known kind (.NET solution, npm package, Python project of the convention) needs no
+# change here: it is discovered, covered, and verified from its own folder. Its verification.json may add triggers,
+# covered folders, always-run test projects, an SDK pin, tool groups, and shards (see README.md); any change to such a
+# declaration tests the component in full and stays uncovered, so a person reviews it. A new kind of component (another
+# language or build system) needs a handler below and a kind in verification-plan.mjs, changed together with
+# environment-setup in a standalone environment spec, which is reviewed and merged before the specs that need it start.
 inputs:
   workspace:
     description: Path of the code to verify
@@ -48,6 +50,20 @@ inputs:
   log-file:
     description: Path of a file that receives the combined output of the checks
     required: true
+  shard:
+    description: >-
+      Optional <index>/<count> (for example 2/4): run only this shard of the work, as the verification plan packs it by
+      estimated minutes; the first shard also runs the Python projects, the environment action tests, and the Markdown
+      check. Empty runs everything in one job.
+    required: false
+    default: ""
+  environment-tests-only:
+    description: >-
+      "true" runs only the check "Environment action tests" (the Node tests of both environment actions) and skips the
+      verification plan, the components, the Python projects, and the Markdown check; any other value runs the full
+      verification of the mode.
+    required: false
+    default: "false"
 outputs:
   checks:
     description: Comma-separated names of the checks that ran, in order; after a failure the last one failed
@@ -60,6 +76,11 @@ outputs:
       Comma-separated, deduplicated tests that failed and then passed on their one rerun (fully qualified .NET test
       names, Playwright test lines); commas inside a name become semicolons
     value: ${{ steps.verify.outputs.flaky }}
+  plan:
+    description: >-
+      Path of the verification plan (JSON, next to the log file): the selected components with their tool groups and
+      shards, the Python projects, the uncovered paths, and the tool groups the selection needs; empty without a plan
+    value: ${{ steps.verify.outputs.plan }}
 runs:
   using: composite
   steps:
@@ -71,77 +92,137 @@ runs:
         MODE: ${{ inputs.mode }}
         CHANGED_FILES: ${{ inputs.changed-files }}
         LOG_FILE: ${{ inputs.log-file }}
+        SHARD: ${{ inputs.shard }}
+        ENVIRONMENT_TESTS_ONLY: ${{ inputs.environment-tests-only }}
         MARKDOWN_CHECK: ${{ github.action_path }}/../../scripts/check-markdown.mjs
         ANALYST_PROJECTS: ${{ github.action_path }}/analyst-projects.py
-        ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs
+        VERIFICATION_PLAN: ${{ github.action_path }}/verification-plan.mjs
+        ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/verification-scope.test.mjs ${{ github.action_path }}/verification-plan.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs
       run: |
         # GitHub runs `shell: bash` with `-e`; this script handles failures itself (status) and must always write its
         # outputs, so a non-matching grep (for example when every changed file is covered) must not end it early.
         set +e -uo pipefail
-        PLATFORM_SOLUTION=src/platform/SocAlytics.Platform.slnx
-        PLATFORM_SCOPE='^(src/platform|contracts)/'
-        # Test projects that every task runs in full (fast rule tests).
-        PLATFORM_ALWAYS='Architecture\.Tests\.csproj$'
-        MANAGER_SOLUTION=src/analysts/manager/SocAlytics.Analysts.Manager.slnx
-        MANAGER_SCOPE='^src/analysts/manager/'
-        MANAGER_TRIGGER='^(src/analysts/manager|contracts/analyst-manager)/'
-        WEB_DIR=src/clients/web
-        WEB_SCOPE='^src/clients/web/'
-        WEB_TRIGGER='^(src/clients/web|src/platform/SocAlytics\.Platform\.Api)/'
         ENVIRONMENT_TRIGGER='^\.github/actions/environment-(setup|verify)/'
         # Must equal the Playwright pin in environment-setup.
         WEB_PLAYWRIGHT=1.63.0
-        # Paths that need no check (repository metadata, Spec Kit artifacts, and the environment actions, which the
-        # merge self-tests). A check adds its scope only when it can run, so changes in the scope of a check whose
-        # project is missing (for example a deleted solution) are reported as not covered. The platform scope also
-        # covers the repository-root contracts/ folder, whose schemas the platform contract tests validate, and is
-        # covered only while the platform solution exists.
-        COVERED=(
-          '\.md$'
-          '^specs/'
-          '^\.gitignore$'
-          '^\.gitattributes$'
-          '^\.editorconfig$'
-          '^\.github/actions/environment-(setup|verify)/'
-        )
-        [ -f "$WORKSPACE/$PLATFORM_SOLUTION" ] && COVERED+=("$PLATFORM_SCOPE")
-        [ -f "$WORKSPACE/$MANAGER_SOLUTION" ] && COVERED+=("$MANAGER_SCOPE")
-        [ -f "$WORKSPACE/$WEB_DIR/package.json" ] && COVERED+=("$WEB_SCOPE")
         mkdir -p "$(dirname "$LOG_FILE")"
         : > "$LOG_FILE"
         # Test results (TRX logs) for the reruns of failed tests, and the tests that passed only on their rerun.
         RESULTS_ROOT="$(mktemp -d)"
         FLAKY_FILE="$RESULTS_ROOT/flaky.txt"
         : > "$FLAKY_FILE"
+        SLOWEST_SUMMARY="$RESULTS_ROOT/slowest.md"
+        : > "$SLOWEST_SUMMARY"
         results_count=0
         # A test project with more failed tests than this is not rerun: so many failures are not flaky.
         RERUN_LIMIT=10
         changed=""
         [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ] && changed="$(cat "$CHANGED_FILES")"
 
-        # Recognized Analyst Python projects (the SDK and capabilities): the helper validates every existing project and
-        # selects those the mode and the changed paths call for, in dependency order. The roots of existing projects
-        # become covered source scopes; a deleted or unrecognized project stays uncovered.
-        analyst_python="${SOCALYTICS_PYTHON:-python3}"
-        analyst_error_file="$(mktemp)"
-        analyst_output="$("$analyst_python" "$ANALYST_PROJECTS" select --root "$WORKSPACE" --mode "$MODE" --changed-files "$CHANGED_FILES" 2> "$analyst_error_file")"
-        analyst_status=$?
-        analyst_error="$(cat "$analyst_error_file")"
-        rm -f "$analyst_error_file"
-        analyst_selected=""
-        if [ "$analyst_status" -eq 0 ]; then
-          analyst_lines="$(node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));for(const p of r.projects)console.log("S "+p.root);for(const c of r.covered)console.log("C "+c)' <<< "$analyst_output")"
-          analyst_selected="$(sed -n 's/^S //p' <<< "$analyst_lines")"
-          while IFS= read -r analyst_root; do
-            [ -n "$analyst_root" ] && COVERED+=("^$(sed 's/[][\.*^$]/\\&/g' <<< "$analyst_root")/")
-          done < <(sed -n 's/^C //p' <<< "$analyst_lines")
+        # environment-tests-only=true: only the Node tests of both environment actions run, whatever the mode, the changed
+        # files, and the shard. No plan exists, so no plan output is written and every changed file stays uncovered.
+        if [ "${ENVIRONMENT_TESTS_ONLY:-false}" = true ]; then
+          echo "Verification scope: environment action tests only" | tee -a "$LOG_FILE"
+          printf '### Verification scope\n\n%s\n\n' "environment action tests only" >> "$GITHUB_STEP_SUMMARY"
+          only_status=0
+          only_checks=""
+          if [ -n "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ]; then
+            echo "Environment action tests: skipped in a nested run" | tee -a "$LOG_FILE"
+          elif [ -z "${ENVIRONMENT_TESTS:-}" ]; then
+            only_checks="Environment action tests"
+            echo "Environment action tests are not configured (ENVIRONMENT_TESTS). Recommended action: restore the ENVIRONMENT_TESTS list of the environment-verify action, and retry verification" | tee -a "$LOG_FILE"
+            only_status=1
+          else
+            only_checks="Environment action tests"
+            read -r -a environment_tests <<< "$ENVIRONMENT_TESTS"
+            pushd "$WORKSPACE" > /dev/null
+            only_start="$(date +%s%3N)"
+            echo "\$ env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test ${environment_tests[*]}" | tee -a "$LOG_FILE"
+            env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test "${environment_tests[@]}" 2>&1 | tee -a "$LOG_FILE"
+            only_status="${PIPESTATUS[0]}"
+            echo "Duration: $(($(date +%s%3N) - only_start)) ms; exit: $only_status; command: node --test ${environment_tests[*]}" | tee -a "$LOG_FILE"
+            popd > /dev/null
+            if [ "$only_status" -ne 0 ]; then
+              echo "Environment action tests failed (command: node --test ${environment_tests[*]}). Recommended action: reproduce this command, correct the failing environment action or its test without weakening the test, and retry verification" | tee -a "$LOG_FILE"
+              only_status=1
+            fi
+          fi
+          only_uncovered=""
+          [ -z "$changed" ] || only_uncovered="$(grep -v '^$' <<< "$changed" | paste -sd, -)"
+          rm -rf "$RESULTS_ROOT"
+          echo "checks=${only_checks}" >> "$GITHUB_OUTPUT"
+          echo "uncovered=${only_uncovered}" >> "$GITHUB_OUTPUT"
+          echo "flaky=" >> "$GITHUB_OUTPUT"
+          exit "$only_status"
         fi
 
-        # applies <regex>: true in finalize mode or when a changed path matches.
+        # The verification plan (verification-plan.mjs) is the only selection logic: the documentation-only decision, the
+        # components and how far each is tested, the Python projects, and the paths no check covers. A documentation-only
+        # change (only Markdown that no build, package, or test reads) selects nothing but the Markdown check.
+        PLAN_FILE="$RESULTS_ROOT/plan.json"
+        plan_status=1
+        if [ -n "${VERIFICATION_PLAN:-}" ]; then
+          plan_args=(--root "$WORKSPACE" --mode "$MODE" --changed-files "$CHANGED_FILES")
+          [ -z "${SHARD:-}" ] || plan_args+=(--shard "$SHARD")
+          node "$VERIFICATION_PLAN" "${plan_args[@]}" > "$PLAN_FILE" 2> "$RESULTS_ROOT/plan.err"
+          plan_status=$?
+        else
+          echo "the verification plan is not configured (VERIFICATION_PLAN)" > "$RESULTS_ROOT/plan.err"
+        fi
+        # plan <expression of p>: prints the value of the expression for the plan p; a list prints one item per line.
+        plan() {
+          node -e '
+            const p = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            const value = new Function("p", "return " + process.argv[2])(p);
+            if (Array.isArray(value)) for (const item of value) console.log(item);
+            else if (value !== undefined && value !== null) console.log(value);
+          ' "$PLAN_FILE" "$1"
+        }
+        DOCS_ONLY=0
+        MAIN=1
+        analyst_python="${SOCALYTICS_PYTHON:-python3}"
+        analyst_status=0; analyst_error=""; analyst_selected=""
+        agent_status=0; agent_error=""; agent_selected=""
+        if [ "$plan_status" -eq 0 ]; then
+          DOCS_ONLY="$(plan 'p.documentationOnly ? 1 : 0')"
+          scope_reason="$(plan 'p.scope')"
+          plan_errors="$(plan 'p.errors')"
+          # Recognized Analyst (src/analysts/sdk, src/analysts/capabilities/<name>) and agent (src/agents/<name>) Python
+          # projects: analyst-projects.py validates every existing project and selects those the mode and the changed
+          # paths call for, in dependency order.
+          analyst_python="$(plan 'p.python.analysts.interpreter')"
+          analyst_status="$(plan 'p.python.analysts.status')"
+          analyst_error="$(plan 'p.python.analysts.error')"
+          analyst_selected="$(plan 'p.python.analysts.selected')"
+          agent_status="$(plan 'p.python.agents.status')"
+          agent_error="$(plan 'p.python.agents.error')"
+          agent_selected="$(plan 'p.python.agents.selected')"
+          # A shard other than the first runs only its components; the Python projects, the environment action tests,
+          # and the Markdown check belong to the first shard.
+          MAIN="$(plan 'p.main ? 1 : 0')"
+          if [ -n "${SHARD:-}" ]; then
+            echo "Verification shard $SHARD: $(plan 'p.shards[Number(p.shard.split("/")[0]) - 1].units.map((u) => u.root + "#" + u.name + " (" + u.minutes + " min)").join(", ") || "no component work"')$([ "$MAIN" -eq 1 ] && echo '; also the Python projects, environment action tests, and Markdown check')" | tee -a "$LOG_FILE"
+          fi
+          if [ "$MAIN" -eq 0 ]; then
+            analyst_status=0; analyst_selected=""
+            agent_status=0; agent_selected=""
+          fi
+          cp "$PLAN_FILE" "$(dirname "$LOG_FILE")/verification-plan.json"
+          echo "plan=$(dirname "$LOG_FILE")/verification-plan.json" >> "$GITHUB_OUTPUT"
+        else
+          scope_reason="full: no verification plan"
+          plan_errors="$(cat "$RESULTS_ROOT/plan.err")"
+          [ -n "$plan_errors" ] || plan_errors="the verification plan failed (exit $plan_status)"
+        fi
+        echo "Verification scope: $scope_reason" | tee -a "$LOG_FILE"
+        printf '### Verification scope\n\n%s\n\n' "$scope_reason" >> "$GITHUB_STEP_SUMMARY"
+
+        # applies <regex>: true in finalize mode or when a changed path matches; only the Markdown check applies to a
+        # documentation-only change.
         applies() {
+          if [ "$DOCS_ONLY" -eq 1 ] && [ "$1" != '\.md$' ]; then return 1; fi
           [ "$MODE" = finalize ] || { [ -n "$changed" ] && grep -qE "$1" <<< "$changed"; }
         }
-        tests_label() { [ "$MODE" = task ] && echo "affected tests" || echo tests; }
         step() {
           local start end command_status
           local -a pipeline_status
@@ -191,15 +272,50 @@ runs:
             for (const name of names) console.log(name);
           ' "$1" 2>/dev/null
         }
+        # trx_slowest <project> <results directory>: logs the ten slowest tests of the project's TRX logs and adds them to
+        # the step summary, so phase and finalize runs show where test time goes.
+        trx_slowest() {
+          local lines
+          lines="$(node -e '
+            const fs = require("fs"), path = require("path");
+            const files = [];
+            const walk = (dir) => { for (const entry of fs.readdirSync(dir, { withFileTypes: true })) { const file = path.join(dir, entry.name); if (entry.isDirectory()) walk(file); else if (file.endsWith(".trx")) files.push(file); } };
+            if (fs.existsSync(process.argv[1])) walk(process.argv[1]);
+            const seconds = (value) => { const m = /^(\d+):(\d+):(\d+(?:\.\d+)?)$/.exec(value || ""); return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0; };
+            const results = [];
+            for (const file of files) {
+              for (const m of fs.readFileSync(file, "utf8").matchAll(/<UnitTestResult\b([^>]*?)\/?>/g)) {
+                const name = /testName="([^"]*)"/.exec(m[1])?.[1] ?? "?";
+                results.push([seconds(/duration="([^"]*)"/.exec(m[1])?.[1]), name.replace(/&quot;/g, "\"").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")]);
+              }
+            }
+            results.sort((a, b) => b[0] - a[0]);
+            for (const [time, name] of results.slice(0, 10)) console.log(`${time.toFixed(1)} s ${name}`);
+          ' "$2" 2>/dev/null)"
+          [ -n "$lines" ] || return 0
+          echo "Slowest tests of $1:" | tee -a "$LOG_FILE"
+          sed 's/^/  /' <<< "$lines" | tee -a "$LOG_FILE"
+          {
+            echo
+            echo "<details><summary>Slowest tests of $1</summary>"
+            echo
+            sed 's/^/- /' <<< "$lines"
+            echo
+            echo "</details>"
+          } >> "$SLOWEST_SUMMARY"
+        }
         # dotnet_test <project> [arguments]: runs one test project with a TRX log. When it fails with at most RERUN_LIMIT
         # failed tests whose names the log gives, only those tests run once more; when they pass then, the project
         # passes and they are recorded as flaky. Otherwise the project fails.
         dotnet_test() {
-          local project="$1" results failed count filter
+          local project="$1" results failed count filter first
           shift
           results_count=$((results_count + 1))
           results="$RESULTS_ROOT/$results_count"
-          step dotnet test "$project" --no-build "$@" --logger trx --results-directory "$results" && return 0
+          step dotnet test "$project" --no-build "$@" --logger trx --results-directory "$results"
+          first=$?
+          trx_slowest "$project" "$results"
+          [ "$first" -eq 0 ] && return 0
           failed="$(trx_failed "$results")"
           count="$(grep -c . <<< "$failed")"
           if [ "$count" -eq 0 ]; then
@@ -239,18 +355,23 @@ runs:
         pushd "$WORKSPACE" > /dev/null
         ROOT="$PWD"
 
-        # run_tests <solution> <repo path prefix of the current directory> <always-run project regex>
-        # phase and finalize: every test project, one after another in sorted order (Docker-backed projects must never
-        # run at the same time on the one daemon); a failing project does not stop the later ones. task: the always-run
+        # run_tests <solution> <repo path prefix of the current directory> <always-run project regex> <all|affected>
+        # <allowed test projects: * for all, otherwise ;-separated paths relative to the component folder>
+        # all (phase, finalize, or a changed declaration): every allowed test project, one after another in sorted order
+        # (Docker-backed projects must never run at the same time on the one daemon); a failing project does not stop the
+        # later ones. affected (task): the always-run
         # test projects; the test classes declared in the changed .cs files of a test project; the whole test project
         # when other files of it changed (fixtures without a class, project files). A test project the task did not
         # touch is skipped; the phase verification and the merge run it. Each project runs through dotnet_test, which
-        # reruns a few failed tests once.
+        # reruns a few failed tests once. A shard allows only the test projects packed into it.
         run_tests() {
-          local solution="$1" prefix="$2" always="$3" result=0 project rel files file found classes whole filter
+          local solution="$1" prefix="$2" always="$3" scope="$4" allowed="${5:-*}" result=0 project rel files file found classes whole filter
           while IFS= read -r project; do
             [ -n "$project" ] || continue
-            if [ "$MODE" != task ]; then
+            if [ "$allowed" != '*' ] && [[ ";$allowed;" != *";$project;"* ]]; then
+              continue
+            fi
+            if [ "$scope" = all ]; then
               dotnet_test "$project" || result=1
               continue
             fi
@@ -281,69 +402,144 @@ runs:
           done < <(find "$(dirname "$solution")" -name '*Tests.csproj' -not -path '*/bin/*' -not -path '*/obj/*' | sed 's|^\./||' | sort)
           return "$result"
         }
-        if [ "$status" -eq 0 ] && applies "$PLATFORM_SCOPE" && [ -f "$PLATFORM_SOLUTION" ]; then
-          checks+=("platform build and $(tests_label)")
-          { step dotnet restore "$PLATFORM_SOLUTION" &&
-            step dotnet build "$PLATFORM_SOLUTION" --no-restore &&
-            run_tests "$PLATFORM_SOLUTION" '' "$PLATFORM_ALWAYS"; } || status=1
+        # Without a valid plan nothing can say what to test, so its failures (an invalid verification.json, two component
+        # kinds in one folder, a planner that could not run) fail first.
+        if [ -n "$plan_errors" ]; then
+          checks+=("Verification plan")
+          while IFS= read -r plan_error; do
+            [ -n "$plan_error" ] && echo "Verification plan: $plan_error" | tee -a "$LOG_FILE"
+          done <<< "$plan_errors"
+          echo "Verification plan: Recommended action: correct the named verification declaration or component folder as .github/actions/environment-verify/README.md describes, and retry verification" | tee -a "$LOG_FILE"
+          status=1
         fi
-        # Active only once the Analyst Manager solution exists; it also runs for changes under contracts/analyst-manager/
-        # because the Manager tests read the shared golden fixtures there.
-        if [ "$status" -eq 0 ] && applies "$MANAGER_TRIGGER" && [ -f "$MANAGER_SOLUTION" ]; then
-          checks+=("Analyst Manager build and $(tests_label)")
-          platform_pin="$(sdk_pin src/platform/global.json)"
-          manager_pin="$(sdk_pin src/analysts/manager/global.json)"
-          if [ -z "$manager_pin" ] || [ "$manager_pin" != "$platform_pin" ]; then
-            echo "Analyst Manager SDK pin ${manager_pin:-<missing>} in src/analysts/manager/global.json differs from the platform pin ${platform_pin:-<missing>} in src/platform/global.json" | tee -a "$LOG_FILE"
-            status=1
-          else
-            pushd src/analysts/manager > /dev/null
-            { step dotnet restore SocAlytics.Analysts.Manager.slnx &&
-              step dotnet build SocAlytics.Analysts.Manager.slnx --no-restore &&
-              run_tests SocAlytics.Analysts.Manager.slnx src/analysts/manager/ ''; } || status=1
-            popd > /dev/null
+        # .NET solution components run from their own folder, so their global.json selects the SDK: restore, build, and
+        # run_tests. A declared sdkPinOf requires the same sdk object as that other global.json.
+        dotnet_component() {
+          local root="$1" solution="$2" always="$3" pin="$4" label="$5" scope="$6" allowed="$7" own other result
+          if [ -n "$pin" ]; then
+            other="$(sdk_pin "$pin")"
+            own="$(sdk_pin "$root/global.json")"
+            if [ -z "$own" ] || [ "$own" != "$other" ]; then
+              echo "$label: SDK pin ${own:-<missing>} in $root/global.json differs from the pin ${other:-<missing>} in $pin" | tee -a "$LOG_FILE"
+              return 1
+            fi
           fi
-        fi
-        # Active only once the Web UI project exists; it also runs for platform API changes because the Web UI build
-        # generates its client from the API contract. Browser downloads stay in environment-setup.
-        web_playwright_pin() {
-          local installed
+          pushd "$root" > /dev/null
+          { step dotnet restore "$solution" &&
+            step dotnet build "$solution" --no-restore &&
+            run_tests "$solution" "$root/" "$always" "$scope" "$allowed"; }
+          result=$?
+          popd > /dev/null
+          return "$result"
+        }
+        # npm package components install without a browser download (browsers come from environment-setup), require the
+        # Playwright pin when the package uses @playwright/test, and run the build, test, and test:e2e scripts they
+        # declare, stopping at the first failure. Step lines use the check name before " build" (for example "Web UI").
+        npm_playwright_pin() {
+          local root="$1" installed
           installed="$(node -e 'console.log(require(process.argv[1]).version)' "$PWD/node_modules/@playwright/test/package.json" 2>/dev/null)"
           if [ "$installed" != "$WEB_PLAYWRIGHT" ]; then
-            echo "@playwright/test ${installed:-<not installed>} in $WEB_DIR differs from WEB_PLAYWRIGHT $WEB_PLAYWRIGHT (the Playwright pin in environment-setup)" | tee -a "$LOG_FILE"
+            echo "@playwright/test ${installed:-<not installed>} in $root differs from WEB_PLAYWRIGHT $WEB_PLAYWRIGHT (the Playwright pin in environment-setup)" | tee -a "$LOG_FILE"
             return 1
           fi
         }
-        web_step() {
-          local name="$1"
-          shift
-          echo "Web UI step: $name" | tee -a "$LOG_FILE"
-          "$@" || { echo "Web UI step failed: $name" | tee -a "$LOG_FILE"; return 1; }
+        npm_step() {
+          local name="$1" step_name="$2"
+          shift 2
+          echo "$name step: $step_name" | tee -a "$LOG_FILE"
+          "$@" || { echo "$name step failed: $step_name" | tee -a "$LOG_FILE"; return 1; }
         }
-        # The browser tests retry a failed test once; the tests that passed on their retry are recorded as flaky.
-        web_browser_tests() {
+        npm_declares() {
+          node -e '
+            const p = require(process.argv[1]);
+            const [kind, name] = process.argv.slice(2);
+            const found = kind === "script" ? p.scripts?.[name] : (p.dependencies?.[name] ?? p.devDependencies?.[name]);
+            process.exit(found ? 0 : 1);
+          ' "$PWD/package.json" "$1" "$2"
+        }
+        # The browser tests retry a failed test once; the tests that passed on their retry are recorded as flaky. Extra
+        # arguments (spec files) limit the run to those files.
+        npm_browser_tests() {
           local before result
           before="$(wc -l < "$LOG_FILE")"
-          step npm run test:e2e -- --retries=1
+          step npm run test:e2e -- --retries=1 "$@"
           result=$?
           tail -n "+$((before + 1))" "$LOG_FILE" | playwright_flaky >> "$FLAKY_FILE"
           return "$result"
         }
-        if [ "$status" -eq 0 ] && applies "$WEB_TRIGGER" && [ -f "$WEB_DIR/package.json" ]; then
-          checks+=("Web UI build and tests")
-          pushd "$WEB_DIR" > /dev/null
-          { web_step install step env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci &&
-            web_step 'playwright pin' web_playwright_pin &&
-            web_step build step npm run build &&
-            web_step 'unit tests' step npm test &&
-            web_step 'browser tests' web_browser_tests; } || status=1
+        # npm_touched_specs <component folder> <browser test folder>: for affected tests, the existing spec files under
+        # the browser test folder that the change touched (relative to the component folder, one per line), or FULL
+        # when no browser test folder is declared or the change touched anything else the browser tests share (support
+        # files, fixtures, the Playwright configuration, package.json, or package-lock.json).
+        npm_touched_specs() {
+          local root="$1" folder="$2" file rel full=0 specs=""
+          [ -n "$folder" ] || { echo FULL; return; }
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            case "$file" in "$root/"*) ;; *) continue ;; esac
+            rel="${file#"$root/"}"
+            case "$rel" in
+              playwright.config.*|package.json|package-lock.json) full=1 ;;
+              "$folder"*)
+                if [[ "$rel" =~ \.spec\.[cm]?[jt]sx?$ ]]; then
+                  [ -f "$rel" ] && specs+="$rel"$'\n'
+                else
+                  full=1
+                fi
+                ;;
+            esac
+          done <<< "$changed"
+          if [ "$full" -eq 1 ]; then echo FULL; else printf '%s' "$specs"; fi
+        }
+        npm_component() {
+          local root="$1" label="$2" scope="$3" browser="$4" name="${2%% build*}" result=0 specs
+          local -a touched
+          pushd "$root" > /dev/null
+          npm_step "$name" install step env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci || result=1
+          if [ "$result" -eq 0 ] && { [ -d node_modules/@playwright/test ] || npm_declares dependency @playwright/test; }; then
+            npm_step "$name" 'playwright pin' npm_playwright_pin "$root" || result=1
+          fi
+          if [ "$result" -eq 0 ] && npm_declares script build; then npm_step "$name" build step npm run build || result=1; fi
+          if [ "$result" -eq 0 ] && npm_declares script test; then npm_step "$name" 'unit tests' step npm test || result=1; fi
+          if [ "$result" -eq 0 ] && npm_declares script test:e2e; then
+            specs=FULL
+            [ "$scope" = affected ] && specs="$(npm_touched_specs "$root" "$browser")"
+            if [ "$specs" = FULL ]; then
+              npm_step "$name" 'browser tests' npm_browser_tests || result=1
+            elif [ -n "$specs" ]; then
+              mapfile -t touched < <(grep -v '^$' <<< "$specs")
+              npm_step "$name" 'browser tests (touched specs)' npm_browser_tests "${touched[@]}" || result=1
+            else
+              echo "$name step: browser tests skipped: the change touched no browser test; the phase verification runs them all" | tee -a "$LOG_FILE"
+            fi
+          fi
           popd > /dev/null
+          return "$result"
+        }
+        # The selected components in the plan's order (declared order, then folder), one check each; the first failed
+        # check stops the later ones. Fields are separated by the unit separator, so empty fields survive.
+        while IFS=$'\x1f' read -r -u 3 kind root manifest always pin browser scope allowed label; do
+          [ "$status" -eq 0 ] || break
+          if [ "$scope" = affected ]; then label="${label//\{tests\}/affected tests}"; else label="${label//\{tests\}/tests}"; fi
+          checks+=("$label")
+          case "$kind" in
+            dotnet-solution) dotnet_component "$root" "$manifest" "$always" "$pin" "$label" "$scope" "$allowed" || status=1 ;;
+            npm-package) npm_component "$root" "$label" "$scope" "$browser" || status=1 ;;
+            *) echo "$label: no handler for the component kind $kind" | tee -a "$LOG_FILE"; status=1 ;;
+          esac
+        done 3< <([ "$plan_status" -eq 0 ] && plan 'p.components.filter((c) => c.run).map((c) => [c.kind, c.root, c.manifest, c.alwaysRunPattern, c.sdkPinOf, c.browserTests, c.tests, c.allowedTests, c.check].join("\x1f"))')
+        # Tests of a shard declared for another runner did not run; the plan holds the change for review.
+        if [ "$plan_status" -eq 0 ]; then
+          while IFS= read -r unrun_line; do
+            [ -n "$unrun_line" ] && echo "Not run: $unrun_line" | tee -a "$LOG_FILE"
+          done < <(plan 'p.components.filter((c) => c.selected).flatMap((c) => c.unrun.map((s) => `${c.root} shard ${s.name} (${s.tests.join(", ")}) needs the runner ${s.runner}, which this verification does not provide`))')
         fi
-        # Analyst Python projects: the environment owns the exact command sequence, run with the interpreter that
-        # environment-setup installed (SOCALYTICS_PYTHON) and Python downloads disabled. The first failing stage stops
-        # the check; the committed declarations and locks are never changed.
+        # Analyst and agent Python projects: the environment owns the exact command sequence, run with the interpreter
+        # that environment-setup installed (SOCALYTICS_PYTHON) and Python downloads disabled. The first failing stage
+        # stops the check; the committed declarations and locks are never changed. The label (Analyst or Agent) only
+        # names the project area in the log lines.
         python_project() {
-          local root="$1" stage
+          local root="$1" label="$2" stage
           local -a commands=(
             "bootstrap sync|uv sync --locked --all-groups --no-install-local --no-build|correct the consuming project's dependency declarations (manifest, uv.lock, locked wheels, and locked build backends) and commit them, then retry verification; verification never repairs or unlocks them"
             "project sync|uv sync --locked --all-groups --no-build-isolation|reproduce this command in the named project, correct its package or local-dependency declarations so the locked backends build it, and retry verification"
@@ -351,16 +547,16 @@ runs:
             "tests|uv run --no-sync pytest|reproduce this command in the named project, correct the failing or missing tests or the source they cover without weakening them (pytest needs at least one collectable test), and retry verification"
           )
           local entry command recommendation rest
-          echo "Analyst Python project: $root" | tee -a "$LOG_FILE"
+          echo "$label Python project: $root" | tee -a "$LOG_FILE"
           for entry in "${commands[@]}"; do
             stage="${entry%%|*}"
             rest="${entry#*|}"
             command="${rest%%|*}"
             recommendation="${rest#*|}"
             read -r -a words <<< "$command"
-            echo "Analyst Python stage: $stage ($root)" | tee -a "$LOG_FILE"
+            echo "$label Python stage: $stage ($root)" | tee -a "$LOG_FILE"
             step env UV_PYTHON_DOWNLOADS=never UV_PYTHON="$SOCALYTICS_PYTHON" "${words[@]}" || {
-              echo "Analyst Python stage failed: $stage in $root (command: $command). Recommended action: $recommendation" | tee -a "$LOG_FILE"
+              echo "$label Python stage failed: $stage in $root (command: $command). Recommended action: $recommendation" | tee -a "$LOG_FILE"
               return 1
             }
           done
@@ -380,16 +576,37 @@ runs:
           else
             while IFS= read -r analyst_root; do
               pushd "$analyst_root" > /dev/null
-              python_project "$analyst_root" || status=1
+              python_project "$analyst_root" Analyst || status=1
               popd > /dev/null
               [ "$status" -eq 0 ] || break
             done <<< "$analyst_selected"
           fi
         fi
+        if [ "$status" -eq 0 ] && { [ "$agent_status" -ne 0 ] || [ -n "$agent_selected" ]; }; then
+          checks+=("Agent Python projects")
+          if [ "$agent_status" -ne 0 ]; then
+            echo "Agent Python projects: discovery failed (exit $agent_status) using $analyst_python" | tee -a "$LOG_FILE"
+            [ -n "$agent_error" ] && echo "$agent_error" | tee -a "$LOG_FILE"
+            if ! grep -q 'Recommended action:' <<< "$agent_error"; then
+              echo "Agent Python projects: discovery could not run. Recommended action: run environment-setup with install-tools true so SOCALYTICS_PYTHON names a working interpreter, then retry verification" | tee -a "$LOG_FILE"
+            fi
+            status=1
+          elif [ -z "${SOCALYTICS_PYTHON:-}" ] || [ ! -x "$SOCALYTICS_PYTHON" ] || ! command -v uv > /dev/null; then
+            echo "Agent Python projects: environment setup: SOCALYTICS_PYTHON and uv from environment-setup are required. Recommended action: run environment-setup with install-tools true before verification" | tee -a "$LOG_FILE"
+            status=1
+          else
+            while IFS= read -r agent_root; do
+              pushd "$agent_root" > /dev/null
+              python_project "$agent_root" Agent || status=1
+              popd > /dev/null
+              [ "$status" -eq 0 ] || break
+            done <<< "$agent_selected"
+          fi
+        fi
         # The environment-local Node tests of both environment actions run when either action folder changed and in
         # finalize mode, whether or not an Analyst Python project exists. They use the caller-provided node, and their
         # fixtures never start this check again: the marker below makes a nested run skip it.
-        if [ "$status" -eq 0 ] && [ -n "${ENVIRONMENT_TESTS:-}" ] && [ -z "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ] && applies "$ENVIRONMENT_TRIGGER"; then
+        if [ "$status" -eq 0 ] && [ "$MAIN" -eq 1 ] && [ -n "${ENVIRONMENT_TESTS:-}" ] && [ -z "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ] && applies "$ENVIRONMENT_TRIGGER"; then
           checks+=("Environment action tests")
           read -r -a environment_tests <<< "$ENVIRONMENT_TESTS"
           step env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test "${environment_tests[@]}" || {
@@ -397,7 +614,7 @@ runs:
             status=1
           }
         fi
-        if [ "$status" -eq 0 ] && applies '\.md$'; then
+        if [ "$status" -eq 0 ] && [ "$MAIN" -eq 1 ] && applies '\.md$'; then
           checks+=("Markdown check")
           # A task or parallel group checks only the Markdown files it changed, so a broken file elsewhere on the base
           # branch does not fail it; phase and finalize verification check the whole repository.
@@ -409,9 +626,13 @@ runs:
         fi
         popd > /dev/null
 
+        # The plan decides which changed files no check covers (a changed verification.json always stays uncovered, so a
+        # person reviews it); without a plan every changed file stays uncovered.
         uncovered=""
-        if [ -n "$changed" ]; then
-          uncovered="$(grep -vE "$(IFS='|'; echo "${COVERED[*]}")" <<< "$changed" | grep -v '^$' | paste -sd, -)"
+        if [ "$plan_status" -eq 0 ]; then
+          uncovered="$(plan 'p.uncovered' | paste -sd, -)"
+        elif [ -n "$changed" ]; then
+          uncovered="$(grep -v '^$' <<< "$changed" | paste -sd, -)"
         fi
         # Commas would split a name in the comma-separated output.
         flaky="$(grep -v '^$' "$FLAKY_FILE" | tr ',' ';' | awk '!seen[$0]++' | paste -sd, -)"
@@ -422,6 +643,9 @@ runs:
             echo "### Flaky tests (passed on rerun)"
             grep -v '^$' "$FLAKY_FILE" | tr ',' ';' | awk '!seen[$0]++' | sed 's/^/- `/; s/$/`/'
           } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [ -s "$SLOWEST_SUMMARY" ]; then
+          { echo; echo "### Slowest tests"; cat "$SLOWEST_SUMMARY"; } >> "$GITHUB_STEP_SUMMARY"
         fi
         rm -rf "$RESULTS_ROOT"
         (IFS=,; echo "checks=${checks[*]}") >> "$GITHUB_OUTPUT"

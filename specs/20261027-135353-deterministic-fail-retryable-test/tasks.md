@@ -1,0 +1,83 @@
+# Tasks: Deterministic Retryable Failure of the Simulated Agent Workload
+
+**Input**: Design documents from `/specs/20261027-135353-deterministic-fail-retryable-test/`
+
+**Prerequisites**: plan.md, spec.md, research.md, data-model.md, quickstart.md
+
+**Tests**: No new test tasks except a focused test for a platform fix, which the plan requires only if the evidence shows a platform defect (added by T007 together with the fix). The existing test `FailRetryableEndsWithAttemptsExhausted` is the test under repair; its assertions stay unchanged.
+
+**Organization**: One user story (US1). The cause is deliberately not decided in advance (FR-001): the tasks establish it with evidence, then fix it where it lives.
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: Can run in parallel; consecutive `[P]` tasks under one heading run in parallel, each from the same commit (this spec has none)
+- **[Story]**: Which user story this task belongs to (US1)
+- Paths are relative to the repository root
+
+## Phase 1: Setup
+
+The environment setup and verification already restore, build, and test the solution, so this phase has no task of its own.
+
+---
+
+## Phase 2: Foundational (Blocking Prerequisites)
+
+**Purpose**: Temporary evidence capture and the Evidence section that every later task depends on. Every task changes a file, so each task's result is recorded in the `## Evidence` section of `specs/20261027-135353-deterministic-fail-retryable-test/research.md`.
+
+**⚠️ CRITICAL**: The capture added here only reports on failure and MUST be removed again in T007; no probe or capture remains in the final change.
+
+- [ ] T003 Add failure capture to `RunToEndAsync` in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadBehaviorTests.cs` that, when the run fails, also dumps the `agent_attempts` rows (`attempt_number`, `state`, `end_reason`, `lease_expires_at`), the `agent_lineage_entries` kinds in order, the outbox rows of the invocation, and the `AGENT_WORK` consumer info, next to the existing last-read, attempt, and runner-log message; also add an empty `## Evidence` section at the end of `specs/20261027-135353-deterministic-fail-retryable-test/research.md` and record the baseline there (one run of `FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests` with `--no-build`, all four tests passing)
+
+---
+
+## Phase 3: User Story 1 - The retryable-failure test fails only when behavior is wrong (Priority: P1) 🎯 MVP
+
+**Goal**: `FailRetryableEndsWithAttemptsExhausted` passes whenever three retryable failures exhaust the attempts of an invocation, however loaded the runner, NATS, and the host are, and fails only when that behavior is broken.
+
+**Independent Test**: The test passes in 100% of at least 20 consecutive runs alone and at least 5 consecutive runs of its class under CPU load (SC-001); a probe that stops redelivery after the second attempt and a probe that makes the third attempt succeed each make it fail within the existing limits (SC-002).
+
+### Establish the cause (FR-001)
+
+- [ ] T004 [US1] Run `FullyQualifiedName~FailRetryableEndsWithAttemptsExhausted` 20 times in a row alone against `src/platform/Tests/SocAlytics.Platform.Integration.Tests` (one shell loop of `dotnet test --no-build --filter …` inside this task; SC-001 is local evidence, and in CI the repeat count may be reduced to what fits the job timeout) and append every failure with its captured evidence, or the pass count, to the `## Evidence` section of `specs/20261027-135353-deterministic-fail-retryable-test/research.md`
+- [ ] T005 [US1] Run the class filter `FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests` at least 5 times in a row under CPU load against `src/platform/Tests/SocAlytics.Platform.Integration.Tests` (one shell loop of `dotnet test --no-build --filter …` inside this task; the load is a portable shell loop of one `yes > /dev/null` background process per CPU, killed afterwards, widened at most twice (1x, then 2x the CPU count of busy processes), then the failure rate is recorded and the work continues with T006; SC-001 is local evidence, and in CI the repeat count may be reduced to what fits the job timeout) and append every failure with its captured evidence, or the pass count, to the `## Evidence` section of `specs/20261027-135353-deterministic-fail-retryable-test/research.md`
+- [ ] T006 [US1] Classify the cause against the candidate table in `specs/20261027-135353-deterministic-fail-retryable-test/research.md` (candidates 1 to 5) from the captured evidence and from `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs`, `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/Support/AgentOrchestrationFixture.cs`, and `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Execution/FailAgentAttempt.cs`, `ClaimAgentInvocation.cs`, and `MonitorAgentAttempts.cs`; if no run fails, apply a temporary delay at the suspected boundary to the working tree only to prove the candidate, run the test, and revert the delay within this task; write the classified cause (candidate number, where it lives, and the evidence) to the `## Evidence` section of `specs/20261027-135353-deterministic-fail-retryable-test/research.md`, so that T007 can read it
+
+### Remove the cause where it lives (FR-002 to FR-005)
+
+- [ ] T007 [US1] Read the classified cause in the `## Evidence` section of `specs/20261027-135353-deterministic-fail-retryable-test/research.md`. Fix it in exactly the file where it lives, by awaiting an observable condition or controlling the racing input, with a code comment next to the fix naming the established cause and its evidence (as `RunToEndAsync` already does for fail-once and stall). That file is one of: the test or `RunToEndAsync` in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadBehaviorTests.cs`, `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/Support/AgentOrchestrationFixture.cs`, or `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs`. Only if the evidence shows a platform defect, fix it in `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Execution/` together with a focused test for the corrected behavior under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/`, keeping the Agent Orchestration semantics documented in `docs/architecture/` unchanged. Otherwise note in the Evidence section that no platform change was needed. Remove the failure capture of T003 in the same task, keeping only the fix and its comment. Add no retry, fixed sleep, skip, or longer limit (the 3 minute bounded wait, 2 s lease, 2 s fetch expiry, and 200 ms retry delay stay). The assertions `failed`, `attempts-exhausted`, and exactly 3 attempts stay, and no exact count is replaced by a wait until counts match. The helper behavior for `[simulate:fail-once]`, `[simulate:fail-permanent]`, and `[simulate:stall]` stays unchanged and the changes of the fail-once and stall specs are not repeated.
+
+### Verify the fix (SC-001, SC-002)
+
+- [ ] T009 [US1] Repeat the evidence runs after the fix, each as one shell loop of `dotnet test --no-build --filter …` inside this task: `FullyQualifiedName~FailRetryableEndsWithAttemptsExhausted` 20 consecutive times alone and the class filter `FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests` at least 5 consecutive times under the CPU load of T005 (SC-001 is local evidence; in CI the repeat count may be reduced to what fits the job timeout), with every run passing, and append the results to the `## Evidence` section of `specs/20261027-135353-deterministic-fail-retryable-test/research.md`
+- [ ] T010 [US1] Apply each probe of SC-002 in turn to the working tree of `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs` (first the probe that stops the redelivery after the second attempt, then the probe that makes the third attempt succeed), run `FailRetryableEndsWithAttemptsExhausted` with each, confirm that the first fails within the existing limits on its bounded wait with the diagnostic message and does not hang and that the second fails on the unchanged assertions, revert each probe within this task, and append the observed results to the `## Evidence` section of `specs/20261027-135353-deterministic-fail-retryable-test/research.md`; the committed diff carries no probe, and `git diff` confirms that no probe remains and no assertion is textually removed
+
+**Checkpoint**: User Story 1 is complete when T009 passes after the fix and T010 recorded both probes failing as expected with no probe left in the diff.
+
+---
+
+## Phase 4: Polish & Cross-Cutting Concerns
+
+- [ ] T013 Run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SimulatedAgentWorkload"` after rebuilding, and confirm `SimulatedAgentWorkloadTests` and `FailOnceSucceedsOnTheSecondAttempt`, `FailPermanentEndsWithExecutionFailed`, and `StallExpiresTheFirstAttemptAndSucceedsOnTheSecond` pass unchanged, and append the result to the `## Evidence` section of `specs/20261027-135353-deterministic-fail-retryable-test/research.md`
+- [ ] T014 Run `node .github/scripts/check-markdown.mjs` and confirm with `git diff --name-only origin/<base>...HEAD` (`<base>` is the pull request's base branch) that it lists only files under `src/platform/Tests/`, optionally `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Execution/`, and `specs/20261027-135353-deterministic-fail-retryable-test/`, with no `docs/architecture/` change (the plan's Architecture Updates section is `None`, so no documentation task is required)
+
+---
+
+## Dependencies & Execution Order
+
+Task IDs are intentionally not contiguous (T001, T002, T008, T011, and T012 are unused); no task was lost.
+
+- T003 before the evidence runs T004 and T005 (it adds the capture and the Evidence section).
+- T004 and T005 run sequentially (they share the Docker containers and the test project); T006 needs both.
+- T007 needs T006 (it reads the cause from the Evidence section and removes the T003 capture); T009 needs T007.
+- T010 needs T009.
+- Phase 4 needs T010.
+
+### Parallel Opportunities
+
+None: every task edits or runs against the same test file, runner, or Docker-backed containers, so all tasks run sequentially.
+
+## Implementation Strategy
+
+- **MVP**: User Story 1 is the whole feature; it is complete at the T010 checkpoint.
+- Evidence first (T003 to T006, recorded in the Evidence section), then the smallest fix at the evidenced home (T007), then proof with repeated runs and the two probes (T009, T010), which leave no probe behind, and the neighbor and repository checks (Phase 4).
+- SC-004 (the verification of #360 reports no flaky test) is post-merge evidence and is not verified by a task of this spec.

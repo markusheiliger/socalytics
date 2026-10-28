@@ -219,7 +219,7 @@ spec's clarifications.
   `evidence-availability` modifier referencing that call, and answers; the test asserts the succeeded invocation, the
   disclosure, the `profile-rendered` checkpoints, the tool call, and the applied profile in the owner's reads. No new
   framework, SDK, or tool is needed: Python projects under `src/agents/` are verified by the environment of
-  [Agents Python Verification Environment](../20261018-110526-agents-python-environment/spec.md), and the platform,
+  [Agents Python Verification Environment](../archive/20261018-110526-agents-python-environment/spec.md), and the platform,
   Web UI, Docker, and image tests use the existing verification.
 - **Rationale**: FR-030; constitution Technology and Tooling.
 - **Alternatives considered**: A separate stack test class (duplicates the stack fixture).

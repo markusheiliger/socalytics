@@ -16,6 +16,10 @@ The toolchain is build-environment tooling only. It is not a product dependency,
 
 Setup installs only these distributions. A different CPython, uv, FFmpeg, or ffprobe on the runner never satisfies setup, and no Python project file is read to select them.
 
+## Agent Python Projects
+
+The installed `SOCALYTICS_PYTHON` and `uv` also serve the agent Python projects directly under `src/agents/<name>/` that [`environment-verify`](../environment-verify/README.md) checks. Setup installs nothing additional for them and reads no agent project file.
+
 ## Scope
 
 - Supported host: Linux x64 (`Linux` and `x86_64`). Any other host fails with the detected and the supported host named.
@@ -24,7 +28,7 @@ Setup installs only these distributions. A different CPython, uv, FFmpeg, or ffp
 
 ## What Setup Does
 
-When `install-tools` is `true` (the default), the step `Install the Analyst Python and media toolchain` runs [`install-analyst-media.sh`](install-analyst-media.sh), which for each tool in declaration order:
+When `install-tools` is `true` (the default), the step `Start the Analyst Python and media toolchain install` starts [`install-analyst-media.sh`](install-analyst-media.sh) in the background right after the dependency cache restores, so the downloads overlap the Markdown linter, SoftHSM2, Kiota, and Playwright installs. The last step, `Install the Analyst Python and media toolchain`, waits for it (at most 20 minutes), prints its log, fails with its exit code (also when it was never started), and only then publishes its `GITHUB_PATH` and `GITHUB_ENV` additions. The installer itself is unchanged and, for each tool in declaration order:
 
 1. Downloads the exact archive named in the declaration.
 2. Compares the archive's SHA-256 digest with the committed value before anything is listed or extracted.

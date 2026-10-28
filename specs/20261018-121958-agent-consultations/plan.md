@@ -75,7 +75,7 @@ agent-catalog feature folders, and documentation; at most 6 consultations per pa
 | III. API-First Control Plane | Hermes uses only versioned workload operations and the MCP server; members and the Web UI use `/api/v1` reads; the platform validates JSON Schema contracts and is the only authority for consultations, states, and accepted outcomes. | Pass |
 | IV. Evidence Over Claims | Contract, integration, Host, Hermes, image, and Web UI tests cover FR-038 and FR-039; passing tests are not presented as consultation quality, latency, cost, evaluation evidence, or production readiness. | Pass |
 | V. Focused, Minimal Changes | Children reuse the invocation, attempt, lineage, and tool machinery; one new table and one new artifact kind; the MCP server and tool operations stay unchanged; no new dependency. | Pass |
-| Technology and Tooling | .NET 10, Docker, Node.js 24, and Playwright come from the existing verification; Python projects under `src/agents/` are verified by [Agents Python Verification Environment](../20261018-110526-agents-python-environment/spec.md), a dependency through the Hermes Agent Runtime. No other tool is needed. | Pass |
+| Technology and Tooling | .NET 10, Docker, Node.js 24, and Playwright come from the existing verification; Python projects under `src/agents/` are verified by [Agents Python Verification Environment](../archive/20261018-110526-agents-python-environment/spec.md), a dependency through the Hermes Agent Runtime. No other tool is needed. | Pass |
 
 Post-design re-check: unchanged, all gates pass. No Complexity Tracking entries.
 

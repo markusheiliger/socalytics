@@ -188,6 +188,14 @@ applies only to analysis runs created afterwards. The platform decides every
 rule and the Web UI explains its refusals; the area is online only and offers
 no deletion, image building, signing, or graphical workflow editing.
 
+The Audit area for Club Admins (decided, not yet implemented; online only,
+memory-only data, manual refresh) lists the platform's security audit events
+newest first under `/audit` with filters kept in the address, paging that keeps
+the platform's page boundaries, and an event detail dialog. It states that the
+view is read-only development evidence and that reading it is audited, and it
+offers no export, redaction, deletion, retention, integrity, hold, alerting, or
+automatic refresh.
+
 The workflow operations area is implemented as a connected workflow as follows.
 Club Admins, who use the operational workflow operations until a stamp-operator
 role exists (see

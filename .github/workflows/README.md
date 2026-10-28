@@ -92,12 +92,12 @@ They become ready only after final verification, immediately before an automatic
 | Workflow | File | Triggered by | Does |
 | --- | --- | --- | --- |
 | Spec Kit prepare | [speckit-prepare.yml](speckit-prepare.yml) | Push to `specs/**`, stage label changes (restored when a person made them), manual | Keeps one twin issue per spec folder, infers dependencies between new twins, validates implement requests; a dispatched, applying run then dispatches `Spec Kit orchestrate`. |
-| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; requested twins that block running implementations start regardless and first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
+| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; blocked implementations keep their slots; requested twins that block running implementations start regardless and first, the one that unblocks the most waiting implementations, also through chains of blocked ones, first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Works the blocked queue down (see [Blocked target](#blocked-target)). Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
 | Spec Kit implement decide | [speckit-implement-decide.yml](speckit-implement-decide.yml) | Orchestrate, commands, the chain | The run without work: when the next work is none (a stop at an attempt limit, a failure, a running merge, a finished implementation) or cannot be told, it decides and acts on it (reports the stop, starts the diagnosis, marks the implementation done); work it finds after all is handed over to the workflow of its kind. |
 | Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Orchestrate, commands, the chain | A sequential group (consecutive tasks without `[P]`, one at a time), a parallel group (consecutive `[P]` tasks under one heading, at most 5 at once, verified together only when a landing merged a sibling's edits to the same files), or the convergence or a conflict resolution as a group of one; then starts the next run. |
-| Spec Kit implement verify | [speckit-implement-verify.yml](speckit-implement-verify.yml) | The chain | The full verification of a finished phase in a run of its own; a failure stops with a pending repair. |
-| Spec Kit implement repair | [speckit-implement-repair.yml](speckit-implement-repair.yml) | The chain | A writer-approved repair of landed code and the reverification of its original failed scope. |
-| Spec Kit implement merge | [speckit-implement-merge.yml](speckit-implement-merge.yml) | The chain | Archives the spec, verifies the prospective merged tree with a read-only token, then squash-merges or hands to a person. |
+| Spec Kit implement verify | [speckit-implement-verify.yml](speckit-implement-verify.yml) | The chain | The full verification of a finished phase in a run of its own, in up to four shards side by side that a planning job names after their work (combined into the artifact `speckit-phase-verification`); a failure stops with a pending repair. |
+| Spec Kit implement repair | [speckit-implement-repair.yml](speckit-implement-repair.yml) | The chain | A writer-approved repair of landed code and the reverification of its original failed scope, in up to four shards side by side like the phase verification (combined into the artifact `speckit-repair-verification`), with the changed environment actions self-tested once beside them. |
+| Spec Kit implement merge | [speckit-implement-merge.yml](speckit-implement-merge.yml) | The chain | Archives the spec, merges the base branch once at a pinned commit and verifies that prospective merged tree in up to four shards side by side with a read-only token (each shard rebuilds the tree and must match it; combined into the artifact `speckit-merge-result`), self-tests changed environment actions once beside them, then squash-merges or hands to a person. |
 | Spec Kit implement prepare | [speckit-implement-prepare.yml](speckit-implement-prepare.yml) | Every workflow of the chain (`workflow_call`) | Prepares a run: checks the spec issue, merges the base branch when the next work needs it, and decides what comes next; work of another kind than the calling workflow's is handed over before any attempt starts. |
 | Spec Kit implement task | [speckit-implement-task.yml](speckit-implement-task.yml) | Implement group, repair (`workflow_call`) | One task, the convergence, a repair, or a conflict resolution: runs its gha Spec Kit workflow with a read-only token, packages and verifies the change, then validates, ticks, commits, pushes, and reports it through a write-isolated land job. |
 | Spec Kit commands | [speckit-commands.yml](speckit-commands.yml) | Pull request comments, reviews, and events | Handles `/speckit` commands (`retry`, `sync`, `author`, and `implement` on twin issues, `help`) and feedback on amendments and authored spec pull requests; keeps Spec Kit pull requests out of stacks. |
@@ -159,6 +159,38 @@ diagnosis then waits for its recommended action instead of being started again, 
 itself (see [Automatic continuation](#automatic-continuation)).
 A task's agent leaves `tasks.md` alone: after the verification passed, the land job checks exactly that task's box
 (an agent's own correct tick is still accepted, any other change of `tasks.md` is refused).
+A task whose work a push already did (a person's, or Copilot's for them, after the task's first attempt or at the branch
+head) lands without a change of its agent: the land job only ticks it. Without such a push, an agent that changes
+nothing may land only when verification of the unchanged branch passes on the current head, includes a test or build
+check for the files the task names, leaves none of them uncovered, and a file only this task names either differs on
+the implementation branch from its base or changed on the base branch since the implementation pull request was
+opened (the work landed elsewhere and was merged in). A task with no such evidence (including a missing or failed
+verification, a head mismatch, or files named by another task only) fails the attempt; a Markdown-only check does not
+qualify. A task ticked without its agent's change is never ticked silently: the land job appends a provenance note to
+its line in `tasks.md` (for example `— already satisfied by 8e71cbfd on main (verified; no change by this task)`),
+and its comment and check run say the same, so the tick never claims work this spec did not do; agents cannot add
+such a note themselves.
+A task can also be correctly done without any change, which upstream Spec Kit allows: it only verifies (for example
+"Run quickstart.md validation", or a test run a number of times), or it applies only under a condition that does not
+hold ("only if T004 shows a platform defect, fix it"). Its agent then changes nothing and claims the outcome
+(`verified` or `not-applicable`) in `completion.json` of the run folder; there are no task markers, the outcome is
+inferred from the task's wording and the evidence. A separate read-only agent assesses the claim against the task
+(`assessment.json`): it lists every obligation of the task and accepts only when none requires a change; for
+`verified` it names exactly what the task requires to run (the `dotnet-test`, `pytest`, `npm-script`, or
+`environment-verify` runner with its scope, filters, and number of consecutive passing runs) and lists anything else
+(probes, load, manual steps) as unsupported, which keeps the task open; for `not-applicable` it names the condition and
+cites repository lines (path, line range, and an excerpt that must appear there) that show it does not hold. The
+workflow fails when the assessment rejects the claim, changes a file, or leaves an obligation unmet; ambiguity fails
+closed. In the work job, the trusted runner (`speckit-completion.mjs verify`, step "Run the task's own verification",
+time budget `SPECKIT_COMPLETION_BUDGET_MINUTES`, default 25) executes the assessed requirements on the unchanged
+branch without reruns, and the environment verification runs only for an assessed `environment-verify` requirement,
+in its mode over its files. The land job checks everything again without running agent-written code: the assessed
+head is still the pull request head, the task text is unchanged, every citation still matches its content, and every
+required run passed (a test that passed only on its rerun does not count). It then ticks the task with a note
+(`— verified without changes by the assessed verification at 8e71cbfd (no change by this task)` or
+`— not applicable: <condition> (assessed at 8e71cbfd; no change by this task)`), and its comment links the evidence.
+When the branch moves before the push, the task is requeued and assessed again on the new head instead of carrying
+the decision over. The diagnosis never amends such a task only to give it a file to write.
 The verification reruns failing tests once: a .NET test project with at most 10 failed tests reruns only those, and
 the Web UI browser tests run with `--retries=1`. A test that passes on the rerun lets the check pass but is reported as
 **flaky** in the comment (marker `speckit-implement:flaky`); a test that fails twice fails the check. After each
@@ -314,7 +346,8 @@ analysis finds it consistent and its changed Markdown passes the Markdown check 
 check), the pull request is merged automatically; it waits for review when it changes
 `docs/architecture/` (a **Design decisions** comment explains why) or when a person pushed to it. On the default
 branch it is an ordinary spec with its own twin, and the stopped spec's twin is blocked by it like by any dependency.
-Nothing requests its implementation automatically: someone signs it off with `/speckit implement` on its twin. The
+Once it is ready (`tasked`, checklists checked), the scheduler requests its implementation automatically on behalf of
+the person who posted `/speckit author`, because it exists only to unblock the stopped implementation. The
 stopped implementation is blocked until it is implemented and then retries by itself (see
 [Pull requests that need attention](#pull-requests-that-need-attention)). When the fix is already on the base branch,
 use `sync` instead.
@@ -355,7 +388,12 @@ the original failed scope must still pass, and synchronization does not erase re
 Successful full verification can resolve a pending repair, including one whose repair attempts are exhausted,
 when the original failed scope is covered; historical failures remain recorded. Full `finalize` verification
 also covers task/group/phase repairs whose original artifact expired. Merged environment-action repairs still
-require explicit scope evidence and their self-tests, which ordinary `finalize` verification does not run.
+require explicit scope evidence and their self-tests, which ordinary `finalize` verification does not run. The
+self-test of a changed environment verification action (in the merge, a repair reverification, and a conflict
+resolution) passes `environment-tests-only`, so it runs only that action's own tests and fixtures from the workspace
+instead of repeating the component checks the full verification already runs (an action version without that input
+ignores it and runs in full); its outcome still decides. In the merge and the repair reverification it runs once in a
+job of its own beside the verification shards.
 
 Use `retry` for unchanged work and `sync` when
 receiving base-branch changes is a prerequisite. Diagnosis categorizes a fix already on the base as `outside` and
@@ -366,6 +404,25 @@ before it (`repeatedFailure`), the evidence tells the agent, and a recommendatio
 options at publication, with `/speckit author` as the fallback.
 
 Architecture impact: none. This changes repository automation, not the product design in `docs/architecture/`.
+
+## Blocked target
+
+`Spec Kit orchestrate` prefers getting blocked implementations merged over starting or authoring new work. The target
+is fewer than `SPECKIT_MAX_BLOCKED` (repository variable, default 5) implementation pull requests labelled `blocked`,
+none of them open longer than `SPECKIT_MAX_BLOCKED_DAYS` (default 2); `0` turns that part off. While the target is
+missed, the scheduler report says why, and:
+
+- only requested prerequisites of blocked implementations start; every other requested spec waits, even below
+  `SPECKIT_MAX_ACTIVE_SPECS`;
+- the backlog refill and the flaky-test specs pause, because both author new specs;
+- an implementation that is not blocked itself but stopped for a person's decision (its diagnosis is reported), while
+  implementations open longer than `SPECKIT_MAX_BLOCKED_DAYS` wait for it directly or through a chain, gets one
+  **Escalation** comment per stop that mentions its requester, names the waiting implementations, and recommends
+  following the latest diagnosis.
+
+A requested spec whose twin still has open blockers never gets a pull request in the first place: it waits as
+*Blocked* in the scheduler report until its blockers are implemented. Blocked pull requests come from blocks added
+after the implementation started, mostly specs authored with `/speckit author` for a cause outside the stopped spec.
 
 ## Spec backlog
 
@@ -404,7 +461,7 @@ engine of GitHub Agentic Workflows.
 | Guided repair of landed code | Spec Kit implement task | Copilot CLI, level `strong`, in the Spec Kit workflow `repair` | `retry` with a pending repair: the repair agent (without guidance only reverification runs) |
 | Convergence | Spec Kit implement task | Copilot CLI, level `strong`, in the Spec Kit workflow `converge` | `retry`: when the convergence is the first work after the restart |
 | Conflict resolution | Spec Kit implement task | Copilot CLI, level `standard`, in the Spec Kit workflow `resolve`, only for conflicts left after the archive script | `retry` or `sync`: when it is the first work; a clean merge passes `sync` guidance on to the next work |
-| Group and phase verification, repair reverification, archive, merge verification, squash merge | Spec Kit implement group, verify, repair, merge | none (script) | never |
+| Group and phase verification, repair reverification, archive, merge verification, squash merge (the phase, merge, and repair verifications run in shards of at most 90 minutes each; a conflict resolution's work job, which runs the agent and a full `finalize` verification together, has a 150-minute limit) | Spec Kit implement group, verify, repair, merge | none (script) | never |
 | Comment commands | Spec Kit commands | none (script) | stores the guidance in a marker for the work above |
 | Diagnosis, amendment correction and rework | Spec Kit diagnose | agentic (`copilot` engine) | never (it reads recent comments as context; rework rounds use analysis findings and review feedback) |
 | New spec authoring (`/speckit author`), correction and rework | Spec Kit author | Copilot CLI, level `standard`: one decision step, then the agent steps of the Spec Kit workflow `author` | `author`: the decision step (the guidance shapes the feature description) |
@@ -425,6 +482,23 @@ and merge. Alternatives stay collapsed. Correctable findings trigger automatic c
 while automation is running, no action is needed yet. This goal never bypasses required verification or makes a
 failed or missing analysis a reason to merge.
 
+When the remedy is a change only a push to the implementation branch can make (another spec's folder, a protected
+path, or the change a person's decision needs), a `decision` diagnosis recommends a ready-to-paste `@copilot` prompt
+instead of describing the change: posted as a comment, it has GitHub Copilot's cloud agent (enabled for the
+repository) push the change to the pull request's branch, and that push continues the implementation by itself like
+any push that is not by `github-actions[bot]`. The prompt names the files, the exact change, and how to check it; the
+comment adds a fixed scope (only this change, no task ticks, no other pull request). The prompt only removes what
+stops the automation, never the spec's own work: a prompt that names a task, `tasks.md`, or asks to implement tasks
+is rejected, because the Spec Kit implementation implements, verifies, and ticks every task itself. A `/speckit retry` that is refused
+after unchanged restarts recommends the latest diagnosis' `@copilot` request when it has one.
+
+Posting such a request is a handoff: when a person with write access comments `@copilot …` (the mention first) on an
+implementation pull request that waits for a person (`help wanted`, not `blocked`), job "Hand a stopped implementation
+over to Copilot" of `Spec Kit commands` removes `help wanted` at once and comments that Copilot is working on it and
+that its push continues the implementation by itself. If Copilot replies without having pushed, or has not pushed
+within 60 minutes, `Spec Kit orchestrate` puts `help wanted` back with a comment that says so and recommends following
+the latest diagnosis again. A push, a `/speckit retry`, or a `/speckit sync` after the handoff ends it.
+
 Implementation, amendment, and authored spec pull requests carry GitHub's default label `help wanted` ("Extra attention is
 needed") while they wait for a person, and lose it as soon as a person's action puts automation back to work or the
 pull request is merged or closed. The label is a convenience; the comments and check runs stay authoritative.
@@ -442,20 +516,34 @@ Failed checks, failed reworks, and exhausted correction rounds recommend a ready
 restarts rework and analysis. Starting new work replaces the previous recommendation with an explicit wait; a failed
 or abandoned run replaces that wait with the recovery action in both the description and its comment.
 
-An implementation that waits for another spec carries the separate custom `blocked` label instead of `help wanted`.
+An implementation that waits for another spec carries the separate custom `blocked` label, with `help wanted` only while a blocker waits for its `/speckit implement` request.
 It waits whenever its twin has open blocked-by twins, however the dependency came about (`/speckit author`,
 dependency inference, or a person), and while a spec that `/speckit author` authored is still being written, checked,
 or reviewed. GitHub has no default label for an on-hold state. The label is only added together with a comment that
-starts with **Blocked**: it names what the implementation waits for, what a person needs to do (for each blocker that
-is not requested yet, the ready-to-paste `/speckit implement` for its twin; otherwise nothing while the blockers are
-implemented), which open implementation pull request of each blocker has to be merged first (posted again when a
-blocker's implementation pull request opens), and how it continues (marker `speckit-implement:blocked`); when the
+starts with **Blocked**: it names what the implementation waits for and sorts every blocker into what it needs: a spec
+twin that is not requested yet (**Spec twins to request first**, with the ready-to-paste `/speckit implement` as the
+recommended next step for all of them), an open implementation pull request to merge first (**Implementation pull
+requests to finish first**), or a requested twin whose implementation has not started yet (**Requested, starting by
+itself**; nothing to do). It is posted again when a blocker is requested or its implementation pull request opens, and
+says how the implementation continues (marker `speckit-implement:blocked`); when the
 scheduler reconciles the label on an implementation whose block is not explained yet, it posts the explanation once.
-A blocked implementation never gets `help wanted`; the scheduler does not continue its chain, and a running chain stops
-before its next unit (no retry, no diagnosis) while it waits. The label is removed when the last blocker is
+A blocked implementation carries `help wanted` as well exactly while a blocker is a spec twin that is not requested for
+implementation: nothing starts that blocker by itself, and the **Blocked** comment recommends `/speckit implement` on it.
+Once every blocker is requested (the explanation posted again then says that nothing is needed), `help wanted` is removed
+and only `blocked` stays. The scheduler does not continue a blocked implementation's chain, and a running chain stops
+before its next unit (no retry, no diagnosis) while it waits. The `blocked` label (and a `help wanted` that came with it)
+is removed when the last blocker is
 implemented (the retry comment says the block is lifted and the implementation continues with a fresh attempt count),
 when a blocker or the authored spec pull request is closed without being implemented (that comment lists the next
 steps with `help wanted`), or when the implementation pull request closes.
+
+The custom label `roadblock` (`ROADBLOCK_LABEL`) marks the implementations to process first: those that are not
+blocked themselves and that the most other implementations wait for, directly or through a chain of blocked
+implementations (`waitingSets`), at most `SPECKIT_ROADBLOCK_PULLS` (repository variable, default 3; `0` turns it
+off), ties by the lower twin number. Every scheduler run moves it with the queue: it is added together with a comment
+that names the waiting implementations (marker `speckit-implement:roadblock`) and removed, without a comment, as
+soon as others unblock more, the pull request is blocked itself, or nothing waits for it any more. The same order
+decides which requested prerequisite starts first.
 
 | Pull request | Labeled when | Unlabeled when |
 | --- | --- | --- |

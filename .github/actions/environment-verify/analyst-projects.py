@@ -6,7 +6,10 @@ Recognized manifests (see the environment interface contract of the analyst-medi
     src/analysts/sdk/pyproject.toml
     src/analysts/capabilities/<name>/pyproject.toml
 
-Usage: analyst-projects.py discover [--root DIR] [--python-version X.Y[.Z]]
+With `--area agents` the helper recognizes src/agents/<name>/pyproject.toml instead (see the environment
+interface contract of the agents-python-environment spec); `--area analysts` is the default.
+
+Usage: analyst-projects.py discover [--area analysts|agents] [--root DIR] [--python-version X.Y[.Z]]
        analyst-projects.py select --mode task|phase|finalize [--changed-files FILE] [--root DIR] [--python-version X.Y[.Z]]
 
 Prints the validated projects as JSON in dependency order (dependencies first). `select` prints only the projects
@@ -30,8 +33,12 @@ MANAGER_ROOT = "src/analysts/manager"
 IGNORED_DIRECTORIES = {
     ".venv", "venv", "node_modules", "__pycache__", ".git", "build", "dist", "site-packages",
 }
+AGENTS_ROOT = "src/agents"
 FIX_MANIFEST = "correct the named manifest to the documented Python product convention, or author the required environment extension, before retrying"
 FIX_LAYOUT = "move the project to src/analysts/sdk or src/analysts/capabilities/<name>, or author the required environment extension, before retrying"
+FIX_AGENT_MANIFEST = "correct the named manifest to the agent project convention, or author the required environment extension, before retrying"
+FIX_AGENT_LAYOUT = "move the project to src/agents/<name>, or author the required environment extension, before retrying"
+FIX_AGENT_ANALYST = "remove the dependency on the Analyst project or move the shared code into an agent project under src/agents/<name>, before retrying"
 FIX_LOCK = "commit the consuming project's own uv.lock, generated from its committed declarations, before retrying"
 FIX_RUNTIME = "correct requires-python of the named project so it admits the installed interpreter, or author the required environment extension, before retrying"
 
@@ -88,8 +95,26 @@ def specifier_allows(specifier, version):
     return all(clause_allows(clause, version) for clause in clauses)
 
 
-def candidate_manifests(root):
+def immediate_projects(root, parent):
+    """Returns the immediate, searched child folders of parent that hold a pyproject.toml."""
+    found = []
+    folder = os.path.join(root, parent)
+    if os.path.isdir(folder) and not os.path.islink(folder):
+        for entry in sorted(os.listdir(folder)):
+            path = os.path.join(folder, entry)
+            if entry.startswith(".") or entry in IGNORED_DIRECTORIES:
+                continue
+            if os.path.islink(path) or not os.path.isdir(path):
+                continue
+            if os.path.isfile(os.path.join(path, "pyproject.toml")):
+                found.append(f"{parent}/{entry}")
+    return found
+
+
+def candidate_manifests(root, area="analysts"):
     """Yields (relative project root) for every recognized manifest location that has a pyproject.toml."""
+    if area == "agents":
+        return immediate_projects(root, AGENTS_ROOT)
     found = []
     if os.path.isfile(os.path.join(root, SDK_ROOT, "pyproject.toml")):
         found.append(SDK_ROOT)
@@ -106,9 +131,9 @@ def candidate_manifests(root):
     return found
 
 
-def unrecognized_manifests(root, recognized):
-    """Returns every pyproject.toml under src/analysts outside the recognized project roots, Manager, and ignored folders."""
-    analysts = os.path.join(root, "src", "analysts")
+def unrecognized_manifests(root, recognized, area="analysts"):
+    """Returns every pyproject.toml under the area outside the recognized project roots, Manager, and ignored folders."""
+    analysts = os.path.join(root, *(AGENTS_ROOT if area == "agents" else "src/analysts").split("/"))
     found = []
     if not os.path.isdir(analysts) or os.path.islink(analysts):
         return found
@@ -125,12 +150,16 @@ def unrecognized_manifests(root, recognized):
     return found
 
 
-def requirement_names(data):
+def requirement_entries(data):
     entries = list(data.get("project", {}).get("dependencies", []) or [])
     for values in (data.get("project", {}).get("optional-dependencies", {}) or {}).values():
         entries.extend(values)
     for values in (data.get("dependency-groups", {}) or {}).values():
         entries.extend(value for value in values if isinstance(value, str))
+    return entries
+
+
+def requirement_names(entries):
     names = set()
     for entry in entries:
         if isinstance(entry, str):
@@ -140,10 +169,12 @@ def requirement_names(data):
     return names
 
 
-def load_project(root, relative, python_version, errors):
+def load_project(root, relative, python_version, errors, area="analysts"):
     manifest = os.path.join(root, relative, "pyproject.toml")
+    default_action = FIX_AGENT_MANIFEST if area == "agents" else FIX_MANIFEST
 
-    def fail(stage, problem, action=FIX_MANIFEST):
+    def fail(stage, problem, action=None):
+        action = action or default_action
         errors.append(ProjectError(relative, stage, problem, action))
 
     if os.path.islink(manifest):
@@ -194,7 +225,16 @@ def load_project(root, relative, python_version, errors):
         fail("project convention", "[tool.uv].package = false disables the required package build")
         healthy = False
 
-    required = requirement_names(data)
+    entries = requirement_entries(data)
+    required = requirement_names(entries)
+    if area == "agents":
+        for entry in entries:
+            if isinstance(entry, str) and re.match(
+                r"\s*[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?\s*@\s*\S+", entry
+            ):
+                fail("project convention",
+                     f"direct reference requirement {entry!r} is not supported; use a validated [tool.uv.sources] path")
+                healthy = False
     dependencies = []
     sources = uv.get("sources") or {}
     if not isinstance(sources, dict):
@@ -238,7 +278,7 @@ def within(parent, child):
     return child_parts[: len(parent_parts)] == parent_parts
 
 
-def resolve_dependency(root, project, source_name, path, recognized, errors):
+def resolve_dependency(root, project, source_name, path, recognized, errors, area="analysts"):
     real_root = os.path.realpath(root)
     target = os.path.realpath(os.path.join(root, project["root"], path))
     if not within(real_root, target):
@@ -246,13 +286,24 @@ def resolve_dependency(root, project, source_name, path, recognized, errors):
                                    f"local dependency {source_name!r} points outside the repository"))
         return None
     relative = os.path.relpath(target, real_root).replace(os.sep, "/")
-    permitted = relative == SDK_ROOT or (
-        relative.startswith(CAPABILITIES_ROOT + "/") and relative.count("/") == CAPABILITIES_ROOT.count("/") + 1
-    )
+    if area == "agents":
+        permitted = relative.startswith(AGENTS_ROOT + "/") and relative.count("/") == AGENTS_ROOT.count("/") + 1
+        roots = f"{AGENTS_ROOT}/<name>"
+    else:
+        permitted = relative == SDK_ROOT or (
+            relative.startswith(CAPABILITIES_ROOT + "/") and relative.count("/") == CAPABILITIES_ROOT.count("/") + 1
+        )
+        roots = f"{SDK_ROOT} and {CAPABILITIES_ROOT}/<name>"
     if not permitted:
+        if area != "agents":
+            action = FIX_MANIFEST
+        elif relative.startswith("src/analysts/"):
+            action = FIX_AGENT_ANALYST
+        else:
+            action = FIX_AGENT_MANIFEST
         errors.append(ProjectError(project["root"], "project convention",
                                    f"local dependency {source_name!r} at {relative} is outside the permitted ownership roots "
-                                   f"({SDK_ROOT} and {CAPABILITIES_ROOT}/<name>)"))
+                                   f"({roots})", action))
         return None
     if not os.path.isfile(os.path.join(target, "pyproject.toml")):
         errors.append(ProjectError(project["root"], "project convention",
@@ -297,16 +348,36 @@ def order_projects(projects, errors):
     return order
 
 
-def discover(root, python_version):
+def analyst_project_names(root):
+    """Maps the normalized static [project].name of every Analyst manifest to its root; unreadable names are skipped."""
+    names = {}
+    for relative in candidate_manifests(root, "analysts"):
+        manifest = os.path.join(root, relative, "pyproject.toml")
+        if os.path.islink(manifest):
+            continue
+        try:
+            with open(manifest, "rb") as handle:
+                data = tomllib.load(handle)
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
+            continue
+        project = data.get("project")
+        name = project.get("name") if isinstance(project, dict) else None
+        if isinstance(name, str) and name.strip() and "name" not in (project.get("dynamic") or []):
+            names.setdefault(normalize_name(name), relative)
+    return names
+
+
+def discover(root, python_version, area="analysts"):
     errors = []
     loaded = {}
-    candidates = candidate_manifests(root)
-    for manifest in unrecognized_manifests(root, set(candidates)):
+    candidates = candidate_manifests(root, area)
+    recognized_at = f"{AGENTS_ROOT}/<name>" if area == "agents" else f"{SDK_ROOT} and {CAPABILITIES_ROOT}/<name>"
+    for manifest in unrecognized_manifests(root, set(candidates), area):
         errors.append(ProjectError(manifest, "project convention",
-                                   f"unsupported layout: Python manifests are recognized only at {SDK_ROOT} and "
-                                   f"{CAPABILITIES_ROOT}/<name>, so its source stays uncovered", FIX_LAYOUT))
+                                   f"unsupported layout: Python manifests are recognized only at {recognized_at}, "
+                                   f"so its source stays uncovered", FIX_AGENT_LAYOUT if area == "agents" else FIX_LAYOUT))
     for relative in candidates:
-        project = load_project(root, relative, python_version, errors)
+        project = load_project(root, relative, python_version, errors, area)
         if project:
             loaded[relative] = project
 
@@ -318,13 +389,22 @@ def discover(root, python_version):
             errors.append(ProjectError(roots[1], "project convention",
                                        f"project name {name!r} duplicates {roots[0]}"))
     duplicates = {relative for roots in identities.values() if len(roots) > 1 for relative in roots[1:]}
+    if area == "agents":
+        analyst_names = analyst_project_names(root)
+        for relative in sorted(loaded):
+            name = loaded[relative]["name"]
+            if relative not in duplicates and name in analyst_names:
+                errors.append(ProjectError(relative, "project convention",
+                                           f"project name {name!r} duplicates Analyst project {analyst_names[name]}",
+                                           FIX_AGENT_MANIFEST))
+                duplicates.add(relative)
 
     recognized = {relative: project for relative, project in loaded.items() if relative not in duplicates}
     # Every candidate manifest is recognized, even an invalid one, so only valid targets resolve below.
     for relative, project in recognized.items():
         project["dependencies"] = []
         for source_name, path in project.pop("declaredDependencies"):
-            target = resolve_dependency(root, project, source_name, path, recognized, errors)
+            target = resolve_dependency(root, project, source_name, path, recognized, errors, area)
             if target and target not in project["dependencies"]:
                 project["dependencies"].append(target)
         project["dependencies"].sort()
@@ -347,7 +427,16 @@ def under(folder, path):
     return components(path)[: len(folder_parts)] == folder_parts
 
 
-def select(projects, mode, changed):
+def shared_contract_change(path, area):
+    parts = components(path)
+    if area == "agents":
+        if len(parts) >= 3 and parts[0] == "contracts" and parts[1].startswith("agent-"):
+            return True
+        return under("contracts/common", path)
+    return any(under(folder, path) for folder in SHARED_CONTRACT_FOLDERS)
+
+
+def select(projects, mode, changed, area="analysts"):
     """Returns the selected projects in dependency order, each once, with the reason it was selected."""
     by_root = {project["root"]: project for project in projects}
     reasons = {}
@@ -357,7 +446,7 @@ def select(projects, mode, changed):
         paths = [path for path in changed if components(path)]
         if any(under(folder, path) for path in paths for folder in ENVIRONMENT_FOLDERS):
             reasons = {root: "environment change" for root in by_root}
-        elif any(under(folder, path) for path in paths for folder in SHARED_CONTRACT_FOLDERS):
+        elif any(shared_contract_change(path, area) for path in paths):
             reasons = {root: "shared contract change" for root in by_root}
         else:
             direct = {root for root in by_root if any(under(root, path) for path in paths)}
@@ -375,6 +464,7 @@ def select(projects, mode, changed):
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["discover", "select"])
+    parser.add_argument("--area", choices=["analysts", "agents"], default="analysts")
     parser.add_argument("--root", default=".")
     parser.add_argument("--mode", choices=["task", "phase", "finalize"], default="task")
     parser.add_argument("--changed-files", default=None)
@@ -385,7 +475,7 @@ def main(argv):
     except ValueError:
         print(f"--python-version {arguments.python_version!r} is not a numeric version", file=sys.stderr)
         return 2
-    projects, errors = discover(arguments.root, version)
+    projects, errors = discover(arguments.root, version, arguments.area)
     if errors:
         for error in errors:
             print(error, file=sys.stderr)
@@ -395,7 +485,7 @@ def main(argv):
         if arguments.changed_files and os.path.isfile(arguments.changed_files):
             with open(arguments.changed_files, encoding="utf-8") as handle:
                 changed = handle.read().splitlines()
-        result = {"projects": select(projects, arguments.mode, changed), "covered": [project["root"] for project in projects]}
+        result = {"projects": select(projects, arguments.mode, changed, arguments.area), "covered": [project["root"] for project in projects]}
     else:
         result = {"projects": projects}
     json.dump(result, sys.stdout, indent=2)

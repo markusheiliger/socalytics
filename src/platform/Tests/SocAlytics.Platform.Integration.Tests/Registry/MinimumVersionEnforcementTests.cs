@@ -18,6 +18,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Registry;
 
+[Collection(AnalysisTelemetryCollection.Name)]
 public sealed class MinimumVersionEnforcementTests(PostgresContainerFixture postgres, NatsContainerFixture nats, RustFsContainerFixture rustFs)
 {
     private const string Code = "analyst-manager-version-below-minimum";

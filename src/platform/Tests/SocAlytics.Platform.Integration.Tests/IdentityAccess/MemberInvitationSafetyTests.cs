@@ -456,7 +456,16 @@ public sealed partial class MemberInvitationSafetyTests(PostgresContainerFixture
 
 		await using var h = await StartAsync(ct);
 		var teamId = await CreateTeamAsync(h, ct);
-		var a = await InviteAsync(h, teamId, "audit-a", null, ct);
+		// Generated addresses all mask to the same value, so the legitimate link the host's background delivery worker
+		// may issue to audit-c was counted with the first invitee's; this address masks differently (a***@i***.test).
+		// Reproduced: delivering once after audit-c was created and before it was revoked audited a third invitation.issued event for
+		// audit-c's invitation with the masked address m***@e***.test, which the first invitee's generated address shared.
+		// Probe 1 (two overlapping delivery runs preparing and auditing the first invitee's message, simulated by recording the audit event
+		// twice in EmailDeliveryProcessor.PrepareInvitationAsync for that invitee): failed at the invitation.issued count with "should be 2L but was 4L"; it did not hang.
+		// Probe 2 (the same method skipping the InvitationAuditEvents.Issued audit record for the first invitee): failed at the invitation.issued count with "should be 2L but was 0L"; it did not hang.
+		// Probe 3 (the same event's Details also carrying the invitee's normalized address under the allowed key "purpose"): failed at the 'audit contains a secret'
+		// assertion (text should not contain the first invitee's address); it did not hang. Every probe was reverted.
+		var a = await InviteAsync(h, teamId, "audit-a", $"audit-a-{Guid.NewGuid():N}@invitee.test", ct);
 		EmailAddress.TryCreate(a.Address, out var addressA, out _).ShouldBeTrue();
 
 		var firstMessage = (await MessagesAsync(h, a.Address, 1, ct))[0];

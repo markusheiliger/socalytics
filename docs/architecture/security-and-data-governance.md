@@ -239,6 +239,18 @@ and separated from ordinary application logs. They MUST contain no credential,
 token, private key, unnecessary payload, or durable presigned URL. Access to
 audit evidence and every export or redaction of it MUST itself be audited.
 
+Club Admins read audit evidence through one read-only member operation,
+`GET /api/v1/audit/events` (decided, not yet implemented; development
+evidence): events newest first, filtered by time range, event type, outcome,
+actor account, resource, and team, with a cursor bound to its filters, no
+counts, and only minimized fields (no credential, token, link, free text, or
+unmasked address). Every read by an authenticated member is recorded as an
+`audit.evidence-read` event holding the filter shape but no result content,
+and a read that cannot be recorded is not served. This is not the independent
+audit authority of `GOV-AUD-001`; export, redaction, integrity verification,
+retention, holds, and the production audit store stay unresolved under
+`POL-009`.
+
 At minimum, authentication and authorization decisions, role changes, Manager
 registration and revocation, credential lifecycle, artifact authorization
 (including member evidence-media links, recorded without the links;
