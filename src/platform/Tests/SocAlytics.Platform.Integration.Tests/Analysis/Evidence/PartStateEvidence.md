@@ -90,3 +90,28 @@ Evidence tests: `EvidenceResolutionTests`, `EvidenceAuthorizationTests`, `Eviden
 Explicit settings: no evidence test relies on background behavior, so none needs an override of `Analysis:Workers:Enabled`. The `extraSettings` in use are `Analysis:Evidence:MaxDuration` (`EvidenceResolutionTests`, `EvidencePartStateTests`) and `Analysis:Evidence:ResolutionsPerMinute` (`EvidenceRateLimitTests`), and `EvidencePartStateTests` uses `configureServices` for its switchable object storage; none enables a worker.
 
 Sole source of materialization: `MaterializeSegmentsAsync` and `MaterializeAllAsync` are called in `EvidenceResolutionTests` (the polling helper and four `MaterializeAllAsync` scenarios, plus the two-recording scenario), `EvidenceAuditAndLoggingTests`, and `EvidencePartStateTests`; with the `SegmentMaterializationWorker` off, they are the only callers of `MaterializeSegmentHandler.ProcessDueAsync` in each scenario, each with its own lease owner `evidence-test-<round>`. `EvidenceAuthorizationTests` and `EvidenceRateLimitTests` never materialize.
+
+## T008
+
+Measured on Linux, 4 cores, with the fix of T005 (`Analysis:Workers:Enabled` is `false` in `EvidenceScenario.Settings`), `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build`.
+
+SC-001 runs:
+
+| Run set | Filter | Load | Runs | Passed | Failed |
+| --- | --- | --- | --- | --- | --- |
+| Alone | `FullyQualifiedName~Never_materialized_segment_is_materializing` | none | 20 | 20 | 0 |
+| Class under load | `FullyQualifiedName~Analysis.Evidence` (78 tests per run) | 4 busy loops (`sh -c 'while :; do :; done'`, one per core; `stress-ng` is not installed) | 5 | 5 | 0 |
+| Neighbors | `FullyQualifiedName~Segments` | none | 1 | 1 | 0 |
+
+The class runs under load took 55 s to 57 s. The `Segments` run passed 103 of 103 tests.
+
+SC-002 probes, each temporary and removed afterward:
+
+| Probe | Where | Outcome |
+| --- | --- | --- |
+| Worker enabled through `extraSettings` (`Analysis:Workers:Enabled=true`, `Segments:Materialization:PollInterval` 50 ms) | `EvidencePartStateTests.StartAsync` | Still reproduces: the target test failed in 10 of 10 runs (second resolution not `available`) |
+| Default scenario, workers off, no probe | none | Passed 20 of 20 runs (the alone set above) |
+| Demand recording broken (the demand insert and the demand update of `SegmentStore.DemandAsync` write `demanded = false`; the insert alone was masked by the update) | `SegmentStore.cs` | The test failed on its unchanged assertion `count(*) ... WHERE demanded` equals 1 (`EvidencePartStateTests.cs` line 117) |
+| `available` reported before materialization (`ResolveEvidenceMedia.Preparing` returns `Available` for a never-purged record) | `ResolveEvidenceMedia.cs` | The test failed on its first resolution before reaching its state assertion (`EvidencePartStateTests.cs` line 112, in `ResolveAsync`) |
+
+Every probe is removed: `git status` and `git diff` show no change under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/` or the platform code beyond this section, and no assertion is removed.
