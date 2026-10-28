@@ -1039,6 +1039,126 @@ it('${id}', () => {
       });
     });
 
+    describe('Spec Kit tooling tests', () => {
+      const name = 'Spec Kit tooling tests';
+      const folder = '.github/scripts';
+      const failureMessage = 'Spec Kit tooling tests failed (command: node --test .github/scripts/speckit-a.test.mjs .github/scripts/speckit-b.test.mjs). Recommended action: reproduce this command, correct the failing Spec Kit tooling script or its test without weakening the test, and retry verification';
+      // Stub test files in the workspace record the marker they run under and pass or fail on demand.
+      function toolingFixture(root, { fail = false, ids = ['a', 'b'] } = {}) {
+        mkdirSync(path.join(root, folder), { recursive: true });
+        const record = path.join(root, `tooling-record-${counter++}.txt`);
+        for (const id of ids) {
+          writeFileSync(path.join(root, folder, `speckit-${id}.test.mjs`), `import { appendFileSync } from 'node:fs';
+import { it } from 'node:test';
+import assert from 'node:assert/strict';
+it('${id}', () => {
+  appendFileSync(${JSON.stringify(record)}, '${id}:' + process.env.SOCALYTICS_ENVIRONMENT_TESTS_RUNNING + '\\n');
+  assert.ok(!${fail && id === 'b'});
+});
+`);
+        }
+        return { env: { SPECKIT_TOOLING_TESTS: folder }, record: () => (existsSync(record) ? readFileSync(record, 'utf8').split('\n').filter(Boolean).sort() : []) };
+      }
+      const toolingRepository = (options) => {
+        const root = fullRepository({ python: false });
+        return { root, fixture: toolingFixture(root, options) };
+      };
+
+      it('runs and succeeds for a changed speckit script and a changed speckit test', () => {
+        for (const changed of ['.github/scripts/speckit-implement-core.mjs', '.github/scripts/speckit-implement-core.test.mjs']) {
+          const { root, fixture } = toolingRepository();
+          const result = run(root, { mode: 'task', changed: [changed], bin: toolBin(), env: fixture.env });
+          assert.equal(result.status, 0, result.log);
+          assert.equal(result.outputs.checks, name);
+          assert.equal(result.outputs.uncovered, '');
+          assert.deepEqual(fixture.record(), ['a:1', 'b:1']);
+        }
+      });
+
+      it('runs for a deleted tooling file', () => {
+        const { root, fixture } = toolingRepository();
+        const result = run(root, { mode: 'task', changed: ['.github/scripts/speckit-gone.mjs'], bin: toolBin(), env: fixture.env });
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.outputs.checks, name);
+        assert.deepEqual(fixture.record(), ['a:1', 'b:1']);
+      });
+
+      it('runs for the task-named change list with no change and leaves nothing uncovered', () => {
+        const { root, fixture } = toolingRepository();
+        const named = ['.github/scripts/speckit-implement-core.mjs', '.github/scripts/speckit-implement-work.mjs'];
+        const result = run(root, { mode: 'task', changed: named, bin: toolBin(), env: fixture.env });
+        assert.equal(result.status, 0, result.log);
+        assert.ok(result.outputs.checks.split(',').includes(name));
+        assert.equal(result.outputs.uncovered, '');
+        assert.deepEqual(fixture.record(), ['a:1', 'b:1']);
+      });
+
+      it('runs in finalize mode with nothing changed', () => {
+        const { root, fixture } = toolingRepository();
+        const result = run(root, { mode: 'finalize', bin: toolBin(), env: fixture.env });
+        assert.equal(result.status, 0, result.log);
+        assert.ok(result.outputs.checks.split(',').includes(name));
+        assert.deepEqual(fixture.record(), ['a:1', 'b:1']);
+      });
+
+      it('fails with the exact one-line message including the reproduce command and still writes every output', () => {
+        const { root, fixture } = toolingRepository({ fail: true });
+        const result = run(root, { mode: 'task', changed: ['.github/scripts/speckit-x.mjs'], bin: toolBin(), env: fixture.env });
+        assert.equal(result.status, 1);
+        assert.equal(result.outputs.checks, name);
+        assert.equal(result.outputs.uncovered, '');
+        assert.deepEqual(fixture.record(), ['a:1', 'b:1']);
+        const failure = result.log.split('\n').filter((line) => line.startsWith('Spec Kit tooling tests failed'));
+        assert.deepEqual(failure, [failureMessage]);
+      });
+
+      it('fails when no speckit test file exists', () => {
+        const root = fullRepository({ python: false });
+        mkdirSync(path.join(root, folder), { recursive: true });
+        writeFileSync(path.join(root, folder, 'helper.test.mjs'), '');
+        const result = run(root, { mode: 'task', changed: ['.github/scripts/speckit-x.mjs'], bin: toolBin(), env: { SPECKIT_TOOLING_TESTS: folder } });
+        assert.equal(result.status, 1);
+        assert.equal(result.outputs.checks, name);
+        assert.match(result.log, /Spec Kit tooling tests: no \.github\/scripts\/speckit-\*\.test\.mjs file exists\. Recommended action: restore the Spec Kit tooling tests and retry verification/);
+      });
+
+      it('does not run from a nested run', () => {
+        const { root, fixture } = toolingRepository();
+        const result = run(root, { mode: 'task', changed: ['.github/scripts/speckit-x.mjs'], bin: toolBin(), env: { ...fixture.env, SOCALYTICS_ENVIRONMENT_TESTS_RUNNING: '1' } });
+        assert.equal(result.status, 0, result.log);
+        assert.ok(!result.outputs.checks.includes(name));
+        assert.equal(fixture.record().length, 0);
+      });
+
+      it('skips an unrelated change, a non-speckit script, and a documentation-only change', () => {
+        for (const changed of [['src/clients/web/a.ts'], ['.github/scripts/helper.mjs'], ['.github/scripts/sub/speckit-x.mjs'], ['docs/a.md']]) {
+          const { root, fixture } = toolingRepository();
+          const result = run(root, { mode: 'task', changed, bin: toolBin(), env: fixture.env });
+          assert.equal(result.status, 0, result.log);
+          assert.ok(!result.outputs.checks.includes(name), changed.join());
+          assert.equal(fixture.record().length, 0);
+        }
+      });
+
+      it('belongs to the first shard only', () => {
+        const { root, fixture } = toolingRepository();
+        const second = run(root, { mode: 'finalize', bin: toolBin(), env: { ...fixture.env, SHARD: '2/2' } });
+        assert.equal(second.status, 0, second.log);
+        assert.ok(!second.outputs.checks.includes(name));
+        assert.equal(fixture.record().length, 0);
+        const first = run(root, { mode: 'finalize', bin: toolBin(), env: { ...fixture.env, SHARD: '1/2' } });
+        assert.equal(first.status, 0, first.log);
+        assert.ok(first.outputs.checks.split(',').includes(name));
+        assert.deepEqual(fixture.record(), ['a:1', 'b:1']);
+      });
+
+      it('does not run while SPECKIT_TOOLING_TESTS is unset', () => {
+        const { root } = toolingRepository();
+        const result = run(root, { mode: 'task', changed: ['.github/scripts/speckit-x.mjs'], bin: toolBin() });
+        assert.ok(!result.outputs.checks.includes(name));
+      });
+    });
+
     describe('agents area coverage and regression', () => {
       const bypass = /--no-locked|--frozen|--upgrade|skip|ignore|disable|merge|unlock|bypass|weaken/i;
       const recommendations = (log) => log.split('\n').filter((line) => line.includes('Recommended action:'));
@@ -1143,10 +1263,12 @@ it('${id}', () => {
         writeFileSync(file, "import { it } from 'node:test';\nit('passes', () => {});\n");
         const root = fullRepository();
         project(root, 'src/agents/mcp', { name: 'mcp' });
-        const result = run(root, { bin: toolBin(), env: { ENVIRONMENT_TESTS: file } });
+        mkdirSync(path.join(root, '.github/scripts'), { recursive: true });
+        writeFileSync(path.join(root, '.github/scripts/speckit-a.test.mjs'), "import { it } from 'node:test';\nit('passes', () => {});\n");
+        const result = run(root, { bin: toolBin(), env: { ENVIRONMENT_TESTS: file, SPECKIT_TOOLING_TESTS: '.github/scripts' } });
         assert.equal(result.status, 0, result.log);
         assert.equal(result.outputs.checks, [
-          names.platform, names.manager, names.web, names.python, 'Agent Python projects', 'Environment action tests', names.markdown,
+          names.platform, names.manager, names.web, names.python, 'Agent Python projects', 'Environment action tests', 'Spec Kit tooling tests', names.markdown,
         ].join(','));
         assert.equal(result.outputs.uncovered, '');
       });
