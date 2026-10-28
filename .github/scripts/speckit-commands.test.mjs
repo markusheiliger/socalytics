@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, PR_COMMANDS, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, PR_COMMANDS, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
 import {
   COMMAND_DOCS_END,
   COMMAND_DOCS_FILE,
@@ -239,6 +239,11 @@ test('restarts that leave a stopped implementation unchanged are refused, unless
   // New commits on the base branch do not change the current phase's retry guard.
   github.repo.branches.main = 'sha-main-2';
   assert.equal((await run(github, '/speckit retry Again')).outcome, 'refused');
+
+  // A blocked implementation whose attention label only asks for a blocker's /speckit implement is not stopped.
+  pull.labels = [{ name: ATTENTION_LABEL }, { name: BLOCKED_LABEL }];
+  assert.notEqual((await run(github, '/speckit retry While blocked')).outcome, 'refused');
+  stop();
 
   // The person insists: --force restarts, and is not part of the guidance, even with trailing punctuation.
   assert.equal((await run(github, '/speckit retry --force The registry outage is over')).outcome, 'retried');

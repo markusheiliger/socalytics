@@ -407,17 +407,23 @@ const names = (section) => [...section.matchAll(/^ {2}([a-z-]+):$/gm)].map((matc
 
 describe('environment-setup action integration', () => {
   const installerStep = steps.find((step) => step.block.includes('install-analyst-media.sh'));
+  const finishStep = steps.find((step) => step.name === 'Install the Analyst Python and media toolchain');
 
   it('installs the toolchain only when install-tools is true', () => {
     assert.ok(installerStep, 'the installer step exists');
+    assert.equal(installerStep.name, 'Start the Analyst Python and media toolchain install');
     assert.equal(installerStep.condition, "inputs.install-tools == 'true'");
+    assert.equal(finishStep.condition, "inputs.install-tools == 'true'");
     assert.equal(steps.filter((step) => step.block.includes('install-analyst-media.sh')).length, 1);
     assert.match(installerStep.block, /shell: bash/);
-    assert.match(installerStep.block, /run: bash "\$GITHUB_ACTION_PATH\/install-analyst-media\.sh"/);
+    assert.match(installerStep.block, /INSTALLER="\$GITHUB_ACTION_PATH\/install-analyst-media\.sh" setsid bash -c/);
   });
 
-  it('runs the installer after the existing tool setup and publishes no new action output', () => {
-    assert.equal(steps.at(-2), installerStep);
+  it('starts the installer before the other tool installs, waits before CV installation, and publishes no new action output', () => {
+    assert.equal(steps.indexOf(installerStep), steps.findIndex((step) => step.name === 'Report dependency cache restores') + 1);
+    const cvStep = steps.find((step) => step.block.includes('install-analyst-cv.sh'));
+    assert.equal(steps.indexOf(finishStep) + 1, steps.indexOf(cvStep));
+    assert.equal(steps.at(-1), cvStep);
     const outputs = header.slice(header.indexOf('\noutputs:'));
     assert.deepEqual(names(outputs), [
       'nuget-key', 'npm-key', 'nuget-path', 'npm-path', 'nuget-hit', 'npm-hit', 'npm-tools', 'kiota-version',
@@ -439,6 +445,7 @@ describe('environment-setup action integration', () => {
       'Restore NuGet downloads',
       'Restore npm downloads',
       'Report dependency cache restores',
+      'Start the Analyst Python and media toolchain install',
       'Install the Markdown linters',
       'Install the SoftHSM2 PKCS#11 token',
       'Install the Kiota client generator',
@@ -447,10 +454,53 @@ describe('environment-setup action integration', () => {
       'Install the Analyst computer-vision libraries',
     ];
     assert.deepEqual(steps.map((step) => step.name), expected);
-    for (const step of steps.filter((candidate) => candidate.name.startsWith('Install '))) {
+    for (const step of steps.filter((candidate) => /^(Install|Start) /.test(candidate.name))) {
       assert.equal(step.condition, "inputs.install-tools == 'true'", step.name);
     }
     assert.match(steps.find((step) => step.name === 'Restore NuGet downloads').block, /actions\/cache\/restore@/);
+  });
+
+  // Runs the start and the finish step with a fake installer in place of install-analyst-media.sh.
+  function runInstallSteps(installer, { start = true } = {}) {
+    const directory = scratch();
+    const actionPath = path.join(directory, 'action');
+    mkdirSync(actionPath);
+    writeFileSync(path.join(actionPath, 'install-analyst-media.sh'), installer);
+    const runner = path.join(directory, 'runner');
+    mkdirSync(runner);
+    const files = { path: path.join(directory, 'github-path'), env: path.join(directory, 'github-env') };
+    writeFileSync(files.path, '');
+    writeFileSync(files.env, '');
+    const body = (step) => step.block.split('      run: |\n')[1].split('\n').map((line) => line.slice(8)).join('\n');
+    const env = { ...process.env, RUNNER_TEMP: runner, GITHUB_ACTION_PATH: actionPath, GITHUB_PATH: files.path, GITHUB_ENV: files.env };
+    const started = Date.now();
+    if (start) assert.equal(spawnSync('bash', ['-c', body(installerStep)], { env, encoding: 'utf8' }).status, 0);
+    const startMs = Date.now() - started;
+    const finished = spawnSync('bash', ['-c', body(finishStep)], { env, encoding: 'utf8' });
+    return { startMs, finished, path: readFileSync(files.path, 'utf8'), env: readFileSync(files.env, 'utf8') };
+  }
+
+  it('returns from the start step at once and publishes the installer\'s path and environment when it finishes', () => {
+    const result = runInstallSteps('sleep 2\necho "installed"\necho /opt/tools/bin >> "$GITHUB_PATH"\necho SOCALYTICS_PYTHON=/opt/tools/python >> "$GITHUB_ENV"\n');
+    assert.ok(result.startMs < 1500, `the start step took ${result.startMs} ms`);
+    assert.equal(result.finished.status, 0, result.finished.stdout + result.finished.stderr);
+    assert.match(result.finished.stdout, /Waited \d+ s for the background install\.\ninstalled/);
+    assert.equal(result.path, '/opt/tools/bin\n');
+    assert.equal(result.env, 'SOCALYTICS_PYTHON=/opt/tools/python\n');
+  });
+
+  it('fails with the installer\'s exit code and log, and publishes nothing', () => {
+    const result = runInstallSteps('echo /opt/tools/bin >> "$GITHUB_PATH"\necho "ERROR: Analyst media toolchain: tool=uv stage=integrity: mismatch" >&2\nexit 7\n');
+    assert.equal(result.finished.status, 7);
+    assert.match(result.finished.stdout, /stage=integrity: mismatch/);
+    assert.equal(result.path, '');
+    assert.equal(result.env, '');
+  });
+
+  it('fails when the install was never started', () => {
+    const result = runInstallSteps('exit 0\n', { start: false });
+    assert.equal(result.finished.status, 1);
+    assert.match(result.finished.stdout, /stage=start: the background install was not started/);
   });
 
   it('never consults future project files', () => {
@@ -467,20 +517,20 @@ describe('environment-setup action integration', () => {
 
 describe('environment-setup computer-vision step integration', () => {
   const cvSteps = steps.filter((step) => step.block.includes('install-analyst-cv.sh'));
+  const toolchainStep = steps.find((step) => step.name === 'Install the Analyst Python and media toolchain');
 
-  it('runs one gated step directly after the toolchain step', () => {
+  it('runs one gated step directly after the toolchain completes', () => {
     assert.equal(cvSteps.length, 1);
     const [cvStep] = cvSteps;
     assert.equal(cvStep.name, 'Install the Analyst computer-vision libraries');
     assert.equal(cvStep.condition, "inputs.install-tools == 'true'");
     assert.match(cvStep.block, /shell: bash/);
     assert.match(cvStep.block, /run: bash "\$GITHUB_ACTION_PATH\/install-analyst-cv\.sh"/);
-    const toolchainIndex = steps.findIndex((step) => step.block.includes('install-analyst-media.sh'));
-    assert.equal(steps[toolchainIndex + 1], cvStep);
+    assert.equal(steps[steps.indexOf(toolchainStep) + 1], cvStep);
   });
 
   it('downloads nothing in tools-disabled mode', () => {
-    const installing = steps.filter((step) => /install-analyst-|npm install|apt-get|dotnet tool|playwright/.test(step.block));
+    const installing = steps.filter((step) => /^(Install|Start) /.test(step.name));
     assert.ok(installing.includes(cvSteps[0]));
     for (const step of installing) {
       assert.equal(step.condition, "inputs.install-tools == 'true'", step.name);

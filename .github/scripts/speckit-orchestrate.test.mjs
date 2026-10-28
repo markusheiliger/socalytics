@@ -658,6 +658,35 @@ test('a blocker closed as not planned lifts the block and asks for a person inst
   }
 });
 
+test('a blocked implementation holds its slot, so a new spec waits instead of starting at SPECKIT_MAX_ACTIVE_SPECS', async () => {
+  const tasks = '## Phase 1\n\n- [ ] T001 one\n';
+  const root = makeRepo([{ folder: 'a', plan: true, tasks }, { folder: 'b', plan: true, tasks }, { folder: 'c', plan: true, tasks }]);
+  try {
+    const github = new FakeGitHub();
+    await runSync({ client: github, rootDir: root, env: envFor(root), dryRun: false, promptFile: path.join(root, 'prompt.txt'), log: silent });
+    const [a, b, c] = github.issues;
+    for (const issue of github.issues) issue.labels = issue.labels.filter((label) => label.name !== 'speckit:deps-pending');
+    github.permissions.dev = 'write';
+    flag(github, a);
+    await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    assert.equal(chainRuns(github).length, 1);
+    github.completeRun(github.repo.runs.at(-1).id, 'success');
+    // a now waits for c, which nobody requested: it is blocked and has no running chain.
+    github.edges.push([a.number, c.number]);
+    flag(github, b);
+    const waiting = await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    assert.ok(github.repo.pulls.find((pull) => pull.head.ref === 'speckit/a').labels.some((label) => label.name === BLOCKED_LABEL));
+    assert.match(waiting.text, new RegExp(`Waiting: #${b.number} \`b\` starts when fewer than 1 implementations are active`));
+    assert.equal(github.repo.pulls.some((pull) => pull.head.ref === 'speckit/b'), false, 'the new spec did not start');
+    // Without the dependency the block is lifted, a runs again, and b still waits for the slot.
+    github.edges.splice(github.edges.findIndex(([from, to]) => from === a.number && to === c.number), 1);
+    await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    assert.equal(github.repo.pulls.some((pull) => pull.head.ref === 'speckit/b'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('an unrequested blocker of a running implementation never starts; once requested with /speckit implement it starts first at SPECKIT_MAX_ACTIVE_SPECS', async () => {
   const tasks = '## Phase 1\n\n- [ ] T001 one\n';
   const root = makeRepo([{ folder: 'a', plan: true, tasks }, { folder: 'b', plan: true, tasks }]);

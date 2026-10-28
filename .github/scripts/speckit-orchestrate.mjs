@@ -214,7 +214,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       }
       // Prerequisites: a spec authored by `/speckit author` holds the implementation until the twin depends on it;
       // open dependencies of the twin block it, and once none is open, the implementation retries.
-      const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
+      const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number, rootDir }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
       inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active, blocked: isBlocked, blockers });
@@ -237,7 +237,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
     if (openBlocking.length > 0) blocked.push({ number: issue.number, folder, blockers: openBlocking });
     else ready.push({ number: issue.number, folder, requester: requester.login, reset: lifecycle.reset, prerequisite: false });
   }
-  const unblocked = await sweepBlocked(client, env, { handled: new Set(inProgress.map((twin) => twin.pull)), now: now(), notes: amendmentNotes });
+  const unblocked = await sweepBlocked(client, env, { handled: new Set(inProgress.map((twin) => twin.pull)), now: now(), notes: amendmentNotes, rootDir });
   amendmentActions += unblocked;
   amendmentActions += await maintainIndependentSpecs(client, env, { now: now(), report: (line) => amendmentNotes.push(line) });
   // Requested prerequisites of running implementations first, however the dependency came about: each unblocks an
@@ -278,11 +278,11 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
 
 // Maintains what holds an open implementation pull request: the spec `/speckit author` authored for it (maintainFixSpec)
 // and the open dependencies of its twin (maintainDependencyBlock). Returns whether it is blocked and by which twins.
-async function maintainBlock(client, env, { implementation, twin }, { now, notes, count }) {
+async function maintainBlock(client, env, { implementation, twin, rootDir = null }, { now, notes, count }) {
   const report = (line) => notes.push(line);
   let hold = false;
   try {
-    const fix = await maintainFixSpec(client, env, { implementation, twin }, { now, report });
+    const fix = await maintainFixSpec(client, env, { implementation, twin, rootDir }, { now, report });
     if (['rework', 'checking', 'linked'].includes(fix.outcome)) count();
     hold = fix.blocked === true;
   } catch (error) {
@@ -301,7 +301,7 @@ async function maintainBlock(client, env, { implementation, twin }, { now, notes
 // Every open implementation pull request labelled BLOCKED_LABEL that the twin loop did not handle (for example because
 // its twin is inconsistent) is maintained as well, so an implemented prerequisite always lifts the block and retries
 // it. Returns the number of actions taken.
-async function sweepBlocked(client, env, { handled, now, notes }) {
+async function sweepBlocked(client, env, { handled, now, notes, rootDir = null }) {
   let actions = 0;
   let pulls;
   try {
@@ -316,7 +316,7 @@ async function sweepBlocked(client, env, { handled, now, notes }) {
     if (!(pull.labels ?? []).some((label) => (typeof label === 'string' ? label : label.name) === BLOCKED_LABEL)) continue;
     const twin = Number(String(pull.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
     if (!twin) continue;
-    const result = await maintainBlock(client, env, { implementation: pull, twin }, { now, notes, count: () => { actions += 1; } });
+    const result = await maintainBlock(client, env, { implementation: pull, twin, rootDir }, { now, notes, count: () => { actions += 1; } });
     if (!result.blocked) notes.push(`- Lifted the block of #${pull.number} (${result.outcome}).`);
   }
   return actions;
@@ -409,9 +409,11 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
   report.line();
   let actions = selection.amendmentActions ?? 0;
   const maxActive = parseMaxActiveSpecs(env.SPECKIT_MAX_ACTIVE_SPECS);
-  // A blocked implementation is not continued: it waits for its prerequisites and retries once they are implemented.
+  // A blocked implementation is not continued: it waits for its prerequisites and retries once they are implemented. It
+  // still holds its slot, so the scheduler starts the prerequisites that unblock it (they start even at the limit)
+  // instead of new specs that would most likely run into the same problems.
   const continues = (twin) => !twin.active && !twin.blocked && needsRun(twin.decision, env);
-  let active = selection.inProgress.filter((twin) => twin.active || continues(twin)).length;
+  let active = selection.inProgress.filter((twin) => twin.active || twin.blocked || continues(twin)).length;
   for (const twin of selection.inProgress) {
     if (!continues(twin)) continue;
     await dispatchImplementation(client, env, { twin: twin.number, pull: twin.pull });

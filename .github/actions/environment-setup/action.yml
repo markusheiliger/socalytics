@@ -98,6 +98,24 @@ runs:
           done
         } >> "$GITHUB_STEP_SUMMARY"
 
+    # Starts the Analyst Python and media toolchain install (the slowest download, about 20 s) in the background, so it
+    # overlaps the apt and npm installs below. The last step waits for it, prints its log, fails with its exit code, and
+    # publishes what it would have written to GITHUB_PATH and GITHUB_ENV, which a background process cannot write.
+    - name: Start the Analyst Python and media toolchain install
+      if: inputs.install-tools == 'true'
+      shell: bash
+      run: |
+        state="$RUNNER_TEMP/analyst-media-install"
+        rm -rf "$state"
+        mkdir -p "$state"
+        : > "$state/path"
+        : > "$state/env"
+        STATE="$state" INSTALLER="$GITHUB_ACTION_PATH/install-analyst-media.sh" setsid bash -c '
+          GITHUB_PATH="$STATE/path" GITHUB_ENV="$STATE/env" bash "$INSTALLER" > "$STATE/log" 2>&1
+          echo "$?" > "$STATE/status.tmp" && mv "$STATE/status.tmp" "$STATE/status"
+        ' > /dev/null 2>&1 < /dev/null &
+        echo "Started the toolchain install in the background; the step 'Install the Analyst Python and media toolchain' waits for it."
+
     - name: Install the Markdown linters
       if: inputs.install-tools == 'true'
       shell: bash
@@ -127,11 +145,36 @@ runs:
 
     # Installs the exact CPython, uv, and FFmpeg/ffprobe from analyst-media-toolchain.json, independent of any Python
     # project. Each archive is verified against its committed SHA-256 digest; the verified directories reach later steps
-    # through GITHUB_PATH, and SOCALYTICS_PYTHON through GITHUB_ENV.
+    # through GITHUB_PATH, and SOCALYTICS_PYTHON through GITHUB_ENV. The install runs in the background since the step
+    # 'Start the Analyst Python and media toolchain install'; this step waits for it (at most 20 minutes) and fails when
+    # it failed or did not start.
     - name: Install the Analyst Python and media toolchain
       if: inputs.install-tools == 'true'
       shell: bash
-      run: bash "$GITHUB_ACTION_PATH/install-analyst-media.sh"
+      run: |
+        state="$RUNNER_TEMP/analyst-media-install"
+        if [ ! -d "$state" ]; then
+          echo "ERROR: Analyst media toolchain: tool=toolchain stage=start: the background install was not started"
+          echo "Recommended action: run the step 'Start the Analyst Python and media toolchain install' before this step."
+          exit 1
+        fi
+        waited=0
+        while [ ! -f "$state/status" ]; do
+          if [ "$waited" -ge 1200 ]; then
+            cat "$state/log" 2> /dev/null
+            echo "ERROR: Analyst media toolchain: tool=toolchain stage=timeout: the install did not finish within 20 minutes"
+            echo "Recommended action: inspect the log above for the stalled download or check, and rerun setup."
+            exit 1
+          fi
+          sleep 1
+          waited=$((waited + 1))
+        done
+        echo "Waited ${waited} s for the background install."
+        cat "$state/log"
+        result="$(cat "$state/status")"
+        [ "$result" = 0 ] || exit "$result"
+        cat "$state/path" >> "$GITHUB_PATH"
+        cat "$state/env" >> "$GITHUB_ENV"
 
     - name: Install the Analyst computer-vision libraries
       if: inputs.install-tools == 'true'

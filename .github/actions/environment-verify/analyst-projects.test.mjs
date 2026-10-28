@@ -413,6 +413,7 @@ exit 0
         PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME,
         WORKSPACE: root, MODE: mode, CHANGED_FILES: files.changed, LOG_FILE: files.log,
         MARKDOWN_CHECK: markdownStub, ANALYST_PROJECTS: helper, GITHUB_ACTION_PATH: here,
+        VERIFICATION_PLAN: path.join(here, 'verification-plan.mjs'),
         GITHUB_STEP_SUMMARY: files.summary, GITHUB_OUTPUT: files.output, UV_CALLS: files.calls,
         ...(withPython ? { SOCALYTICS_PYTHON: python } : {}), ...env,
       },
@@ -554,8 +555,12 @@ exit 0
       'src/platform/Tests/SocAlytics.Platform.Architecture.Tests/SocAlytics.Platform.Architecture.Tests.csproj',
       'src/platform/Tests/SocAlytics.Platform.Integration.Tests/SocAlytics.Platform.Integration.Tests.csproj',
     ];
+    // Components run from their own folder, so their commands name paths relative to it.
+    const inPlatform = (file) => file.replace(/^src\/platform\//, '');
     const managerSolution = 'src/analysts/manager/SocAlytics.Analysts.Manager.slnx';
     const managerTest = 'src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/SocAlytics.Analysts.Manager.Tests.csproj';
+    // The repository's own verification declarations, so the fixtures keep the real triggers, coverage, and pins.
+    const declaration = (root) => readFileSync(path.join(here, '..', '..', '..', root, 'verification.json'), 'utf8');
 
     // Stubs for every external command the checks run, so no database, package index, or runner is contacted.
     function toolBin() {
@@ -584,15 +589,18 @@ exit 0
         touch(root, platformSolution);
         for (const test of platformTests) touch(root, test);
         touch(root, 'src/platform/global.json', '{"sdk":{"version":"10.0.100"}}');
+        touch(root, 'src/platform/verification.json', declaration('src/platform'));
       }
       if (manager) {
         touch(root, managerSolution);
         touch(root, managerTest);
         touch(root, 'src/analysts/manager/global.json', '{"sdk":{"version":"10.0.100"}}');
+        touch(root, 'src/analysts/manager/verification.json', declaration('src/analysts/manager'));
       }
       if (web) {
-        touch(root, 'src/clients/web/package.json', '{}');
+        touch(root, 'src/clients/web/package.json', '{"scripts":{"build":"b","test":"t","test:e2e":"e"},"devDependencies":{"@playwright/test":"1.63.0"}}');
         touch(root, 'src/clients/web/node_modules/@playwright/test/package.json', '{"version":"1.63.0"}');
+        touch(root, 'src/clients/web/verification.json', declaration('src/clients/web'));
       }
       if (python) project(root, sdkRoot, { name: 'sdk' });
       return root;
@@ -615,9 +623,9 @@ exit 0
       assert.equal(result.status, 0, result.log);
       assert.equal(result.outputs.checks, Object.values(names).join(','));
       assert.deepEqual(commands(result, 'dotnet'), [
-        `restore ${platformSolution}`,
-        `build ${platformSolution} --no-restore`,
-        ...platformTests.map((test) => `test ${test} --no-build`),
+        'restore SocAlytics.Platform.slnx',
+        'build SocAlytics.Platform.slnx --no-restore',
+        ...platformTests.map((test) => `test ${inPlatform(test)} --no-build`),
         'restore SocAlytics.Analysts.Manager.slnx',
         'build SocAlytics.Analysts.Manager.slnx --no-restore',
         `test ${managerTest.replace('src/analysts/manager/', '')} --no-build`,
@@ -644,10 +652,10 @@ exit 0
       const root = fullRepository();
       const bin = toolBin();
       const web = run(root, { mode: 'task', changed: ['src/clients/web/src/a.ts'], bin });
-      assert.equal(web.outputs.checks, names.web);
+      assert.equal(web.outputs.checks, names.web.replace('tests', 'affected tests'));
       assert.equal(web.outputs.uncovered, '');
       const api = run(root, { mode: 'task', changed: ['src/platform/SocAlytics.Platform.Api/a.cs'], bin });
-      assert.equal(api.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.web].join(','));
+      assert.equal(api.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.web.replace('tests', 'affected tests')].join(','));
       const fixtures = run(root, { mode: 'task', changed: ['contracts/analyst-manager/queue-depth/a.json'], bin });
       assert.equal(fixtures.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.manager.replace('tests', 'affected tests')].join(','));
       assert.equal(fixtures.outputs.uncovered, '');
@@ -724,7 +732,7 @@ exit 0
 `, { mode: 0o755 });
         return bin;
       }
-      const integration = platformTests[1];
+      const integration = inPlatform(platformTests[1]);
       const reruns = (result) => commands(result, 'dotnet').filter((command) => command.includes('--filter FullyQualifiedName='));
 
       it('reruns only the failed tests once, passes, and reports them as flaky', () => {
@@ -770,7 +778,7 @@ exit 0
         });
         assert.equal(result.status, 1);
         assert.equal(result.outputs.checks, names.platform);
-        assert.deepEqual(reruns(result), [`test ${platformTests[0]} --no-build --filter FullyQualifiedName=Ns.Database.Connects`]);
+        assert.deepEqual(reruns(result), [`test ${inPlatform(platformTests[0])} --no-build --filter FullyQualifiedName=Ns.Database.Connects`]);
         assert.ok(commands(result, 'dotnet').includes(`test ${integration} --no-build`));
         assert.match(result.log, /rerun failure/);
         assert.equal(result.outputs.flaky, '');
