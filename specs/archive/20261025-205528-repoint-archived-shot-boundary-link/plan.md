@@ -6,7 +6,7 @@
 
 ## Summary
 
-The Dependencies entry (line 83) of `specs/20261025-003459-deterministic-agent-workload-test/spec.md` links the Shot Boundary Analyst spec at its pre-archive location. The spec now lives in `specs/archive/20261023-022148-shot-boundary-analyst/`, so `node .github/scripts/check-markdown.mjs` reports one dead link and fails whole-repository verification of every implementation. The approach is a one-line edit that adds `archive/` to that link target, applied directly; the archive tooling's reference rewrite at the merge MAY also rewrite the plain-text mentions on lines 9 and 11. See [research.md](research.md).
+The Dependencies entry (line 83) of `specs/archive/20261025-003459-deterministic-agent-workload-test/spec.md` links the Shot Boundary Analyst spec at its pre-archive location. The spec now lives in `specs/archive/20261023-022148-shot-boundary-analyst/`, so `node .github/scripts/check-markdown.mjs` reports one dead link and fails whole-repository verification of every implementation. The approach is a one-line edit that adds `archive/` to that link target, applied directly; the archive tooling's reference rewrite at the merge MAY also rewrite the plain-text mentions on lines 9 and 11. See [research.md](research.md).
 
 ## Technical Context
 

@@ -1,6 +1,6 @@
 # Tasks: Deterministic Simulated Agent Workload Invocation Test
 
-**Input**: Design documents from `/specs/20261025-003459-deterministic-agent-workload-test/`
+**Input**: Design documents from `/specs/archive/20261025-003459-deterministic-agent-workload-test/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, quickstart.md
 
