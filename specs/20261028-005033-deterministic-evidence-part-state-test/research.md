@@ -1,6 +1,6 @@
 # Research: Deterministic Evidence Part State Test
 
-All Technical Context items are resolved. The cause is not adopted as fact here: FR-001 requires it to be established with evidence during implementation and recorded in the Evidence section below.
+All Technical Context items are resolved. The cause is not adopted as fact here: FR-001 requires it to be established with evidence during implementation and recorded in the evidence record `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md` (an implementation agent may not change anything under `specs/`, so the record lives next to the evidence tests, one section per task).
 
 ## Code facts
 
@@ -20,7 +20,7 @@ All Technical Context items are resolved. The cause is not adopted as fact here:
 | 4 | State shared with other tests (database, object key prefix, working directory) | Failures only when another test runs in parallel | Scenario isolation (each scenario already has its own database, key prefix, and working directory) |
 | 5 | An external dependency: RustFS availability or the `ffmpeg` toolchain under load (`ExecutionTimeout` 1 minute) | The explicit materialization outcome is `failed` or times out | Where the logs place it |
 
-The established cause is recorded in the Evidence section of this file and in the code comment next to the fix (FR-001).
+The established cause is recorded in `PartStateEvidence.md` and in the code comment next to the fix (FR-001).
 
 ## Decision
 
@@ -36,4 +36,4 @@ The established cause is recorded in the Evidence section of this file and in th
 
 ## Evidence
 
-To be recorded by the implementation (FR-001): the runs, the failure captures or probe results, and the confirmed cause.
+Recorded by the implementation (FR-001) in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md`: the runs, the failure captures or probe results, and the confirmed cause. This file keeps only the design and the procedure.

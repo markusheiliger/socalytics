@@ -53,7 +53,7 @@ specs/20261028-005033-deterministic-evidence-part-state-test/
 ├── quickstart.md
 ├── checklists/requirements.md
 ├── tasks.md             # Created by /speckit-tasks
-└── records/             # One file per measuring or confirming task (T001, T002, T007, T008, T010, T011), written during implementation
+└── (no records/ folder: the evidence record lives next to the evidence tests, see Source Code)
 ```
 
 No `contracts/` folder: the feature adds and changes no interface.
@@ -62,13 +62,14 @@ No `contracts/` folder: the feature adds and changes no interface.
 
 ```text
 src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/
+├── PartStateEvidence.md               # evidence record, one section per measuring or confirming task (new)
 ├── Support/EvidenceScenario.cs        # expected home of the fix: the scenario owns the workers
 └── EvidencePartStateTests.cs          # only if the evidence points at the test's own steps
 src/platform/SocAlytics.Platform.Application/Segments/ and Infrastructure/Workers/
                                        # only if the evidence shows a platform defect (then with a focused test)
 ```
 
-**Structure Decision**: No new files in source areas; the task records under `records/` are part of this spec folder. The fix edits the file the evidenced cause lives in (decision procedure in [research.md](research.md)); a platform fix would add a focused test under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/`.
+**Structure Decision**: No new source files; the evidence record `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md` (one section per measuring or confirming task) is the one new file, because an implementation agent may not change anything under `specs/`. The fix edits the file the evidenced cause lives in (decision procedure in [research.md](research.md)); a platform fix would add a focused test under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/`.
 
 ## Architecture Updates
 
