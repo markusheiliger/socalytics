@@ -2,7 +2,7 @@
 
 **Branch**: `20261028-005033-deterministic-evidence-part-state-test` | **Date**: 2026-10-28 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261028-005033-deterministic-evidence-part-state-test/spec.md`
+**Input**: Feature specification from `/specs/archive/20261028-005033-deterministic-evidence-part-state-test/spec.md`
 
 ## Summary
 
@@ -46,13 +46,14 @@ Post-design re-check: unchanged; all gates pass; no Complexity Tracking entry.
 ### Documentation (this feature)
 
 ```text
-specs/20261028-005033-deterministic-evidence-part-state-test/
+specs/archive/20261028-005033-deterministic-evidence-part-state-test/
 ├── plan.md
 ├── research.md
 ├── data-model.md
 ├── quickstart.md
 ├── checklists/requirements.md
-└── tasks.md             # Created by /speckit-tasks
+├── tasks.md             # Created by /speckit-tasks
+└── (no records/ folder: the evidence record lives next to the evidence tests, see Source Code)
 ```
 
 No `contracts/` folder: the feature adds and changes no interface.
@@ -61,13 +62,14 @@ No `contracts/` folder: the feature adds and changes no interface.
 
 ```text
 src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/
+├── PartStateEvidence.md               # evidence record, one section per measuring or confirming task (new)
 ├── Support/EvidenceScenario.cs        # expected home of the fix: the scenario owns the workers
 └── EvidencePartStateTests.cs          # only if the evidence points at the test's own steps
 src/platform/SocAlytics.Platform.Application/Segments/ and Infrastructure/Workers/
                                        # only if the evidence shows a platform defect (then with a focused test)
 ```
 
-**Structure Decision**: No new files in source areas. The fix edits the file the evidenced cause lives in (decision procedure in [research.md](research.md)); a platform fix would add a focused test under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/`.
+**Structure Decision**: No new source files; the evidence record `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md` (one section per measuring or confirming task) is the one new file, because an implementation agent may not change anything under `specs/`. The fix edits the file the evidenced cause lives in (decision procedure in [research.md](research.md)); a platform fix would add a focused test under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/`.
 
 ## Architecture Updates
 

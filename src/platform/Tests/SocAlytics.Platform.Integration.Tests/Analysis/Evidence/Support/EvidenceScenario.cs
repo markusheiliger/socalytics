@@ -212,6 +212,10 @@ internal sealed class EvidenceScenario : IAsyncDisposable
 			.AddJsonFile(Path.Combine(dir.FullName, "src", "platform", "SocAlytics.Platform.Api", "appsettings.Development.json"))
 			.Build();
 		var values = configuration.GetSection("Analysis").AsEnumerable(true).ToDictionary(p => "Analysis:" + p.Key, p => p.Value);
+		// The default-on SegmentMaterializationWorker can claim a demanded row before the test's explicit
+		// MaterializeSegmentsAsync call, which then finds nothing due and leaves the part materializing.
+		// Callers can still override this through extraSettings.
+		values["Analysis:Workers:Enabled"] = "false";
 		values["Analysis:DefaultWorkflow:Nodes:0:VideoPolicy"] = "required";
 		values["Analysis:DefaultWorkflow:SegmentationPolicy:DurationSeconds"] = PolicySeconds.ToString();
 		values["Segments:Toolchain:FfmpegPath"] = SyntheticMedia.FfmpegPath;

@@ -93,6 +93,19 @@ workflow started you): never ask, and turn every open question into a report que
    a test that races or fails after the merge is fixed by waiting for the right condition, not by changing what it
    expects. It is `outside` only when the base branch fails on its own.
 
+   A task that is correctly done without a file change is not an artifact defect. A task that only verifies (runs
+   tests, validates a quickstart) or applies only under a condition that does not hold may complete without a change:
+   its agent claims it in `completion.json`, a separate read-only agent assesses the claim (`assessment.json`, both in
+   the run folder of the collected result), and the trusted runner of the work job executes what a verification task
+   requires. Never amend such a task only to give it a file to write (for example a decision record nobody asked for).
+   When it stopped with "the agent made no changes" or "the task names no verifiable file" and its agent did not
+   claim a completion, recommend `/speckit retry` with guidance that names the outcome (`verified` or
+   `not-applicable`) and the lines that show it. When the assessment rejected the claim, follow its reasons: an
+   unsupported verification requirement (a probe, a load condition, a tool the trusted runner lacks) is `outside` or
+   a `decision`, not a reason to invent a file change; a task that really requires a change but was claimed as
+   complete is `retry` with guidance to make the change. Classify it as `artifacts` only when the task itself is
+   ambiguous or contradictory about whether a change is required.
+
 5. **Amend (only for `artifacts`).**
    - Edit the highest wrong artifact first, then carry the change down: `spec.md` (only with a person's answer) →
      `plan.md` (including risks and the documentation of decisions), `research.md`, `data-model.md`, `contracts/`,
