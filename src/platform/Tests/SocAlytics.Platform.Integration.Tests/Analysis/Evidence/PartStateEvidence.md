@@ -37,3 +37,16 @@ Failure capture (load run 1):
 - The signature is the one the plan expects from the default-on background worker: the purged segment's row is not yet `available` after the explicit materialization (a claimed or leased row finds nothing due for the explicit call).
 - The target test passed in all 25 runs (20 alone and 5 under load), so its own failure was not reproduced by these runs.
 - The test output carries no segment rows (state, lease owner, demanded), no `MaterializeSegmentsAsync` outcomes, and no `Factory.Logs`, and the failing run's containers are disposed, so those three captures are not available for this failure. The T003 probe measures the worker's effect directly.
+
+## T003
+
+Temporary probe `Probe_worker_iteration_between_resolution_steps` in `EvidencePartStateTests.cs` (removed by T004): 4 variants of 10 scenarios each, never-materialized scenario with `Segments:Materialization:PollInterval` 50 ms.
+
+| Variant | Worker iteration | Runs that would fail the test |
+| --- | --- | --- |
+| `worker-after-first-resolution` | real worker enabled (`Analysis:Workers:Enabled=true`) | 10/10 |
+| `worker-after-count` | real worker enabled | 10/10 |
+| `explicit-after-first-resolution` | `MaterializeSegmentHandler.ProcessDueAsync` from a second scope, workers off | 0/10 |
+| `explicit-after-count` | same, between the count and `MaterializeSegmentsAsync` | 0/10 |
+
+In every failing run the first resolution reported `materializing` and one demanded row, `MaterializeSegmentsAsync` processed 0 rows, the row was still `materializing` (claimed by the worker), and the second resolution read `materializing`: the expected signature. The explicit call completes synchronously, so it never reproduces the failure; only the real background worker does.
