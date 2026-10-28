@@ -213,6 +213,10 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 	// Verification: whole Integration.Tests project (MutableTimeProvider changed; classes run in parallel): 1944 passed, 1 skipped, 1 failed (FactPayloadPerformanceTests, a timing-budget test unrelated to the change: 2430 ms against a 2354 ms budget); it passed on rerun (2 of 2).
 	// Verification: widenings applied again on top of the fix (temporary wrapper around IMessageTransport, reverted): hold-publish (first publication throws transport-unavailable, the old test failed after 27 s) passed in 6 s; delay-topology (first publication delayed 4000 ms, runner running before the work message and its consumer) passed in 8 s; forced redelivery (every agent work message published a second time with another message id) passed in 4 s.
 	// Verification: shared state: the fixture is held with await using, so the runner and the NATS stream and consumer of a failed test are disposed; names are unique per fixture and the parallel full run showed no cross-test failure.
+	// Probes: wrong advice text (expected text with " PROBE" appended, temporary, reverted): the named test failed on the advice assertion (invocation.GetProperty("advice").GetString()) in 4 s.
+	// Probes: wrong pinned digest (expected digest with "PROBE" appended, temporary, reverted): the named test failed on the digest assertion (pin.GetProperty("digest").GetString()) in 4 s.
+	// Probes: missing pinned artifact kind (expected kinds without "safety-policy", temporary, reverted): the named test failed on the artifact kinds assertion (pin.GetProperty("artifacts")...ShouldBe) in 4 s.
+	// Probes: every probe was removed afterwards and git diff shows no probe.
 	[Fact]
 	public async Task TheSimulatedAgentWorkloadCompletesAnInvocationOfTheSeededVersionWithItsPinnedReferences()
 	{
