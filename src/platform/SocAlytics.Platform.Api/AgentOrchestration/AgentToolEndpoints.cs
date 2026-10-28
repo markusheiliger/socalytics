@@ -35,6 +35,13 @@ internal static partial class AgentToolEndpoints
 
 		MapTool(group, GetMatchToolHandler.ToolId, GetMatchAsync);
 		MapTool(group, GetVideoClipTool.ToolId, GetVideoClipAsync);
+		foreach (var entry in AgentToolAllowlist.Entries.Where(e => e.Answers == AgentToolAnswerKind.AnalysisUnavailable))
+		{
+			var toolId = entry.ToolId;
+			MapTool(group, toolId, (attemptId, http, cancellationToken) =>
+				UnavailableAnalysisAsync(toolId, attemptId, http, cancellationToken));
+		}
+
 		return routes;
 	}
 
@@ -107,6 +114,30 @@ internal static partial class AgentToolEndpoints
 		return result.IsSuccess
 			? Json(new AgentToolResponseDto(call.CallId, GetVideoClipTool.ToolId, "answered", result.Value.Result))
 			: AgentWorkloadEndpoints.Failure(result.Failure);
+	}
+
+	private static async Task<IResult> UnavailableAnalysisAsync(
+		string toolId, Guid attemptId, HttpContext http, CancellationToken cancellationToken)
+	{
+		var handler = http.RequestServices.GetRequiredService<UnavailableAnalysisToolHandler>();
+		var parsed = await ReadCallAsync(http, cancellationToken);
+		if (parsed.Failure is not null)
+		{
+			return parsed.Failure;
+		}
+
+		var call = parsed.Call!;
+		var result = await handler.HandleAsync(
+			new UnavailableAnalysisToolCommand(attemptId, call.ClientId, call.FencingToken, toolId, call.CallId, call.Arguments),
+			cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return AgentWorkloadEndpoints.Failure(result.Failure);
+		}
+
+		var answer = result.Value;
+		return Json(new AgentToolResponseDto(
+			call.CallId, toolId, ToolCallNames.ToWireName(answer.Outcome), answer.Result));
 	}
 
 	private static IResult Answer(string callId, string toolId, ToolCallAnswer answer)

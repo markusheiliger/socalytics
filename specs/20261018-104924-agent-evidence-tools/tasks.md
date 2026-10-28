@@ -110,7 +110,7 @@ description: "Task list for Agent Evidence Tools API"
 
 ### Endpoints for User Story 3
 
-- [ ] T023 [US3] Map the nine operations `agentToolGetPlayerStats`, `agentToolFindCounterAttacks`, `agentToolFindTurnovers`, `agentToolGetHeatmap`, `agentToolFindBallActions`, `agentToolFindSetPlays`, `agentToolGetFormations`, `agentToolFindPressingPhases`, and `agentToolGetTacticalPhases` in `src/platform/SocAlytics.Platform.Api/AgentOrchestration/AgentToolEndpoints.cs`, register `UnavailableAnalysisTool` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`, and refresh the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` as in T014 (FR-001–FR-003, FR-020)
+- [x] T023 [US3] Map the nine operations `agentToolGetPlayerStats`, `agentToolFindCounterAttacks`, `agentToolFindTurnovers`, `agentToolGetHeatmap`, `agentToolFindBallActions`, `agentToolFindSetPlays`, `agentToolGetFormations`, `agentToolFindPressingPhases`, and `agentToolGetTacticalPhases` in `src/platform/SocAlytics.Platform.Api/AgentOrchestration/AgentToolEndpoints.cs`, register `UnavailableAnalysisTool` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`, and refresh the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` as in T014 (FR-001–FR-003, FR-020)
 
 ### Simulated workload
 
