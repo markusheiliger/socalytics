@@ -2,19 +2,23 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.AgentOrchestration.Tools;
 using SocAlytics.Platform.Application.AgentOrchestration.Workloads;
 using SocAlytics.Platform.Application.Registry.QueueCredentials;
 using SocAlytics.Platform.Application.Telemetry;
 using SocAlytics.Platform.Domain.AgentOrchestration;
+using SocAlytics.Platform.Domain.AgentOrchestration.Tools;
 
 namespace SocAlytics.Platform.Application.AgentOrchestration.Execution;
 
-public sealed record AgentMonitorResult(int Expired, int Requeued, int Exhausted, int TokensDeleted, int ScopeLost = 0);
+public sealed record AgentMonitorResult(
+    int Expired, int Requeued, int Exhausted, int TokensDeleted, int ScopeLost = 0, int InterruptedCalls = 0);
 
 public sealed class MonitorAgentAttemptsHandler(
     IUnitOfWork unitOfWork,
     IAgentInvocationStore invocations,
     IAgentAttemptStore attempts,
+    IAgentToolCallStore toolCalls,
     IAgentWorkloadTokenStore tokens,
     IOutbox outbox,
     IContractValidator validator,
@@ -55,6 +59,7 @@ public sealed class MonitorAgentAttemptsHandler(
         }
 
         var scopeLost = await EnforceScopesAsync(cancellationToken);
+        var interrupted = await CloseInterruptedCallsAsync(cancellationToken);
 
         int deleted;
         await using (var scope = await unitOfWork.BeginAsync(cancellationToken))
@@ -68,7 +73,40 @@ public sealed class MonitorAgentAttemptsHandler(
             AgentOrchestrationMetrics.SetQueuedInvocations(await invocations.CountQueuedAsync(cancellationToken));
         }
 
-        return new AgentMonitorResult(expired, requeued, exhausted, deleted, scopeLost);
+        return new AgentMonitorResult(expired, requeued, exhausted, deleted, scopeLost, interrupted);
+    }
+
+    // Closes reservations whose process stopped before the lineage entry was written; an entry written meanwhile stands.
+    private async Task<int> CloseInterruptedCallsAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyList<AgentToolCallRecord> open;
+        await using (var read = await unitOfWork.BeginAsync(cancellationToken))
+        {
+            open = await toolCalls.ListWithoutLineageAsync(time.GetUtcNow(), BatchSize, cancellationToken);
+        }
+
+        var closed = 0;
+        foreach (var call in open)
+        {
+            await using var scope = await unitOfWork.BeginAsync(cancellationToken);
+            if (await invocations.LockAsync(call.InvocationId, cancellationToken) is null)
+            {
+                continue;
+            }
+
+            var entry = new ToolCallLineageEntry(
+                call.InvocationId, call.AttemptId, call.CallId, call.ToolId, ToolCallOutcome.Failed,
+                ToolCallReason.Interrupted, null, call.ArgumentsDigest, null, [], [], null, time.GetUtcNow());
+            if (await ToolCallLineage.AppendAsync(invocations, entry, cancellationToken) is not null)
+            {
+                AgentToolMetrics.CallRecorded(call.ToolId, ToolCallNames.ToWireName(ToolCallOutcome.Failed));
+                closed++;
+            }
+
+            await scope.CommitAsync(cancellationToken);
+        }
+
+        return closed;
     }
 
     // Fences every active attempt whose owner lost the execution scope, without any workload call.
