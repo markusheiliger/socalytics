@@ -80,3 +80,10 @@ None. The only task is T003.
 - **MVP**: US1 is the whole feature; deliver T003, then the convergence makes the repeated-run, load, and probe checks.
 - Probes are temporary and never remain in the final change.
 - If the probe of T003 shows a cause other than the colliding masked address, stop and amend the plan through the Spec Kit flow instead of widening the change.
+
+---
+
+## Phase 5: Convergence
+
+- [ ] T009 [US1] In `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/MemberInvitationSafetyTests.cs`, run the reproduction of `research.md` R1 that T003 skipped (a temporary probe that, after creating `audit-c` and before revoking it, calls `await h.DeliverAsync(ct)` once and reads the `invitation.issued` rows of `socalytics.security_audit_event` grouped by `resource_id`), remove the probe, and replace the comment line "The probe of the cause was not run; the cause is the one analysed in the spec's research R1." with the observed result (the third event belongs to the invitation of `audit-c` and carries the first invitee's masked address, or that the failure was not reproduced); change no assertion, the harness, or platform code per FR-001 (partial)
+- [ ] T010 [US1] Run the three probes of `quickstart.md` step 4 (a message of the first invitee prepared and audited by two overlapping delivery runs, a temporary edit in `EmailDeliveryProcessor.PrepareInvitationAsync` in `src/platform/SocAlytics.Platform.Infrastructure/Email/EmailDeliveryProcessor.cs` that skips the `InvitationAuditEvents.Issued` audit record for the first invitee, and one that adds the invitee's normalized address to that event's `Details`), confirm that each makes `AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded` fail on its unchanged assertions without hanging, report the results in the pull request, and revert every probe per SC-002 (missing)
