@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { runDir } from './speckit-flow.mjs';
-import { check, main, pending, result, revise, start, summarize } from './speckit-implement-flow.mjs';
+import { assess, check, main, pending, result, revise, start, summarize } from './speckit-implement-flow.mjs';
 import { toolingFingerprint } from './speckit-flow.mjs';
 import { defaultGit } from './speckit-orchestrate.mjs';
 
@@ -94,6 +94,107 @@ test('implement-task: check rejects other task changes and protected paths with 
     repo.write(TASKS, TASKS_TEXT.replace('Create the project', 'Create the whole project'));
     repo.write('.github/workflows/x.yml', 'name: x\n');
     assert.throws(() => check(context), (error) => /^The change cannot be accepted:\n- changed protected paths: \.github\/workflows\/x\.yml\n- `specs\/[\w-]+\/tasks\.md` may only change by checking T002$/.test(error.message));
+  } finally {
+    repo.cleanup();
+  }
+});
+
+// A claimed completion without a change (completion.json) and the independent assessment of it (assessment.json).
+const NOTE = 'docs/decision.md';
+const claimOf = (outcome = 'not-applicable', extra = {}) => ({ format: 1, task: 'T002', outcome, rationale: 'The greeting exists already.', ...extra });
+const acceptance = (extra = {}) => ({
+  format: 1,
+  task: 'T002',
+  verdict: 'accept',
+  outcome: 'not-applicable',
+  rationale: 'The task applies only without a greeting, and the decision records one.',
+  obligations: [{ text: 'Add the greeting if none exists', disposition: 'condition-false' }],
+  condition: { text: 'no greeting exists', evidence: [{ path: NOTE, lines: [3, 3], excerpt: 'A greeting exists.' }] },
+  ...extra,
+});
+const writeRun = (repo, run, file, value) => writeFileSync(path.join(runDir(repo.root, run), file), typeof value === 'string' ? value : JSON.stringify(value));
+
+function claimed(repo, { claim = claimOf(), id = 'run1' } = {}) {
+  repo.write(NOTE, '# Decision\n\nA greeting exists.\n');
+  repo.run('add', NOTE);
+  repo.run('commit', '--quiet', '-m', 'decision');
+  const context = begin(repo, { folder: FOLDER, task: 'T002', mode: 'unattended' }, id);
+  start({ ...context, workflow: 'implement-task' });
+  writeRun(repo, id, 'completion.json', claim);
+  return context;
+}
+
+test('implement-task: a completion without a change is claimed, assessed independently, and recorded in result.json', () => {
+  const repo = repository();
+  try {
+    const context = claimed(repo);
+    writeRun(repo, 'run1', 'assessment.json', acceptance({ rationale: 'written by the implementing agent' }));
+    const checked = check(context);
+    assert.equal(checked.claim, true);
+    assert.match(checked.summary, /changes no file and claims the task is not applicable \(an independent assessment checks the claim next\)/);
+    assert.equal(existsSync(path.join(runDir(repo.root, 'run1'), 'assessment.json')), false, 'only the assessment step may write the assessment');
+    writeRun(repo, 'run1', 'assessment.json', acceptance());
+    const assessed = assess(context);
+    assert.deepEqual(assessed, { task: 'T002', outcome: 'not-applicable', summary: 'accepted as not applicable: no greeting exists' });
+    const recorded = result(context).completion;
+    assert.equal(recorded.outcome, 'not-applicable');
+    assert.equal(recorded.head, repo.run('rev-parse', 'HEAD'));
+    assert.equal(recorded.taskDigest.length, 64);
+    assert.deepEqual(recorded.claim, claimOf());
+    assert.equal(recorded.assessment.condition.evidence[0].blob, repo.run('rev-parse', `HEAD:${NOTE}`));
+    assert.equal(result(context).changed, false);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('implement-task: the assessment step fails the run for a rejected, missing, tampered, or unbounded assessment', () => {
+  const cases = [
+    ['rejected', (repo) => writeRun(repo, 'run1', 'assessment.json', { format: 1, task: 'T002', verdict: 'reject', reasons: ['The task asks to add the greeting.'] }), /independent assessment rejected the completion of T002 without a change:\n- The task asks to add the greeting\./],
+    ['missing', () => {}, /did not write assessment\.json/],
+    ['unparsable', (repo) => writeRun(repo, 'run1', 'assessment.json', '{nope'), /assessment\.json is not valid JSON/],
+    ['still needs a change', (repo) => writeRun(repo, 'run1', 'assessment.json', acceptance({ obligations: [{ text: 'Add the greeting', disposition: 'change' }] })), /still requires a change: Add the greeting/],
+    ['assessor changed a file', (repo) => {
+      repo.write('src/app.txt', 'changed by the assessor\n');
+      writeRun(repo, 'run1', 'assessment.json', acceptance());
+    }, /the assessment changed the working tree/],
+    ['claim rewritten after the check', (repo) => {
+      writeRun(repo, 'run1', 'completion.json', claimOf('verified'));
+      writeRun(repo, 'run1', 'assessment.json', acceptance());
+    }, /completion\.json changed after the check/],
+  ];
+  for (const [name, act, reason] of cases) {
+    const repo = repository();
+    try {
+      const context = claimed(repo);
+      check(context);
+      act(repo);
+      assert.throws(() => assess(context), reason, name);
+      assert.equal(result(context).completion, undefined, `${name}: nothing is recorded`);
+    } finally {
+      repo.cleanup();
+    }
+  }
+});
+
+test('implement-task: check refuses an invalid claim, or a claim next to a change, and assess needs a claim', () => {
+  const repo = repository();
+  try {
+    const invalid = claimed(repo, { claim: claimOf('skipped', { evidence: [{ path: NOTE, lines: [3, 3], excerpt: 'No greeting.' }] }) });
+    assert.throws(() => check(invalid), /outcome must be one of verified, not-applicable/);
+    const unsupported = begin(repo, { folder: FOLDER, task: 'T002', mode: 'unattended' }, 'run2');
+    start({ ...unsupported, workflow: 'implement-task' });
+    writeRun(repo, 'run2', 'completion.json', claimOf('not-applicable', { evidence: [{ path: NOTE, lines: [3, 3], excerpt: 'No greeting.' }] }));
+    assert.throws(() => check(unsupported), /claim evidence 1: the excerpt does not appear in lines 3-3/);
+    const both = begin(repo, { folder: FOLDER, task: 'T002', mode: 'unattended' }, 'run3');
+    start({ ...both, workflow: 'implement-task' });
+    writeRun(repo, 'run3', 'completion.json', claimOf());
+    repo.write('src/app.txt', 'hello, world\n');
+    assert.throws(() => check(both), /changed files and also wrote completion\.json/);
+    const plain = begin(repo, { folder: FOLDER, task: 'T002', mode: 'unattended' }, 'run4');
+    start({ ...plain, workflow: 'implement-task' });
+    assert.equal(check(plain).claim, false);
+    assert.throws(() => assess(plain), /no completion claim to assess/);
   } finally {
     repo.cleanup();
   }

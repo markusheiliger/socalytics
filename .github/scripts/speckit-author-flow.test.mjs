@@ -25,6 +25,7 @@ import {
   questions,
   readState,
   ready,
+  renderProtectedTasks,
   result,
   revisedStage,
   runDir,
@@ -245,6 +246,29 @@ test('check: repairs a missing Architecture Updates section, a missing documenta
   withRepo({ ...specFiles({ [`specs/${FOLDER}/plan.md`]: PLAN_WITH_UPDATES, [`specs/${FOLDER}/tasks.md`]: `${TASKS}- [ ] T004 Update docs/architecture/analyst-manager.md\n` }), ...state }, (rootDir) => {
     assert.equal(check({ rootDir, run: RUN, after: 'tasks', git: fakeGit().git, strict: true }).repair, false);
   });
+});
+
+test('check: a spec whose tasks change repository tooling cannot be implemented and stops after /speckit-tasks', () => {
+  const state = stateFile({ folder: FOLDER });
+  const tooling = [
+    '## Phase 1',
+    '',
+    '- [ ] T001 In `src/platform/A.cs`, add the guard',
+    '- [ ] T002 In `.github/scripts/speckit-archive.mjs`, ignore archive reference rewrites',
+    '- [ ] T003 Run `node .github/scripts/check-markdown.mjs` and `node --test .github/scripts/speckit-archive.test.mjs`',
+    '- [ ] T004 In `.github/actions/environment-verify/action.yml`, skip `.specify/feature.json` and `.github/scripts/x.mjs`',
+    '',
+  ].join('\n');
+  withRepo({ ...specFiles({ [`specs/${FOLDER}/plan.md`]: PLAN, [`specs/${FOLDER}/tasks.md`]: tooling }), ...state }, (rootDir) => {
+    assert.throws(
+      () => check({ rootDir, run: RUN, after: 'tasks', git: fakeGit().git }),
+      (error) => /cannot be implemented by the Spec Kit automation/.test(error.message)
+        && /- T002: \.github\/scripts\/speckit-archive\.mjs/.test(error.message)
+        && !/T001|T003|T004/.test(error.message.replace(/T002/g, '')),
+      'only the task that targets tooling is named; commands, environment actions, and later mentions are not',
+    );
+  });
+  assert.equal(renderProtectedTasks(tooling.replace('- [ ] T002', '- [x] T002'), FOLDER), '', 'a checked task is no longer in the way');
 });
 
 test('environment: an unattended run stops when the plan needs new tooling, unless the spec is the environment spec', () => {

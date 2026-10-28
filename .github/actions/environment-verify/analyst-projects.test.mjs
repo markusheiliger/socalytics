@@ -412,7 +412,7 @@ exit 0
       env: {
         PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME,
         WORKSPACE: root, MODE: mode, CHANGED_FILES: files.changed, LOG_FILE: files.log,
-        MARKDOWN_CHECK: markdownStub, ANALYST_PROJECTS: helper,
+        MARKDOWN_CHECK: markdownStub, ANALYST_PROJECTS: helper, VERIFICATION_PLAN: path.join(here, 'verification-plan.mjs'),
         GITHUB_STEP_SUMMARY: files.summary, GITHUB_OUTPUT: files.output, UV_CALLS: files.calls,
         ...(withPython ? { SOCALYTICS_PYTHON: python } : {}), ...env,
       },
@@ -554,8 +554,12 @@ exit 0
       'src/platform/Tests/SocAlytics.Platform.Architecture.Tests/SocAlytics.Platform.Architecture.Tests.csproj',
       'src/platform/Tests/SocAlytics.Platform.Integration.Tests/SocAlytics.Platform.Integration.Tests.csproj',
     ];
+    // Components run from their own folder, so their commands name paths relative to it.
+    const inPlatform = (file) => file.replace(/^src\/platform\//, '');
     const managerSolution = 'src/analysts/manager/SocAlytics.Analysts.Manager.slnx';
     const managerTest = 'src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/SocAlytics.Analysts.Manager.Tests.csproj';
+    // The repository's own verification declarations, so the fixtures keep the real triggers, coverage, and pins.
+    const declaration = (root) => readFileSync(path.join(here, '..', '..', '..', root, 'verification.json'), 'utf8');
 
     // Stubs for every external command the checks run, so no database, package index, or runner is contacted.
     function toolBin() {
@@ -584,15 +588,18 @@ exit 0
         touch(root, platformSolution);
         for (const test of platformTests) touch(root, test);
         touch(root, 'src/platform/global.json', '{"sdk":{"version":"10.0.100"}}');
+        touch(root, 'src/platform/verification.json', declaration('src/platform'));
       }
       if (manager) {
         touch(root, managerSolution);
         touch(root, managerTest);
         touch(root, 'src/analysts/manager/global.json', '{"sdk":{"version":"10.0.100"}}');
+        touch(root, 'src/analysts/manager/verification.json', declaration('src/analysts/manager'));
       }
       if (web) {
-        touch(root, 'src/clients/web/package.json', '{}');
+        touch(root, 'src/clients/web/package.json', '{"scripts":{"build":"b","test":"t","test:e2e":"e"},"devDependencies":{"@playwright/test":"1.63.0"}}');
         touch(root, 'src/clients/web/node_modules/@playwright/test/package.json', '{"version":"1.63.0"}');
+        touch(root, 'src/clients/web/verification.json', declaration('src/clients/web'));
       }
       if (python) project(root, sdkRoot, { name: 'sdk' });
       return root;
@@ -615,9 +622,9 @@ exit 0
       assert.equal(result.status, 0, result.log);
       assert.equal(result.outputs.checks, Object.values(names).join(','));
       assert.deepEqual(commands(result, 'dotnet'), [
-        `restore ${platformSolution}`,
-        `build ${platformSolution} --no-restore`,
-        ...platformTests.map((test) => `test ${test} --no-build`),
+        'restore SocAlytics.Platform.slnx',
+        'build SocAlytics.Platform.slnx --no-restore',
+        ...platformTests.map((test) => `test ${inPlatform(test)} --no-build`),
         'restore SocAlytics.Analysts.Manager.slnx',
         'build SocAlytics.Analysts.Manager.slnx --no-restore',
         `test ${managerTest.replace('src/analysts/manager/', '')} --no-build`,
@@ -644,10 +651,10 @@ exit 0
       const root = fullRepository();
       const bin = toolBin();
       const web = run(root, { mode: 'task', changed: ['src/clients/web/src/a.ts'], bin });
-      assert.equal(web.outputs.checks, names.web);
+      assert.equal(web.outputs.checks, names.web.replace('tests', 'affected tests'));
       assert.equal(web.outputs.uncovered, '');
       const api = run(root, { mode: 'task', changed: ['src/platform/SocAlytics.Platform.Api/a.cs'], bin });
-      assert.equal(api.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.web].join(','));
+      assert.equal(api.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.web.replace('tests', 'affected tests')].join(','));
       const fixtures = run(root, { mode: 'task', changed: ['contracts/analyst-manager/queue-depth/a.json'], bin });
       assert.equal(fixtures.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.manager.replace('tests', 'affected tests')].join(','));
       assert.equal(fixtures.outputs.uncovered, '');
@@ -724,7 +731,7 @@ exit 0
 `, { mode: 0o755 });
         return bin;
       }
-      const integration = platformTests[1];
+      const integration = inPlatform(platformTests[1]);
       const reruns = (result) => commands(result, 'dotnet').filter((command) => command.includes('--filter FullyQualifiedName='));
 
       it('reruns only the failed tests once, passes, and reports them as flaky', () => {
@@ -770,7 +777,7 @@ exit 0
         });
         assert.equal(result.status, 1);
         assert.equal(result.outputs.checks, names.platform);
-        assert.deepEqual(reruns(result), [`test ${platformTests[0]} --no-build --filter FullyQualifiedName=Ns.Database.Connects`]);
+        assert.deepEqual(reruns(result), [`test ${inPlatform(platformTests[0])} --no-build --filter FullyQualifiedName=Ns.Database.Connects`]);
         assert.ok(commands(result, 'dotnet').includes(`test ${integration} --no-build`));
         assert.match(result.log, /rerun failure/);
         assert.equal(result.outputs.flaky, '');
@@ -930,6 +937,98 @@ it('${id}', () => {
         assert.equal(result.status, 0, result.log);
         assert.ok(!result.outputs.checks.includes(name));
         assert.equal(fixture.record().length, 0);
+      });
+
+      it('runs the changed action script for every component kind with stubbed tools', () => {
+        const fixture = fixtureTests();
+        const full = run(fullRepository(), { bin: toolBin(), env: fixture.env });
+        assert.equal(full.status, 0, full.log);
+        for (const kind of [names.platform, names.manager, names.web, names.python, names.markdown]) {
+          assert.ok(full.outputs.checks.split(',').includes(kind), kind);
+        }
+        const root = fullRepository({ manager: false, web: false, python: false });
+        writeFileSync(path.join(root, 'src/platform/verification.json'), '{ not json');
+        const invalid = run(root, { bin: toolBin(), env: fixture.env });
+        assert.equal(invalid.status, 1);
+        assert.ok(invalid.outputs.checks.split(',').includes('Verification plan'));
+      });
+
+      describe('environment-tests-only', () => {
+        const only = (fixture, extra = {}) => ({ ...fixture.env, ENVIRONMENT_TESTS_ONLY: 'true', ...extra });
+        const recommendations = (result) => result.log.split('\n').filter((line) => /Recommended action:/.test(line));
+
+        it('runs only the environment action tests in finalize mode', () => {
+          const fixture = fixtureTests();
+          const result = run(fullRepository(), { bin: toolBin(), env: only(fixture) });
+          assert.equal(result.status, 0, result.log);
+          assert.equal(result.outputs.checks, name);
+          assert.deepEqual(fixture.record().sort(), ['first:1', 'second:1']);
+          assert.equal(result.calls.length, 0);
+          assert.ok(!('plan' in result.outputs));
+          assert.equal(result.outputs.flaky, '');
+          assert.match(result.log, /Verification scope: environment action tests only/);
+        });
+
+        it('fails with exactly one recommendation when a test fails', () => {
+          const fixture = fixtureTests(true);
+          const result = run(fullRepository(), { bin: toolBin(), env: only(fixture) });
+          assert.equal(result.status, 1);
+          assert.equal(result.outputs.checks, name);
+          assert.equal(fixture.record().length, 2);
+          assert.equal(recommendations(result).length, 1);
+          assert.match(recommendations(result)[0], /^Environment action tests failed/);
+        });
+
+        it('fails with exactly one recommendation when no tests are configured', () => {
+          const fixture = fixtureTests();
+          const result = run(fullRepository(), { bin: toolBin(), env: only(fixture, { ENVIRONMENT_TESTS: '' }) });
+          assert.equal(result.status, 1);
+          assert.equal(recommendations(result).length, 1);
+          assert.equal(fixture.record().length, 0);
+          assert.equal(result.calls.length, 0);
+        });
+
+        it('passes without running the tests in a nested run', () => {
+          const fixture = fixtureTests();
+          const result = run(fullRepository(), { bin: toolBin(), env: only(fixture, { SOCALYTICS_ENVIRONMENT_TESTS_RUNNING: '1' }) });
+          assert.equal(result.status, 0, result.log);
+          assert.equal(fixture.record().length, 0);
+          assert.equal(result.calls.length, 0);
+        });
+
+        it('lists every changed file as uncovered', () => {
+          const fixture = fixtureTests();
+          const changed = ['src/platform/a.cs', 'docs/a.md', '.github/actions/environment-verify/x.mjs'];
+          const result = run(fullRepository(), { mode: 'task', changed, bin: toolBin(), env: only(fixture) });
+          assert.equal(result.status, 0, result.log);
+          assert.equal(result.outputs.uncovered, changed.join(','));
+          assert.equal(run(fullRepository(), { bin: toolBin(), env: only(fixture) }).outputs.uncovered, '');
+        });
+
+        it('keeps the unchanged full verification for "false" and empty values', () => {
+          for (const value of ['false', '']) {
+            const fixture = fixtureTests();
+            const result = run(fullRepository(), { bin: toolBin(), env: { ...fixture.env, ENVIRONMENT_TESTS_ONLY: value } });
+            assert.equal(result.status, 0, result.log);
+            assert.equal(result.outputs.checks, [names.platform, names.manager, names.web, names.python, name, names.markdown].join(','));
+            assert.ok('plan' in result.outputs);
+          }
+        });
+
+        it('runs the tests for a shard other than the first outside finalize mode', () => {
+          const fixture = fixtureTests();
+          const result = run(fullRepository(), { mode: 'phase', changed: ['src/platform/a.cs'], bin: toolBin(), env: only(fixture, { SHARD: '2/2' }) });
+          assert.equal(result.status, 0, result.log);
+          assert.equal(result.outputs.checks, name);
+          assert.equal(fixture.record().length, 2);
+        });
+
+        it('declares the input with default "false" and keeps the outputs', () => {
+          const inputs = actionText.split('inputs:')[1].split('outputs:')[0];
+          assert.match(inputs, /environment-tests-only:[\s\S]*?default: "false"/);
+          const outputs = actionText.split('outputs:')[1].split('runs:')[0];
+          assert.deepEqual([...outputs.matchAll(/^  (\w+):/gm)].map((match) => match[1]), ['checks', 'uncovered', 'flaky', 'plan']);
+        });
       });
 
       it('points at the two Node test files next to the actions and adds no workflow input', () => {

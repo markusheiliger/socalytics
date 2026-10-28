@@ -161,11 +161,13 @@ export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 // GitHub's default label for "Extra attention is needed": an implementation, amendment, or prerequisite spec pull
 // request carries it while it waits for a person (stopped, a diagnosis or a prerequisite spec outcome to decide on, or
 // ready for review) and loses it once a person's action puts automation back to work or closes the pull request. It is
-// only added together with a comment that recommends what to do, never while a diagnosis runs, and never on a blocked
-// pull request.
+// only added together with a comment that recommends what to do, never while a diagnosis runs, and on a blocked pull
+// request only while a blocker is not requested for implementation (setBlocked; its Blocked comment recommends
+// `/speckit implement` on that blocker).
 export const ATTENTION_LABEL = 'help wanted';
 // An implementation that waits for a prerequisite (an open blocked-by dependency of its twin, or a prerequisite spec
-// that is still being reviewed) carries BLOCKED_LABEL instead of ATTENTION_LABEL. It is only added together with a
+// that is still being reviewed) carries BLOCKED_LABEL, and ATTENTION_LABEL only while a blocker waits for its
+// `/speckit implement` request. It is only added together with a
 // comment that says what it waits for and how it is unblocked (setBlocked), and lifted by maintainDependencyBlock.
 export const BLOCKED_LABEL = 'blocked';
 // The implementations whose merge unblocks the most others (Spec Kit orchestrate, maintainRoadblocks): not blocked
@@ -296,6 +298,21 @@ export const ENVIRONMENT_PREFIXES = ['.github/actions/environment-setup/', '.git
 export const isEnvironmentPath = (file) => ENVIRONMENT_PREFIXES.some((prefix) => file.startsWith(prefix));
 export const isProtectedPath = (file) => !isEnvironmentPath(file) && PROTECTED_PREFIXES.some((prefix) => file.startsWith(prefix));
 
+// Open tasks whose target is a file an implementation may never change: [{ task, files }]. Such a task can never land,
+// so a spec that has one cannot be implemented by the automation (repository tooling is changed directly on the default
+// branch instead). A Spec Kit task names the file it changes first ("In `X`, add …"); only that target counts, and only
+// under .github/ outside the two environment actions: later mentions, spec folders, and .specify/ paths are almost
+// always references, and commands a task runs (`node .github/scripts/…`) are left out, because running a script does
+// not change it.
+const COMMAND_SPAN = /`(?:node|npm|npx|dotnet|uv|python3?|git|gh|docker|pwsh|bash|sh|specify)\s[^`\r\n]*`/g;
+export function protectedTaskPaths(tasksMarkdown) {
+  const concrete = (file) => /\.[A-Za-z0-9]+$/.test(file) && (file.includes('/') || file.includes('\\'));
+  return listTasks(tasksMarkdown)
+    .filter((task) => !task.done)
+    .map((task) => ({ task: task.id, files: taskNamedFiles(String(task.text).replace(COMMAND_SPAN, ' '), { exists: () => true, isSafe: concrete, max: 1 }) }))
+    .filter((entry) => entry.files.length > 0 && entry.files[0].startsWith('.github/') && isProtectedPath(entry.files[0]));
+}
+
 // Reasons why a branch mixes changes to the environment actions with other changes. `branchPaths` are all paths
 // the implementation branch changes compared to its base branch.
 export function environmentExclusivityReasons({ folder, branchPaths }) {
@@ -319,6 +336,31 @@ export function implementationBranch(folder) {
 // (on its branch, right before the merge).
 export function tasksPathOf(folder, { archived = false } = {}) {
   return `${specDir(folder, { archived })}/tasks.md`;
+}
+
+// Files named in task text, in first-mention order, limited to existing safe repository-relative paths.
+export function taskNamedFiles(text, { exists, isSafe, max = Number.POSITIVE_INFINITY } = {}) {
+  if (typeof exists !== 'function' || typeof isSafe !== 'function') throw new TypeError('exists and isSafe must be functions');
+  const limit = Number.isFinite(Number(max)) ? Math.max(0, Math.floor(Number(max))) : Number.POSITIVE_INFINITY;
+  if (limit === 0) return [];
+  const files = [];
+  const seen = new Set();
+  const add = (value, backticked = false) => {
+    const file = String(value).replace(/^[([{<"'`]+/, '').replace(/[)\]}>,"';:!?.]+$/, '');
+    if (!file || (!backticked && !(/[\\/]/.test(file) || /\.[A-Za-z0-9][A-Za-z0-9_-]*$/.test(file)))) return;
+    if (seen.has(file) || !isSafe(file) || !exists(file)) return;
+    seen.add(file);
+    files.push(file);
+  };
+  for (const match of String(text ?? '').matchAll(/`([^`\r\n]+)`|([^\s`]+)/g)) {
+    if (match[1] !== undefined) {
+      for (const token of match[1].match(/\S+/g) ?? []) add(token, true);
+    } else {
+      add(match[2]);
+    }
+    if (files.length >= limit) break;
+  }
+  return files;
 }
 
 // Reads tasks.md of a spec at a ref, wherever the spec folder is; null when it is in neither place.
@@ -731,13 +773,17 @@ export function parseMaxActiveSpecs(value) {
   return Number.isInteger(number) && number > 0 ? number : DEFAULT_MAX_ACTIVE_SPECS;
 }
 
-// Checks `taskId` in a tasks.md; null when the task is missing or already checked.
-export function tickTask(tasksMarkdown, taskId) {
+// Checks `taskId` in a tasks.md; null when the task is missing or already checked. An optional note is appended to the
+// task line, so a task ticked without this spec's own change says where its work came from (a tick alone would claim
+// this spec implemented it).
+export function tickTask(tasksMarkdown, taskId, note = '') {
   const lines = String(tasksMarkdown ?? '').split('\n');
   const matchOf = (line) => line.replace(/\r$/, '').match(TASK_PATTERN);
   const index = lines.findIndex((line) => matchOf(line)?.[2] === taskId);
   if (index < 0 || matchOf(lines[index])[1] !== ' ') return null;
-  lines[index] = lines[index].replace('[ ]', '[x]');
+  const ticked = lines[index].replace('[ ]', '[x]');
+  const cr = ticked.endsWith('\r') ? '\r' : '';
+  lines[index] = note ? `${ticked.replace(/\r$/, '').trimEnd()} — ${String(note).replace(/[\r\n]+/g, ' ').trim()}${cr}` : ticked;
   return lines.join('\n');
 }
 
@@ -795,16 +841,83 @@ export async function setAttention(client, number, needed) {
   }
 }
 
+// A writer's `@copilot` request on a stopped implementation hands it to GitHub Copilot's cloud agent: the pull request
+// stops asking for help (the handoff comment says why), and Copilot's push continues the implementation like any push
+// that is not by github-actions[bot]. When Copilot replies without having pushed, or has not pushed within
+// COPILOT_HANDOFF_MS, the scheduler asks for help again (maintainCopilotHandoff), so a stop never goes unnoticed.
+export const COPILOT_HANDOFF_MARKER = '<!-- speckit-implement:copilot-handoff -->';
+export const COPILOT_HANDOFF_ENDED_MARKER = 'speckit-implement:copilot-handoff-ended';
+export const COPILOT_HANDOFF_MS = 60 * 60 * 1000;
+// The REST login of GitHub Copilot's cloud agent on comments and commits.
+export const COPILOT_LOGIN = 'Copilot';
+
+// Whether a comment asks Copilot's cloud agent for a change: it starts with the mention, like the requests diagnoses
+// recommend (renderCopilotRequest). A mention later in the text ("thanks @copilot") is not a handoff.
+export function isCopilotRequest(body) {
+  return /^\s*@copilot\b/i.test(String(body ?? ''));
+}
+
+// The latest handoff to Copilot that still decides whether the pull request asks for help, and its state: `working`
+// (Copilot may still push), `finished` (Copilot replied after the handoff without a push), or `expired` (no push within
+// COPILOT_HANDOFF_MS). A push that is not by github-actions[bot] (`pushedAt`), a restart or sync after the handoff, or
+// an ended marker for it closes the handoff (null).
+export function pendingCopilotHandoff(comments, { pushedAt = null, now = Date.now() } = {}) {
+  const handoff = [...comments]
+    .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, COPILOT_HANDOFF_MARKER))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  if (!handoff) return null;
+  const at = Date.parse(handoff.created_at);
+  const after = (comment) => Date.parse(comment.created_at) > at;
+  if (pushedAt && Date.parse(pushedAt) > at) return null;
+  if (comments.some((comment) => comment.user?.login === BOT_LOGIN && after(comment) &&
+    [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => startsWithMarker(comment.body, marker)))) return null;
+  if (comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').includes(`<!-- ${COPILOT_HANDOFF_ENDED_MARKER} ${JSON.stringify({ handoff: handoff.id })} -->`))) return null;
+  const reply = comments.find((comment) => comment.user?.login === COPILOT_LOGIN && after(comment)) ?? null;
+  if (reply) return { handoff, state: 'finished', reply };
+  return { handoff, state: now - at >= COPILOT_HANDOFF_MS ? 'expired' : 'working', reply: null };
+}
+
+// Spec Kit orchestrate, for every implementation in progress: asks for help again when a handoff to Copilot ended
+// without a push, unless the chain is running, will be continued (`continues`), or the implementation is blocked.
+export async function maintainCopilotHandoff(client, { pull, comments, pushedAt, active, continues, blocked, now = Date.now() }) {
+  if (active || continues || blocked) return null;
+  const pending = pendingCopilotHandoff(comments, { pushedAt, now });
+  if (!pending || pending.state === 'working') return null;
+  const link = (comment) => comment.html_url ?? `#issuecomment-${comment.id}`;
+  const diagnosis = [...comments]
+    .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, DIAGNOSIS_COMMENT_MARKER))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  const branch = `\`${pull.head?.ref ?? 'the implementation branch'}\``;
+  const what = pending.state === 'finished'
+    ? `**Copilot finished without pushing** to ${branch}, so the implementation is still stopped and needs a person again. [Copilot's reply](${link(pending.reply)}) says what it did instead.`
+    : `**Copilot has not pushed** to ${branch} within ${COPILOT_HANDOFF_MS / 60000} minutes of the [request](${link(pending.handoff)}), so the implementation is still stopped and needs a person again. Check that Copilot's cloud agent is enabled for this repository and whether its session failed.`;
+  const next = diagnosis
+    ? `**Recommended next step**: Follow the [latest diagnosis](${link(diagnosis)}) again: post its recommended command, or its \`@copilot\` request corrected by what Copilot's answer showed was missing.`
+    : '**Recommended next step**: Post the `@copilot` request again with what was missing, or push the change to the implementation branch yourself; either push continues the implementation by itself.';
+  await setAttention(client, pull.number, true);
+  await client.createComment(pull.number, [
+    `<!-- ${COPILOT_HANDOFF_ENDED_MARKER} ${JSON.stringify({ handoff: pending.handoff.id })} -->`,
+    what,
+    '',
+    next,
+  ].join('\n'));
+  return pending.state;
+}
+
 // Adds or removes BLOCKED_LABEL on an implementation pull request. Blocking needs `explain` ({ key, lines }): unless a
 // workflow comment already carries the marker of `key` (the comment that caused the block usually does), a comment with
-// `lines` says what the implementation waits for and how it is unblocked. A blocked pull request loses ATTENTION_LABEL:
-// the person's part is described there. Removing it is silent; the comment that lifts the block explains it.
+// `lines` says what the implementation waits for and how it is unblocked. A blocked pull request carries ATTENTION_LABEL
+// exactly while a blocker is not requested for implementation (`key.unrequested`, whose explanation recommends
+// `/speckit implement` on it): nothing else can start that blocker. Once every blocker is requested, or the block is
+// lifted, the label goes; the comment that lifts the block explains it, and a lifted block that still needs a person adds
+// the label again with its own recommendation.
 export async function setBlocked(client, number, blocked, { explain = null } = {}) {
   if (blocked && !explain?.key) throw new Error('setBlocked needs an explanation to block a pull request');
   try {
     const pull = await client.getPullRequest(number);
     const names = (pull.labels ?? []).map((label) => label?.name ?? label);
     const has = names.includes(BLOCKED_LABEL);
+    const attention = names.includes(ATTENTION_LABEL);
     if (blocked && pull.state === 'open') {
       if (!blockExplained(await client.listIssueComments(number), explain.key)) {
         await client.createComment(number, [renderBlockedMarker(explain.key), ...explain.lines].join('\n'));
@@ -813,9 +926,14 @@ export async function setBlocked(client, number, blocked, { explain = null } = {
         await client.ensureLabel({ name: BLOCKED_LABEL, color: 'd93f0b', description: 'Implementation is on hold waiting for a prerequisite' });
         await client.addLabels(number, [BLOCKED_LABEL]);
       }
-      if (names.includes(ATTENTION_LABEL)) await client.removeLabel(number, ATTENTION_LABEL);
+      const unrequested = Array.isArray(explain.key.unrequested) && explain.key.unrequested.length > 0;
+      if (unrequested && !attention) await client.addLabels(number, [ATTENTION_LABEL]);
+      if (!unrequested && attention) await client.removeLabel(number, ATTENTION_LABEL);
     }
-    if ((!blocked || pull.state !== 'open') && has) await client.removeLabel(number, BLOCKED_LABEL);
+    if ((!blocked || pull.state !== 'open') && has) {
+      await client.removeLabel(number, BLOCKED_LABEL);
+      if (attention) await client.removeLabel(number, ATTENTION_LABEL);
+    }
   } catch {
     // The label only signals the state; comments and check runs carry it.
   }
@@ -1323,8 +1441,9 @@ export function appendPullRequestTasks(body, tasks, heading) {
 }
 
 // Reasons why the agent's change for `taskId` cannot be accepted. `before` and `after` are the contents of
-// specs/<folder>/tasks.md; `changedPaths` are all changed repository paths.
-export function validateTaskChange({ folder, archived = false, taskId, before, after, changedPaths }) {
+// specs/<folder>/tasks.md; `changedPaths` are all changed repository paths. `note` is the provenance note the land job
+// itself appends when it ticks a task without a change (tickTask); an agent's change never carries one.
+export function validateTaskChange({ folder, archived = false, taskId, before, after, changedPaths, note = '' }) {
   const reasons = [];
   const tasksPath = tasksPathOf(folder, { archived });
   const protectedPaths = changedPaths.filter((file) => file !== tasksPath && isProtectedPath(file));
@@ -1338,8 +1457,9 @@ export function validateTaskChange({ folder, archived = false, taskId, before, a
   const ticked = (index) => {
     const was = beforeLines[index].match(TASK_PATTERN);
     const now = afterLines[index].match(TASK_PATTERN);
+    const expected = note ? tickTask(beforeLines[index], taskId, note) : beforeLines[index].replace(/\[ \]/, '[x]');
     return was && now && was[2] === taskId && now[2] === taskId && was[1] === ' ' && now[1] !== ' '
-      && beforeLines[index].replace(/\[ \]/, '[x]') === afterLines[index].replace(/\[[xX]\]/, '[x]');
+      && expected !== null && expected.replace(/\[[xX]\]/, '[x]') === afterLines[index].replace(/\[[xX]\]/, '[x]');
   };
   // An unchanged tasks.md is expected: the land job checks the task after verification (runLand).
   if (differing === null || differing.length > 1 || (differing.length === 1 && !ticked(differing[0]))) {
