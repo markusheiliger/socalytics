@@ -2,7 +2,7 @@
 
 **Branch**: `20261027-205629-environment-speckit-tooling-tests` | **Date**: 2026-10-27 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261027-205629-environment-speckit-tooling-tests/spec.md`
+**Input**: Feature specification from `/specs/archive/20261027-205629-environment-speckit-tooling-tests/spec.md`
 
 ## Summary
 
@@ -48,7 +48,7 @@ Post-design re-check: unchanged, all gates pass; no Complexity Tracking entries.
 ### Documentation (this feature)
 
 ```text
-specs/20261027-205629-environment-speckit-tooling-tests/
+specs/archive/20261027-205629-environment-speckit-tooling-tests/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 decisions
 ├── data-model.md        # Phase 1: check, scope, and plan entities
