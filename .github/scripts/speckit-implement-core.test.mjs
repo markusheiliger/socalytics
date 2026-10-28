@@ -888,7 +888,7 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.match(job(phase, 'verify'), /SHARD: \$\{\{ matrix\.shard \}\}[\s\S]*"\$SPECKIT_RESULT_DIR\/shard\.txt"/);
   assert.match(job(phase, 'report'), /pattern: speckit-phase-verification-shard-\*[\s\S]*speckit-verify-shards\.mjs combine[\s\S]*name: speckit-phase-verification\n[\s\S]*SPECKIT_VERIFY_FLAKY: \$\{\{ steps\.combine\.outputs\.flaky \}\}/);
   // A repair is reverified with its original failed scope and reported; the reverification runs in planned shards whose
-  // verdict fails when a shard or the self-test did not pass.
+  // verdict fails when a shard or the self-test did not pass. Workspace code gets no cache runtime token.
   assert.match(job(kinds.repair, 'report'), /needs: \[decide, implement, prepare, verdict\][\s\S]*SPECKIT_VERIFY_RESULT: \$\{\{ needs\.prepare\.result != 'success' && needs\.prepare\.result \|\| needs\.verdict\.result \}\}\n\s+SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verdict\.outputs\.verification \}\}[\s\S]*speckit-repair\.mjs repair-report/);
   // The spec is archived on the implementation branch before the verification, which verifies and merges that head.
   const merge = kinds.merge;
@@ -909,7 +909,11 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
     assert.match(shards, /uses: \.\/tooling\/\.github\/actions\/environment-verify\n[\s\S]*shard: \$\{\{ matrix\.shard \}\}\n/, label);
     assert.match(shards, new RegExp(`name: ${artifact}\\$\\{\\{ strategy\\.job-index \\}\\}\\n`), label);
     assert.match(shards, /UNCOVERED: \$\{\{ steps\.verify\.outputs\.uncovered \}\}[\s\S]*"\$SPECKIT_RESULT_DIR\/uncovered\.txt"/, label);
-    assert.match(job(text, 'selftest'), /uses: \.\/workspace\/\.github\/actions\/environment-verify\n\s+with:\n[\s\S]*environment-tests-only: "true"\n/, label);
+    for (const action of ['environment-setup', 'environment-verify']) {
+      assert.match(job(text, 'selftest'), new RegExp(`uses: \\.\\/workspace\\/\\.github\\/actions\\/${action}\\n\\s+env:\\n\\s+ACTIONS_RUNTIME_TOKEN: ""\\n\\s+with:`), `${label}: untrusted self-test has no cache token`);
+    }
+    assert.match(job(text, 'selftest'), /uses: \.\/workspace\/\.github\/actions\/environment-verify\n\s+env:\n\s+ACTIONS_RUNTIME_TOKEN: ""\n\s+with:\n[\s\S]*environment-tests-only: "true"\n/, label);
+    assert.match(job(text, 'shards'), /uses: \.\/tooling\/\.github\/actions\/environment-verify\n\s+env:\n\s+ACTIONS_RUNTIME_TOKEN: ""\n\s+with:[\s\S]*shard: \$\{\{ matrix\.shard \}\}/, `${label}: verification has no cache token`);
     for (const name of ['prepare', 'shards', 'selftest', 'verdict']) {
       assert.match(job(text, name), /timeout-minutes: (15|45|90)\n/, `${label} ${name}: within the 90-minute limit`);
       assert.doesNotMatch(job(text, name), /: write\b|GITHUB_TOKEN|copilot/, `${label} ${name}: read-only`);

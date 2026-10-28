@@ -246,6 +246,8 @@ jobs:
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
         uses: ./tooling/.github/actions/environment-setup
+        env:
+          ACTIONS_RUNTIME_TOKEN: ""
         with:
           workspace: workspace
 
@@ -267,6 +269,8 @@ jobs:
         if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
         continue-on-error: true
         uses: ./tooling/.github/actions/environment-verify
+        env:
+          ACTIONS_RUNTIME_TOKEN: ""
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: finalize
@@ -362,6 +366,8 @@ jobs:
         if: hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
         continue-on-error: true
         uses: ./workspace/.github/actions/environment-setup
+        env:
+          ACTIONS_RUNTIME_TOKEN: ""
         with:
           workspace: workspace
 
@@ -372,6 +378,8 @@ jobs:
           hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
         continue-on-error: true
         uses: ./workspace/.github/actions/environment-verify
+        env:
+          ACTIONS_RUNTIME_TOKEN: ""
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: finalize

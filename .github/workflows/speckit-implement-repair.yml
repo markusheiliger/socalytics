@@ -262,6 +262,8 @@ jobs:
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
         uses: ./tooling/.github/actions/environment-setup
+        env:
+          ACTIONS_RUNTIME_TOKEN: ""
         with:
           workspace: workspace
 
@@ -285,6 +287,8 @@ jobs:
         id: verify
         continue-on-error: true
         uses: ./tooling/.github/actions/environment-verify
+        env:
+          ACTIONS_RUNTIME_TOKEN: ""
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: ${{ needs.prepare.outputs.mode }}
@@ -369,12 +373,16 @@ jobs:
       - name: Self-test the repaired environment setup
         if: hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
         uses: ./workspace/.github/actions/environment-setup
+        env:
+          ACTIONS_RUNTIME_TOKEN: ""
         with:
           workspace: workspace
 
       - name: Self-test the repaired environment verification
         if: hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
         uses: ./workspace/.github/actions/environment-verify
+        env:
+          ACTIONS_RUNTIME_TOKEN: ""
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: finalize
