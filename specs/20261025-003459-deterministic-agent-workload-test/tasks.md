@@ -56,7 +56,7 @@ The evidence of this feature lives in a comment block in `SeedTests.cs` (see T00
 
 ## Phase 4: Polish and Cross-Cutting Concerns
 
-- [ ] T011 Re-read `docs/architecture/platform-implementation.md` ("Test And Observability Baseline") and `docs/architecture/intelligence-and-agents.md` and make every statement the final implementation affects true for the merged state (for example one sentence in "Test And Observability Baseline" if the shared fixture clock now follows real time, or an update of the owning narrative if production code changed); if nothing changes, record in the `Architecture:` line of the evidence comment block that both documents were re-read and need no change (plan.md "Architecture Updates").
+- [x] T011 Re-read `docs/architecture/platform-implementation.md` ("Test And Observability Baseline") and `docs/architecture/intelligence-and-agents.md` and make every statement the final implementation affects true for the merged state (for example one sentence in "Test And Observability Baseline" if the shared fixture clock now follows real time, or an update of the owning narrative if production code changed); if nothing changes, record in the `Architecture:` line of the evidence comment block that both documents were re-read and need no change (plan.md "Architecture Updates").
 - [ ] T012 Check that the change touches only the files the cause lives in plus this spec folder, that no assertion was removed and no fixed wait or retry was added (SC-004), and run `node .github/scripts/check-markdown.mjs` for the changed Markdown, and record the result in the `Scope:` line of the evidence comment block (see T001) so the task leaves a committed change.
 
 ---
