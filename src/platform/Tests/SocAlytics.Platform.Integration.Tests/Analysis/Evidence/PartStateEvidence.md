@@ -132,11 +132,11 @@ Probe results: the probes are those of `## T008` and are not repeated here. With
 Scope check against the merge base with `main` (`85511d0a`), taken before the `## T010` and `## T011` sections were written, excluding this evidence record (the expected only evidence record) from the comparison: `git diff --stat 85511d0a -- . ':!src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md'`.
 
 ```text
- specs/20261028-005033-deterministic-evidence-part-state-test/plan.md        |  6 ++++--
- specs/20261028-005033-deterministic-evidence-part-state-test/quickstart.md  |  2 +-
- specs/20261028-005033-deterministic-evidence-part-state-test/research.md    |  6 +++---
- specs/20261028-005033-deterministic-evidence-part-state-test/spec.md        |  6 +++---
- specs/20261028-005033-deterministic-evidence-part-state-test/tasks.md       | 23 +++++++++++-----------
+ specs/archive/20261028-005033-deterministic-evidence-part-state-test/plan.md        |  6 ++++--
+ specs/archive/20261028-005033-deterministic-evidence-part-state-test/quickstart.md  |  2 +-
+ specs/archive/20261028-005033-deterministic-evidence-part-state-test/research.md    |  6 +++---
+ specs/archive/20261028-005033-deterministic-evidence-part-state-test/spec.md        |  6 +++---
+ specs/archive/20261028-005033-deterministic-evidence-part-state-test/tasks.md       | 23 +++++++++++-----------
  .../Analysis/Evidence/Support/EvidenceScenario.cs                           |  4 ++++
  6 files changed, 27 insertions(+), 20 deletions(-)
 ```
@@ -145,12 +145,12 @@ Result: the check passed.
 
 - No probe remains: the only added test-code lines are the four of `EvidenceScenario.cs` (a three-line comment naming the evidenced cause and `values["Analysis:Workers:Enabled"] = "false";`), and no `Probe_worker_iteration_between_resolution_steps` or `RunWorkerIterationAsync` exists in the sources.
 - No assertion is textually removed or loosened: the diff of `src/platform/Tests/` outside this record has no removed line and no changed assertion.
-- Scope: only the file of the evidenced cause (`EvidenceScenario.cs`), this evidence record, and the spec folder `specs/20261028-005033-deterministic-evidence-part-state-test/` changed; no platform file changed (`## T006`).
+- Scope: only the file of the evidenced cause (`EvidenceScenario.cs`), this evidence record, and the spec folder `specs/archive/20261028-005033-deterministic-evidence-part-state-test/` changed; no platform file changed (`## T006`).
 - No `docs/architecture/` change: `git diff --stat 85511d0a -- docs` is empty (SC-003).
 
 ## T011
 
-Command: `node .github/scripts/check-markdown.mjs --files specs/20261028-005033-deterministic-evidence-part-state-test/tasks.md src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md`
+Command: `node .github/scripts/check-markdown.mjs --files specs/archive/20261028-005033-deterministic-evidence-part-state-test/tasks.md src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Evidence/PartStateEvidence.md`
 
 Result: exit code 0 with no finding. The script reads the first argument after `--files` as a list file, so this literal form reads `tasks.md` as that list and prints `No changed Markdown files to check.`
 

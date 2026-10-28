@@ -72,6 +72,6 @@ A maintainer running the Integration suite, or the verification of any implement
 ## Assumptions
 
 - **Cause**: The test belongs to evidence playback (merged evidence media and Segment Service part state work). The suspected cause is the default-on background segment worker in the scenario's API host; the concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Docker Push Digest Status Line](../20261027-082724-docker-push-digest-status-line/spec.md) depends on this spec.
+- **Dependencies**: [Docker Push Digest Status Line](../../20261027-082724-docker-push-digest-status-line/spec.md) depends on this spec.
 - **Out of scope**: Other flaky tests, the Web UI and End-to-End test projects, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.
