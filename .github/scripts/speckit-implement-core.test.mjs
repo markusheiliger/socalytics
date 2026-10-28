@@ -815,8 +815,8 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   for (const [action, jobs, names] of [
     ['tasks', ['implement', 'verify', 'report'], ['${{ matrix.name }}', 'Verify the parallel tasks together', 'Report the group verification']],
     ['verify', ['shards', 'verify', 'report'], ['Plan the verification shards', 'Verify the phase', 'Record the phase verification']],
-    ['repair', ['implement', 'verify', 'report'], ['${{ matrix.name }}', 'Verify the repair', 'Report the repair']],
-    ['merge', ['archive', 'verify', 'report'], ['Archive the spec before the merge', 'Verify the merged result', 'Merge into the base branch']],
+    ['repair', ['implement', 'prepare', 'shards', 'selftest', 'verdict', 'report'], ['${{ matrix.name }}', 'Prepare the repair verification', 'Verify the repaired scope', 'Self-test the repaired environment actions', 'Record the repair verification', 'Report the repair']],
+    ['merge', ['archive', 'prepare', 'shards', 'selftest', 'verdict', 'report'], ['Archive the spec before the merge', 'Prepare the merged result', 'Verify the merged result', 'Self-test the changed environment actions', 'Record the verdict', 'Merge into the base branch']],
   ]) {
     const text = kinds[action];
     assert.deepEqual(jobsOf(text), ['refuse', 'decide', ...jobs, 'continue'], action);
@@ -877,14 +877,34 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.match(job(phase, 'verify'), /name: speckit-phase-verification-shard-\$\{\{ strategy\.job-index \}\}\n/);
   assert.match(job(phase, 'verify'), /SHARD: \$\{\{ matrix\.shard \}\}[\s\S]*"\$SPECKIT_RESULT_DIR\/shard\.txt"/);
   assert.match(job(phase, 'report'), /pattern: speckit-phase-verification-shard-\*[\s\S]*speckit-verify-shards\.mjs combine[\s\S]*name: speckit-phase-verification\n[\s\S]*SPECKIT_VERIFY_FLAKY: \$\{\{ steps\.combine\.outputs\.flaky \}\}/);
-  // A repair is reverified with its original failed scope and reported.
-  assert.match(job(kinds.repair, 'report'), /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}[\s\S]*speckit-repair\.mjs repair-report/);
+  // A repair is reverified with its original failed scope and reported; the reverification runs in planned shards whose
+  // verdict fails when a shard or the self-test did not pass.
+  assert.match(job(kinds.repair, 'report'), /needs: \[decide, implement, prepare, verdict\][\s\S]*SPECKIT_VERIFY_RESULT: \$\{\{ needs\.prepare\.result != 'success' && needs\.prepare\.result \|\| needs\.verdict\.result \}\}\n\s+SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verdict\.outputs\.verification \}\}[\s\S]*speckit-repair\.mjs repair-report/);
   // The spec is archived on the implementation branch before the verification, which verifies and merges that head.
   const merge = kinds.merge;
   assert.match(job(merge, 'archive'), /SPECKIT_BASE_BRANCH: \$\{\{ needs\.decide\.outputs\.base_branch \}\}[\s\S]*run: node tooling\/\.github\/scripts\/speckit-merge\.mjs archive/);
   assert.doesNotMatch(job(merge, 'archive'), /environment-setup|environment-verify|copilot/);
-  assert.match(job(merge, 'verify'), /needs: \[decide, archive\][\s\S]*ref: \$\{\{ needs\.archive\.outputs\.head \}\}/);
-  assert.match(job(merge, 'report'), /SPECKIT_CHECK_RUN: \$\{\{ needs\.archive\.outputs\.check_run \|\| needs\.decide\.outputs\.check_run \}\}[\s\S]*speckit-merge\.mjs merge-land/);
+  assert.match(job(merge, 'prepare'), /needs: \[decide, archive\][\s\S]*ref: \$\{\{ needs\.archive\.outputs\.head \}\}/);
+  assert.match(job(merge, 'prepare'), /speckit-merge\.mjs" integrate\n[\s\S]*verification-plan\.mjs" --root "\$SPECKIT_WORKSPACE" --mode finalize --changed-files "\$SPECKIT_RESULT_DIR\/changed-files\.txt" --matrix 4\)"/);
+  assert.doesNotMatch(job(merge, 'prepare'), /environment-setup|environment-verify\n|copilot/);
+  assert.match(job(merge, 'report'), /needs: \[decide, archive, prepare, verdict\][\s\S]*SPECKIT_CHECK_RUN: \$\{\{ needs\.archive\.outputs\.check_run \|\| needs\.decide\.outputs\.check_run \}\}[\s\S]*needs\.verdict\.result \}\}[\s\S]*speckit-merge\.mjs merge-land/);
+  assert.match(job(merge, 'verdict'), /pattern: speckit-merge-verification-shard-\*[\s\S]*speckit-verify-shards\.mjs" combine "\$RUNNER_TEMP\/shards" "\$SPECKIT_RESULT_DIR" --expect "\$MATRIX"[\s\S]*SPECKIT_VERIFY_COMBINED: 'true'[\s\S]*SPECKIT_VERIFY_FAILED: \$\{\{ steps\.combine\.outputs\.failed \}\}[\s\S]*SPECKIT_SELFTEST_OUTCOME: \$\{\{ needs\.selftest\.outputs\.outcome \|\| needs\.selftest\.result \}\}[\s\S]*speckit-merge\.mjs" verdict[\s\S]*name: speckit-merge-result\n/);
+  assert.match(job(kinds.repair, 'verdict'), /pattern: speckit-repair-verification-shard-\*[\s\S]*--expect "\$MATRIX"[\s\S]*SELFTEST: \$\{\{ needs\.selftest\.result \}\}[\s\S]*name: speckit-repair-verification\n[\s\S]*- name: Fail on a failed verification\n/);
+  // Merge and repair verify in planned shards side by side, each rebuilding the planned tree; the changed environment
+  // actions are self-tested once, with their own tests only. No job that runs workspace code can write.
+  for (const [label, text, artifact] of [['merge', merge, 'speckit-merge-verification-shard-'], ['repair', kinds.repair, 'speckit-repair-verification-shard-']]) {
+    const shards = job(text, 'shards');
+    assert.match(shards, /timeout-minutes: 90\n\s+strategy:\n\s+fail-fast: false\n(?:\s+#[^\n]*\n)?\s+matrix: \$\{\{ fromJSON\(needs\.prepare\.outputs\.matrix \|\| '\{"include":\[\{"name":"no plan","shard":"1\/1"\}\]\}'\) \}\}\n/, label);
+    assert.match(shards, /PLANNED_TREE: \$\{\{ needs\.prepare\.outputs\.tree \}\}[\s\S]*tree="\$\(git (-C "\$SPECKIT_WORKSPACE" )?write-tree\)"[\s\S]*exit 1/, `${label}: a shard verifies the planned tree`);
+    assert.match(shards, /uses: \.\/tooling\/\.github\/actions\/environment-verify\n[\s\S]*shard: \$\{\{ matrix\.shard \}\}\n/, label);
+    assert.match(shards, new RegExp(`name: ${artifact}\\$\\{\\{ strategy\\.job-index \\}\\}\\n`), label);
+    assert.match(shards, /UNCOVERED: \$\{\{ steps\.verify\.outputs\.uncovered \}\}[\s\S]*"\$SPECKIT_RESULT_DIR\/uncovered\.txt"/, label);
+    assert.match(job(text, 'selftest'), /uses: \.\/workspace\/\.github\/actions\/environment-verify\n\s+with:\n[\s\S]*environment-tests-only: "true"\n/, label);
+    for (const name of ['prepare', 'shards', 'selftest', 'verdict']) {
+      assert.match(job(text, name), /timeout-minutes: (15|45|90)\n/, `${label} ${name}: within the 90-minute limit`);
+      assert.doesNotMatch(job(text, name), /: write\b|GITHUB_TOKEN|copilot/, `${label} ${name}: read-only`);
+    }
+  }
   // The pull request's base branch flows from decide to every job that merges or compares with git.
   assert.match(job(prepare, 'decide'), /base_branch: \$\{\{ steps\.decide\.outputs\.base_branch \}\}/);
   assert.match(unit, /^ {6}base:\n {8}description: [^\n]+\n {8}required: true/m);
