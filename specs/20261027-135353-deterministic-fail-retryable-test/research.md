@@ -28,6 +28,6 @@ All Technical Context items are resolved. The cause of the flakiness is delibera
 
 ## Evidence procedure
 
-1. Run the test 20 times alone and 5 times with its class under CPU load, with a temporary capture (runner log, attempt rows, lineage entries, outbox rows, consumer info) on failure; report the results in the corresponding task summaries.
-2. If no run fails, widen the load and report the rate in the task summary; add a temporary delay at the suspected boundary only to prove a candidate, then remove it.
+1. Run the test 20 times alone and its class at least 5 times without synthetic CPU load, with a temporary capture (runner log, attempt rows, lineage entries, outbox rows, consumer info) on failure; report the results in the corresponding task summaries. CPU-loaded runs are optional supplemental evidence.
+2. If optional CPU-loaded runs are performed and none fails, widen the load and report the rate in the task summary; add a temporary delay at the suspected boundary only to prove a candidate, then remove it.
 3. After the fix, repeat step 1 and run the two probes of SC-002 (stop redelivery after attempt 2; make attempt 3 succeed), then remove the probes and report the results in the corresponding task summaries.

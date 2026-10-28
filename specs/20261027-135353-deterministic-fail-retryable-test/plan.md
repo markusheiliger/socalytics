@@ -6,7 +6,7 @@
 
 ## Summary
 
-`SimulatedAgentWorkloadBehaviorTests.FailRetryableEndsWithAttemptsExhausted` is flaky for an unestablished cause. The plan is evidence first: a probe harness (temporary, removed afterward) repeats the test alone and under CPU load with the runner log, the attempt rows, the lineage entries, and the outbox and NATS state captured on each failure, to choose between the candidate causes in [research.md](research.md). The fix then goes where the cause lives, by awaiting an observable condition or controlling the racing input; the most likely homes are the shared helper `RunToEndAsync` and the `SimulatedAgentWorkloadRunner`. Platform behavior, assertions, limits, and the other behaviors stay unchanged.
+`SimulatedAgentWorkloadBehaviorTests.FailRetryableEndsWithAttemptsExhausted` is flaky for an unestablished cause. The plan is evidence first: repeat the test alone and its class without synthetic CPU load, capturing the runner log, attempt rows, lineage entries, and outbox and NATS state on each failure, to choose between the candidate causes in [research.md](research.md). CPU-loaded runs are optional supplemental evidence. The fix then goes where the cause lives, by awaiting an observable condition or controlling the racing input; the most likely homes are the shared helper `RunToEndAsync` and the `SimulatedAgentWorkloadRunner`. Platform behavior, assertions, limits, and the other behaviors stay unchanged.
 
 ## Technical Context
 
@@ -16,7 +16,7 @@
 
 **Storage**: PostgreSQL (`agent_attempts`, `agent_lineage_entries`, outbox) and NATS JetStream (`AGENT_WORK` work-queue stream, durable explicit-ack consumer, `MaxDeliver` unlimited) in disposable containers
 
-**Testing**: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests"`; repeated runs alone and under CPU load; two removable probes (stop redelivery after attempt 2, make attempt 3 succeed)
+**Testing**: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests"`; 20 repeated runs alone and at least 5 repeated class runs without synthetic CPU load (CPU-loaded runs optional); two removable probes (stop redelivery after attempt 2, make attempt 3 succeed)
 
 **Target Platform**: Linux CI runner and developer machines with a Docker-compatible runtime
 

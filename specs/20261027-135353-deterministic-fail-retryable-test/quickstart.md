@@ -19,7 +19,7 @@ Expected: all four tests pass; `FailRetryableEndsWithAttemptsExhausted` ends `fa
 
 ## 3. Repeated runs (SC-001)
 
-Run the filter `FullyQualifiedName~FailRetryableEndsWithAttemptsExhausted` at least 20 times in a row, and the class filter at least 5 times in a row while the machine is under CPU load. Expected: no failure.
+Run the filter `FullyQualifiedName~FailRetryableEndsWithAttemptsExhausted` at least 20 times in a row, and the class filter at least 5 times in a row without synthetic CPU load. Expected: no failure. CPU-loaded runs are optional supplemental evidence.
 
 ## 4. Probes (SC-002, temporary, removed afterward)
 
