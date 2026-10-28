@@ -63,7 +63,7 @@
 
 **Purpose**: Documentation of the rule (FR-008).
 
-- [ ] T011 [P] Update the environment exclusivity rule in `AGENTS.md` (Spec Kit section, the "New frameworks, SDKs, or tools reach these actions only through a standalone environment spec" item) to state that archive reference rewrites outside the spec's folder do not count as other changes
+- [x] T011 [P] Update the environment exclusivity rule in `AGENTS.md` (Spec Kit section, the "New frameworks, SDKs, or tools reach these actions only through a standalone environment spec" item) to state that archive reference rewrites outside the spec's folder do not count as other changes — verified without changes by the assessed verification at 7f322f3d (no change by this task)
 - [ ] T012 [P] Update item 1 of "Specs extend these actions" in `README.md` to state that archive reference rewrites outside the spec's folder do not count as other changes
 - [ ] T013 [P] Update the description of the environment actions rule in `.github/workflows/README.md` to add one sentence in its environment actions section stating the environment exclusivity rule with the exception that archive reference rewrites outside the spec's folder do not count as other changes
 - [ ] T014 [P] Update the environment-spec/exclusivity description in `.specify/extension-src/gha/README.md` (the extension source; do not hand-edit the generated `.specify/extensions/` copies) to add one sentence next to the `repair` workflow's `environment=true` mention stating the environment exclusivity rule with the exception that archive reference rewrites outside the spec's folder do not count as other changes
