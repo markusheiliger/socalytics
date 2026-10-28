@@ -2,7 +2,7 @@
 
 **Branch**: `20261025-113505-deterministic-fact-payload-telemetry-test` | **Date**: 2026-10-25 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261025-113505-deterministic-fact-payload-telemetry-test/spec.md`
+**Input**: Feature specification from `/specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test/spec.md`
 
 ## Summary
 
@@ -54,7 +54,7 @@ Post-design re-check: Pass.
 ### Documentation (this feature)
 
 ```text
-specs/20261025-113505-deterministic-fact-payload-telemetry-test/
+specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test/
 ├── plan.md
 ├── research.md
 ├── quickstart.md

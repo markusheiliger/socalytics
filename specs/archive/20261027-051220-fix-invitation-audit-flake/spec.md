@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Fix for**: #184, #304, and #345 (verifications that hit the flake); the stopped spec `specs/20261025-113505-deterministic-fact-payload-telemetry-test` depends on this spec.
+**Fix for**: #184, #304, and #345 (verifications that hit the flake); the stopped spec `specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test` depends on this spec.
 
 **Input**: User description: "Make the integration test `SocAlytics.Platform.Integration.Tests.IdentityAccess.MemberInvitationSafetyTests.AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded` deterministic. It failed and then passed on its one rerun in the verifications of three implementation pull requests (#184, #304, #345); in #304 the assertion `(await EventsAsync(h, \"invitation.issued\", ct, masked: addressA!.Masked)).ShouldBe(2)` saw 3 events instead of 2, so one invitation link was issued, and its `invitation.issued` audit event recorded, one time more than the test's steps (one invitation plus one resend) account for. Find and remove the root cause of this extra, timing-dependent issuance (for example a delivery run triggered explicitly by the test racing with the host's background email delivery worker, a lease that expires and lets the same outbox message be prepared and audited again, or an ordering gap between the transactional claim, the audit record, and the send), in the test harness or in the code it covers, so that exactly one `invitation.issued` event is recorded per issued link on every run. Do not weaken, skip, or delete the test or any assertion, and do not add retries or longer timeouts as the fix. Verify with repeated runs."
 
@@ -14,7 +14,7 @@
 
 The test walks one member invitation through its life: a Club Admin creates an invitation, resends it, the first link is refused as superseded, a weak password is refused, the second link is accepted, a reuse of it is refused, a duplicate invitation is refused, and a third invitation is revoked and then refused twice. It then checks that the security audit trail holds exactly one event per step and that no secret is recorded.
 
-One issued link is recorded as one `invitation.issued` audit event. The test's steps issue exactly two links to the first invitee (the invitation and one resend), yet in the verification of #304 the trail held three. The test therefore passes when the platform behaves correctly and fails when more invitation.issued events carry the first invitee's masked address than the steps account for (a link issued once more for the same invitation, or a link issued to another invitee whose address masks to the same value). It failed and passed on its single rerun in three unrelated implementations, so the cause is timing, order, or shared state that neither the test nor the platform controls, and it is not caused by those features. It holds back the stopped implementation of `specs/20261025-113505-deterministic-fact-payload-telemetry-test`, whose verification keeps hitting it.
+One issued link is recorded as one `invitation.issued` audit event. The test's steps issue exactly two links to the first invitee (the invitation and one resend), yet in the verification of #304 the trail held three. The test therefore passes when the platform behaves correctly and fails when more invitation.issued events carry the first invitee's masked address than the steps account for (a link issued once more for the same invitation, or a link issued to another invitee whose address masks to the same value). It failed and passed on its single rerun in three unrelated implementations, so the cause is timing, order, or shared state that neither the test nor the platform controls, and it is not caused by those features. It holds back the stopped implementation of `specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test`, whose verification keeps hitting it.
 
 Candidate causes the implementation must examine by reproduction and remove only where the evidence supports them:
 
@@ -66,7 +66,7 @@ A maintainer running the integration tests, or the verification of any implement
 - **FR-004**: Every assertion of the test MUST remain, and no assertion, expected value, or step MAY be removed, loosened, or skipped.
 - **FR-005**: The documented behavior of member invitations and email delivery in `docs/architecture/` MUST NOT change, including audit event names and details, link single-use and supersession semantics, and the rule that no secret is recorded.
 - **FR-006**: A change to shared harness or processor code MUST keep every other test that uses it behaviorally unchanged and deterministic.
-- **FR-007**: The change MUST NOT touch the stopped spec `specs/20261025-113505-deterministic-fact-payload-telemetry-test` or its test, and MUST NOT depend on it.
+- **FR-007**: The change MUST NOT touch the stopped spec `specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test` or its test, and MUST NOT depend on it.
 
 ## Success Criteria *(mandatory)*
 
@@ -76,13 +76,13 @@ A maintainer running the integration tests, or the verification of any implement
 - **SC-002** (convergence check, reported in the pull request and recorded in a code comment of the test next to the fix): Each of three probes (a message prepared and audited by two overlapping delivery runs, a link issued without its audit event, and a secret written into an audit event) makes the test fail on its assertions; the probes are removed afterward.
 - **SC-003**: The code comment next to the fix names the evidenced cause, the change touches only the files the cause lives in, and no assertion is textually removed.
 - **SC-004**: The other tests of the invitation, password recovery, and email delivery areas pass unchanged in one full run of the Integration test project.
-- **SC-005** (post-merge evidence, not verified by a task of this spec): the verification of the stopped implementation of `specs/20261025-113505-deterministic-fact-payload-telemetry-test` reports no flaky `AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded`.
+- **SC-005** (post-merge evidence, not verified by a task of this spec): the verification of the stopped implementation of `specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test` reports no flaky `AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded`.
 
 ## Assumptions
 
 - **Cause**: The member invitations feature (Identity Access functional area) is merged and behaves correctly when the test passes. The cause is unknown; every candidate above is a hypothesis to confirm or reject by reproduction (FR-001).
 - **Scope**: The test lives in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/MemberInvitationSafetyTests.cs`; the code it covers is the invitation audit events and the invitation branch of the email delivery processor in `src/platform/SocAlytics.Platform.Infrastructure/Email/`, and its harness is the integration-test email API harness.
-- **Dependencies**: The stopped spec `specs/20261025-113505-deterministic-fact-payload-telemetry-test` depends on this spec.
+- **Dependencies**: The stopped spec `specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test` depends on this spec.
 - **Assertion coverage**: The test asserts issuance only for the first invitee; double issuance for other invitees of this test is not asserted (the guarantee comes from the processor's claim transaction, R2) and no new assertion is added.
 - **Out of scope**: Other flaky tests, production email relay values, and production readiness.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

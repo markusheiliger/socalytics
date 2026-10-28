@@ -5,7 +5,7 @@ description: "Task list for Deterministic Fact Payload Telemetry Test"
 
 # Tasks: Deterministic Fact Payload Telemetry Test
 
-**Input**: Design documents from `/specs/20261025-113505-deterministic-fact-payload-telemetry-test/`
+**Input**: Design documents from `/specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test/`
 
 **Prerequisites**: plan.md, spec.md, research.md, quickstart.md (no `data-model.md` and no `contracts/`: no entities and no external interface change)
 
@@ -22,13 +22,13 @@ description: "Task list for Deterministic Fact Payload Telemetry Test"
 ## Path Conventions
 
 - Test project: `src/platform/Tests/SocAlytics.Platform.Integration.Tests/`
-- Spec folder: `specs/20261025-113505-deterministic-fact-payload-telemetry-test/`
+- Spec folder: `specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test/`
 
 ## Phase 1: Setup (Shared Infrastructure)
 
 **Purpose**: Confirm the build baseline before any change
 
-- [x] T001 Restore and build the Integration test project from the repository root with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-restore`, and confirm that Docker is available, then record the outcome (restore and build result, warning and error counts, Docker server version) as a `### Build baseline` subsection of the `## Evidence` section of `specs/20261025-113505-deterministic-fact-payload-telemetry-test/research.md`, so the task leaves a committed change
+- [x] T001 Restore and build the Integration test project from the repository root with `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-restore`, and confirm that Docker is available, then record the outcome (restore and build result, warning and error counts, Docker server version) as a `### Build baseline` subsection of the `## Evidence` section of `specs/archive/20261025-113505-deterministic-fact-payload-telemetry-test/research.md`, so the task leaves a committed change
 
 ---
 
