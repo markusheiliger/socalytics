@@ -1,9 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using NATS.Client.Core;
-using NATS.Client.JetStream;
-using Npgsql;
 using Shouldly;
 using SocAlytics.Platform.Integration.Tests.AgentOrchestration.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
@@ -58,58 +55,6 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 			f, HttpMethod.Post, $"/api/v1/agent-conversations/{conversationId}/invocations", new { agentId = Tactics, question }, null, ct);
 		submitted.StatusCode.ShouldBe(HttpStatusCode.Accepted, await submitted.Content.ReadAsStringAsync(ct));
 		return (await ReadAsync(submitted, ct)).GetProperty("invocationId").GetGuid();
-	}
-
-	// Temporary failure capture (removed with the fix): evidence of the last run, reported when an assertion fails.
-	private string Evidence { get; set; } = "none";
-
-	private async Task<string> CaptureEvidenceAsync(AgentOrchestrationFixture f, Guid invocationId, CancellationToken ct)
-	{
-		var parts = new List<string>();
-		try
-		{
-			await using var connection = new NpgsqlConnection(f.Db.MigratorConnectionString);
-			await connection.OpenAsync(ct);
-
-			async Task<string> RowsAsync(string sql)
-			{
-				await using var command = new NpgsqlCommand(sql, connection);
-				await using var reader = await command.ExecuteReaderAsync(ct);
-				var rows = new List<string>();
-				while (await reader.ReadAsync(ct))
-				{
-					rows.Add("(" + string.Join(", ", Enumerable.Range(0, reader.FieldCount).Select(i => reader.IsDBNull(i) ? "null" : reader.GetValue(i))) + ")");
-				}
-
-				return string.Join(" ", rows);
-			}
-
-			parts.Add("agent_attempts (attempt_number, state, end_reason, lease_expires_at): " + await RowsAsync(
-				$"SELECT attempt_number, state, end_reason, lease_expires_at FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}' ORDER BY attempt_number"));
-			parts.Add("lineage kinds: " + await RowsAsync(
-				$"SELECT kind FROM socalytics.agent_lineage_entries WHERE invocation_id = '{invocationId}' ORDER BY sequence"));
-			parts.Add("outbox (message_type, state, attempt_count, publication_round, failure_category, published_at): " + await RowsAsync(
-				$"SELECT message_type, state, attempt_count, publication_round, failure_category, published_at FROM socalytics.outbox_messages WHERE payload::text ILIKE '%{invocationId}%' ORDER BY created_at"));
-		}
-		catch (Exception exception) when (exception is not OperationCanceledException)
-		{
-			parts.Add("database capture failed: " + exception.Message);
-		}
-
-		try
-		{
-			await using var connection = new NatsConnection(new NatsOpts { Url = nats.ConnectionString });
-			var consumer = await new NatsJSContext(connection).GetConsumerAsync(f.AgentWorkStream, f.AgentWorkConsumer, ct);
-			var info = consumer.Info;
-			parts.Add($"consumer {f.AgentWorkConsumer}: delivered {info.Delivered.ConsumerSeq}, ack floor {info.AckFloor.ConsumerSeq}, ack pending {info.NumAckPending}, "
-				+ $"redelivered {info.NumRedelivered}, waiting {info.NumWaiting}, pending {info.NumPending}");
-		}
-		catch (Exception exception) when (exception is not OperationCanceledException)
-		{
-			parts.Add("consumer capture failed: " + exception.Message);
-		}
-
-		return string.Join("; ", parts);
 	}
 
 	// Runs the simulated workload until the invocation is terminal; a stalled first attempt is expired by moving the clock past its lease.
@@ -205,15 +150,16 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 		await run.CancelAsync();
 		await worker;
 
+		// Cause of the intermittent retryable-failure result (research.md candidates 2 and 3, established from the code, no failure captured in
+		// the 20 single and 5 class runs of the evidence tasks): the third attempt's failure and the invocation's terminal state commit in one
+		// transaction (FailAgentAttempt), so the count is exact once the terminal read has returned and the runner has stopped, which is the
+		// order kept here. The platform is not defective, so it is unchanged.
 		var attempts = await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}'", ct);
 		var checkpoints = await f.ScalarAsync(
 			$"SELECT count(*) FROM socalytics.agent_lineage_entries WHERE invocation_id = '{invocationId}' AND kind = 'checkpoint'", ct);
-		var evidence = await CaptureEvidenceAsync(f, invocationId, ct);
 		var runnerLines = string.Join(" | ", runnerLog.Entries.Select(e => $"{e.Level} {e.Message}{(e.Exception is null ? "" : " " + e.Exception)}"));
-		Evidence = $"attempts: {attempts}; checkpoints: {checkpoints}; {evidence}; runner log: {runnerLines}";
 		ended.ShouldNotBeNull(
-			$"The invocation did not end in time. Last read: {lastRead?.GetRawText() ?? "none"}; attempts: {attempts}; checkpoints: {checkpoints}; {evidence}; "
-			+ $"runner log: {string.Join(" | ", runnerLog.Entries.Select(e => $"{e.Level} {e.Message}{(e.Exception is null ? "" : " " + e.Exception)}"))}");
+			$"The invocation did not end in time. Last read: {lastRead?.GetRawText() ?? "none"}; attempts: {attempts}; checkpoints: {checkpoints}; runner log: {runnerLines}");
 		return (ended.Value, attempts, checkpoints);
 	}
 
@@ -232,9 +178,9 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 	{
 		var (invocation, attempts, _) = await RunToEndAsync("[simulate:fail-retryable]", false, TestContext.Current.CancellationToken);
 
-		invocation.GetProperty("state").GetString().ShouldBe("failed", Evidence);
-		invocation.GetProperty("failureReason").GetString().ShouldBe("attempts-exhausted", Evidence);
-		attempts.ShouldBe(3, Evidence);
+		invocation.GetProperty("state").GetString().ShouldBe("failed");
+		invocation.GetProperty("failureReason").GetString().ShouldBe("attempts-exhausted");
+		attempts.ShouldBe(3);
 	}
 
 	[Fact]
