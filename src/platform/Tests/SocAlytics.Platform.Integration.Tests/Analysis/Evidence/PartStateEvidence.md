@@ -63,3 +63,11 @@ Runs and captures:
 Confirmed cause: the candidate "the default-on background segment worker races the explicit materialization" is confirmed. `EvidenceScenario.Settings` does not set `Analysis:Workers:Enabled`, so the API host's `SegmentMaterializationWorker` runs by default beside the test's explicit `MaterializeSegmentsAsync` and `MaterializeAllAsync` calls. When the worker claims a demanded row first, the explicit call finds nothing due and the second resolution reads `materializing` (or `rematerializing`) instead of `available`. The race depends on runner load, which is why it appears intermittently. It is a test-scenario cause, not a platform defect, so T005 applies and T006 does not.
 
 The temporary probe `Probe_worker_iteration_between_resolution_steps` and its helper `RunWorkerIterationAsync` have been removed from `EvidencePartStateTests.cs`; the file is back to its content before T003.
+
+## T006
+
+Decision: no platform defect exists, and no platform file is changed.
+
+Basis: the `## T004` section confirmed a test-side cause. `EvidenceScenario.Settings` left `Analysis:Workers:Enabled` at its default, so the API host's `SegmentMaterializationWorker` ran beside the test's explicit `MaterializeSegmentsAsync` and `MaterializeAllAsync` calls. The platform behaved as documented in both outcomes: a row claimed by the worker is `materializing` (or `rematerializing`) until the worker finishes, and an explicit call that finds no due row processes nothing. The explicit `ProcessDueAsync` from a second scope never reproduced the failure (0 of 20 runs), which shows that demand recording, part states, and materialization are correct when the racing input is controlled. The default-on worker is fixed in the test scenario by T005.
+
+Consequence (FR-004): nothing under `src/platform/SocAlytics.Platform.Application/Segments/` or `src/platform/SocAlytics.Platform.Infrastructure/Workers/` is changed, and no focused test is added under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/`.
