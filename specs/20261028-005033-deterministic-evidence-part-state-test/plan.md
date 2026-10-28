@@ -52,7 +52,8 @@ specs/20261028-005033-deterministic-evidence-part-state-test/
 ├── data-model.md
 ├── quickstart.md
 ├── checklists/requirements.md
-└── tasks.md             # Created by /speckit-tasks
+├── tasks.md             # Created by /speckit-tasks
+└── records/             # One file per measuring or confirming task (T001, T002, T007, T008, T010, T011), written during implementation
 ```
 
 No `contracts/` folder: the feature adds and changes no interface.
@@ -67,7 +68,7 @@ src/platform/SocAlytics.Platform.Application/Segments/ and Infrastructure/Worker
                                        # only if the evidence shows a platform defect (then with a focused test)
 ```
 
-**Structure Decision**: No new files in source areas. The fix edits the file the evidenced cause lives in (decision procedure in [research.md](research.md)); a platform fix would add a focused test under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/`.
+**Structure Decision**: No new files in source areas; the task records under `records/` are part of this spec folder. The fix edits the file the evidenced cause lives in (decision procedure in [research.md](research.md)); a platform fix would add a focused test under `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/`.
 
 ## Architecture Updates
 
