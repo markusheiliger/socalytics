@@ -388,7 +388,11 @@ the original failed scope must still pass, and synchronization does not erase re
 Successful full verification can resolve a pending repair, including one whose repair attempts are exhausted,
 when the original failed scope is covered; historical failures remain recorded. Full `finalize` verification
 also covers task/group/phase repairs whose original artifact expired. Merged environment-action repairs still
-require explicit scope evidence and their self-tests, which ordinary `finalize` verification does not run.
+require explicit scope evidence and their self-tests, which ordinary `finalize` verification does not run. The
+self-test of a changed environment verification action (in the merge, a repair reverification, and a conflict
+resolution) passes `environment-tests-only`, so it runs only that action's own tests and fixtures from the workspace
+instead of repeating the component checks the full verification before it already ran (an action version without that
+input ignores it and runs in full); its outcome still decides.
 
 Use `retry` for unchanged work and `sync` when
 receiving base-branch changes is a prerequisite. Diagnosis categorizes a fix already on the base as `outside` and
@@ -437,7 +441,7 @@ engine of GitHub Agentic Workflows.
 | Guided repair of landed code | Spec Kit implement task | Copilot CLI, level `strong`, in the Spec Kit workflow `repair` | `retry` with a pending repair: the repair agent (without guidance only reverification runs) |
 | Convergence | Spec Kit implement task | Copilot CLI, level `strong`, in the Spec Kit workflow `converge` | `retry`: when the convergence is the first work after the restart |
 | Conflict resolution | Spec Kit implement task | Copilot CLI, level `standard`, in the Spec Kit workflow `resolve`, only for conflicts left after the archive script | `retry` or `sync`: when it is the first work; a clean merge passes `sync` guidance on to the next work |
-| Group and phase verification, repair reverification, archive, merge verification, squash merge | Spec Kit implement group, verify, repair, merge | none (script) | never |
+| Group and phase verification, repair reverification, archive, merge verification, squash merge (the jobs that run a full `finalize` verification, the merge verification, a repair reverification, and a conflict resolution's work job, have a 150-minute limit; the others 90 minutes per job or shard) | Spec Kit implement group, verify, repair, merge | none (script) | never |
 | Comment commands | Spec Kit commands | none (script) | stores the guidance in a marker for the work above |
 | Diagnosis, amendment correction and rework | Spec Kit diagnose | agentic (`copilot` engine) | never (it reads recent comments as context; rework rounds use analysis findings and review feedback) |
 | New spec authoring (`/speckit author`), correction and rework | Spec Kit author | Copilot CLI, level `standard`: one decision step, then the agent steps of the Spec Kit workflow `author` | `author`: the decision step (the guidance shapes the feature description) |
