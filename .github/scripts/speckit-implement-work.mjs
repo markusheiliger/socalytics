@@ -407,15 +407,18 @@ const isProtected = isProtectedPath;
 // A file of the implemented spec's own folder (active or archived).
 const isOwnSpecPath = (file, folder) => [specDir(folder), specDir(folder, { archived: true })].some((dir) => file.startsWith(`${dir}/`));
 
-// Spec Kit implement task (a conflict resolution) and Spec Kit implement merge, job "Verify the merged result": merges the base branch
+// Spec Kit implement task (a conflict resolution) and Spec Kit implement merge, jobs "Prepare the merged result" and, rebuilding it per shard, "Verify the merged result": merges the base branch
 // (SPECKIT_BASE_BRANCH) into the checked-out implementation branch without committing, records the base branch SHA and
 // any conflicted files, and prepares the agent prompt for conflict resolution. Conflicts in protected paths need a
 // person. After a clean merge it writes the paths the implementation changes compared to the base branch for the
-// verification.
+// verification. SPECKIT_BASE_SHA pins the base commit, so every shard of a verification recomputes the same merge; the
+// staged tree of a clean merge is written as output `tree`, which the shards compare with the planned one.
 export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   mkdirSync(resultDir, { recursive: true });
   const baseBranch = baseBranchFromEnv(env);
-  const baseSha = gitOrThrow(git, ['rev-parse', `refs/remotes/origin/${baseBranch}`]).trim();
+  const pinned = String(env.SPECKIT_BASE_SHA ?? '').trim();
+  if (pinned && !/^[0-9a-f]{40}$/.test(pinned)) throw new Error(`SPECKIT_BASE_SHA is not a commit SHA: ${pinned}`);
+  const baseSha = pinned || gitOrThrow(git, ['rev-parse', `refs/remotes/origin/${baseBranch}`]).trim();
   const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
   const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', baseSha]);
   const root = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
@@ -450,9 +453,12 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
     : [];
   result.changedFiles = paths;
   result.environment = paths.some(isEnvironmentPath);
+  if (conflicts.length === 0) result.tree = gitOrThrow(git, ['write-tree']).trim();
   writeFileSync(path.join(resultDir, 'changed-files.txt'), paths.map((file) => `${file}\n`).join(''));
   writeResult(resultDir, result);
   const agent = inputs.kind === 'resolve' && conflicts.length > 0 && result.reasons.length === 0;
+  setOutput(env, 'base_sha', baseSha);
+  setOutput(env, 'tree', result.tree ?? '');
   setOutput(env, 'conflicts', String(conflicts.length > 0));
   setOutput(env, 'agent', String(agent));
   setOutput(env, 'verify', String(inputs.kind === 'merge' && conflicts.length === 0 && result.reasons.length === 0));
@@ -591,8 +597,8 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
 // SPECKIT_VERIFY_CONFIGURED tells whether the action exists; SPECKIT_VERIFY_OUTCOME and SPECKIT_VERIFY_CHECKS are the
 // verification's outcome and its "checks" output (comma-separated, in order; after a failure the last one failed);
 // SPECKIT_VERIFY_UNCOVERED lists changed files that no check covers, and SPECKIT_VERIFY_FLAKY the tests that passed only
-// on their rerun (`flaky`). For a merge that changes the environment
-// actions, SPECKIT_SELFTEST_OUTCOME is the outcome of running the changed actions themselves.
+// on their rerun (`flaky`). SPECKIT_VERIFY_COMBINED marks the combined result of a sharded verification. For a merge
+// that changes the environment actions, SPECKIT_SELFTEST_OUTCOME is the outcome of running the changed actions themselves.
 export function runVerdict({ env, inputs, resultDir, log }) {
   mkdirSync(resultDir, { recursive: true });
   const resultFile = path.join(resultDir, 'result.json');
@@ -633,7 +639,16 @@ export function runVerdict({ env, inputs, resultDir, log }) {
   if (!unchangedTask && result.reasons.length === 0 && configured && !pendingConflicts) {
     const names = String(env.SPECKIT_VERIFY_CHECKS ?? '').split(',').map((name) => name.trim()).filter(Boolean);
     const outcome = String(env.SPECKIT_VERIFY_OUTCOME ?? '');
-    if (outcome === 'success') {
+    if (String(env.SPECKIT_VERIFY_COMBINED ?? '') === 'true') {
+      // A sharded verification names every failed check (SPECKIT_VERIFY_FAILED) and every shard whose evidence is
+      // missing or invalid (SPECKIT_VERIFY_PROBLEMS, one per line), so several failures are all reported.
+      const failed = String(env.SPECKIT_VERIFY_FAILED ?? '').split(',').map((name) => name.trim()).filter(Boolean);
+      const problems = String(env.SPECKIT_VERIFY_PROBLEMS ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      result.checks = names.map((name) => ({ name, passed: !failed.includes(name) }));
+      if (failed.length > 0) result.reasons.push(`${failed.join(', ')} failed`);
+      result.reasons.push(...problems);
+      if (outcome !== 'success' && failed.length === 0 && problems.length === 0) result.reasons.push(`the verification did not succeed (${outcome || 'not run'})`);
+    } else if (outcome === 'success') {
       result.checks = names.map((name) => ({ name, passed: true }));
     } else {
       result.checks = names.map((name, index) => ({ name, passed: index < names.length - 1 }));

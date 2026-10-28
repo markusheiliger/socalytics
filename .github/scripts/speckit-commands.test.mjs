@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, PR_COMMANDS, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, COPILOT_HANDOFF_MARKER, PR_COMMANDS, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
 import {
   COMMAND_DOCS_END,
   COMMAND_DOCS_FILE,
@@ -17,6 +17,7 @@ import {
   renderHelp,
   runCommand,
   runCommandTarget,
+  runCopilotHandoff,
   syncCommandDocs,
 } from './speckit-commands.mjs';
 import { diagnosisRepo, makeRepo, silent } from './speckit-test-helpers.mjs';
@@ -425,4 +426,47 @@ test('docs checks the command table and refreshes it with --write, keeping line 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+const handoff = (github, body, { pull = 9, actor = 'dev' } = {}) => runCopilotHandoff({
+  client: github,
+  env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_PULL: String(pull), SPECKIT_ACTOR: actor, SPECKIT_COMMENT_BODY: body },
+  log: silent,
+});
+
+test('a writer\'s @copilot request hands a stopped implementation to Copilot and withdraws the request for help', async () => {
+  const github = diagnosisRepo();
+  const pull = github.repo.pulls[0];
+  const labels = () => (pull.labels ?? []).map((label) => label.name);
+  pull.labels = [{ name: ATTENTION_LABEL }];
+  assert.equal((await handoff(github, 'thanks @copilot, see above')).handled, false, 'only a comment that starts with the mention');
+  assert.equal((await handoff(github, '@copilot fix it', { actor: 'stranger' })).handled, false, 'only people with write access');
+  assert.equal((await handoff(github, '@copilot fix it', { pull: 11 })).handled, false, 'only implementation pull requests');
+  assert.deepEqual(labels(), [ATTENTION_LABEL]);
+  assert.equal(github.comments.length, 0);
+  assert.equal((await handoff(github, '  @Copilot Merge main and resolve the README conflict.')).handled, true);
+  assert.deepEqual(labels(), []);
+  const note = github.comments.at(-1).body;
+  assert.ok(note.startsWith(COPILOT_HANDOFF_MARKER));
+  assert.match(note, /\*\*Copilot is working on it\*\*: @dev asked GitHub Copilot's cloud agent to change `speckit\/f`[\s\S]*Copilot's push continues the implementation by itself[\s\S]*has not pushed within 60 minutes, the scheduler asks for help here again\./);
+  assert.equal((await handoff(github, '@copilot again')).handled, false, 'nothing to hand over while it does not wait for a person');
+  pull.labels = [{ name: ATTENTION_LABEL }, { name: BLOCKED_LABEL }];
+  assert.equal((await handoff(github, '@copilot fix it')).handled, false, 'a blocked implementation waits for its prerequisites');
+  assert.deepEqual(labels(), [ATTENTION_LABEL, BLOCKED_LABEL]);
+  pull.labels = [{ name: ATTENTION_LABEL }];
+  pull.state = 'closed';
+  assert.equal((await handoff(github, '@copilot fix it')).handled, false);
+});
+
+test('copilot-handoff is a command of the script and runs from its workflow job for @copilot comments', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  github.repo.pulls[0].labels = [{ name: ATTENTION_LABEL }];
+  assert.equal(await main(['copilot-handoff'], { client: github, env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_PULL: '9', SPECKIT_ACTOR: 'dev', SPECKIT_COMMENT_BODY: '@copilot go' }, log: silent }), 0);
+  assert.equal(github.repo.pulls[0].labels.length, 0);
+  const workflow = readFileSync(new URL('../workflows/speckit-commands.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const job = workflow.match(/^ {2}copilot-handoff:\n[\s\S]*?(?=^ {2}[a-z-]+:\n|(?![\s\S]))/m)?.[0] ?? '';
+  assert.match(job, /name: Hand a stopped implementation over to Copilot\n/);
+  assert.match(job, /github\.event\.comment\.user\.type != 'Bot' &&\n\s+contains\(github\.event\.comment\.body, '@copilot'\)/);
+  assert.match(job, /SPECKIT_COMMENT_BODY: \$\{\{ github\.event\.comment\.body \}\}\n\s+run: node \.github\/scripts\/speckit-commands\.mjs copilot-handoff\n/);
+  assert.doesNotMatch(job, /contents: write/);
 });

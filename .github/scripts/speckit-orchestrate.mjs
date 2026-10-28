@@ -45,6 +45,7 @@ import {
   defaultBranchOf,
   dispatchImplementation,
   maintainDependencyBlock,
+  maintainCopilotHandoff,
   extractTasks,
   implementationBranch,
   isImplementRunOf,
@@ -217,6 +218,21 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number, rootDir }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
+      // A handoff to Copilot that ended without a push asks for help again.
+      try {
+        const ended = await maintainCopilotHandoff(client, {
+          pull: lifecycle.pull,
+          comments: decision.comments ?? [],
+          pushedAt: decision.pushedAt ?? null,
+          active,
+          continues: needsRun(decision, env),
+          blocked: isBlocked,
+          now: now(),
+        });
+        if (ended) amendmentNotes.push(`- The handoff of #${issue.number} to Copilot ended without a push (${ended}); it asks for help again.`);
+      } catch (error) {
+        amendmentNotes.push(`- Warning: could not check the Copilot handoff of #${issue.number}: ${error.message}`);
+      }
       inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active, blocked: isBlocked, blockers });
       continue;
     }
