@@ -129,7 +129,8 @@ jobs:
     needs: [decide, archive]
     if: ${{ !cancelled() && needs.archive.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # The full finalize verification alone takes up to about 85 minutes; an environment spec adds its self-tests.
+    timeout-minutes: 150
     permissions:
       contents: read
     env:
@@ -209,6 +210,8 @@ jobs:
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: finalize
+          # The full verification above already ran every component check; the changed action runs its own tests only.
+          environment-tests-only: "true"
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/selftest.log
 
       - name: Record the verdict
