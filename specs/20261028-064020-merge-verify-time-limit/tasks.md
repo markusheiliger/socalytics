@@ -51,7 +51,6 @@ User Story 1 (the 150-minute limit) is delivered by the direct workflow edit of 
 
 This phase has no task: running the validation of `quickstart.md` changes no file, so such a task can never land (an unchanged task whose named repository tooling no check covers fails its attempts). The verification of every phase and the convergence run that validation.
 
-
 ## Dependencies and Execution Order
 
 - T001 first: T002 and T003 depend on the implemented input.
