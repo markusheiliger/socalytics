@@ -586,8 +586,9 @@ The Web UI's direct Specialist Agent triage conversations exist as development
 evidence. The agent catalog registry, pinning at submission, and the
 attempt-scoped artifact read exist as development evidence (see below), as does
 the Web UI's catalog administration for Club Admins; prompt and profile
-rendering, MCP tools, model execution, and the Web UI's Coach Agent and
-consultation workflows remain future implementation work.
+rendering, the MCP server, model execution, and the Web UI's Coach Agent and
+consultation workflows remain future implementation work. The platform's
+agent evidence tool operations exist as development evidence (see below).
 
 The first slice is implemented as development evidence: an `AgentOrchestration`
 folder in each platform layer stores conversations, participants, invocations,
@@ -619,7 +620,7 @@ area (implemented as development evidence; see
 [Client Applications → Web UI](client-applications.md#web-ui)). See
 [Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance).
 
-The MCP-facing application tools are decided and not yet implemented: a `Tools`
+The MCP-facing application tools are implemented as development evidence: a `Tools`
 folder inside the Agent Orchestration functional area of each layer maps the
 `/api/v1/agent-tools` route group, binds each call to the workload's current
 attempt and the invocation's pinned tool policy, re-evaluates the initiating
