@@ -29,3 +29,10 @@
 - **Rationale**: The implementation workflow lands a task only when its attempt changes files. T001 changes none, so both attempts ended with "the agent made no changes" although restore, build, and the filtered test passed (2 of 2); no further attempt can succeed. T002 and T004 to T008 are of the same kind.
 - **Rejected alternatives**: a placeholder change to satisfy T001 (no purpose); more retries (they fail the same way); relaxing SC-001 to SC-004 (they stay as they are).
 - **Evidence**: T001 attempts 1 and 2 both failed with "the agent made no changes" and summaries reporting a clean build and a passing run.
+
+## R6: Where is the evidence of the probes recorded? (refined decision)
+
+- **Decision**: Task T010 runs the three probes of `quickstart.md` step 4, reverts them, and records each result in a section `R7: Probe results (SC-002)` appended to this file; that record is its only committed change.
+- **Rationale**: T010 was appended by the convergence, and both attempts failed with "no file only this task names differs on the branch" because the probes are reverted and the task then changes no file, the same cause as R5. A recorded result is a real, reviewable change and keeps SC-002 evidenced in the repository as well as in the pull request.
+- **Rejected alternatives**: committing a probe (forbidden, probes are temporary); a placeholder change (no purpose); retrying (fails the same way); dropping SC-002 (it stays as it is).
+- **Evidence**: T010 attempts 1 and 2 both failed with the same message although restore, build, and the architecture tests passed.
