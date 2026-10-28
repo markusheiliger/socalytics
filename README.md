@@ -37,6 +37,8 @@ through approved changes.
     feature, implemented features under `specs/archive/`, and the authoring
     guide; the spec twin issues are the index of features and their order.
 - [`AGENTS.md`](AGENTS.md) defines repository guidance for coding agents.
+- [`tools/`](tools/README.md) holds developer tools that are neither product nor Spec Kit automation: uploading and
+    downloading sample videos as a private OCI artifact.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
 
@@ -1019,6 +1021,14 @@ Its own tests run with:
 ```powershell
 node --test .github/scripts/check-markdown.test.mjs
 ```
+
+### Sample videos
+
+Sample videos stay out of the repository in a private OCI artifact in the GitHub Container Registry. Upload a folder of
+videos (nested folders included) with `node tools/upload-samples.mjs <folder> --manifest samples.json`, commit only the
+manifest, and download it with `node tools/download-samples.mjs <reference@sha256:…>`. Both need the GitHub CLI and
+ORAS; see [upload-samples](tools/upload-samples.md) and [download-samples](tools/download-samples.md). Their tests run
+with `node --test tools/samples.test.mjs`. Using real match footage remains an unrecorded decision.
 
 ## License
 
