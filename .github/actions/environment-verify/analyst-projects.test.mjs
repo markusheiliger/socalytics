@@ -939,6 +939,98 @@ it('${id}', () => {
         assert.equal(fixture.record().length, 0);
       });
 
+      it('runs the changed action script for every component kind with stubbed tools', () => {
+        const fixture = fixtureTests();
+        const full = run(fullRepository(), { bin: toolBin(), env: fixture.env });
+        assert.equal(full.status, 0, full.log);
+        for (const kind of [names.platform, names.manager, names.web, names.python, names.markdown]) {
+          assert.ok(full.outputs.checks.split(',').includes(kind), kind);
+        }
+        const root = fullRepository({ manager: false, web: false, python: false });
+        writeFileSync(path.join(root, 'src/platform/verification.json'), '{ not json');
+        const invalid = run(root, { bin: toolBin(), env: fixture.env });
+        assert.equal(invalid.status, 1);
+        assert.ok(invalid.outputs.checks.split(',').includes('Verification plan'));
+      });
+
+      describe('environment-tests-only', () => {
+        const only = (fixture, extra = {}) => ({ ...fixture.env, ENVIRONMENT_TESTS_ONLY: 'true', ...extra });
+        const recommendations = (result) => result.log.split('\n').filter((line) => /Recommended action:/.test(line));
+
+        it('runs only the environment action tests in finalize mode', () => {
+          const fixture = fixtureTests();
+          const result = run(fullRepository(), { bin: toolBin(), env: only(fixture) });
+          assert.equal(result.status, 0, result.log);
+          assert.equal(result.outputs.checks, name);
+          assert.deepEqual(fixture.record().sort(), ['first:1', 'second:1']);
+          assert.equal(result.calls.length, 0);
+          assert.ok(!('plan' in result.outputs));
+          assert.equal(result.outputs.flaky, '');
+          assert.match(result.log, /Verification scope: environment action tests only/);
+        });
+
+        it('fails with exactly one recommendation when a test fails', () => {
+          const fixture = fixtureTests(true);
+          const result = run(fullRepository(), { bin: toolBin(), env: only(fixture) });
+          assert.equal(result.status, 1);
+          assert.equal(result.outputs.checks, name);
+          assert.equal(fixture.record().length, 2);
+          assert.equal(recommendations(result).length, 1);
+          assert.match(recommendations(result)[0], /^Environment action tests failed/);
+        });
+
+        it('fails with exactly one recommendation when no tests are configured', () => {
+          const fixture = fixtureTests();
+          const result = run(fullRepository(), { bin: toolBin(), env: only(fixture, { ENVIRONMENT_TESTS: '' }) });
+          assert.equal(result.status, 1);
+          assert.equal(recommendations(result).length, 1);
+          assert.equal(fixture.record().length, 0);
+          assert.equal(result.calls.length, 0);
+        });
+
+        it('passes without running the tests in a nested run', () => {
+          const fixture = fixtureTests();
+          const result = run(fullRepository(), { bin: toolBin(), env: only(fixture, { SOCALYTICS_ENVIRONMENT_TESTS_RUNNING: '1' }) });
+          assert.equal(result.status, 0, result.log);
+          assert.equal(fixture.record().length, 0);
+          assert.equal(result.calls.length, 0);
+        });
+
+        it('lists every changed file as uncovered', () => {
+          const fixture = fixtureTests();
+          const changed = ['src/platform/a.cs', 'docs/a.md', '.github/actions/environment-verify/x.mjs'];
+          const result = run(fullRepository(), { mode: 'task', changed, bin: toolBin(), env: only(fixture) });
+          assert.equal(result.status, 0, result.log);
+          assert.equal(result.outputs.uncovered, changed.join(','));
+          assert.equal(run(fullRepository(), { bin: toolBin(), env: only(fixture) }).outputs.uncovered, '');
+        });
+
+        it('keeps the unchanged full verification for "false" and empty values', () => {
+          for (const value of ['false', '']) {
+            const fixture = fixtureTests();
+            const result = run(fullRepository(), { bin: toolBin(), env: { ...fixture.env, ENVIRONMENT_TESTS_ONLY: value } });
+            assert.equal(result.status, 0, result.log);
+            assert.equal(result.outputs.checks, [names.platform, names.manager, names.web, names.python, name, names.markdown].join(','));
+            assert.ok('plan' in result.outputs);
+          }
+        });
+
+        it('runs the tests for a shard other than the first outside finalize mode', () => {
+          const fixture = fixtureTests();
+          const result = run(fullRepository(), { mode: 'phase', changed: ['src/platform/a.cs'], bin: toolBin(), env: only(fixture, { SHARD: '2/2' }) });
+          assert.equal(result.status, 0, result.log);
+          assert.equal(result.outputs.checks, name);
+          assert.equal(fixture.record().length, 2);
+        });
+
+        it('declares the input with default "false" and keeps the outputs', () => {
+          const inputs = actionText.split('inputs:')[1].split('outputs:')[0];
+          assert.match(inputs, /environment-tests-only:[\s\S]*?default: "false"/);
+          const outputs = actionText.split('outputs:')[1].split('runs:')[0];
+          assert.deepEqual([...outputs.matchAll(/^  (\w+):/gm)].map((match) => match[1]), ['checks', 'uncovered', 'flaky', 'plan']);
+        });
+      });
+
       it('points at the two Node test files next to the actions and adds no workflow input', () => {
         const declared = actionText.match(/ENVIRONMENT_TESTS: (.*)/)[1];
         assert.match(declared, /action_path \}\}\/analyst-projects\.test\.mjs/);

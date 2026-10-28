@@ -72,8 +72,8 @@ A maintainer running the integration tests, or the verification of any implement
 
 ### Measurable Outcomes
 
-- **SC-001**: The test passes in 100% of at least 30 consecutive runs alone and in at least 10 consecutive runs under CPU load (one busy-loop process per core for the duration), each with exactly two `invitation.issued` events for the first invitee.
-- **SC-002**: Each of three probes (a message prepared and audited by two overlapping delivery runs, a link issued without its audit event, and a secret written into an audit event) makes the test fail on its assertions; the probes are removed afterward.
+- **SC-001** (convergence check, reported in the pull request): The test passes in 100% of at least 30 consecutive runs alone and in at least 10 consecutive runs under CPU load (one busy-loop process per core for the duration), each with exactly two `invitation.issued` events for the first invitee.
+- **SC-002** (convergence check, reported in the pull request and recorded in a code comment of the test next to the fix): Each of three probes (a message prepared and audited by two overlapping delivery runs, a link issued without its audit event, and a secret written into an audit event) makes the test fail on its assertions; the probes are removed afterward.
 - **SC-003**: The code comment next to the fix names the evidenced cause, the change touches only the files the cause lives in, and no assertion is textually removed.
 - **SC-004**: The other tests of the invitation, password recovery, and email delivery areas pass unchanged in one full run of the Integration test project.
 - **SC-005** (post-merge evidence, not verified by a task of this spec): the verification of the stopped implementation of `specs/20261025-113505-deterministic-fact-payload-telemetry-test` reports no flaky `AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded`.

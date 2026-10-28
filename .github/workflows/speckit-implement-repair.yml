@@ -105,7 +105,8 @@ jobs:
       ${{ !cancelled() && needs.decide.outputs.action == 'repair' &&
       (needs.decide.outputs.verify_only == 'true' || needs.implement.result == 'success') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # A finalize-mode reverification alone takes up to about 85 minutes; an environment repair adds its self-tests.
+    timeout-minutes: 150
     permissions:
       actions: read
       contents: read
@@ -222,6 +223,8 @@ jobs:
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: finalize
+          # The verification above already ran the component checks; the changed action runs its own tests only.
+          environment-tests-only: "true"
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/environment-self-test.log
 

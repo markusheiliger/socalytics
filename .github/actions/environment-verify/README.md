@@ -175,7 +175,13 @@ Discovery always validates the existing agent manifests. A malformed or unsuppor
 
 ## Environment action tests
 
-The check "Environment action tests" runs `node --test` over [`analyst-projects.test.mjs`](analyst-projects.test.mjs) and [`../environment-setup/toolchain.test.mjs`](../environment-setup/toolchain.test.mjs). It runs when a file under `.github/actions/environment-setup/` or `.github/actions/environment-verify/` changed, and in `finalize` mode, whether or not an Analyst Python project exists. It uses the Node.js that the caller provides. The marker `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING` makes a nested run of the action skip this check, so the test fixtures never start the self-test again. The tests stub external commands and never connect to a database. They use isolated fixtures, not product projects.
+The check "Environment action tests" runs `node --test` over [`analyst-projects.test.mjs`](analyst-projects.test.mjs), [`verification-scope.test.mjs`](verification-scope.test.mjs), [`verification-plan.test.mjs`](verification-plan.test.mjs), and [`../environment-setup/toolchain.test.mjs`](../environment-setup/toolchain.test.mjs) (the list `ENVIRONMENT_TESTS` in `action.yml`). It runs when a file under `.github/actions/environment-setup/` or `.github/actions/environment-verify/` changed, and in `finalize` mode, whether or not an Analyst Python project exists. It uses the Node.js that the caller provides. The marker `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING` makes a nested run of the action skip this check, so the test fixtures never start the self-test again. The tests stub external commands and never connect to a database. They use isolated fixtures, not product projects.
+
+### Environment action tests only
+
+The optional input `environment-tests-only` (default `"false"`) narrows the action to this one check. With `"true"` the action runs only the four test files above, with `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1`, in every mode and shard and whatever files changed; it skips the verification plan, the components, the Analyst and agent Python projects, and the Markdown check. The `checks` output is `Environment action tests`, `plan` is not written, `flaky` is empty, and `uncovered` lists every line of `changed-files` (empty without it). The log states `Verification scope: environment action tests only`. A failing test fails the step with one "Recommended action" line, and an empty `ENVIRONMENT_TESTS` list fails it the same way, so a self-test never succeeds without running a test. In a nested run (the marker is already set) the tests are skipped without failing. Any other value than `"true"` keeps the full verification unchanged.
+
+The merge's self-test of a changed environment action uses this input: it runs only the action's own tests and fixtures from the workspace version, while the full verification of the merged result with the trusted action still runs every component test.
 
 ## Spec Kit tooling tests
 
@@ -192,7 +198,7 @@ The Markdown check runs when a Markdown file changed and in `finalize` mode. In 
 The `uncovered` output lists changed files that no check covers, and the workflows hold such changes for review. These paths are covered:
 
 - Markdown files, `specs/`, and the repository metadata files `.gitignore`, `.gitattributes`, and `.editorconfig`;
-- the two environment action folders, which the merge self-tests;
+- the two environment action folders, which the merge self-tests with `environment-tests-only` (only the action's own tests and fixtures; the full verification of the merged result runs the component tests);
 - the Spec Kit tooling files `.github/scripts/speckit-*.mjs` (tests included), covered by the Spec Kit tooling tests; the scope reason names them instead of "is not Markdown", and no other `.github/` path is covered;
 - `src/platform/` and `contracts/` while the platform solution exists, `src/analysts/manager/` while the Manager solution exists, and `src/clients/web/` while its `package.json` exists;
 - the root of each existing recognized Analyst Python project;

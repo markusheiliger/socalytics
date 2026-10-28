@@ -170,6 +170,27 @@ qualify. A task ticked without its agent's change is never ticked silently: the 
 its line in `tasks.md` (for example `— already satisfied by 8e71cbfd on main (verified; no change by this task)`),
 and its comment and check run say the same, so the tick never claims work this spec did not do; agents cannot add
 such a note themselves.
+A task can also be correctly done without any change, which upstream Spec Kit allows: it only verifies (for example
+"Run quickstart.md validation", or a test run a number of times), or it applies only under a condition that does not
+hold ("only if T004 shows a platform defect, fix it"). Its agent then changes nothing and claims the outcome
+(`verified` or `not-applicable`) in `completion.json` of the run folder; there are no task markers, the outcome is
+inferred from the task's wording and the evidence. A separate read-only agent assesses the claim against the task
+(`assessment.json`): it lists every obligation of the task and accepts only when none requires a change; for
+`verified` it names exactly what the task requires to run (the `dotnet-test`, `pytest`, `npm-script`, or
+`environment-verify` runner with its scope, filters, and number of consecutive passing runs) and lists anything else
+(probes, load, manual steps) as unsupported, which keeps the task open; for `not-applicable` it names the condition and
+cites repository lines (path, line range, and an excerpt that must appear there) that show it does not hold. The
+workflow fails when the assessment rejects the claim, changes a file, or leaves an obligation unmet; ambiguity fails
+closed. In the work job, the trusted runner (`speckit-completion.mjs verify`, step "Run the task's own verification",
+time budget `SPECKIT_COMPLETION_BUDGET_MINUTES`, default 25) executes the assessed requirements on the unchanged
+branch without reruns, and the environment verification runs only for an assessed `environment-verify` requirement,
+in its mode over its files. The land job checks everything again without running agent-written code: the assessed
+head is still the pull request head, the task text is unchanged, every citation still matches its content, and every
+required run passed (a test that passed only on its rerun does not count). It then ticks the task with a note
+(`— verified without changes by the assessed verification at 8e71cbfd (no change by this task)` or
+`— not applicable: <condition> (assessed at 8e71cbfd; no change by this task)`), and its comment links the evidence.
+When the branch moves before the push, the task is requeued and assessed again on the new head instead of carrying
+the decision over. The diagnosis never amends such a task only to give it a file to write.
 The verification reruns failing tests once: a .NET test project with at most 10 failed tests reruns only those, and
 the Web UI browser tests run with `--retries=1`. A test that passes on the rerun lets the check pass but is reported as
 **flaky** in the comment (marker `speckit-implement:flaky`); a test that fails twice fails the check. After each
@@ -367,7 +388,11 @@ the original failed scope must still pass, and synchronization does not erase re
 Successful full verification can resolve a pending repair, including one whose repair attempts are exhausted,
 when the original failed scope is covered; historical failures remain recorded. Full `finalize` verification
 also covers task/group/phase repairs whose original artifact expired. Merged environment-action repairs still
-require explicit scope evidence and their self-tests, which ordinary `finalize` verification does not run.
+require explicit scope evidence and their self-tests, which ordinary `finalize` verification does not run. The
+self-test of a changed environment verification action (in the merge, a repair reverification, and a conflict
+resolution) passes `environment-tests-only`, so it runs only that action's own tests and fixtures from the workspace
+instead of repeating the component checks the full verification before it already ran (an action version without that
+input ignores it and runs in full); its outcome still decides.
 
 Use `retry` for unchanged work and `sync` when
 receiving base-branch changes is a prerequisite. Diagnosis categorizes a fix already on the base as `outside` and
@@ -416,7 +441,7 @@ engine of GitHub Agentic Workflows.
 | Guided repair of landed code | Spec Kit implement task | Copilot CLI, level `strong`, in the Spec Kit workflow `repair` | `retry` with a pending repair: the repair agent (without guidance only reverification runs) |
 | Convergence | Spec Kit implement task | Copilot CLI, level `strong`, in the Spec Kit workflow `converge` | `retry`: when the convergence is the first work after the restart |
 | Conflict resolution | Spec Kit implement task | Copilot CLI, level `standard`, in the Spec Kit workflow `resolve`, only for conflicts left after the archive script | `retry` or `sync`: when it is the first work; a clean merge passes `sync` guidance on to the next work |
-| Group and phase verification, repair reverification, archive, merge verification, squash merge | Spec Kit implement group, verify, repair, merge | none (script) | never |
+| Group and phase verification, repair reverification, archive, merge verification, squash merge (the jobs that run a full `finalize` verification, the merge verification, a repair reverification, and a conflict resolution's work job, have a 150-minute limit; the others 90 minutes per job or shard) | Spec Kit implement group, verify, repair, merge | none (script) | never |
 | Comment commands | Spec Kit commands | none (script) | stores the guidance in a marker for the work above |
 | Diagnosis, amendment correction and rework | Spec Kit diagnose | agentic (`copilot` engine) | never (it reads recent comments as context; rework rounds use analysis findings and review feedback) |
 | New spec authoring (`/speckit author`), correction and rework | Spec Kit author | Copilot CLI, level `standard`: one decision step, then the agent steps of the Spec Kit workflow `author` | `author`: the decision step (the guidance shapes the feature description) |
