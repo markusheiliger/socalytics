@@ -217,6 +217,7 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 	// Probes: wrong pinned digest (expected digest with "PROBE" appended, temporary, reverted): the named test failed on the digest assertion (pin.GetProperty("digest").GetString()) in 4 s.
 	// Probes: missing pinned artifact kind (expected kinds without "safety-policy", temporary, reverted): the named test failed on the artifact kinds assertion (pin.GetProperty("artifacts")...ShouldBe) in 4 s.
 	// Probes: every probe was removed afterwards and git diff shows no probe.
+	// Scope: the change touches only SeedTests.cs, AgentOrchestrationFixture.cs, and MutableTimeProvider.cs (the files the cause lives in), the one sentence in docs/architecture/platform-implementation.md, and this spec folder; no assertion was removed (advice text, pinned version, pinned digest, and the four pinned artifact kinds are unchanged, the terminal-state assertion replaces ShouldNotBeNull), and no fixed wait, retry, skip, or longer timeout was added (the 250 ms poll and the 120 s safety net already existed); node .github/scripts/check-markdown.mjs: 0 issues in 0 files.
 	[Fact]
 	public async Task TheSimulatedAgentWorkloadCompletesAnInvocationOfTheSeededVersionWithItsPinnedReferences()
 	{
