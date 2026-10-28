@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Fix for**: #370 (implementation of `specs/20261027-082724-docker-push-digest-status-line`, twin #357)
+**Fix for**: #370 (implementation of `specs/archive/20261027-082724-docker-push-digest-status-line`, twin #357)
 
-**Input**: User description: "`EvidencePartStateTests.Never_materialized_segment_is_materializing_then_available_with_a_link_after_the_worker_ran` in SocAlytics.Platform.Integration.Tests/Analysis/Evidence failed and then passed on its one rerun in the verifications of three implementation pull requests (#225, #345, #370), so it is flaky. It is not caused by the stopped spec `specs/20261027-082724-docker-push-digest-status-line`, which does not touch segments or evidence. Find and remove the real cause where it lives (the test, its shared scenario helper `EvidenceScenario`, or the code it covers) without weakening, skipping, or deleting the test or its assertions, without retries, fixed sleeps, or longer timeouts as the fix, and without changing the documented behavior of part states, demand recording, or materialization. The spec `specs/20261027-082724-docker-push-digest-status-line` depends on this spec."
+**Input**: User description: "`EvidencePartStateTests.Never_materialized_segment_is_materializing_then_available_with_a_link_after_the_worker_ran` in SocAlytics.Platform.Integration.Tests/Analysis/Evidence failed and then passed on its one rerun in the verifications of three implementation pull requests (#225, #345, #370), so it is flaky. It is not caused by the stopped spec `specs/archive/20261027-082724-docker-push-digest-status-line`, which does not touch segments or evidence. Find and remove the real cause where it lives (the test, its shared scenario helper `EvidenceScenario`, or the code it covers) without weakening, skipping, or deleting the test or its assertions, without retries, fixed sleeps, or longer timeouts as the fix, and without changing the documented behavior of part states, demand recording, or materialization. The spec `specs/archive/20261027-082724-docker-push-digest-status-line` depends on this spec."
 
 ## Clarifications
 
@@ -32,7 +32,7 @@ The implementation first confirms or refutes this with evidence, and considers o
 
 A maintainer running the Integration suite, or the verification of any implementation, sees the test pass whenever a never-materialized segment is reported as `materializing` with one demanded segment and then as `available` with a link after the explicit materialization, however loaded the runner is, and fail only when that behavior is broken.
 
-**Why this priority**: The test failed in the verifications of three implementations, and the implementation of `specs/20261027-082724-docker-push-digest-status-line` (#370) is held by its report; the person who asked wants the cause removed rather than rerun.
+**Why this priority**: The test failed in the verifications of three implementations, and the implementation of `specs/archive/20261027-082724-docker-push-digest-status-line` (#370) is held by its report; the person who asked wants the cause removed rather than rerun.
 
 **Independent Test**: Run the test repeatedly, alone and with its class under CPU load, with a poll interval and timing that would let a background worker act; every run passes. Then break the behavior with a probe (for example, make the resolution not record demand, or report `available` before materialization) and confirm the test still fails on its assertions.
 
@@ -54,7 +54,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 ### Functional Requirements
 
-- **FR-001**: The implementation MUST first establish the cause of the intermittent failure with evidence (the code, or repeated runs with and without CPU load and the logs of failing runs, for example by making the suspected background worker act in the window and observing the failure) and record it in the Evidence section of `research.md` and in the code comment next to the fix.
+- **FR-001**: The implementation MUST first establish the cause of the intermittent failure with evidence (the code, or repeated runs with and without CPU load and the logs of failing runs, for example by making the suspected background worker act in the window and observing the failure) and record it in the evidence record `PartStateEvidence.md` next to the evidence tests (an implementation agent may not change files under `specs/`) and in the code comment next to the fix.
 - **FR-002**: The cause MUST be removed where it lives (the test, `EvidenceScenario`, or the code it covers) by controlling the racing input, for example by letting the scenario own the worker so that the only materialization is the explicit `MaterializeSegmentsAsync` call, or by waiting on an observable condition; not by retries, fixed sleeps, skipping, or lengthening a limit.
 - **FR-003**: Every assertion of the test (`materializing` state, positive retry hint, no media, demanded count of 1, `available` state, non-empty media link) MUST remain, and no assertion, expected value, or test of the evidence test classes MAY be removed, loosened, or skipped.
 - **FR-004**: The documented behavior of part states, demand recording, and segment materialization MUST NOT change: any platform change MUST keep the semantics documented in `docs/architecture/`.
@@ -65,8 +65,8 @@ A maintainer running the Integration suite, or the verification of any implement
 ### Measurable Outcomes
 
 - **SC-001**: The test passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of the evidence test classes under CPU load.
-- **SC-002**: The before-fix reproduction is the T003 result recorded in `research.md` (the real segment worker re-enabled through `extraSettings`: `Analysis:Workers:Enabled=true` with a short `Segments:Materialization:PollInterval`); after the fix, a temporary run that re-enables the worker the same way is only a still-reproduces check, and the default scenario (workers off) passes the same probe-free run 20 times; and a probe that breaks demand recording or part states, or reports `available` early, makes the test fail on its unchanged assertions; the probes are removed afterward.
-- **SC-003**: The pull request names the evidenced cause and changes only the files the cause lives in, a focused test for a platform fix, no `docs/architecture/` change unless the fix makes a statement false, and this spec folder; no assertion is textually removed.
+- **SC-002**: The before-fix reproduction is the T003 result recorded in the evidence record `PartStateEvidence.md` (the real segment worker re-enabled through `extraSettings`: `Analysis:Workers:Enabled=true` with a short `Segments:Materialization:PollInterval`); after the fix, a temporary run that re-enables the worker the same way is only a still-reproduces check, and the default scenario (workers off) passes the same probe-free run 20 times; and a probe that breaks demand recording or part states, or reports `available` early, makes the test fail on its unchanged assertions; the probes are removed afterward.
+- **SC-003**: The pull request names the evidenced cause and changes only the files the cause lives in, a focused test for a platform fix, no `docs/architecture/` change unless the fix makes a statement false, this spec folder, and the evidence record `PartStateEvidence.md`; no assertion is textually removed.
 - **SC-004** (post-merge evidence, observed when #370 retries and not verified by a task of this spec): the verification of #370 reports no flaky evidence test.
 
 ## Assumptions

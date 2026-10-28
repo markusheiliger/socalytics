@@ -2,8 +2,8 @@ name: Spec Kit implement repair
 
 # A writer-approved repair of landed code after a verification failure (see Spec Kit implement decide): prepare the run,
 # repair the implementation (one call of Spec Kit implement task, named after the failed verification), reverify the
-# original failed scope together with the repair, report it, and start the next run. Without guidance only the
-# reverification runs.
+# original failed scope together with the repair in shards side by side, report it, and start the next run. Without
+# guidance only the reverification runs.
 run-name: >-
   Spec Kit implement spec #${{ inputs.issue }}${{ inputs.title && format(' · {0}', inputs.title) || '' }}${{ inputs.subject && format(' · {0}', inputs.subject) || '' }}
 
@@ -97,23 +97,28 @@ jobs:
       order: ${{ needs.decide.outputs.order }}
       entry: ${{ toJSON(matrix) }}
 
-  # Read-only token; it runs agent-written code.
-  verify:
-    name: Verify the repair
+  # The reverification, sharded like the phase verification: "prepare" builds the verification scope once (a merge scope
+  # merges the base branch at a pinned commit) and plans the shards; every shard and the self-test rebuild exactly that
+  # tree (they fail when `git write-tree` differs) and run side by side on their own runners; "verdict" combines them
+  # strictly against the plan. Every job that runs workspace code holds only a read-only token.
+  prepare:
+    name: Prepare the repair verification
     needs: [decide, implement]
     if: >-
       ${{ !cancelled() && needs.decide.outputs.action == 'repair' &&
       (needs.decide.outputs.verify_only == 'true' || needs.implement.result == 'success') }}
     runs-on: ubuntu-latest
-    # A finalize-mode reverification alone takes up to about 85 minutes; an environment repair adds its self-tests.
-    timeout-minutes: 150
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
     outputs:
       head: ${{ steps.head.outputs.head }}
-      verification: ${{ steps.verification.outcome }}
-      flaky: ${{ steps.verification.outputs.flaky }}
+      mode: ${{ steps.tree.outputs.mode }}
+      environment: ${{ steps.tree.outputs.environment }}
+      base_sha: ${{ steps.tree.outputs.base_sha }}
+      tree: ${{ steps.tree.outputs.tree }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     env:
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
@@ -167,8 +172,10 @@ jobs:
           mkdir -p "$SPECKIT_RESULT_DIR"
           if [ "$SCOPE" = "merge" ]; then
             git fetch --quiet origin "$BASE_BRANCH"
-            git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com merge --no-ff --no-commit "origin/$BASE_BRANCH"
-            git diff --name-only --no-renames "origin/$BASE_BRANCH"...HEAD > "$SPECKIT_RESULT_DIR/repair-changed-files.txt"
+            base_sha="$(git rev-parse "origin/$BASE_BRANCH")"
+            echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+            git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com merge --no-ff --no-commit "$base_sha"
+            git diff --name-only --no-renames "$base_sha"...HEAD > "$SPECKIT_RESULT_DIR/repair-changed-files.txt"
           else
             start="$FAILED_HEAD"
             if ! git merge-base --is-ancestor "$start" HEAD; then start="$(git merge-base "$start" HEAD || true)"; fi
@@ -176,6 +183,7 @@ jobs:
               rm -f "$SPECKIT_RESULT_DIR/repair-changed-files.txt"
             fi
           fi
+          echo "tree=$(git write-tree)" >> "$GITHUB_OUTPUT"
           node --input-type=module <<'NODE'
           import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
           import { repairVerificationScope } from '../tooling/.github/scripts/speckit-repair.mjs';
@@ -191,42 +199,252 @@ jobs:
           console.log(`Repair verification mode: ${result.mode}; ${result.changedFiles.length} changed paths (original scope plus repair).`);
           NODE
 
+      - name: Plan the verification shards
+        id: plan
+        env:
+          MODE: ${{ steps.tree.outputs.mode }}
+        run: |
+          matrix="$(node tooling/.github/actions/environment-verify/verification-plan.mjs --root workspace --mode "$MODE" --changed-files "$SPECKIT_RESULT_DIR/changed-files.txt" --matrix 4)"
+          echo "$matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the prepared scope
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-repair-prepared
+          path: ${{ env.SPECKIT_RESULT_DIR }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+  shards:
+    name: Verify the repaired scope
+    needs: [decide, prepare]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      # The fallback only keeps the expression valid when the job is skipped without a plan.
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix || '{"include":[{"name":"no plan","shard":"1/1"}]}') }}
+    permissions:
+      contents: read
+    env:
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the landed repair
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.head }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download the prepared scope
+        uses: actions/download-artifact@v8
+        with:
+          name: speckit-repair-prepared
+          path: ${{ runner.temp }}/prepared
+
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
         uses: ./tooling/.github/actions/environment-setup
         with:
           workspace: workspace
 
+      - name: Rebuild the planned verification tree
+        id: tree
+        working-directory: workspace
+        env:
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          PLANNED_TREE: ${{ needs.prepare.outputs.tree }}
+        run: |
+          if [ -n "$BASE_SHA" ]; then
+            git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com merge --no-ff --no-commit "$BASE_SHA"
+          fi
+          tree="$(git write-tree)"
+          if [ -z "$PLANNED_TREE" ] || [ "$tree" != "$PLANNED_TREE" ]; then
+            echo "::error::The rebuilt verification tree $tree differs from the planned tree ${PLANNED_TREE:-(none)}."
+            exit 1
+          fi
+
       - name: Verify the repaired scope
-        id: verification
-        if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        id: verify
+        continue-on-error: true
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: ${{ steps.tree.outputs.mode }}
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          mode: ${{ needs.prepare.outputs.mode }}
+          changed-files: ${{ runner.temp }}/prepared/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+          shard: ${{ matrix.shard }}
+
+      # Matrix outputs keep only one shard's values, so each shard records its own for the verdict to combine.
+      - name: Record the shard outcome
+        if: always()
+        env:
+          SHARD: ${{ matrix.shard }}
+          OUTCOME: ${{ steps.tree.outcome == 'failure' && 'verification tree mismatch' || steps.verify.outcome }}
+          CHECKS: ${{ steps.verify.outputs.checks }}
+          FLAKY: ${{ steps.verify.outputs.flaky }}
+          UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+        run: |
+          mkdir -p "$SPECKIT_RESULT_DIR"
+          printf '%s\n' "$SHARD" > "$SPECKIT_RESULT_DIR/shard.txt"
+          printf '%s\n' "$OUTCOME" > "$SPECKIT_RESULT_DIR/outcome.txt"
+          printf '%s\n' "$CHECKS" > "$SPECKIT_RESULT_DIR/checks.txt"
+          printf '%s\n' "$FLAKY" > "$SPECKIT_RESULT_DIR/flaky.txt"
+          printf '%s\n' "$UNCOVERED" > "$SPECKIT_RESULT_DIR/uncovered.txt"
+
+      - name: Upload the shard verification
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-repair-verification-shard-${{ strategy.job-index }}
+          path: ${{ env.SPECKIT_RESULT_DIR }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # A repair of the environment actions exercises their own versions once, beside the shards: the changed setup on a
+  # fresh runner, then the changed verification with its own tests only (the shards already ran the component checks).
+  selftest:
+    name: Self-test the repaired environment actions
+    needs: [decide, prepare]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.environment == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the landed repair
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.head }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download the prepared scope
+        uses: actions/download-artifact@v8
+        with:
+          name: speckit-repair-prepared
+          path: ${{ runner.temp }}/prepared
+
+      - name: Rebuild the planned verification tree
+        working-directory: workspace
+        env:
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          PLANNED_TREE: ${{ needs.prepare.outputs.tree }}
+        run: |
+          if [ -n "$BASE_SHA" ]; then
+            git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com merge --no-ff --no-commit "$BASE_SHA"
+          fi
+          tree="$(git write-tree)"
+          if [ -z "$PLANNED_TREE" ] || [ "$tree" != "$PLANNED_TREE" ]; then
+            echo "::error::The rebuilt verification tree $tree differs from the planned tree ${PLANNED_TREE:-(none)}."
+            exit 1
+          fi
 
       - name: Self-test the repaired environment setup
-        if: >-
-          steps.tree.outputs.environment == 'true' &&
-          hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
+        if: hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
         uses: ./workspace/.github/actions/environment-setup
         with:
           workspace: workspace
 
       - name: Self-test the repaired environment verification
-        if: >-
-          steps.tree.outputs.environment == 'true' &&
-          hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
+        if: hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
         uses: ./workspace/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: finalize
-          # The verification above already ran the component checks; the changed action runs its own tests only.
           environment-tests-only: "true"
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          changed-files: ${{ runner.temp }}/prepared/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/environment-self-test.log
+
+  # Combines the shards strictly against the plan into the one result later repairs read, speckit-repair-verification,
+  # and fails when the verification or the self-test did not pass. It runs no workspace code.
+  verdict:
+    name: Record the repair verification
+    needs: [decide, prepare, shards, selftest]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      head: ${{ needs.prepare.outputs.head }}
+      verification: ${{ steps.outcome.outputs.verification }}
+      flaky: ${{ steps.combine.outputs.flaky }}
+    env:
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download the prepared scope
+        uses: actions/download-artifact@v8
+        with:
+          name: speckit-repair-prepared
+          path: ${{ env.SPECKIT_RESULT_DIR }}
+
+      - name: Download the shard verifications
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: speckit-repair-verification-shard-*
+          path: ${{ runner.temp }}/shards
+
+      - name: Combine the shard verifications
+        id: combine
+        env:
+          MATRIX: ${{ needs.prepare.outputs.matrix }}
+        run: node tooling/.github/scripts/speckit-verify-shards.mjs combine "$RUNNER_TEMP/shards" "$SPECKIT_RESULT_DIR" --expect "$MATRIX"
+
+      - name: Decide the verification outcome
+        id: outcome
+        env:
+          COMBINED: ${{ steps.combine.outputs.outcome }}
+          ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
+          SELFTEST: ${{ needs.selftest.result }}
+        run: |
+          verification=success
+          [ "$COMBINED" = success ] || verification=failure
+          if [ "$ENVIRONMENT" = true ] && [ "$SELFTEST" != success ]; then
+            echo "The repaired environment actions failed their self-test ($SELFTEST)."
+            verification=failure
+          fi
+          echo "verification=$verification" >> "$GITHUB_OUTPUT"
+          echo "Repair verification: $verification"
 
       - name: Upload the repair verification
         if: always()
@@ -237,13 +455,16 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      - name: Fail on a failed verification
+        if: steps.outcome.outputs.verification != 'success'
+        run: exit 1
   report:
     name: Report the repair
     concurrency:
       group: speckit-publication-${{ inputs.pull }}
       queue: max
       cancel-in-progress: false
-    needs: [decide, implement, verify]
+    needs: [decide, implement, prepare, verdict]
     if: >-
       ${{ always() && needs.decide.outputs.action == 'repair' &&
       (needs.decide.outputs.verify_only == 'true' || needs.implement.result == 'success') }}
@@ -274,10 +495,10 @@ jobs:
           SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
           SPECKIT_CHECK_RUN: ${{ needs.decide.outputs.check_run }}
           SPECKIT_REPAIR: ${{ needs.decide.outputs.repair }}
-          SPECKIT_HEAD: ${{ needs.verify.outputs.head || needs.implement.outputs.head }}
-          SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
-          SPECKIT_VERIFICATION_OUTCOME: ${{ needs.verify.outputs.verification }}
-          SPECKIT_VERIFY_FLAKY: ${{ needs.verify.outputs.flaky }}
+          SPECKIT_HEAD: ${{ needs.verdict.outputs.head || needs.prepare.outputs.head || needs.implement.outputs.head }}
+          SPECKIT_VERIFY_RESULT: ${{ needs.prepare.result != 'success' && needs.prepare.result || needs.verdict.result }}
+          SPECKIT_VERIFICATION_OUTCOME: ${{ needs.verdict.outputs.verification }}
+          SPECKIT_VERIFY_FLAKY: ${{ needs.verdict.outputs.flaky }}
         run: node .github/scripts/speckit-repair.mjs repair-report
 
   # Starts the next run in the workflow of its kind unless this run was cancelled; a stop (attempt limit, diagnosis,

@@ -2,8 +2,9 @@ name: Spec Kit implement merge
 
 # The merge of an implementation (see Spec Kit implement decide): prepare the run, archive the spec on the implementation
 # branch (write token, no agent-written code; the archive lands with the implementation, so the base branch never
-# receives references to an active spec folder that no longer exists), verify the prospective merged tree (read-only
-# token), then squash-merge the pull request into its base branch or ask for review (API only), and start the next run.
+# receives references to an active spec folder that no longer exists), verify the prospective merged tree in shards
+# side by side (read-only token), then squash-merge the pull request into its base branch or ask for review (API only),
+# and start the next run.
 run-name: >-
   Spec Kit implement spec #${{ inputs.issue }}${{ inputs.title && format(' · {0}', inputs.title) || '' }}${{ inputs.subject && format(' · {0}', inputs.subject) || '' }}
 
@@ -123,14 +124,86 @@ jobs:
           SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
         run: node tooling/.github/scripts/speckit-merge.mjs archive
 
-  # Runs the prospective merged tree and therefore holds only a read-only token.
-  verify:
-    name: Verify the merged result
+  # The verification of the prospective merged tree, sharded like the phase verification: "prepare" merges the base
+  # branch once, pins its commit, and plans the finalize shards; every shard and the self-test rebuild exactly that tree
+  # from the pinned commit (they fail when `git write-tree` differs) and run side by side on their own runners; "verdict"
+  # combines them strictly against the plan. Every job that runs workspace code holds only a read-only token.
+  prepare:
+    name: Prepare the merged result
     needs: [decide, archive]
     if: ${{ !cancelled() && needs.archive.result == 'success' }}
     runs-on: ubuntu-latest
-    # The full finalize verification alone takes up to about 85 minutes; an environment spec adds its self-tests.
-    timeout-minutes: 150
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      verify: ${{ steps.integrate.outputs.verify }}
+      environment: ${{ steps.integrate.outputs.environment }}
+      base_sha: ${{ steps.integrate.outputs.base_sha }}
+      tree: ${{ steps.integrate.outputs.tree }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_BASE_BRANCH: ${{ needs.decide.outputs.base_branch }}
+      SPECKIT_TWIN: ${{ inputs.issue }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
+      SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_TOOLING: ${{ github.workspace }}/tooling
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.archive.outputs.head }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Build the prospective merged tree
+        id: integrate
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-merge.mjs" integrate
+
+      - name: Plan the verification shards
+        id: plan
+        if: steps.integrate.outputs.verify == 'true'
+        run: |
+          matrix="$(node "$SPECKIT_TOOLING/.github/actions/environment-verify/verification-plan.mjs" --root "$SPECKIT_WORKSPACE" --mode finalize --changed-files "$SPECKIT_RESULT_DIR/changed-files.txt" --matrix 4)"
+          echo "$matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the prepared result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-merge-prepared
+          path: ${{ env.SPECKIT_RESULT_DIR }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+  shards:
+    name: Verify the merged result
+    needs: [decide, archive, prepare]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.verify == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      # The fallback only keeps the expression valid when the job is skipped without a plan.
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix || '{"include":[{"name":"no plan","shard":"1/1"}]}') }}
     permissions:
       contents: read
     env:
@@ -164,36 +237,129 @@ jobs:
         with:
           node-version: 24
 
+      - name: Download the prepared result
+        uses: actions/download-artifact@v8
+        with:
+          name: speckit-merge-prepared
+          path: ${{ runner.temp }}/prepared
+
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
         uses: ./tooling/.github/actions/environment-setup
         with:
           workspace: workspace
 
-      - name: Build the prospective merged tree
-        id: integrate
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-merge.mjs" integrate
+      - name: Rebuild the planned merged tree
+        id: tree
+        env:
+          SPECKIT_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          PLANNED_TREE: ${{ needs.prepare.outputs.tree }}
+        run: |
+          SPECKIT_RESULT_DIR="$RUNNER_TEMP/integrate" node "$SPECKIT_TOOLING/.github/scripts/speckit-merge.mjs" integrate
+          tree="$(git -C "$SPECKIT_WORKSPACE" write-tree)"
+          if [ -z "$PLANNED_TREE" ] || [ "$tree" != "$PLANNED_TREE" ]; then
+            echo "::error::The rebuilt merged tree $tree differs from the planned tree ${PLANNED_TREE:-(none)}."
+            exit 1
+          fi
 
       - name: Verify the merged result
         id: verify
-        if: >-
-          steps.integrate.outputs.verify == 'true' &&
-          hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
         continue-on-error: true
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: finalize
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          changed-files: ${{ runner.temp }}/prepared/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+          shard: ${{ matrix.shard }}
 
-      # Environment specs change the trusted actions that later implementations load. Exercise their own versions on
-      # the prospective merged tree once before allowing the merge.
+      # Matrix outputs keep only one shard's values, so each shard records its own for the verdict to combine.
+      - name: Record the shard outcome
+        if: always()
+        env:
+          SHARD: ${{ matrix.shard }}
+          OUTCOME: ${{ steps.tree.outcome == 'failure' && 'merged tree mismatch' || steps.verify.outcome }}
+          CHECKS: ${{ steps.verify.outputs.checks }}
+          FLAKY: ${{ steps.verify.outputs.flaky }}
+          UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+        run: |
+          mkdir -p "$SPECKIT_RESULT_DIR"
+          printf '%s\n' "$SHARD" > "$SPECKIT_RESULT_DIR/shard.txt"
+          printf '%s\n' "$OUTCOME" > "$SPECKIT_RESULT_DIR/outcome.txt"
+          printf '%s\n' "$CHECKS" > "$SPECKIT_RESULT_DIR/checks.txt"
+          printf '%s\n' "$FLAKY" > "$SPECKIT_RESULT_DIR/flaky.txt"
+          printf '%s\n' "$UNCOVERED" > "$SPECKIT_RESULT_DIR/uncovered.txt"
+
+      - name: Upload the shard verification
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-merge-verification-shard-${{ strategy.job-index }}
+          path: ${{ env.SPECKIT_RESULT_DIR }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Environment specs change the trusted actions that later implementations load. Exercise their own versions on the
+  # prospective merged tree once, beside the shards, before allowing the merge: the changed setup on a fresh runner, then
+  # the changed verification with its own tests only (the shards already ran every component check).
+  selftest:
+    name: Self-test the changed environment actions
+    needs: [decide, archive, prepare]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.verify == 'true' && needs.prepare.outputs.environment == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      outcome: ${{ steps.outcome.outputs.outcome }}
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_BASE_BRANCH: ${{ needs.decide.outputs.base_branch }}
+      SPECKIT_TWIN: ${{ inputs.issue }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
+      SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_TOOLING: ${{ github.workspace }}/tooling
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.archive.outputs.head }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Rebuild the planned merged tree
+        id: tree
+        env:
+          SPECKIT_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          PLANNED_TREE: ${{ needs.prepare.outputs.tree }}
+        run: |
+          SPECKIT_RESULT_DIR="$RUNNER_TEMP/integrate" node "$SPECKIT_TOOLING/.github/scripts/speckit-merge.mjs" integrate
+          tree="$(git -C "$SPECKIT_WORKSPACE" write-tree)"
+          if [ -z "$PLANNED_TREE" ] || [ "$tree" != "$PLANNED_TREE" ]; then
+            echo "::error::The rebuilt merged tree $tree differs from the planned tree ${PLANNED_TREE:-(none)}."
+            exit 1
+          fi
+
       - name: Self-test the changed environment setup
         id: selftest-setup
-        if: >-
-          steps.integrate.outputs.environment == 'true' &&
-          hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
+        if: hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
         continue-on-error: true
         uses: ./workspace/.github/actions/environment-setup
         with:
@@ -202,7 +368,6 @@ jobs:
       - name: Self-test the changed environment verification
         id: selftest-verify
         if: >-
-          steps.integrate.outputs.environment == 'true' &&
           steps.selftest-setup.outcome != 'failure' &&
           hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
         continue-on-error: true
@@ -210,19 +375,91 @@ jobs:
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: finalize
-          # The full verification above already ran every component check; the changed action runs its own tests only.
           environment-tests-only: "true"
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/selftest.log
+
+      - name: Record the self-test outcome
+        id: outcome
+        if: always()
+        env:
+          OUTCOME: >-
+            ${{ steps.tree.outcome != 'success' && 'failure' || steps.selftest-setup.outcome == 'failure' && 'failure' || steps.selftest-verify.outcome }}
+        run: echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the self-test log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-merge-selftest
+          path: ${{ env.SPECKIT_RESULT_DIR }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Combines the shards strictly against the plan (a missing, repeated, unplanned, or unfinished shard fails) and records
+  # the verdict in the one result the merge reads, speckit-merge-result. It runs no workspace code.
+  verdict:
+    name: Record the verdict
+    needs: [decide, archive, prepare, shards, selftest]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_BASE_BRANCH: ${{ needs.decide.outputs.base_branch }}
+      SPECKIT_TWIN: ${{ inputs.issue }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
+      SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_TOOLING: ${{ github.workspace }}/tooling
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download the prepared result
+        uses: actions/download-artifact@v8
+        with:
+          name: speckit-merge-prepared
+          path: ${{ env.SPECKIT_RESULT_DIR }}
+
+      - name: Download the shard verifications
+        if: needs.prepare.outputs.verify == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: speckit-merge-verification-shard-*
+          path: ${{ runner.temp }}/shards
+
+      - name: Combine the shard verifications
+        id: combine
+        if: needs.prepare.outputs.verify == 'true'
+        env:
+          MATRIX: ${{ needs.prepare.outputs.matrix }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-verify-shards.mjs" combine "$RUNNER_TEMP/shards" "$SPECKIT_RESULT_DIR" --expect "$MATRIX"
 
       - name: Record the verdict
         env:
           SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
-          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
-          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
-          SPECKIT_VERIFY_FLAKY: ${{ steps.verify.outputs.flaky }}
-          SPECKIT_SELFTEST_OUTCOME: >-
-            ${{ steps.selftest-setup.outcome == 'failure' && 'failure' || steps.selftest-verify.outcome }}
+          SPECKIT_VERIFY_COMBINED: 'true'
+          SPECKIT_VERIFY_OUTCOME: ${{ steps.combine.outputs.outcome || 'skipped' }}
+          SPECKIT_VERIFY_CHECKS: ${{ steps.combine.outputs.checks }}
+          SPECKIT_VERIFY_FAILED: ${{ steps.combine.outputs.failed }}
+          SPECKIT_VERIFY_PROBLEMS: ${{ steps.combine.outputs.problems }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.combine.outputs.uncovered }}
+          SPECKIT_VERIFY_FLAKY: ${{ steps.combine.outputs.flaky }}
+          SPECKIT_SELFTEST_OUTCOME: ${{ needs.selftest.outputs.outcome || needs.selftest.result }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-merge.mjs" verdict
 
       - name: Upload the result
@@ -230,10 +467,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: speckit-merge-result
-          path: ${{ github.workspace }}/speckit-result
+          path: ${{ env.SPECKIT_RESULT_DIR }}
           retention-days: 7
           if-no-files-found: ignore
-
   # API only: never checks out or runs workspace code.
   report:
     name: Merge into the base branch
@@ -241,7 +477,7 @@ jobs:
       group: speckit-publication-${{ inputs.pull }}
       queue: max
       cancel-in-progress: false
-    needs: [decide, archive, verify]
+    needs: [decide, archive, prepare, verdict]
     if: ${{ always() && needs.decide.outputs.action == 'merge' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -258,7 +494,8 @@ jobs:
       SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
       SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
       SPECKIT_CHECK_RUN: ${{ needs.archive.outputs.check_run || needs.decide.outputs.check_run }}
-      SPECKIT_WORK_RESULT: ${{ needs.archive.result != 'success' && format('archive {0}', needs.archive.result) || needs.verify.result }}
+      SPECKIT_WORK_RESULT: >-
+        ${{ needs.archive.result != 'success' && format('archive {0}', needs.archive.result) || needs.prepare.result != 'success' && format('prepare {0}', needs.prepare.result) || needs.verdict.result }}
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
     steps:
       - name: Check out the trusted tooling

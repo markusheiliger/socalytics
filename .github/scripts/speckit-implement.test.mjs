@@ -690,6 +690,7 @@ test('repair workflow: unchanged HEAD reverifies the original product scope, or 
     });
     assert.equal(run.status, 0, run.stderr);
     assert.match(readFileSync(output, 'utf8'), available ? /mode=phase/ : /mode=finalize/);
+    assert.match(readFileSync(output, 'utf8'), new RegExp(`^tree=${git(repos.work, 'rev-parse', 'HEAD^{tree}').trim()}$`, 'm'), 'the shards rebuild and compare this tree');
     assert.equal(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8'), available ? 'src/platform/Host.cs\n' : '');
   }
   assert.match(workflow, /mode: \$\{\{ steps\.tree\.outputs\.mode \}\}/);
@@ -697,7 +698,7 @@ test('repair workflow: unchanged HEAD reverifies the original product scope, or 
   assert.match(unit, /echo '\/\.speckit-repair-evidence\/' >> \.git\/info\/exclude/);
   assert.match(workflow, /ref: \$\{\{ needs\.decide\.outputs\.verify_only == 'true' && needs\.decide\.outputs\.head \|\| needs\.implement\.outputs\.head \}\}/);
   assert.match(workflow, /Require the verification action\n        run: test -f tooling\/\.github\/actions\/environment-verify\/action\.yml/);
-  assert.match(workflow, /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}/);
+  assert.match(workflow, /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verdict\.outputs\.verification \}\}/);
   const guard = workflow.match(/Require the verification action\n        run: ([^\n]+)/)[1];
   assert.equal(runBash(guard, { cwd: repos.land }).status, 1, 'missing verifier fails the job instead of skipping verification');
 }));
@@ -1767,6 +1768,58 @@ test('merge: integrate reports the changed paths and environment changes; the ve
     const { result } = work(repos, { inputs: MERGE_INPUTS, verify: { outcome: 'success', checks: 'Markdown check', selfTest: 'failure' } });
     assert.equal(result.verified, false);
     assert.match(result.reasons.join(), /changed environment actions failed their self-test \(failure\)/);
+  });
+});
+
+test('merge: integrate with a pinned base rebuilds the same merged tree after the base branch moved', async () => {
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n'), main: (dir) => write(dir, 'docs/m.md', '# M\n') }, (repos) => {
+    const planned = work(repos, { inputs: MERGE_INPUTS });
+    const { baseSha, tree } = planned.integrated.result;
+    assert.match(planned.output, new RegExp(`^base_sha=${baseSha}$`, 'm'));
+    assert.match(planned.output, new RegExp(`^tree=${tree}$`, 'm'));
+    assert.equal(tree, git(repos.work, 'write-tree').trim());
+    // The base branch moves on before a shard starts.
+    const mover = path.join(repos.base, 'mover');
+    git(repos.base, 'clone', '-q', '--branch', 'main', repos.bare, mover);
+    write(mover, 'docs/later.md', '# Later\n');
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-q', '-m', 'later');
+    git(mover, 'push', '-q', 'origin', 'HEAD:main');
+    git(repos.land, 'fetch', '-q', 'origin');
+    const run = (env) => runIntegrate({ git: defaultGit(repos.land), env: { SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_BASE_BRANCH: 'main', ...env }, inputs: MERGE_INPUTS, folder: 'f', resultDir: path.join(repos.base, `shard-${Object.keys(env).length}`), log: silent });
+    const pinned = run({ SPECKIT_BASE_SHA: baseSha });
+    assert.deepEqual([pinned.result.baseSha, pinned.result.tree], [baseSha, tree], 'a shard verifies exactly the planned tree');
+    git(repos.land, 'merge', '--abort');
+    assert.notEqual(run({}).result.tree, tree, 'without the pin the moved base branch changes the tree');
+    git(repos.land, 'merge', '--abort');
+    assert.throws(() => run({ SPECKIT_BASE_SHA: 'main' }), /SPECKIT_BASE_SHA is not a commit SHA/);
+  });
+});
+
+test('merge: the verdict of a sharded verification names every failed check and every missing shard', async () => {
+  const combined = {
+    SPECKIT_VERIFY_COMBINED: 'true',
+    SPECKIT_VERIFY_FAILED: 'platform build and tests,Web UI build and tests',
+    SPECKIT_VERIFY_PROBLEMS: 'verification shard 3/3 (manager) did not report\n',
+  };
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n') }, (repos) => {
+    const { result } = work(repos, { inputs: MERGE_INPUTS, env: combined, verify: { outcome: 'failure', checks: 'Markdown check,platform build and tests,Web UI build and tests' } });
+    assert.equal(result.verified, false);
+    assert.deepEqual(result.checks, [
+      { name: 'Markdown check', passed: true },
+      { name: 'platform build and tests', passed: false },
+      { name: 'Web UI build and tests', passed: false },
+    ]);
+    assert.deepEqual(result.reasons, ['platform build and tests, Web UI build and tests failed', 'verification shard 3/3 (manager) did not report']);
+  });
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n') }, (repos) => {
+    const { result } = work(repos, { inputs: MERGE_INPUTS, env: { SPECKIT_VERIFY_COMBINED: 'true' }, verify: { outcome: 'success', checks: 'Markdown check,platform build and tests' } });
+    assert.equal(result.verified, true);
+    assert.ok(result.checks.every((check) => check.passed));
+  });
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n') }, (repos) => {
+    const { result } = work(repos, { inputs: MERGE_INPUTS, env: { SPECKIT_VERIFY_COMBINED: 'true' }, verify: { outcome: 'failure', checks: '' } });
+    assert.deepEqual(result.reasons, ['the verification did not succeed (failure)']);
   });
 });
 
