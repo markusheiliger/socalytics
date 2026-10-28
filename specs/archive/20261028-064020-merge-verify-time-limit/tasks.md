@@ -1,6 +1,6 @@
 # Tasks: Merge Verification of Environment Specs Within Its Time Limit
 
-**Input**: Design documents from `/specs/20261028-064020-merge-verify-time-limit/`
+**Input**: Design documents from `/specs/archive/20261028-064020-merge-verify-time-limit/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/environment-verify-inputs.md, quickstart.md
 
