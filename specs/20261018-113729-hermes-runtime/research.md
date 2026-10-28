@@ -3,7 +3,7 @@
 All Technical Context items are resolved; no `NEEDS CLARIFICATION` remains. Each decision builds on the published
 [Agent Orchestration Direct Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md) and the batch
 siblings [Agent Catalog Registry](../archive/20261018-101517-agent-catalog-registry/spec.md),
-[Agent Evidence Tools API](../20261018-104924-agent-evidence-tools/spec.md),
+[Agent Evidence Tools API](../archive/20261018-104924-agent-evidence-tools/spec.md),
 [MCP Server](../20261018-111804-mcp-server/spec.md),
 [Agents Python Verification Environment](../archive/20261018-110526-agents-python-environment/spec.md), and
 [Cloud-Neutral OCI Images](../archive/20261018-092503-oci-images/spec.md), and on
