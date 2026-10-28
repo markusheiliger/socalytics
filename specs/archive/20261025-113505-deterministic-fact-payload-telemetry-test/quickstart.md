@@ -12,3 +12,5 @@ dotnet build src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-resto
 3. **Deliberate reproduction** (FR-001): temporarily raise `AnalysisMetrics.CompletionRejected("result-payload-invalid")` from a probe test in another parallel collection during the window; the old test fails and the new one passes. Remove the probe.
 4. **Probes** (SC-003): temporarily count a rejection twice, with a different outcome, and with a payload value in a tag; the named test fails on its assertions each time. Remove the probes.
 5. **Unchanged tests**: run the rest of the project; the tests that were not changed still pass.
+
+The implementation may split steps 1, 2, and 5 across several bounded task attempts (for example the 10 grouped runs as 5 + 5); the required counts stay the same.
