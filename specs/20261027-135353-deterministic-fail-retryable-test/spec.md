@@ -40,7 +40,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 **Why this priority**: The test failed in the verifications of three implementations, and the implementation of `specs/20261027-082549-reliable-e2e-image-push` (#360) is held by its report; the person who asked wants the cause removed rather than rerun.
 
-**Independent Test**: Run the test repeatedly, alone and with its class without synthetic CPU load; every run passes. CPU-loaded runs are optional supplemental evidence. Then break the behavior with a probe (for example, stop redelivering after the second attempt, or make the third attempt succeed) and confirm the test still fails on its assertions or its bounded wait instead of passing or hanging.
+**Independent Test**: Run the test repeatedly, alone and with its class without synthetic CPU load; every run passes. CPU-loaded runs are optional supplemental evidence. Then, as manual local evidence that a person runs outside the automated implementation, break the behavior with a probe (for example, stop redelivering after the second attempt, or make the third attempt succeed) and confirm the test still fails on its assertions or its bounded wait instead of passing or hanging.
 
 **Acceptance Scenarios**:
 
@@ -72,7 +72,7 @@ A maintainer running the Integration suite, or the verification of any implement
 ### Measurable Outcomes
 
 - **SC-001**: The test passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of its class without synthetic CPU load. CPU-loaded runs are optional supplemental evidence and are not required to satisfy this criterion.
-- **SC-002**: A probe that stops the redelivery after the second attempt, and a probe that makes the third attempt succeed, each make the test fail within the existing limits; the probes are removed afterward.
+- **SC-002** (manual local evidence, run by a person outside the automated implementation and not verified by a task of this spec): A probe that stops the redelivery after the second attempt, and a probe that makes the third attempt succeed, each applied temporarily to `SimulatedAgentWorkloadRunner.cs`, each make the test fail within the existing limits; the probes are removed afterward. The implementation does not claim the probes as verified.
 - **SC-003**: The pull request names the evidenced cause and changes only the files the evidenced cause lives in, a focused test for a platform fix, no `docs/architecture/` change unless the fix makes a statement false, and this spec folder; no assertion is textually removed.
 - **SC-004** (post-merge evidence, observed when #360 retries and not verified by a task of this spec): the verification of #360 reports no flaky `SimulatedAgentWorkloadBehaviorTests` test.
 

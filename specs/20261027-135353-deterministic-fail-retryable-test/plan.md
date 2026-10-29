@@ -16,7 +16,7 @@
 
 **Storage**: PostgreSQL (`agent_attempts`, `agent_lineage_entries`, outbox) and NATS JetStream (`AGENT_WORK` work-queue stream, durable explicit-ack consumer, `MaxDeliver` unlimited) in disposable containers
 
-**Testing**: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests"`; 20 repeated runs alone and at least 5 repeated class runs without synthetic CPU load (CPU-loaded runs optional); two removable probes (stop redelivery after attempt 2, make attempt 3 succeed)
+**Testing**: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests"`; 20 repeated runs alone and at least 5 repeated class runs without synthetic CPU load (CPU-loaded runs optional); two removable probes (stop redelivery after attempt 2, make attempt 3 succeed) run manually by a person outside the automated implementation
 
 **Target Platform**: Linux CI runner and developer machines with a Docker-compatible runtime
 
@@ -35,7 +35,7 @@
 - **I. Architecture authority**: Pass. No design change; the Agent Orchestration semantics in `docs/architecture/` stay as they are (see Architecture Updates).
 - **II. Source-area ownership**: Pass. All changes stay under `src/platform/` (`Tests/` and, only if evidenced, the platform layers); no new `src/` child.
 - **III. API-first control plane**: Pass. The test keeps using the `/api/v1` operations and the workload operations; no direct database access beyond the test's existing read-only evidence queries.
-- **IV. Evidence over claims**: Pass. The fix is backed by repeated-run evidence, probes that prove the test still fails on broken behavior, and a focused test for any platform fix. Results are development evidence only.
+- **IV. Evidence over claims**: Pass. The fix is backed by repeated-run evidence, manual probes (run by a person, not claimed as verified by the implementation) that show the test still fails on broken behavior, and a focused test for any platform fix. Results are development evidence only.
 - **V. Focused, minimal changes**: Pass. Only the file the evidenced cause lives in changes; no new abstractions or dependencies.
 - **Environment**: Pass. Docker-backed Integration tests already run through the existing `environment-setup` and `environment-verify` actions; no new tool is needed, so no environment spec is required.
 

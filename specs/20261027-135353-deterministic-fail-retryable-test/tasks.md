@@ -34,7 +34,7 @@ The environment setup and verification already restore, build, and test the solu
 
 **Goal**: `FailRetryableEndsWithAttemptsExhausted` passes whenever three retryable failures exhaust the attempts of an invocation, however loaded the runner, NATS, and the host are, and fails only when that behavior is broken.
 
-**Independent Test**: The test passes in 100% of at least 20 consecutive runs alone and at least 5 consecutive runs of its class without synthetic CPU load (SC-001); CPU-loaded runs are optional supplemental evidence. A probe that stops redelivery after the second attempt and a probe that makes the third attempt succeed each make it fail within the existing limits (SC-002).
+**Independent Test**: The test passes in 100% of at least 20 consecutive runs alone and at least 5 consecutive runs of its class without synthetic CPU load (SC-001); CPU-loaded runs are optional supplemental evidence. A probe that stops redelivery after the second attempt and a probe that makes the third attempt succeed each make it fail within the existing limits (SC-002, manual local evidence run by a person, not verified by a task).
 
 ### Establish the cause (FR-001)
 
@@ -48,9 +48,10 @@ The environment setup and verification already restore, build, and test the solu
 ### Verify the fix (SC-001, SC-002)
 
 - [x] T009 [US1] Repeat the evidence runs after the fix, each as one shell loop of `dotnet test --no-build --filter …` inside this task: `FullyQualifiedName~FailRetryableEndsWithAttemptsExhausted` 20 consecutive times alone and the class filter `FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests` at least 5 consecutive times without synthetic CPU load (SC-001 is local evidence; in CI the repeat count may be reduced to what fits the job timeout), with every run passing; CPU-loaded runs are optional supplemental evidence. Report the results in the task summary — verified without changes by the assessed verification at 4887cb85 (no change by this task)
-- [ ] T010 [US1] Apply each probe of SC-002 in turn to the working tree of `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs` (first the probe that stops the redelivery after the second attempt, then the probe that makes the third attempt succeed), run `FailRetryableEndsWithAttemptsExhausted` with each, confirm that the first fails within the existing limits on its bounded wait with the diagnostic message and does not hang and that the second fails on the unchanged assertions, revert each probe within this task, and report the observed results in the task summary; the committed diff carries no probe, and `git diff` confirms that no probe remains and no assertion is textually removed
 
-**Checkpoint**: User Story 1 is complete when T009 passes after the fix and T010 recorded both probes failing as expected with no probe left in the diff.
+> **SC-002 probe evidence is manual**: the two probes (stop the redelivery after the second attempt; make the third attempt succeed), each applied temporarily to `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs` and reverted, are manual local evidence that a person runs outside the automated implementation (see `quickstart.md`, section 4). No task runs them and they are not claimed as verified.
+
+**Checkpoint**: User Story 1 is complete when T009 passes after the fix and no probe is left in the diff; the SC-002 probes are manual evidence and do not gate it.
 
 ---
 
@@ -63,13 +64,13 @@ The environment setup and verification already restore, build, and test the solu
 
 ## Dependencies & Execution Order
 
-Task IDs are intentionally not contiguous (T001, T002, T006, T008, T011, and T012 are unused); no task was lost.
+Task IDs are intentionally not contiguous (T001, T002, T006, T008, T010, T011, and T012 are unused); no task was lost.
 
 - T003 before the evidence runs T004 and T005 (it adds the failure capture).
 - T004 and T005 run sequentially (they share the Docker containers and the test project); T007 needs both (it classifies the cause from their evidence, fixes it, and removes the T003 capture); T009 needs T007.
 - T006 is unused: classifying the cause is part of T007, because a classification alone changes no file and a task without a change cannot be completed.
-- T010 needs T009.
-- Phase 4 needs T010.
+- T010 is unused: the SC-002 probes are manual local evidence that a person runs, not a task.
+- Phase 4 needs T009.
 
 ### Parallel Opportunities
 
@@ -77,6 +78,6 @@ None: every task edits or runs against the same test file, runner, or Docker-bac
 
 ## Implementation Strategy
 
-- **MVP**: User Story 1 is the whole feature; it is complete at the T010 checkpoint.
-- Evidence first (T003 to T005, reported in task summaries), then the classification and the smallest fix at the evidenced home (T007), then proof with repeated runs and the two probes (T009, T010), which leave no probe behind, and the neighbor and repository checks (Phase 4).
+- **MVP**: User Story 1 is the whole feature; it is complete at the T009 checkpoint.
+- Evidence first (T003 to T005, reported in task summaries), then the classification and the smallest fix at the evidenced home (T007), then proof with repeated runs (T009); the two SC-002 probes are manual local evidence outside the automation, and the neighbor and repository checks (Phase 4).
 - SC-004 (the verification of #360 reports no flaky test) is post-merge evidence and is not verified by a task of this spec.
