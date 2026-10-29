@@ -1,6 +1,6 @@
 # Tasks: Case-Sensitivity-Independent Sample Tooling Test
 
-**Input**: Design documents from `/specs/20261028-235035-case-insensitive-samples-test/`
+**Input**: Design documents from `/specs/archive/20261028-235035-case-insensitive-samples-test/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, quickstart.md
 
