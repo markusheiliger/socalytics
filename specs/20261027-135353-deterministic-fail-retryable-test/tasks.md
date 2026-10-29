@@ -58,18 +58,20 @@ The environment setup and verification already restore, build, and test the solu
 ## Phase 4: Polish & Cross-Cutting Concerns
 
 - [x] T013 Run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SimulatedAgentWorkload"` after rebuilding, and confirm `SimulatedAgentWorkloadTests` and `FailOnceSucceedsOnTheSecondAttempt`, `FailPermanentEndsWithExecutionFailed`, and `StallExpiresTheFirstAttemptAndSucceedsOnTheSecond` pass unchanged, and report the result in the task summary — verified without changes by the assessed verification at 424e7454 (no change by this task)
-- [ ] T014 Run `node .github/scripts/check-markdown.mjs` and confirm with `git diff --name-only origin/<base>...HEAD` (`<base>` is the pull request's base branch) that it lists only files under `src/platform/Tests/`, optionally `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Execution/`, and `specs/20261027-135353-deterministic-fail-retryable-test/`, with no `docs/architecture/` change (the plan's Architecture Updates section is `None`, so no documentation task is required)
+
+> **Repository checks are not a task**: the whole-repository Markdown check (`node .github/scripts/check-markdown.mjs`) and the changed-files scope check (only `src/platform/Tests/`, optionally `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Execution/`, and this spec folder, with no `docs/architecture/` change) are performed by the automated finalize and merge verification and are not a task of this spec; no task claims them as verified.
 
 ---
 
 ## Dependencies & Execution Order
 
-Task IDs are intentionally not contiguous (T001, T002, T006, T008, T010, T011, and T012 are unused); no task was lost.
+Task IDs are intentionally not contiguous (T001, T002, T006, T008, T010, T011, T012, and T014 are unused); no task was lost.
 
 - T003 before the evidence runs T004 and T005 (it adds the failure capture).
 - T004 and T005 run sequentially (they share the Docker containers and the test project); T007 needs both (it classifies the cause from their evidence, fixes it, and removes the T003 capture); T009 needs T007.
 - T006 is unused: classifying the cause is part of T007, because a classification alone changes no file and a task without a change cannot be completed.
 - T010 is unused: the SC-002 probes are manual local evidence that a person runs, not a task.
+- T014 is unused: the Markdown and changed-files scope checks are performed by the automated finalize and merge verification, not by a task.
 - Phase 4 needs T009.
 
 ### Parallel Opportunities
@@ -79,5 +81,5 @@ None: every task edits or runs against the same test file, runner, or Docker-bac
 ## Implementation Strategy
 
 - **MVP**: User Story 1 is the whole feature; it is complete at the T009 checkpoint.
-- Evidence first (T003 to T005, reported in task summaries), then the classification and the smallest fix at the evidenced home (T007), then proof with repeated runs (T009); the two SC-002 probes are manual local evidence outside the automation, and the neighbor and repository checks (Phase 4).
+- Evidence first (T003 to T005, reported in task summaries), then the classification and the smallest fix at the evidenced home (T007), then proof with repeated runs (T009); the two SC-002 probes are manual local evidence outside the automation, and the neighbor check (Phase 4); the repository Markdown and changed-files scope checks belong to the automated finalize and merge verification.
 - SC-004 (the verification of #360 reports no flaky test) is post-merge evidence and is not verified by a task of this spec.
