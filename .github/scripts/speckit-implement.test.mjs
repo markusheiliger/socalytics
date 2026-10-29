@@ -745,7 +745,7 @@ test('repair fallback: finalize dispatches real product verification commands wi
   write(repos.base, 'markdown.mjs', '');
   const mode = repairVerificationScope({ scope: 'phase', repairChangedFiles: '' }).mode;
   const run = runBash(script, { cwd: repos.work, encoding: 'utf8', env: {
-    ...prependPath(process.env, bin), MODE: mode, WORKSPACE: repos.work,
+    ...prependPath(process.env, bin), MODE: mode, WORKSPACE: repos.work, SHARD: '',
     CHANGED_FILES: '', LOG_FILE: path.join(repos.base, 'verification.log'),
     GITHUB_OUTPUT: path.join(repos.base, 'output'), GITHUB_STEP_SUMMARY: path.join(repos.base, 'summary'),
     MARKDOWN_CHECK: path.join(repos.base, 'markdown.mjs'), CALLS: path.join(repos.base, 'calls'),
