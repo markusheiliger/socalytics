@@ -259,22 +259,41 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 		return true;
 	}
 
-	// A stale or unknown attempt (409, 404) is settled by the platform and not retried; other failures are transient.
+	// A stale or unknown attempt (409, 404) is settled by the platform and not retried. A transient failure replays the same report with
+	// the same operation id, which the platform answers idempotently, because abandoning the attempt leaves it active: the redelivered
+	// notification is then refused as attempt-active until the lease expires, and the platform's clock may never reach that point.
 	private async Task<bool> SendReportAsync(string path, object body, CancellationToken cancellationToken)
 	{
-		using var response = await SendAsync(HttpMethod.Post, path, body, cancellationToken);
-		if (response.IsSuccessStatusCode)
+		const int maxSends = 3;
+		for (var send = 1; ; send++)
 		{
-			return true;
-		}
+			try
+			{
+				using var response = await SendAsync(HttpMethod.Post, path, body, cancellationToken);
+				if (response.IsSuccessStatusCode)
+				{
+					return true;
+				}
 
-		if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound)
-		{
-			return false;
-		}
+				if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound)
+				{
+					return false;
+				}
 
-		_logger?.LogWarning("The report {Path} answered {Status}.", path, (int)response.StatusCode);
-		return false;
+				_logger?.LogWarning("The report {Path} answered {Status}.", path, (int)response.StatusCode);
+			}
+			catch (HttpRequestException exception)
+			{
+				_logger?.LogWarning(exception, "The report {Path} failed in transit.", path);
+			}
+
+			if (send == maxSends)
+			{
+				return false;
+			}
+
+			await Task.Delay(_options.RetryDelay, _time, cancellationToken);
+		}
 	}
 
 	private static Behavior BehaviorOf(string? question) => question switch

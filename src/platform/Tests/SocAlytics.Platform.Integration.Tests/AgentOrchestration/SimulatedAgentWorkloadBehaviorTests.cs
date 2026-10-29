@@ -150,10 +150,12 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 		await run.CancelAsync();
 		await worker;
 
-		// Cause of the intermittent retryable-failure result (research.md candidates 2 and 3, established from the code, no failure captured in
-		// the 20 single and 5 class runs of the evidence tasks): the third attempt's failure and the invocation's terminal state commit in one
-		// transaction (FailAgentAttempt), so the count is exact once the terminal read has returned and the runner has stopped, which is the
-		// order kept here. The platform is not defective, so it is unchanged.
+		// Cause of the intermittent retryable-failure result (research.md candidate 4/1 boundary: the runner's report of an attempt). Probe: a
+		// temporary change of the runner that drops the second attempt's failure report left the attempt active, the redelivered notification
+		// was refused as attempt-active, and the platform's fake clock never reached the lease expiry, so the invocation stayed running with 2
+		// attempts until the 3 minute wait ended; delaying the acknowledgement by 3 s and by 32 s (past AckWait) did not fail the test, and
+		// 12 CPU-loaded runs of the unchanged code passed. The probe was reverted. The runner now replays a report that failed in transit with
+		// its unchanged operation id (idempotent on the platform), so a lost report no longer abandons an active attempt. The platform is not defective.
 		var attempts = await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}'", ct);
 		var checkpoints = await f.ScalarAsync(
 			$"SELECT count(*) FROM socalytics.agent_lineage_entries WHERE invocation_id = '{invocationId}' AND kind = 'checkpoint'", ct);
