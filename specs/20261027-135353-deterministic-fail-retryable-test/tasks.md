@@ -48,6 +48,7 @@ The environment setup and verification already restore, build, and test the solu
 ### Verify the fix (SC-001, SC-002)
 
 - [x] T009 [US1] Repeat the evidence runs after the fix, each as one shell loop of `dotnet test --no-build --filter …` inside this task: `FullyQualifiedName~FailRetryableEndsWithAttemptsExhausted` 20 consecutive times alone and the class filter `FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests` at least 5 consecutive times without synthetic CPU load (SC-001 is local evidence; in CI the repeat count may be reduced to what fits the job timeout), with every run passing; CPU-loaded runs are optional supplemental evidence. Report the results in the task summary — verified without changes by the assessed verification at 4887cb85 (no change by this task)
+
 > **SC-002 probe evidence is manual**: the two probes (stop the redelivery after the second attempt; make the third attempt succeed), each applied temporarily to `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs` and reverted, are manual local evidence that a person runs outside the automated implementation (see `quickstart.md`, section 4). No task runs them and they are not claimed as verified.
 
 **Checkpoint**: User Story 1 is complete when T009 passes after the fix and no probe is left in the diff; the SC-002 probes are manual evidence and do not gate it.
