@@ -54,7 +54,8 @@ test('refuses a missing folder, no videos, empty videos, and paths that differ o
   assert.throws(() => discoverVideos(folder({ 'readme.md': 'x' })), /No video files/);
   assert.throws(() => discoverVideos(folder({ 'a.mp4': '' })), /Empty video file: a\.mp4/);
   const clash = folder({ 'x/a.mp4': '1', 'X/A.mp4': '2' });
-  if (discoverVideos(folder({ 'probe/a.mp4': '1', 'probe/A.mp4': '2' })).videos.length === 2) {
+  const probeRoot = folder({ 'probe/a.mp4': '1', 'probe/A.mp4': '2' });
+  if (readdirSync(path.join(probeRoot, 'probe')).length === 2) {
     assert.throws(() => discoverVideos(clash), /differ only in case/);
   }
   const outside = folder({ 'secret.mp4': 's' });
