@@ -17,10 +17,11 @@ Copy `tools/` to a temporary folder outside the repository, remove the case-only
 ## Change scope (SC-005)
 
 ```bash
-git diff --name-only
+git diff --name-only <base-branch>...HEAD
+git status --short
 ```
 
-Expected: `tools/samples.test.mjs` plus the spec folder only.
+Expected: `tools/samples.test.mjs` plus the spec folder only, in the committed changes and in the uncommitted and untracked files.
 
 ## macOS and Windows
 

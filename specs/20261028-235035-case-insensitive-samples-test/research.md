@@ -8,7 +8,7 @@
 
 ## Decision 2: Keep the case-clash assertion textually unchanged and conditional
 
-- **Decision**: Keep `assert.throws(() => discoverVideos(clash), /differ only in case/)` as is, inside `if (entries.length === 2)`. Nothing is skipped or loosened elsewhere.
+- **Decision**: Keep `assert.throws(() => discoverVideos(clash), /differ only in case/)` as is, inside the conditional on the probe's entry count (`readdirSync(path.join(probeRoot, 'probe')).length === 2`). Nothing is skipped or loosened elsewhere.
 - **Rationale**: FR-002, FR-003 and FR-005: on a case-sensitive file system the assertion runs and guards the refusal; where the clash cannot be created it cannot be demanded.
 - **Alternatives considered**: `t.skip` for the case-insensitive branch. Rejected: the test also runs its other checks, and the later symbolic-link branch already uses `t.skip` with an early `return`, so skipping here would stop the link checks from running (FR-004).
 
