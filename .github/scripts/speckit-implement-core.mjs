@@ -137,6 +137,30 @@ export const LEGACY_FIX_TITLE_PREFIX = 'Fix spec: ';
 // Architecture changes of a spec pull request may only come from the spec's design (docs/architecture/**).
 export const ARCHITECTURE_PREFIX = 'docs/architecture/';
 export const DIAGNOSIS_COMMENT_MARKER = '<!-- speckit-implement:diagnosis -->';
+export const AMEND_REQUEST_MARKER = 'speckit-amend:request';
+export const AMEND_REQUEST_STATE_MARKER = 'speckit-amend:request-state';
+export const AMEND_AUTHORIZATION_MARKER = 'speckit-amend:authorization';
+
+export function trustedMarker(comments, marker) {
+  const prefix = `<!-- ${marker} `;
+  return comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(prefix))
+    .map((comment) => {
+      try {
+        const line = comment.body.split(/\r?\n/, 1)[0];
+        if (!line.endsWith(' -->')) return null;
+        return { ...JSON.parse(line.slice(prefix.length, -4)), markerComment: comment };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+}
+
+export function pendingAmendmentRequest(comments) {
+  const request = trustedMarker(comments, AMEND_REQUEST_MARKER).at(-1);
+  if (!request) return null;
+  const state = trustedMarker(comments, AMEND_REQUEST_STATE_MARKER).filter((item) => item.request === request.comment).at(-1);
+  return state && ['created', 'failed', 'stale'].includes(state.state) ? null : { ...request, state };
+}
 
 export function diagnosisRunsUrl(env) {
   const server = String(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '');
@@ -850,6 +874,11 @@ export const COPILOT_HANDOFF_ENDED_MARKER = 'speckit-implement:copilot-handoff-e
 export const COPILOT_HANDOFF_MS = 60 * 60 * 1000;
 // The REST login of GitHub Copilot's cloud agent on comments and commits.
 export const COPILOT_LOGIN = 'Copilot';
+export const normalizeRecovery = (value) => String(value ?? '').replace(/\r\n/g, '\n').trim().replace(/\s+/g, ' ').toLowerCase();
+
+export function failedCopilotRecoveries(comments, head) {
+  return trustedMarker(comments, COPILOT_HANDOFF_ENDED_MARKER).filter((item) => item.head === head && item.request);
+}
 
 // Whether a comment asks Copilot's cloud agent for a change: it starts with the mention, like the requests diagnoses
 // recommend (renderCopilotRequest). A mention later in the text ("thanks @copilot") is not a handoff.
@@ -871,7 +900,7 @@ export function pendingCopilotHandoff(comments, { pushedAt = null, now = Date.no
   if (pushedAt && Date.parse(pushedAt) > at) return null;
   if (comments.some((comment) => comment.user?.login === BOT_LOGIN && after(comment) &&
     [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => startsWithMarker(comment.body, marker)))) return null;
-  if (comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').includes(`<!-- ${COPILOT_HANDOFF_ENDED_MARKER} ${JSON.stringify({ handoff: handoff.id })} -->`))) return null;
+  if (trustedMarker(comments, COPILOT_HANDOFF_ENDED_MARKER).some((item) => item.handoff === handoff.id)) return null;
   const reply = comments.find((comment) => comment.user?.login === COPILOT_LOGIN && after(comment)) ?? null;
   if (reply) return { handoff, state: 'finished', reply };
   return { handoff, state: now - at >= COPILOT_HANDOFF_MS ? 'expired' : 'working', reply: null };
@@ -879,7 +908,7 @@ export function pendingCopilotHandoff(comments, { pushedAt = null, now = Date.no
 
 // Spec Kit orchestrate, for every implementation in progress: asks for help again when a handoff to Copilot ended
 // without a push, unless the chain is running, will be continued (`continues`), or the implementation is blocked.
-export async function maintainCopilotHandoff(client, { pull, comments, pushedAt, active, continues, blocked, now = Date.now() }) {
+export async function maintainCopilotHandoff(client, { pull, comments, pushedAt, active, continues, blocked, now = Date.now(), rediagnose = null }) {
   if (active || continues || blocked) return null;
   const pending = pendingCopilotHandoff(comments, { pushedAt, now });
   if (!pending || pending.state === 'working') return null;
@@ -891,16 +920,24 @@ export async function maintainCopilotHandoff(client, { pull, comments, pushedAt,
   const what = pending.state === 'finished'
     ? `**Copilot finished without pushing** to ${branch}, so the implementation is still stopped and needs a person again. [Copilot's reply](${link(pending.reply)}) says what it did instead.`
     : `**Copilot has not pushed** to ${branch} within ${COPILOT_HANDOFF_MS / 60000} minutes of the [request](${link(pending.handoff)}), so the implementation is still stopped and needs a person again. Check that Copilot's cloud agent is enabled for this repository and whether its session failed.`;
-  const next = diagnosis
-    ? `**Recommended next step**: Follow the [latest diagnosis](${link(diagnosis)}) again: post its recommended command, or its \`@copilot\` request corrected by what Copilot's answer showed was missing.`
-    : '**Recommended next step**: Post the `@copilot` request again with what was missing, or push the change to the implementation branch yourself; either push continues the implementation by itself.';
-  await setAttention(client, pull.number, true);
+  const request = comments.filter((comment) => comment.user?.login !== BOT_LOGIN && isCopilotRequest(comment.body) &&
+    Date.parse(comment.created_at) <= Date.parse(pending.handoff.created_at)).at(-1);
+  const next = rediagnose
+    ? '**Recommended next step**: Wait for a new diagnosis using the failed request and refusal or timeout as evidence; do not repeat the failed recommendation. No action is needed while diagnosis runs.'
+    : '**Recommended next step**: Review the failed handoff and its refusal or timeout before choosing a different recovery; do not repeat the failed recommendation.';
   await client.createComment(pull.number, [
-    `<!-- ${COPILOT_HANDOFF_ENDED_MARKER} ${JSON.stringify({ handoff: pending.handoff.id })} -->`,
+    `<!-- ${COPILOT_HANDOFF_ENDED_MARKER} ${JSON.stringify({ handoff: pending.handoff.id, head: pull.head?.sha, request: request?.body ?? null })} -->`,
     what,
     '',
     next,
   ].join('\n'));
+  if (rediagnose) {
+    const result = await rediagnose({ previous: diagnosis?.id ?? '', guidance: `The Copilot handoff ${pending.handoff.id} ${pending.state} without a push. Reassess the failed recommendation using the request and reply; do not recommend it again on this unchanged head. A timeout alone does not establish an artifact defect.` });
+    if (!result.started) {
+      await setAttention(client, pull.number, true);
+      await client.createComment(pull.number, `**Re-diagnosis could not start** for #${pull.number}: ${neutralizeMarkers(result.error)}.\n\n**Recommended next step**: Address this dispatch or existing-amendment blocker before continuing #${pull.number}; do not repeat the failed Copilot request.`);
+    }
+  } else await setAttention(client, pull.number, true);
   return pending.state;
 }
 
@@ -1569,6 +1606,17 @@ export const PR_COMMANDS = [
     guidanceScope: 'the conflict resolution when the merge conflicts, otherwise the first prompted work after the clean merge (it is kept until that work succeeds)',
   },
   {
+    name: 'amend',
+    usage: '/speckit amend <guidance>',
+    scope: 'pr',
+    flags: {},
+    help: 'authorize the stated spec-only change and prepare an amendment for independent analysis and human review; implementation resumes only after the amendment is merged; completed tasks are preserved and no task is ticked',
+    recommend: true,
+    categories: ['decision'],
+    whenToRecommend: 'A person must authorize a requirement or scope change that must be propagated through this feature\'s spec artifacts and unchecked tasks. Recommend concrete guidance, not a retry or a Copilot implementation handoff.',
+    guidanceScope: 'the authorized amendment of this feature\'s artifacts, not implementation; it is reviewed and merged before implementation resumes',
+  },
+  {
     name: 'author',
     usage: '/speckit author [guidance]',
     scope: 'pr',
@@ -1664,6 +1712,8 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
     return `Does not merge ${base}; ${argument ? 'runs a repair agent with the guidance, then reverifies' : 'reverifies without running a repair agent'} the pending ${continuation.repair.scope} verification. The original failed scope must pass before normal planning continues; if this repair attempt fails, the implementation stops for a person again. With guidance, a successful no-change repair also reaches reverification without an empty commit.${flag}`;
   }
   switch (parsed.verb) {
+    case 'amend':
+      return 'A writer authorizes only the stated artifact change. The workflow prepares a spec-only amendment, checks it independently, and asks for human review and merge. It preserves completed tasks, never ticks tasks, and keeps implementation stopped until the amendment is merged. Existing repair scope and attempt limits are unchanged.';
     case 'sync':
       return `Requires merging ${base} into the implementation branch and successful full verification before any work continues (Copilot resolves conflicts). A pending repair retains its original scope and attempt limit; full verification can clear it only when the original failed scope is covered and passes. ${guidance}`;
     case 'retry':

@@ -21,8 +21,9 @@ import {
 } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
-import { maintainAmendment } from './speckit-amend.mjs';
+import { maintainAmendment, maintainAmendmentRequest } from './speckit-amend.mjs';
 import { maintainBacklog } from './speckit-backlog.mjs';
+import { startDiagnosis } from './speckit-diagnose.mjs';
 import { maintainFixSpec, maintainIndependentSpecs, startFixAuthoring } from './speckit-fix.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
@@ -296,6 +297,13 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       // Prerequisites: a spec authored by `/speckit author` holds the implementation until the twin depends on it;
       // open dependencies of the twin block it, and once none is open, the implementation retries.
       const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number, rootDir }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
+      if (!isBlocked) {
+        const request = await maintainAmendmentRequest(client, env, { implementation: lifecycle.pull, twin: issue.number, folder, now: now() });
+        if (request.active) {
+          inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, openedAt: lifecycle.pull.created_at, requester: requester.login, decision: { action: 'diagnosing' }, active: true, blocked: false, blockers });
+          continue;
+        }
+      }
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
       // A handoff to Copilot that ended without a push asks for help again.
@@ -308,6 +316,10 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
           continues: needsRun(decision, env),
           blocked: isBlocked,
           now: now(),
+          rediagnose: ({ previous, guidance }) => startDiagnosis(client, env, {
+            twin: issue.number, pull: lifecycle.pull.number, folder, head: lifecycle.pull.head.sha,
+            previous, guidance, auto: true, preserveAmendment: true,
+          }),
         });
         if (ended) amendmentNotes.push(`- The handoff of #${issue.number} to Copilot ended without a push (${ended}); it asks for help again.`);
       } catch (error) {

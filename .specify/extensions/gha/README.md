@@ -186,6 +186,12 @@ a generated "Commands you can recommend" section (with what `/speckit retry` doe
 choose and word a command; the diagnose drift tests fail when it names an unknown command or misses a recommendable
 command or flag.
 Publication rejects inconsistent category/command recommendations instead of replacing them with a retry.
+When a decision requires changes to the feature's own artifacts, the diagnosis recommends a concrete
+`/speckit amend <guidance>` comment. A writer's command authorizes only that artifact change and starts amendment
+preparation through the existing diagnose workflow's `amend` mode. It preserves completed tasks, never ticks tasks,
+and propagates the accepted decision consistently. Independent analysis and human review/merge are required before
+implementation resumes. Existing amendments are reused for the same request or linked for review/rework, not replaced.
+Failed Copilot handoffs receive one new diagnosis using the refusal as evidence instead of repeating the same request.
 When the required fix is already on the implementation pull request's base branch, the diagnosis uses `outside`
 and recommends `/speckit sync`: the existing Copilot conflict-resolution workflow must merge and verify the
 latest base before implementation can continue.
