@@ -25,7 +25,7 @@ import { maintainAmendment, maintainAmendmentRequest } from './speckit-amend.mjs
 import { maintainBacklog } from './speckit-backlog.mjs';
 import { startDiagnosis } from './speckit-diagnose.mjs';
 import { maintainFixSpec, maintainIndependentSpecs, startFixAuthoring } from './speckit-fix.mjs';
-import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
+import { contextFromEnv, decideForPull, needsRun, reconcileImplementationAttention } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import {
@@ -139,12 +139,13 @@ export function blockedTarget(inProgress, env, now = Date.now()) {
   return { blocked, aged, days, missed: reasons.length > 0, reason: reasons.join('; ') };
 }
 
-// Escalates a chain head that waits for a person: an implementation that is not blocked, stopped with a diagnosis (or
+// Reminds the owner of a chain head that awaits human action: an implementation that is not blocked, stopped with a diagnosis (or
 // another stop) that waits for a person's decision, while implementations open longer than SPECKIT_MAX_BLOCKED_DAYS wait
 // for it, directly or through a chain. It gets one comment per stop that mentions its requester, names the waiting
 // implementations, and recommends following the latest diagnosis; `help wanted` stays with it. Returns the summary lines.
-export const ESCALATION_MARKER = 'speckit-implement:escalation';
-export async function maintainEscalations(client, env, inProgress, { now = Date.now() } = {}) {
+// Keep the historical marker so already-posted reminders remain deduplicated.
+export const ACTION_REQUIRED_MARKER = 'speckit-implement:escalation';
+export async function maintainActionRequired(client, env, inProgress, { now = Date.now() } = {}) {
   const days = parseMaxBlockedDays(env.SPECKIT_MAX_BLOCKED_DAYS);
   if (days === 0) return [];
   const sets = waitingSets(inProgress);
@@ -163,22 +164,22 @@ export async function maintainEscalations(client, env, inProgress, { now = Date.
       .filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER))
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
     const key = String(diagnosis?.id ?? decision.diagnosis?.check?.id ?? 'stop');
-    const marker = `<!-- ${ESCALATION_MARKER} ${JSON.stringify({ key })} -->`;
-    if (comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(marker))) continue;
+    const marker = `<!-- ${ACTION_REQUIRED_MARKER} ${JSON.stringify({ key })} -->`;
     const refs = waiting.map((twin) => `#${twin.pull} (spec #${twin.number}, open ${formatDays(daysOpen(twin, now))})`);
     try {
       await setAttention(client, head.pull, true);
+      if (comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(marker))) continue;
       await client.createComment(head.pull, [
         marker,
-        `**Escalation**${head.requester ? ` @${head.requester}` : ''}: this implementation is stopped for a person's decision, and ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for it, directly or through a chain: ${refs.join(', ')}. None of them moves until this one continues.`,
+        `**Action required**${head.requester ? ` @${head.requester}` : ''}: this implementation awaits human action, and ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for it, directly or through a chain: ${refs.join(', ')}. None of them moves until this one continues.`,
         '',
         diagnosis
           ? `**Recommended next step**: Follow the [latest diagnosis](${diagnosis.html_url ?? `#issuecomment-${diagnosis.id}`}): post the command or \`@copilot\` request it recommends.`
           : '**Recommended next step**: Follow the recommendation of the latest stop comment above: post the command it recommends.',
       ].join('\n'));
-      lines.push(`- Escalated #${head.pull} (spec #${head.number}): ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for its decision.`);
+      lines.push(`- Awaiting human action on #${head.pull} (spec #${head.number}): ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for its decision.`);
     } catch (error) {
-      lines.push(`- Warning: could not escalate #${head.pull}: ${error.message}`);
+      lines.push(`- Warning: could not post the action-required reminder on #${head.pull}: ${error.message}`);
     }
   }
   return lines;
@@ -300,11 +301,12 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       if (!isBlocked) {
         const request = await maintainAmendmentRequest(client, env, { implementation: lifecycle.pull, twin: issue.number, folder, now: now() });
         if (request.active) {
+          await setAttention(client, lifecycle.pull.number, false);
           inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, openedAt: lifecycle.pull.created_at, requester: requester.login, decision: { action: 'diagnosing' }, active: true, blocked: false, blockers });
           continue;
         }
       }
-      const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
+      let decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
       // A handoff to Copilot that ended without a push asks for help again.
       try {
@@ -321,10 +323,14 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
             previous, guidance, auto: true, preserveAmendment: true,
           }),
         });
-        if (ended) amendmentNotes.push(`- The handoff of #${issue.number} to Copilot ended without a push (${ended}); it asks for help again.`);
+        if (ended) {
+          amendmentNotes.push(`- The handoff of #${issue.number} to Copilot ended without a push (${ended}); its next action was reassessed.`);
+          decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
+        }
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the Copilot handoff of #${issue.number}: ${error.message}`);
       }
+      await reconcileImplementationAttention(client, decision, { blocked: isBlocked, now: now() });
       inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, openedAt: lifecycle.pull.created_at, requester: requester.login, decision, active, blocked: isBlocked, blockers });
       continue;
     }
@@ -553,12 +559,12 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     actions += 1;
   }
   if (actions === 0) report.line('- Nothing to do.');
-  const escalations = await maintainEscalations(client, env, selection.inProgress, { now: now() });
-  if (escalations.length > 0) {
+  const actionRequired = await maintainActionRequired(client, env, selection.inProgress, { now: now() });
+  if (actionRequired.length > 0) {
     report.line();
-    report.line('### Escalations');
+    report.line('### Awaiting human action');
     report.line();
-    for (const line of escalations) report.line(line);
+    for (const line of actionRequired) report.line(line);
   }
   const roadblocks = await maintainRoadblocks(client, env, selection.inProgress);
   if (roadblocks.length > 0) {

@@ -27,7 +27,7 @@ name: Spec Kit orchestrate
 #   - works the blocked queue down: while SPECKIT_MAX_BLOCKED (repository variable, default 5) or more implementations
 #     are blocked, or one of them has been open longer than SPECKIT_MAX_BLOCKED_DAYS (default 2; 0 turns a part off),
 #     only prerequisites of blocked implementations start and the backlog refill and flaky-test specs pause; a stopped
-#     implementation that such old implementations wait for is escalated once per stop.
+#     implementation that such old implementations wait for gets an action-required reminder once per stop.
 # Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows, so the merge and
 # every dispatched, applying Spec Kit prepare run dispatch this workflow; that is the main path after a merge. The
 # schedule is only a fallback for runs that GitHub drops or delays.

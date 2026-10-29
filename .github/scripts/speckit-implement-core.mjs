@@ -853,15 +853,18 @@ export function isTwinRunOf(workflowFile, title, twin) {
 
 // Adds (`needed`) or removes ATTENTION_LABEL on a pull request; only an open pull request that is not blocked gets it.
 // The label is a convenience, so a failure never stops the workflow.
-export async function setAttention(client, number, needed) {
+export async function setAttention(client, number, needed, { warn = console.warn } = {}) {
   try {
     const pull = await client.getPullRequest(number);
     const names = (pull.labels ?? []).map((label) => label?.name ?? label);
     const has = names.includes(ATTENTION_LABEL);
+    if (pull.state !== 'open') needed = false;
     if (needed && !has && pull.state === 'open' && !names.includes(BLOCKED_LABEL)) await client.addLabels(number, [ATTENTION_LABEL]);
     if (!needed && has) await client.removeLabel(number, ATTENTION_LABEL);
-  } catch {
-    // The label only signals the state; comments and check runs carry it.
+    return true;
+  } catch (error) {
+    warn(`Warning: could not reconcile \`${ATTENTION_LABEL}\` on #${number}: ${error.message}`);
+    return false;
   }
 }
 

@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { isImplementRequested, resolveTwins } from './speckit-prepare-core.mjs';
 import { resolveImplementRequester } from './speckit-prepare.mjs';
 import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
+import { findAmendment } from './speckit-amend.mjs';
 import { startAttemptChecks } from './speckit-implement-work.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import {
@@ -16,12 +17,14 @@ import {
   CHECK_RUN_NAME,
   CHECK_SYNC_CONFLICT,
   DONE_COMMENT_MARKER,
+  FIX_CHECK_NAME,
   DIAGNOSIS_STALE_MS,
   MAX_SYNC_RESOLVE_ATTEMPTS,
   MAX_TASK_ATTEMPTS,
   RESTART_COMMENT_MARKERS,
   RETRY_COMMENT_MARKER,
   SYNC_COMMENT_MARKER,
+  UNBLOCKED_MARKER,
   startsWithMarker,
   syncBarrier,
   renderSyncBarrierMarker,
@@ -29,6 +32,9 @@ import {
   nextStepContext,
   openPrerequisites,
   phaseNotStarted,
+  folderOfBranch,
+  pendingAmendmentRequest,
+  pendingCopilotHandoff,
   decideNext,
   explainDependencyBlock,
   describeParallelGroups,
@@ -45,6 +51,7 @@ import {
   normalizeWriterGuidance,
   parseAttemptCheckId,
   parseAttempts,
+  parseFixEvents,
   parseGuidance,
   phaseSubject,
   readSpecTasks,
@@ -112,6 +119,12 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   const windowStart = [pull.created_at, ...restartedAt, ...(pushedAt ? [pushedAt] : [])].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   const latestRestart = [...restartedAt].sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
   let decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestRestart, now });
+  const prerequisiteDecision = comments.some((comment) => comment.user?.login === BOT_LOGIN &&
+    startsWithMarker(comment.body, UNBLOCKED_MARKER) && !comment.body.includes(RETRY_COMMENT_MARKER) &&
+    Date.parse(comment.created_at) >= Date.parse(windowStart));
+  if (prerequisiteDecision && decision.action !== 'diagnosing') {
+    decision = { action: 'failed', diagnosis: { state: 'reported', count: 0 } };
+  }
   const repair = unresolvedRepair(comments);
   if (repair) {
     // Every failed repair attempt stops for a person, so each attempt follows a restart (retry, a merged amendment, or
@@ -226,6 +239,26 @@ export function needsRun(decision, env) {
   if (['tasks', 'verify', 'repair', 'merge', 'limit'].includes(decision.action)) return true;
   if (decision.action !== 'failed' || decision.diagnosis?.state === 'reported') return false;
   return true;
+}
+
+export async function reconcileImplementationAttention(client, decision, { blocked = false, now = Date.now() } = {}) {
+  if (blocked || !decision.pull) return;
+  if (!['failed', 'done', 'tasks', 'repair', 'verify', 'merge', 'wait', 'diagnosing', 'limit'].includes(decision.action)) return;
+  if (decision.action === 'failed' && decision.diagnosis?.state !== 'reported') return;
+  let needed = decision.action === 'done' || decision.action === 'failed';
+  if (needed) {
+    const comments = decision.comments ?? [];
+    const handoff = pendingCopilotHandoff(comments, { pushedAt: decision.pushedAt, now });
+    const folder = folderOfBranch(decision.pull.head?.ref);
+    const authorRequest = parseFixEvents(comments).filter((event) => event.event === 'requested').at(-1);
+    const authoring = authorRequest && authorRequest.link !== false
+      ? latestCheckRun(await client.listCheckRuns(decision.pull.head.sha, FIX_CHECK_NAME))
+      : null;
+    if (handoff?.state === 'working' || pendingAmendmentRequest(comments) ||
+        (authoring && authoring.status !== 'completed') ||
+        (folder && await findAmendment(client, folder))) needed = false;
+  }
+  await setAttention(client, decision.pull.number, needed);
 }
 
 // Guidance from the latest restart or sync ends after the first prompted work succeeds, or a person pushes.
@@ -509,8 +542,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     return finish('handover', common);
   }
   if (decision.action !== 'done') await ensureImplementationDraft(client, pull);
-  // A stop waits for a person unless a diagnosis runs for it; a reported diagnosis was labeled when it was recorded
-  // (an amendment it created gets the label instead). Everything else is work in progress or ready for review.
+  await reconcileImplementationAttention(client, decision, { now: now() });
   if (decision.action === 'limit') {
     const requester = (await resolveImplementRequester(client, twin))?.login ?? null;
     await stopAtLimit(client, env, { pull, folder, requester }, decision);
@@ -528,7 +560,6 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     report.line(decision.diagnosis?.state === 'reported' ? 'Stopped; the diagnosis waits for a person\'s decision.' : 'Stopped and waiting for a person.');
     return finish('stop', common);
   }
-  if (['tasks', 'verify', 'merge', 'wait', 'diagnosing', 'done'].includes(decision.action)) await setAttention(client, pull.number, decision.action === 'done');
   report.line(`Run: ${renderRunSubject(decision, { summaries: taskSummaries(decision.tasksMarkdown) })}.`);
   report.line();
   if (decision.action === 'merge') {

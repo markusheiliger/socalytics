@@ -94,6 +94,29 @@ test('a consistent amendment is handed to the requester for review', async () =>
   assert.doesNotMatch(pull.body, /Review and merge/);
 });
 
+test('scheduler reconciliation restores review and failed-analysis labels without reposting, and clears them during rework', async () => {
+  for (const analysis of [{ summary: 'Consistent.', findings: [] }, null]) {
+    const github = diagnosisRepo();
+    await recordAnalysis(github, analysis);
+    const context = { folder: 'f', implementation: await github.getPullRequest(9), twin: 5 };
+    const attention = () => amendmentPull(github).labels.some((label) => label.name === ATTENTION_LABEL);
+    await github.removeLabel(11, ATTENTION_LABEL);
+    const comments = github.comments.length;
+    assert.equal((await maintainAmendment(github, env(), context, { now: github.clock })).outcome, 'idle');
+    assert.equal(attention(), true);
+    assert.equal((await maintainAmendment(github, env(), context, { now: github.clock })).outcome, 'idle');
+    assert.equal(github.comments.length, comments);
+    github.commentAuthor = 'dev';
+    await github.createComment(11, 'Please rework the artifacts while preserving every completed task.');
+    github.commentAuthor = undefined;
+    assert.equal((await maintainAmendment(github, env(), context, { now: github.clock })).outcome, 'rework');
+    assert.equal(attention(), false);
+    await github.addLabels(11, [ATTENTION_LABEL]);
+    assert.equal((await maintainAmendment(github, env(), context, { now: github.clock })).outcome, 'running');
+    assert.equal(attention(), false);
+  }
+});
+
 test('the Markdown gate turns a lint error into a correction round, so a spec PR is never handed over or merged with it', async () => {
   const github = diagnosisRepo();
   github.repo.pullFiles[11] = ['specs/f/tasks.md', 'specs/f/spec.md'];
@@ -358,7 +381,11 @@ test('merging continues the implementation; closing discards; a person\'s push i
   assert.match(merged.comments.at(-1).body, /^<!-- speckit-implement:retry -->\n<!-- speckit-amend:closed 11 -->\n\*\*Amendment #11 was merged\*\* by @dev\. The implementation retries/);
   assert.equal(merged.comments.at(-1).number, 9);
   assert.deepEqual([merged.repo.runs.at(-1).workflow, merged.repo.runs.at(-1).inputs], ['speckit-implement-decide.yml', { issue: '5', pull: '9', title: 'F' }], 'the implementation chain continues, named after the spec');
+  await merged.addLabels(11, [ATTENTION_LABEL]);
+  const comments = merged.comments.length;
   assert.equal((await runClosed({ client: merged, env: env({ SPECKIT_PULL: '11' }), log: silent })).outcome, 'handled', 'a merge is settled once');
+  assert.ok(!amendmentPull(merged).labels.some((label) => label.name === ATTENTION_LABEL), 'closed-label cleanup retries even after the settlement is recorded');
+  assert.equal(merged.comments.length, comments);
 
   const discarded = diagnosisRepo();
   discarded.closePull(11);
