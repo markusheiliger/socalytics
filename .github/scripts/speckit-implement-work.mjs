@@ -719,7 +719,7 @@ async function requesterMention(client, twin) {
 async function reportFailure({ client, inputs, reasons, resultDir }) {
   const verification = neutralizeMarkers(tail(readOptional(path.join(resultDir, 'verification.log'))));
   const flaky = readJson(path.join(resultDir, 'result.json'))?.flaky ?? [];
-  const safeReasons = reasons.map(neutralizeMarkers);
+  const safeReasons = [...new Set(reasons.map(neutralizeMarkers))];
   await client.updateCheckRun(inputs.checkRun, {
     status: 'completed',
     conclusion: 'failure',
@@ -874,7 +874,7 @@ async function pushTask({ client, inputs, git, env, folder, task, message, resul
 }
 
 async function reportRequeue({ client, inputs, reasons }) {
-  const safeReasons = reasons.map(neutralizeMarkers);
+  const safeReasons = [...new Set(reasons.map(neutralizeMarkers))];
   await client.updateCheckRun(inputs.checkRun, {
     status: 'completed',
     conclusion: 'neutral',
