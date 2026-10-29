@@ -40,6 +40,7 @@ import {
   renderGuidanceMarker,
   renderNextSteps,
   setAttention,
+  supersedeActionRequired,
   setBlocked,
   renderBlockedMarker,
 } from './speckit-implement-core.mjs';
@@ -153,7 +154,7 @@ export async function authoredFor(client, pull) {
   if (legacy) {
     const implementation = await client.getPullRequest(legacy);
     if (implementation.state === 'open') return legacy;
-    if (implementation.merged_at && await recordedOrigin(client, pull, implementation)) return legacy;
+    if (implementation.state === 'closed' && await recordedOrigin(client, pull, implementation)) return legacy;
   }
   const comments = await client.listIssueComments(pull.number);
   for (const comment of comments) {
@@ -246,6 +247,7 @@ export async function startFixAuthoring(client, env, { twin, implementation, gui
       : `**A new spec is being authored** for @${actor}. The Spec Kit workflow \`author\` writes an ordinary spec and opens it as a pull request against \`${baseBranch}\`; it is checked for consistency and then merged automatically, or handed over for review when it changes \`docs/architecture/\`. It does not block this implementation, which continues meanwhile.`,
     ...(value ? ['', 'Guidance for the decision:', '', ...neutralizeMarkers(value).split('\n').map((line) => `> ${line}`)] : []),
   ].join('\n'));
+  if (link) await supersedeActionRequired(client, implementation.number);
   try {
     await client.dispatchWorkflow(FIX_WORKFLOW_FILE, defaultBranch, {
       issue: String(twin),
@@ -806,11 +808,11 @@ export async function mergeSpecPull(client, env, { amendment, folder, implementa
 // branch waits for the twin, which the scheduler then links (maintainFixSpec).
 export async function settleClosedFix(client, env, { amendment: pull, folder, implementation, actor = null, automatic = false }) {
   if (pull.state === 'open') return { outcome: 'open' };
+  await setAttention(client, pull.number, false);
   const events = parseFixEvents(await client.listIssueComments(implementation.number)).filter((event) => event.pull === pull.number);
   if (events.some((event) => ['merged', 'discarded'].includes(event.event))) return { outcome: 'handled' };
   const by = actor ? `@${actor}` : 'a person';
   const defaultBranch = defaultBranchOf(env);
-  await setAttention(client, pull.number, false);
   try {
     await client.deleteBranch(isPrerequisiteBranch(pull.head?.ref) ? pull.head.ref : fixBranch(folder));
   } catch {
