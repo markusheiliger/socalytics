@@ -2,14 +2,14 @@
 
 ## Evidence
 
-Established from the code; the implementation repeats it with runs (FR-001) and records the result here and in the code comment next to the fix.
+Established from the code; the implementation repeats it with runs (FR-001) and records the result in the code comment next to the fix and in the report of its task (the implementation may not change files under `specs/`).
 
 - The test seeds five facts (`pass-0` to `pass-4`, 10 s each) and page size two. The unfiltered first page shows `pass-0` and `pass-1`.
 - "Apply range" navigates to `?stream=detections&fromMs=10000&toMs=50000`. The simulated platform returns half-open overlaps (`startMs < toMs`, `endMs > fromMs`): `pass-1` to `pass-4`, so the filtered selection has two pages and "Next page" is enabled once it loads. The selection itself is correct (candidate "no next page" is ruled out).
 - `useFactPages` keys the query by selection, so the new selection is pending until its request returns. `FactBrowser` then shows the loading state and unmounts the facts list and the navigation (`view.state === 'loading'`), then mounts new ones. The old and the new controls are different elements (candidate "stale control" is ruled out: the new "Next page" is enabled when it mounts).
 - The test waits only for the address and `toHaveCount(2)`. The address changes before React renders the new selection, and the unfiltered page already has two facts, so both waits pass on the previous selection. `activateWithKeyboard` then focuses the old "Next page"; when the filtered request returns (slow under load) the control is detached and the new button, or the loading state, is not the focused one, so `toBeFocused` waits 5 s and fails, also on retry under the same load.
 
-Expected cause (from the code, to be confirmed by T002/T003): the test acts on the previous selection's view (candidates 1 and 2). The page is correct. T003 replaces this line with the reproduced conclusion.
+Expected cause (from the code, to be confirmed by the reproduction in T002): the test acts on the previous selection's view (candidates 1 and 2). The page is correct.
 
 ## Decisions
 

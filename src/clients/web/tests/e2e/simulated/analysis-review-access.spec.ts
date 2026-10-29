@@ -150,6 +150,11 @@ test.describe('Accessibility', () => {
     await page.getByRole('textbox', { name: 'To' }).fill('0:50');
     await activateWithKeyboard(page.getByRole('button', { name: 'Apply range' }));
     await expect(page).toHaveURL(new RegExp(`/analysis-runs/${run.runId}\\?stream=detections&fromMs=10000&toMs=50000$`));
+    // The address changes before the filtered page renders, and the unfiltered page also has two facts. Without
+    // these waits the test activated the control of the previous selection, which is replaced when the filtered
+    // request returns (reproduced with a 5000 ms delay on that request: the list was unmounted while loading).
+    await expect(facts.first()).toHaveAttribute('aria-label', /: pass-1$/);
+    await expect(page.getByRole('button', { name: 'Next page' })).toBeEnabled();
     await expect(facts).toHaveCount(2);
 
     await activateWithKeyboard(page.getByRole('button', { name: 'Next page' }));
