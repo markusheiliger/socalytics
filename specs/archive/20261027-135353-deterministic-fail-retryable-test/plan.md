@@ -2,11 +2,11 @@
 
 **Branch**: `20261027-135353-deterministic-fail-retryable-test` | **Date**: 2026-10-27 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261027-135353-deterministic-fail-retryable-test/spec.md`
+**Input**: Feature specification from `/specs/archive/20261027-135353-deterministic-fail-retryable-test/spec.md`
 
 ## Summary
 
-`SimulatedAgentWorkloadBehaviorTests.FailRetryableEndsWithAttemptsExhausted` is flaky for an unestablished cause. The plan is evidence first: a probe harness (temporary, removed afterward) repeats the test alone and under CPU load with the runner log, the attempt rows, the lineage entries, and the outbox and NATS state captured on each failure, to choose between the candidate causes in [research.md](research.md). The fix then goes where the cause lives, by awaiting an observable condition or controlling the racing input; the most likely homes are the shared helper `RunToEndAsync` and the `SimulatedAgentWorkloadRunner`. Platform behavior, assertions, limits, and the other behaviors stay unchanged.
+`SimulatedAgentWorkloadBehaviorTests.FailRetryableEndsWithAttemptsExhausted` is flaky for an unestablished cause. The plan is evidence first: repeat the test alone and its class without synthetic CPU load, capturing the runner log, attempt rows, lineage entries, and outbox and NATS state on each failure, to choose between the candidate causes in [research.md](research.md). CPU-loaded runs are optional supplemental evidence. The fix then goes where the cause lives, by awaiting an observable condition or controlling the racing input; the most likely homes are the shared helper `RunToEndAsync` and the `SimulatedAgentWorkloadRunner`. Platform behavior, assertions, limits, and the other behaviors stay unchanged.
 
 ## Technical Context
 
@@ -16,7 +16,7 @@
 
 **Storage**: PostgreSQL (`agent_attempts`, `agent_lineage_entries`, outbox) and NATS JetStream (`AGENT_WORK` work-queue stream, durable explicit-ack consumer, `MaxDeliver` unlimited) in disposable containers
 
-**Testing**: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests"`; repeated runs alone and under CPU load; two removable probes (stop redelivery after attempt 2, make attempt 3 succeed)
+**Testing**: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~SimulatedAgentWorkloadBehaviorTests"`; 20 repeated runs alone and at least 5 repeated class runs without synthetic CPU load (CPU-loaded runs optional); two removable probes (stop redelivery after attempt 2, make attempt 3 succeed) run manually by a person outside the automated implementation
 
 **Target Platform**: Linux CI runner and developer machines with a Docker-compatible runtime
 
@@ -35,7 +35,7 @@
 - **I. Architecture authority**: Pass. No design change; the Agent Orchestration semantics in `docs/architecture/` stay as they are (see Architecture Updates).
 - **II. Source-area ownership**: Pass. All changes stay under `src/platform/` (`Tests/` and, only if evidenced, the platform layers); no new `src/` child.
 - **III. API-first control plane**: Pass. The test keeps using the `/api/v1` operations and the workload operations; no direct database access beyond the test's existing read-only evidence queries.
-- **IV. Evidence over claims**: Pass. The fix is backed by repeated-run evidence, probes that prove the test still fails on broken behavior, and a focused test for any platform fix. Results are development evidence only.
+- **IV. Evidence over claims**: Pass. The fix is backed by repeated-run evidence, manual probes (run by a person, not claimed as verified by the implementation) that show the test still fails on broken behavior, and a focused test for any platform fix. Results are development evidence only.
 - **V. Focused, minimal changes**: Pass. Only the file the evidenced cause lives in changes; no new abstractions or dependencies.
 - **Environment**: Pass. Docker-backed Integration tests already run through the existing `environment-setup` and `environment-verify` actions; no new tool is needed, so no environment spec is required.
 
@@ -46,7 +46,7 @@ Post-design re-check: unchanged, all gates pass; no Complexity Tracking entry.
 ### Documentation (this feature)
 
 ```text
-specs/20261027-135353-deterministic-fail-retryable-test/
+specs/archive/20261027-135353-deterministic-fail-retryable-test/
 ├── plan.md
 ├── research.md
 ├── data-model.md

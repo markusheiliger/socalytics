@@ -72,7 +72,11 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 				await DisposeConnectionAsync();
 				try
 				{
-					await Task.Delay(_options.RetryDelay, _time, cancellationToken);
+					// Candidate 5 of research.md is the evidenced mechanism (from the code, not from a probe or captured log; the real
+					// trigger of the intermittent FailRetryableEndsWithAttemptsExhausted failures is not proven): this pause ran on the
+					// injected clock, which the fail-retryable test never advances, so one transient iteration failure stalled the runner
+					// until the test's limit. The pause is paced on the wall clock; lease, token, and DPoP time keep using _time.
+					await Task.Delay(_options.RetryDelay, TimeProvider.System, cancellationToken);
 				}
 				catch (OperationCanceledException)
 				{

@@ -19,9 +19,11 @@ Expected: all four tests pass; `FailRetryableEndsWithAttemptsExhausted` ends `fa
 
 ## 3. Repeated runs (SC-001)
 
-Run the filter `FullyQualifiedName~FailRetryableEndsWithAttemptsExhausted` at least 20 times in a row, and the class filter at least 5 times in a row while the machine is under CPU load. Expected: no failure.
+Run the filter `FullyQualifiedName~FailRetryableEndsWithAttemptsExhausted` at least 20 times in a row, and the class filter at least 5 times in a row without synthetic CPU load. Expected: no failure. CPU-loaded runs are optional supplemental evidence.
 
-## 4. Probes (SC-002, temporary, removed afterward)
+## 4. Probes (SC-002, manual local evidence, temporary, removed afterward)
+
+A person runs these probes locally outside the automated implementation; no task of this spec runs them and the implementation does not claim them as verified. Apply each temporarily to `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs`.
 
 - Stop the redelivery after the second attempt: expect the test to fail on its bounded wait with the diagnostic message (last read, attempts, runner log), not hang.
 - Make the third attempt succeed: expect the test to fail on its unchanged assertions.

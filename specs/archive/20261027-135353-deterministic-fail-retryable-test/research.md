@@ -18,9 +18,7 @@ All Technical Context items are resolved. The cause of the flakiness is delibera
 | 2 | The test reads state before the third attempt's failure is committed | Last read in the failure message shows `running` or `queued` with 2 attempts, or the terminal read precedes the count | Helper: read the count only after the terminal read, as it already does; confirm no path reads earlier |
 | 3 | A report is still in flight at the count | Runner log shows a report after the cancellation | Helper: stop the runner after the terminal read and before the count (existing order) |
 | 4 | State shared between attempts: a DPoP proof or nonce, a token, or a fence that one attempt leaves behind | Runner log shows a 401/409 on a checkpoint, lease, or failure report of attempt 2 or 3 | Runner or platform, depending on which side rejects a valid request |
-| 5 | Another cause shown by the logs: container startup, scheduling under load, an unobserved event | The captured logs name it | Where the logs place it |
-
-The established cause is recorded in the Evidence section of this file and in the code comment next to the fix (FR-001).
+| 5 | Another cause shown by the logs: container startup, scheduling under load, an unobserved event, or a transient iteration failure of the runner that is never retried because its pause runs on the frozen fake clock (the mechanism T017 names) | The captured logs name it; for the frozen-clock pause, the code plus an injected probe evidence the mechanism only | Where the logs place it; for the frozen-clock pause, the clock of that pause in the runner |
 
 ## Decision
 
@@ -30,6 +28,6 @@ The established cause is recorded in the Evidence section of this file and in th
 
 ## Evidence procedure
 
-1. Run the test 20 times alone and 5 times with its class under CPU load, with a temporary capture (runner log, attempt rows, lineage entries, outbox rows, consumer info) on failure.
-2. If no run fails, widen the load and record the rate; add a temporary delay at the suspected boundary only to prove a candidate, then remove it.
-3. After the fix, repeat step 1 and run the two probes of SC-002 (stop redelivery after attempt 2; make attempt 3 succeed), then remove the probes.
+1. Run the test 20 times alone and its class at least 5 times without synthetic CPU load, with a temporary capture (runner log, attempt rows, lineage entries, outbox rows, consumer info) on failure; report the results in the corresponding task summaries. CPU-loaded runs are optional supplemental evidence.
+2. If optional CPU-loaded runs are performed and none fails, widen the load and report the rate in the task summary; add a temporary delay at the suspected boundary only to prove a candidate, then remove it.
+3. After the fix, repeat step 1 and report the results in the corresponding task summaries. The two probes of SC-002 (stop redelivery after attempt 2; make attempt 3 succeed) are manual local evidence that a person runs outside the automated implementation, each applied temporarily to `SimulatedAgentWorkloadRunner.cs` and reverted; no task runs them and they are not claimed as verified.
