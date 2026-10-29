@@ -1009,8 +1009,36 @@ test('a Blocked comment tells a blocker with an implementation pull request from
   assert.match(waiting, /\*\*Requested, starting by itself\*\*/);
 });
 
-import { COPILOT_HANDOFF_MARKER, COPILOT_HANDOFF_MS, ATTENTION_LABEL as HELP, BLOCKED_LABEL as BLOCKED, isCopilotRequest, maintainCopilotHandoff, pendingCopilotHandoff } from './speckit-implement-core.mjs';
+import { COPILOT_HANDOFF_MARKER, COPILOT_HANDOFF_MS, ATTENTION_LABEL as HELP, BLOCKED_LABEL as BLOCKED, isCopilotRequest, maintainCopilotHandoff, pendingCopilotHandoff, setAttention } from './speckit-implement-core.mjs';
 import { diagnosisRepo } from './speckit-test-helpers.mjs';
+
+test('attention labels are idempotent, removed from closed PRs, and report recoverable API failures', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const warnings = [];
+  const options = { warn: (message) => warnings.push(message) };
+  const add = github.addLabels.bind(github);
+  github.addLabels = async () => { throw new Error('rate limited'); };
+  assert.equal(await setAttention(github, 9, true, options), false);
+  assert.match(warnings[0], /help wanted.*#9.*rate limited/);
+  let additions = 0;
+  github.addLabels = async (...args) => { additions += 1; return add(...args); };
+  assert.equal(await setAttention(github, 9, true, options), true);
+  const comments = github.comments.length;
+  assert.equal(await setAttention(github, 9, true, options), true);
+  assert.equal(github.repo.pulls[0].labels.filter((label) => label.name === HELP).length, 1);
+  assert.equal(additions, 1);
+  assert.equal(github.comments.length, comments);
+  github.closePull(9);
+  assert.equal(await setAttention(github, 9, true, options), true);
+  assert.equal(github.repo.pulls[0].labels.some((label) => label.name === HELP), false);
+  const remove = github.removeLabel.bind(github);
+  github.repo.pulls[0].labels.push({ name: HELP });
+  github.removeLabel = async () => { throw new Error('forbidden'); };
+  assert.equal(await setAttention(github, 9, false, options), false);
+  assert.match(warnings.at(-1), /help wanted.*#9.*forbidden/);
+  github.removeLabel = remove;
+  assert.equal(await setAttention(github, 9, false, options), true);
+});
 
 test('a handoff to Copilot is working until Copilot pushes, replies without a push, or the time runs out', () => {
   assert.equal(isCopilotRequest('@copilot Merge main'), true);
@@ -1053,9 +1081,10 @@ test('the scheduler asks for help again when a handoff to Copilot ended without 
   assert.equal(await state(), 'finished');
   assert.deepEqual(labels(), [HELP]);
   const note = github.comments.at(-1).body;
-  assert.match(note, /^<!-- speckit-implement:copilot-handoff-ended \{"handoff":\d+\} -->\n\*\*Copilot finished without pushing\*\* to `speckit\/f`/);
+  assert.match(note, /^<!-- speckit-implement:copilot-handoff-ended \{"handoff":\d+,"head":"sha-impl","request":null\} -->\n\*\*Copilot finished without pushing\*\* to `speckit\/f`/);
   assert.ok(note.includes(reply.html_url));
-  assert.match(note, new RegExp(`\\*\\*Recommended next step\\*\\*: Follow the \\[latest diagnosis\\]\\(${diagnosis.html_url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\) again`));
+  assert.match(note, /\*\*Recommended next step\*\*: Review the failed handoff/);
+  assert.doesNotMatch(note, /Follow the \[latest diagnosis\].*again/);
   assert.equal(note.match(/Recommended next step/g).length, 1);
   const count = github.comments.length;
   assert.equal(await state(), null, 'reported once');
@@ -1070,6 +1099,6 @@ test('the scheduler asks for help again when a handoff to Copilot ended without 
   quietPull.labels = [];
   const fresh = await quiet.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
   assert.equal(await maintainCopilotHandoff(quiet, { pull: quietPull, comments: await quiet.listIssueComments(9), now: Date.parse(fresh.created_at) + COPILOT_HANDOFF_MS }), 'expired');
-  assert.match(quiet.comments.at(-1).body, /\*\*Copilot has not pushed\*\* to `speckit\/f` within 60 minutes[\s\S]*\*\*Recommended next step\*\*: Post the `@copilot` request again/);
+  assert.match(quiet.comments.at(-1).body, /\*\*Copilot has not pushed\*\* to `speckit\/f` within 60 minutes[\s\S]*\*\*Recommended next step\*\*: Review the failed handoff/);
   assert.deepEqual(quietPull.labels.map((label) => label.name), [HELP]);
 });

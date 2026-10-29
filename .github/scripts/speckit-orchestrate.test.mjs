@@ -7,15 +7,63 @@ import test from 'node:test';
 import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { renderImplementRequested, runSync } from './speckit-prepare.mjs';
 import { UsageError, main, maintainFlakyTests, parseFlakyThreshold, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
-import { decideForPull, phaseNotStarted, runContinue, runDecide, runSync as runSyncBase, runVerifyReport } from './speckit-spec.mjs';
+import { decideForPull, phaseNotStarted, reconcileImplementationAttention, runContinue, runDecide, runSync as runSyncBase, runVerifyReport } from './speckit-spec.mjs';
 import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderFlakyLines, renderFlakySpecMarker, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
-import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
-import { CHECK_DIAGNOSING, DIAGNOSIS_STALE_MS, renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
+import { FakeGitHub, SPEC_TEMPLATE, diagnosisRepo, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
+import { CHECK_DIAGNOSED, CHECK_DIAGNOSING, COPILOT_HANDOFF_MARKER, DIAGNOSIS_STALE_MS, FIX_CHECK_NAME, renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
 const IMPLEMENTING = 'speckit:stage:implementing';
 const stagesOf = (issue) => issue.labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:'));
 const TASKS_OPEN = '- [ ] T001 one\n- [ ] T002 two\n';
+
+test('implementation attention follows the current decision, not old comments, unrelated activity, or dependent age', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const pull = await github.getPullRequest(9);
+  await github.createComment(9, '<!-- speckit-implement:diagnosis -->\n**Recommended next step**: Make a decision.');
+  const decision = { action: 'failed', diagnosis: { state: 'reported' }, pull, comments: await github.listIssueComments(9) };
+  const attention = () => github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL);
+  await reconcileImplementationAttention(github, decision);
+  assert.equal(attention(), true, 'no aged dependents or new comment is required');
+  await github.removeLabel(9, ATTENTION_LABEL);
+  const count = github.comments.length;
+  await reconcileImplementationAttention(github, decision);
+  await reconcileImplementationAttention(github, decision);
+  assert.equal(attention(), true);
+  assert.equal(github.comments.length, count);
+  for (const action of ['tasks', 'repair', 'verify', 'merge', 'wait', 'diagnosing']) {
+    await github.addLabels(9, [ATTENTION_LABEL]);
+    await reconcileImplementationAttention(github, { ...decision, action });
+    assert.equal(attention(), false, action);
+  }
+  await reconcileImplementationAttention(github, { ...decision, action: 'done' });
+  assert.equal(attention(), true, 'review holds need a person');
+  await reconcileImplementationAttention(github, { ...decision, action: 'tasks' }, { blocked: true });
+  assert.equal(attention(), true, 'dependency-request labels belong to the blocked lifecycle');
+  const child = diagnosisRepo().repo.pulls.find((item) => item.number === 11);
+  github.repo.pulls.push(child);
+  await reconcileImplementationAttention(github, decision);
+  assert.equal(attention(), false, 'the review action belongs on the amendment');
+});
+
+test('accepted amendment, authoring, and Copilot work suppress an obsolete implementation request', async () => {
+  for (const kind of ['amend', 'author', 'copilot']) {
+    const github = diagnosisRepo({ amendment: false });
+    const pull = await github.getPullRequest(9);
+    await github.addLabels(9, [ATTENTION_LABEL]);
+    await github.createComment(9, '<!-- speckit-implement:diagnosis -->\n**Recommended next step**: Decide.');
+    if (kind === 'amend') await github.createComment(9, '<!-- speckit-amend:request {"comment":501,"head":"sha-head","guidance":"Make the probes manual."} -->');
+    if (kind === 'copilot') await github.createComment(9, `${COPILOT_HANDOFF_MARKER}\nCopilot is working on the accepted request.`);
+    if (kind === 'author') {
+      await github.createComment(9, renderFixEvent('requested', { by: 'dev', stamp: '20261001-000000' }));
+      await github.createCheckRun({ name: FIX_CHECK_NAME, head_sha: pull.head.sha, status: 'in_progress' });
+    }
+    await reconcileImplementationAttention(github, {
+      action: 'failed', diagnosis: { state: 'reported' }, pull, comments: await github.listIssueComments(9),
+    }, { now: github.clock });
+    assert.equal(github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL), false, kind);
+  }
+});
 
 async function start(github, root, twin, { reset = false, requester = 'dev' } = {}) {
   return runStart({ client: github, rootDir: root, env: envFor(root), issueNumber: twin.number, folder: twin.folder ?? 'a', requester, reset, log: silent });
@@ -29,6 +77,30 @@ async function flaggedRepo() {
   flag(github, twin);
   return { root, github, twin };
 }
+
+test('scheduler restores a reported diagnosis label without a new comment or any dependent implementation', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    const pull = github.repo.pulls[0];
+    github.setFile(pull.head.sha, 'specs/a/tasks.md', TASKS_OPEN);
+    await github.createCheckRun({
+      name: CHECK_RUN_NAME, head_sha: pull.head.sha, status: 'completed', conclusion: 'neutral', external_id: CHECK_DIAGNOSED,
+    });
+    await github.createComment(pull.number, '<!-- speckit-implement:diagnosis -->\n**Recommended next step**: Authorize the artifact decision.');
+    const comments = github.comments.length;
+    await orchestrate(github, root);
+    assert.ok(pull.labels.some((label) => label.name === ATTENTION_LABEL));
+    await github.removeLabel(pull.number, ATTENTION_LABEL);
+    await orchestrate(github, root);
+    await orchestrate(github, root);
+    assert.ok(pull.labels.some((label) => label.name === ATTENTION_LABEL));
+    assert.equal(github.comments.length, comments);
+    assert.equal(chainRuns(github).length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('start prepares the linked branch, draft pull request, assignee, check run, and start comment', async () => {
   const { root, github, twin } = await flaggedRepo();
@@ -646,13 +718,21 @@ test('a running implementation with a hand-added open blocker is blocked, not co
 test('a blocker closed as not planned lifts the block and asks for a person instead of retrying', async () => {
   const { root, github, pull } = await blockedByHand();
   try {
+    github.setFile(pull.head.sha, 'specs/a/tasks.md', TASKS_OPEN);
     await orchestrate(github, root);
     assert.ok(pull.labels.some((label) => label.name === BLOCKED_LABEL));
     Object.assign(github.find(77), { state: 'closed', state_reason: 'not_planned' });
-    await orchestrate(github, root);
+    const stopped = await orchestrate(github, root);
+    assert.equal(stopped.selection.inProgress[0].decision.action, 'failed');
     assert.equal(chainRuns(github).length, 1, 'no retry');
     assert.deepEqual(pull.labels.map((label) => label.name), [ATTENTION_LABEL]);
     assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:unblocked -->\n\*\*A prerequisite was not implemented\*\*: #77 was closed without being implemented\. The block is lifted[\s\S]*\*\*Recommended next step\*\*/);
+    const count = github.comments.length;
+    await github.removeLabel(pull.number, ATTENTION_LABEL);
+    await orchestrate(github, root);
+    assert.deepEqual(pull.labels.map((label) => label.name), [ATTENTION_LABEL]);
+    assert.equal(github.comments.length, count);
+    assert.equal(chainRuns(github).length, 1, 'a newer accepted action is still required');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1525,7 +1605,7 @@ test('the roadblock label marks the unblocked implementations most others wait f
   assert.deepEqual([parseRoadblockPulls(''), parseRoadblockPulls('5'), parseRoadblockPulls('-1'), parseRoadblockPulls('x')], [3, 5, 3, 3]);
 });
 
-import { blockedTarget, maintainEscalations, parseMaxBlocked, parseMaxBlockedDays } from './speckit-orchestrate.mjs';
+import { blockedTarget, maintainActionRequired, parseMaxBlocked, parseMaxBlockedDays } from './speckit-orchestrate.mjs';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -1582,7 +1662,7 @@ test('while the blocked target is missed only prerequisites start, and no specs 
   }
 });
 
-test('a chain head stopped for a person is escalated once per stop when implementations open too long wait for it', async () => {
+test('a chain head awaiting human action gets one reminder per stop and its label is reconciled', async () => {
   const github = new FakeGitHub();
   const now = Date.parse('2026-10-28T12:00:00Z');
   for (const number of [10, 11, 12]) github.repo.pulls.push({ number, state: 'open', labels: [], head: { ref: `speckit/f${number}` }, base: { ref: 'main' } });
@@ -1593,18 +1673,23 @@ test('a chain head stopped for a person is escalated once per stop when implemen
     { number: 2, pull: 11, openedAt: new Date(now - 5 * DAY).toISOString(), blocked: true, blockers: [1] },
     { number: 3, pull: 12, openedAt: new Date(now - 3 * DAY).toISOString(), blocked: true, blockers: [2] },
   ];
-  assert.deepEqual(await maintainEscalations(github, {}, inProgress(await github.listIssueComments(10), { decision: { action: 'failed', diagnosis: { state: 'none' } } }), { now }), [], 'not while a diagnosis is still to come');
-  assert.deepEqual(await maintainEscalations(github, {}, inProgress(await github.listIssueComments(10), { active: true }), { now }), []);
-  assert.deepEqual(await maintainEscalations(github, { SPECKIT_MAX_BLOCKED_DAYS: '6' }, inProgress(await github.listIssueComments(10)), { now }), [], 'nothing waits long enough');
-  const lines = await maintainEscalations(github, {}, inProgress(await github.listIssueComments(10)), { now });
-  assert.deepEqual(lines, ['- Escalated #10 (spec #1): 2 implementations open longer than 2 days wait for its decision.']);
-  const escalation = github.comments.at(-1);
-  assert.equal(escalation.number, 10);
-  assert.match(escalation.body, new RegExp(`^<!-- speckit-implement:escalation \\{"key":"${diagnosis.id}"\\} -->\\n\\*\\*Escalation\\*\\* @dev: this implementation is stopped for a person's decision, and 2 implementations open longer than 2 days wait for it, directly or through a chain: #11 \\(spec #2, open 5 days\\), #12 \\(spec #3, open 3 days\\)\\.`));
-  assert.ok(escalation.body.includes(`**Recommended next step**: Follow the [latest diagnosis](${diagnosis.html_url})`));
-  assert.equal(escalation.body.match(/Recommended next step/g).length, 1);
+  assert.deepEqual(await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10), { decision: { action: 'failed', diagnosis: { state: 'none' } } }), { now }), [], 'not while a diagnosis is still to come');
+  assert.deepEqual(await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10), { active: true }), { now }), []);
+  assert.deepEqual(await maintainActionRequired(github, { SPECKIT_MAX_BLOCKED_DAYS: '6' }, inProgress(await github.listIssueComments(10)), { now }), [], 'nothing waits long enough');
+  const lines = await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+  assert.deepEqual(lines, ['- Awaiting human action on #10 (spec #1): 2 implementations open longer than 2 days wait for its decision.']);
+  const reminder = github.comments.at(-1);
+  assert.equal(reminder.number, 10);
+  assert.match(reminder.body, new RegExp(`^<!-- speckit-implement:escalation \\{"key":"${diagnosis.id}"\\} -->\\n\\*\\*Action required\\*\\* @dev: this implementation awaits human action, and 2 implementations open longer than 2 days wait for it, directly or through a chain: #11 \\(spec #2, open 5 days\\), #12 \\(spec #3, open 3 days\\)\\.`));
+  assert.ok(reminder.body.includes(`**Recommended next step**: Follow the [latest diagnosis](${diagnosis.html_url})`));
+  assert.equal(reminder.body.match(/Recommended next step/g).length, 1);
   assert.ok(github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL));
-  assert.deepEqual(await maintainEscalations(github, {}, inProgress(await github.listIssueComments(10)), { now }), [], 'once per stop');
+  await github.removeLabel(10, ATTENTION_LABEL);
+  await github.updateComment(reminder.id, reminder.body.replace('**Action required**', '**Escalation**'));
+  const count = github.comments.length;
+  assert.deepEqual(await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now }), [], 'once per stop, including historical markers');
+  assert.ok(github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL), 'restore the missing label even when the reminder already exists');
+  assert.equal(github.comments.length, count);
   await github.createComment(10, '<!-- speckit-implement:diagnosis -->\n**Diagnosis (round 2)**: decide');
-  assert.equal((await maintainEscalations(github, {}, inProgress(await github.listIssueComments(10)), { now })).length, 1, 'a new stop is escalated again');
+  assert.equal((await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now })).length, 1, 'a new stop gets a new reminder');
 });

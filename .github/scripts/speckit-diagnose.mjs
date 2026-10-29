@@ -4,10 +4,12 @@ import { pathToFileURL } from 'node:url';
 
 import { specDir } from './speckit-prepare-core.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
-import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, reportSpecPullFailure, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
+import { AmendUsageError, beginAmendment, checkAmendment, decodeTracked, findAmendment, finishAmendmentRequest, pendingFeedback, presentAmendment, readAmendmentAuthorization, reportSpecPullFailure, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
 import { RETRY_EFFECT, requestSync, restartState, retryImplementation } from './speckit-commands.mjs';
 import {
   AUTO_CONTINUE_MARKER,
+  AMEND_AUTHORIZATION_MARKER,
+  AMEND_REQUEST_STATE_MARKER,
   BOT_LOGIN,
   CATEGORY_MEANING,
   CHECK_AMEND_CHECKING,
@@ -39,6 +41,10 @@ import {
   neutralizeMarkers,
   nextStepContext,
   nextTaskGroup,
+  failedCopilotRecoveries,
+  normalizeRecovery,
+  trustedMarker,
+  pendingAmendmentRequest,
   parseNextCommand,
   readSpecTasks,
   renderCommandReference,
@@ -52,7 +58,7 @@ export { checkAmendment, findAmendment };
 
 export const CATEGORIES = ['artifacts', 'retry', 'outside', 'decision', 'unknown'];
 export const CONFIDENCE = ['high', 'medium', 'low'];
-export const MODES = ['diagnose', 'fix', 'revise'];
+export const MODES = ['diagnose', 'amend', 'fix', 'revise'];
 // Every command list of the diagnosis is derived from PR_COMMANDS, so a new, changed, or removed command needs no edit
 // here (see commandPatterns and categoryCommands).
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -98,9 +104,13 @@ export async function stopSubject(client, head) {
 // Starts a diagnosis of the implementation pull request `pull`: a check run on the head marks the implementation as
 // waiting for the diagnosis, and the agentic diagnose workflow is dispatched (its run is named after the stop). A
 // dispatch failure leaves an unfinished diagnosis check so the implementation controller starts it again.
-export async function startDiagnosis(client, env, { twin, pull, folder, head, guidance = '', previous = '', actor = null, auto = false }) {
+export async function startDiagnosis(client, env, { twin, pull, folder, head, guidance = '', previous = '', actor = null, auto = false, mode = 'diagnose', authorization = null, preserveAmendment = false }) {
   // A new diagnosis supersedes an earlier amendment; its branch must not exist when the new run proposes one.
   const superseded = await findAmendment(client, folder);
+  if (superseded && preserveAmendment) return { started: false, error: `Amendment #${superseded.number} is already open; review or rework it.` };
+  if (mode === 'diagnose' && pendingAmendmentRequest(await client.listIssueComments(pull))) {
+    return { started: false, error: 'An authorized amendment request is pending.' };
+  }
   if (superseded) {
     await client.updatePullRequest(superseded.number, { state: 'closed' });
     await client.createComment(superseded.number, 'Superseded by a new diagnosis; a new amendment, if any, follows in its own pull request.');
@@ -122,7 +132,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, gu
     status: 'in_progress',
     external_id: CHECK_DIAGNOSING,
     details_url: diagnosisRunsUrl(env),
-    output: { title: 'Diagnosis in progress', summary },
+    output: { title: mode === 'amend' ? 'Authorized amendment in progress' : 'Diagnosis in progress', summary },
   });
   try {
     await client.dispatchWorkflow(DIAGNOSE_WORKFLOW_FILE, defaultBranchOf(env), {
@@ -132,7 +142,8 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, gu
       guidance: clip(guidance, 4000),
       previous: String(previous ?? ''),
       check_run: String(check.id),
-      mode: 'diagnose',
+      mode,
+      ...(authorization ? { authorization: String(authorization) } : {}),
       amendment: '',
       round: '0',
       stop,
@@ -160,13 +171,16 @@ function inputsFrom(env) {
   }
   const mode = MODES.includes(env.SPECKIT_MODE) ? env.SPECKIT_MODE : 'diagnose';
   const amendment = Number(env.SPECKIT_AMENDMENT);
-  if (mode !== 'diagnose' && (!Number.isInteger(amendment) || amendment <= 0)) throw new DiagnoseUsageError(`Mode ${mode} needs SPECKIT_AMENDMENT.`);
+  if (['fix', 'revise'].includes(mode) && (!Number.isInteger(amendment) || amendment <= 0)) throw new DiagnoseUsageError(`Mode ${mode} needs SPECKIT_AMENDMENT.`);
+  const authorization = Number(env.SPECKIT_AUTHORIZATION);
+  if (mode === 'amend' && (!Number.isInteger(authorization) || authorization <= 0)) throw new DiagnoseUsageError('Mode amend needs SPECKIT_AUTHORIZATION.');
   return {
     twin,
     pull,
     folder,
     mode,
-    amendment: mode === 'diagnose' ? null : amendment,
+    amendment: ['fix', 'revise'].includes(mode) ? amendment : null,
+    authorization: mode === 'amend' ? authorization : null,
     round: Math.max(0, Number(env.SPECKIT_ROUND) || 0),
     stalls: Math.max(0, Number(env.SPECKIT_STALLS) || 0),
     findings: decodeTracked(env.SPECKIT_FINDINGS),
@@ -184,11 +198,13 @@ function logTail(text) {
 // Agent job, before the agent: collects what the agent needs to diagnose the stop and cannot fetch itself, and writes
 // evidence.md and context.json to SPECKIT_EVIDENCE_DIR.
 export async function runEvidence({ client, env, log }) {
-  const { twin, pull: pullNumber, folder, mode, amendment: amendmentNumber, round, stalls } = inputsFrom(env);
+  const { twin, pull: pullNumber, folder, mode, amendment: amendmentNumber, authorization, round, stalls } = inputsFrom(env);
   const outDir = path.resolve(env.SPECKIT_EVIDENCE_DIR || 'evidence');
   mkdirSync(outDir, { recursive: true });
   const branch = implementationBranch(folder);
   const pull = await client.getPullRequest(pullNumber);
+  if (mode === 'amend' && pull.head.ref !== implementationBranch(folder)) throw new DiagnoseUsageError('The authorized amendment folder does not match the implementation branch.');
+  const authorized = mode === 'amend' ? await readAmendmentAuthorization(client, pull, authorization) : null;
   const baseBranch = baseBranchOf(pull);
   const { tasksMarkdown, archived } = await readSpecTasks(client, folder, pull.head.sha);
   const next = nextTaskGroup(tasksMarkdown, 1)[0] ?? null;
@@ -215,7 +231,12 @@ export async function runEvidence({ client, env, log }) {
     `- Next unchecked task: ${next ? `${next.id} ${next.text}` : 'none (all tasks are checked)'}`,
     '',
   ];
-  if (mode === 'fix') {
+  if (authorized) {
+    sections.push('## Writer-authorized artifact amendment', '',
+      `Writer @${authorized.actor} authorized request ${authorized.comment} at ${authorized.head}.`,
+      '', authorized.guidance, '',
+      'Change only this feature folder. Preserve completed tasks verbatim and never tick a task. Propagate the authorized change through every affected artifact. Do not implement tasks or claim unverified manual evidence. Create an amendment for independent analysis and human review/merge; never push directly to the implementation.', '');
+  } else if (mode === 'fix') {
     sections.push('## Findings of the consistency check to fix', '', env.SPECKIT_GUIDANCE?.trim() || '_None._', '');
   } else if (mode === 'revise') {
     // The feedback was collected when the rework started (as guidance); its marker already moved the feedback window.
@@ -238,6 +259,11 @@ export async function runEvidence({ client, env, log }) {
         '',
       );
     }
+    if (amendmentNumber) {
+      const authorization = trustedMarker(await client.listIssueComments(amendmentNumber), AMEND_AUTHORIZATION_MARKER).at(-1);
+      if (authorization) sections.push('## Authorized amendment preservation rule', '',
+        `This amendment has writer authorization ${authorization.request}. Preserve every completed task verbatim from ${authorization.head}, including checkbox states. Never tick tasks, implement code, or claim unverified manual evidence.`, '');
+    }
   }
   sections.push(
     '## Check runs on the head (oldest first)',
@@ -246,6 +272,12 @@ export async function runEvidence({ client, env, log }) {
     '',
   );
   if (previous) sections.push('## Previous diagnosis', '', clip(previous.body, 20_000), '');
+  const failedRecoveries = failedCopilotRecoveries(comments, pull.head.sha);
+  if (failedRecoveries.length) {
+    sections.push('## Failed Copilot recoveries on this unchanged revision', '',
+      'Do not repeat these requests or paraphrase the same ineffective action. Address the refusal. If this feature needs a writer-approved artifact change, recommend `/speckit amend` with concrete guidance instead.', '');
+    for (const failed of failedRecoveries) sections.push(`### Handoff ${failed.handoff}`, '', clip(failed.request, 6000), '');
+  }
   sections.push('## Recent pull request comments (oldest first)', '');
   for (const comment of comments.slice(-15)) {
     sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 8000), '');
@@ -293,6 +325,7 @@ export async function runEvidence({ client, env, log }) {
     specDir: specDir(folder, { archived }),
     head: pull.head.sha,
     nextTask: next?.id ?? null,
+    ...(authorized ? { authorization: authorized } : {}),
     previousDiagnosis: previous ? true : false,
   }, null, 2)}\n`);
   log(`Wrote the evidence for #${twin} to ${outDir}.`);
@@ -346,6 +379,10 @@ export function validateReport(raw, { requireCategory = true } = {}) {
       option.command = null;
     } else {
       option.command = command;
+      if (parseNextCommand(command)?.verb === 'amend' && !parseNextCommand(command).guidance.trim()) {
+        reasons.push(`option "${option.title}" needs concrete amendment guidance`);
+        option.command = null;
+      }
     }
   }
   for (const option of normalized.options) {
@@ -673,6 +710,7 @@ function reworkOutcome(env) {
 // the consistency check. A rework (`fix`, `revise`) reports on the amendment pull request and checks it again.
 export async function runRecord({ client, env, log }) {
   const inputs = inputsFrom(env);
+  if (inputs.mode === 'amend') return recordAuthorizedAmendment({ client, env, log, inputs });
   if (inputs.mode !== 'diagnose') return recordRework({ client, env, log, inputs });
   const { pull: pullNumber, folder, twin } = inputs;
   const detection = String(env.SPECKIT_DETECTION ?? '').trim();
@@ -684,6 +722,13 @@ export async function runRecord({ client, env, log }) {
   const amendment = report?.category && reasons.length === 0 ? await createdAmendment(client, env, folder, reasons) : null;
   const comments = await client.listIssueComments(pullNumber);
   const implementation = await client.getPullRequest(pullNumber);
+  const failedRecoveries = failedCopilotRecoveries(comments, implementation.head.sha);
+  for (const option of report?.options ?? []) {
+    if (option.copilot && failedRecoveries.some((item) => normalizeRecovery(item.request) === normalizeRecovery(`@copilot ${option.copilot}`) ||
+      normalizeRecovery(item.request).startsWith(normalizeRecovery(`@copilot ${option.copilot}`)))) {
+      reasons.push('The proposed Copilot recovery already failed without a push on this revision; diagnose the refusal and recommend an executable action instead.');
+    }
+  }
   const repeated = repeatedFailure(comments, implementation.head?.sha);
   const recommendationProblems = report?.category ? recommendNextSteps(report, { amendment, repeated }).notes : [];
   reasons.push(...recommendationProblems);
@@ -786,6 +831,48 @@ async function autoContinue(client, env, { twin, pull, folder, command }) {
   } else {
     await retryImplementation(client, env, { implementation, twin, folder }, { ...options, effect: RETRY_EFFECT, state: await restartState(client, implementation) });
   }
+}
+
+export async function recordAuthorizedAmendment({ client, env, log, inputs }) {
+  const { pull: number, folder, twin, authorization } = inputs;
+  const implementation = await client.getPullRequest(number);
+  const completed = trustedMarker(await client.listIssueComments(number), AMEND_REQUEST_STATE_MARKER)
+    .find((item) => item.request === authorization && item.state === 'created');
+  if (completed) return { exitCode: 0, outcome: 'already recorded', amendment: completed.amendment };
+  const reasons = [];
+  if (implementation.head.ref !== implementationBranch(folder)) reasons.push('The authorized amendment folder does not match the implementation branch.');
+  let request = null;
+  try {
+    request = await readAmendmentAuthorization(client, implementation, authorization);
+  } catch (error) {
+    if (!(error instanceof AmendUsageError)) throw error;
+    reasons.push(error.message);
+  }
+  const detection = String(env.SPECKIT_DETECTION ?? '').trim();
+  if (detection && detection !== 'success') reasons.push('The amendment report was withheld by threat detection.');
+  const reports = reasons.length ? [] : readAgentReports(env);
+  const checked = reports.length ? validateReport(reports.at(-1), { requireCategory: false }) : { reasons: ['No usable amendment report was produced.'], report: null };
+  reasons.push(...checked.reasons);
+  const amendment = await createdAmendment(client, env, folder, reasons);
+  if (!amendment) reasons.push('No amendment pull request was created.');
+  if (reasons.length) {
+    if (amendment) await client.updatePullRequest(amendment.number, { state: 'closed' });
+    await finishAmendmentRequest(client, number, authorization, 'failed',
+      `**Amendment preparation failed** for #${number}: ${neutralizeMarkers(reasons.join('; '))}\n\n**Recommended next step**: Address the reported failure and post a new \`/speckit amend\` command with the intended change. Implementation remains stopped.`);
+    await setAttention(client, number, true);
+  } else {
+    await client.createComment(amendment.number, `<!-- ${AMEND_AUTHORIZATION_MARKER} ${JSON.stringify({ request: authorization, implementation: number, head: request.head })} -->\nWriter @${request.actor} authorized this artifact change on #${number}. Completed tasks must remain unchanged in every correction and revision.`);
+    await finishAmendmentRequest(client, number, authorization, 'created',
+      `**Amendment #${amendment.number} prepared for #${number}**: ${neutralizeMarkers(checked.report.summary)}\n\n**Recommended next step**: Wait for independent analysis of amendment #${amendment.number}; no action is needed while it is checked. Once consistent, review and merge it to resume #${number}. No implementation task has been ticked.`,
+      { amendment: amendment.number });
+    await beginAmendment(client, env, { amendment, folder, implementation, twin });
+  }
+  if (Number(env.SPECKIT_CHECK_RUN) > 0) await client.updateCheckRun(Number(env.SPECKIT_CHECK_RUN), {
+    status: 'completed', conclusion: reasons.length ? 'failure' : 'neutral', external_id: CHECK_DIAGNOSED,
+    output: { title: reasons.length ? 'Amendment preparation failed' : `Amendment #${amendment.number} awaits analysis and review`, summary: reasons.join('; ') || checked.report.summary },
+  });
+  log(reasons.length ? reasons.join('; ') : `Prepared amendment #${amendment.number}.`);
+  return { exitCode: 0, outcome: reasons.length ? 'failed' : 'amendment', amendment: amendment?.number ?? null };
 }
 
 // Records a rework of an amendment (`fix` after the consistency check, `revise` after a person's feedback) and starts
