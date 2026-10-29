@@ -59,7 +59,7 @@ A maintainer running the Web UI browser tests, or the verification of any implem
 
 ### Functional Requirements
 
-- **FR-001**: The implementation MUST first establish the cause of the intermittent failure with evidence (the code, or repeated runs with and without CPU load and with a delayed facts request, with traces of failing runs) and record it in the Evidence section of `research.md` and in the code comment next to the fix.
+- **FR-001**: The implementation MUST first establish the cause of the intermittent failure with evidence (the code, or repeated runs with and without CPU load and with a delayed facts request, with traces of failing runs) and record it in the code comment next to the fix and in the report of the implementing task (the Evidence section of `research.md` holds the analysis made when the spec was written; the implementation changes no file under `specs/`).
 - **FR-002**: The cause MUST be removed where it lives. If it lives in the test, the test MUST wait on observable page conditions (the filtered facts present and "Next page" enabled) before it acts on the control; if it lives in the page, the page MUST keep the control mounted and focusable across the range reload, or keep the focus, without other behavior changes.
 - **FR-003**: Every assertion of the test and every accessibility check (`expectNoAxeViolations`, `expectAllReachableByKeyboard`, `toBeFocused`, visible focus, keyboard activation) MUST remain on the same states and MUST NOT be removed, loosened, skipped, or moved to check less.
 - **FR-004**: The fix MUST NOT use retries, fixed sleeps, longer timeouts, or forced actions as the way to pass.
