@@ -103,8 +103,8 @@ export async function readAmendmentAuthorization(client, implementation, comment
   return request;
 }
 
-export async function finishAmendmentRequest(client, pull, request, state, detail = {}) {
-  await client.createComment(pull, `<!-- ${AMEND_REQUEST_STATE_MARKER} ${JSON.stringify({ request, state, ...detail })} -->`);
+export async function finishAmendmentRequest(client, pull, request, state, body, detail = {}) {
+  await client.createComment(pull, `<!-- ${AMEND_REQUEST_STATE_MARKER} ${JSON.stringify({ request, state, ...detail })} -->\n${body}`);
 }
 
 export async function maintainAmendmentRequest(client, env, { implementation, twin, folder, now = Date.now() }) {
@@ -116,8 +116,8 @@ export async function maintainAmendmentRequest(client, env, { implementation, tw
     request = await readAmendmentAuthorization(client, implementation, pending.comment);
   } catch (error) {
     if (!(error instanceof AmendUsageError)) throw error;
-    await finishAmendmentRequest(client, implementation.number, pending.comment, 'stale');
-    await client.createComment(implementation.number, `**Amendment preparation stopped**: ${neutralizeMarkers(error.message)}\n\n**Recommended next step**: Review the current state of #${implementation.number} and post a new \`/speckit amend\` command with the intended change.`);
+    await finishAmendmentRequest(client, implementation.number, pending.comment, 'stale',
+      `**Amendment preparation stopped**: ${neutralizeMarkers(error.message)}\n\n**Recommended next step**: Review the current state of #${implementation.number} and post a new \`/speckit amend\` command with the intended change.`);
     await setAttention(client, implementation.number, true);
     return { active: false, outcome: 'stale' };
   }
@@ -125,8 +125,9 @@ export async function maintainAmendmentRequest(client, env, { implementation, tw
   if (existing) {
     const authorized = trustedMarker(await client.listIssueComments(existing.number), AMEND_AUTHORIZATION_MARKER)
       .some((item) => item.request === request.comment && item.implementation === implementation.number);
-    await finishAmendmentRequest(client, implementation.number, request.comment, authorized ? 'created' : 'failed', { amendment: existing.number });
-    await client.createComment(implementation.number, `**Recommended next step**: Review or rework amendment #${existing.number} for #${implementation.number}; it was not replaced.`);
+    await finishAmendmentRequest(client, implementation.number, request.comment, authorized ? 'created' : 'failed',
+      `**Recommended next step**: Review or rework amendment #${existing.number} for #${implementation.number}; it was not replaced.`,
+      { amendment: existing.number });
     return { active: true, outcome: authorized ? 'reused' : 'existing amendment' };
   }
   const checks = await client.listCheckRuns(implementation.head.sha, CHECK_RUN_NAME);
@@ -135,14 +136,14 @@ export async function maintainAmendmentRequest(client, env, { implementation, tw
     if (check && check.status !== 'completed' && now - Date.parse(check.started_at) < DIAGNOSIS_STALE_MS) return { active: true, outcome: 'preparing' };
     if (!check || check.status !== 'completed') {
       if (check) await client.updateCheckRun(check.id, { status: 'completed', conclusion: 'failure', output: { title: 'Amendment preparation timed out', summary: 'The authorized amendment preparation did not report a result.' } });
-      await finishAmendmentRequest(client, implementation.number, request.comment, 'failed');
-      await client.createComment(implementation.number, `**Amendment preparation timed out** for #${implementation.number}.\n\n**Recommended next step**: Inspect the failed preparation run before posting a new \`/speckit amend\` command. The request is not retried indefinitely.`);
+      await finishAmendmentRequest(client, implementation.number, request.comment, 'failed',
+        `**Amendment preparation timed out** for #${implementation.number}.\n\n**Recommended next step**: Inspect the failed preparation run before posting a new \`/speckit amend\` command. The request is not retried indefinitely.`);
       await setAttention(client, implementation.number, true);
       return { active: false, outcome: 'failed' };
     }
     if (check?.conclusion !== 'failure' || check.output?.title !== 'Diagnosis could not start') {
-      await finishAmendmentRequest(client, implementation.number, request.comment, 'failed');
-      await client.createComment(implementation.number, `**Amendment preparation did not finish** for #${implementation.number}.\n\n**Recommended next step**: Inspect the amendment preparation check and post a new \`/speckit amend\` command once its failure is addressed.`);
+      await finishAmendmentRequest(client, implementation.number, request.comment, 'failed',
+        `**Amendment preparation did not finish** for #${implementation.number}.\n\n**Recommended next step**: Inspect the amendment preparation check and post a new \`/speckit amend\` command once its failure is addressed.`);
       await setAttention(client, implementation.number, true);
       return { active: false, outcome: 'failed' };
     }
@@ -152,10 +153,11 @@ export async function maintainAmendmentRequest(client, env, { implementation, tw
     twin, pull: implementation.number, folder, head: request.head, actor: request.actor,
     guidance: request.guidance, previous: request.previous ?? '', mode: 'amend', authorization: request.comment, preserveAmendment: true,
   });
-  if (started.check) await finishAmendmentRequest(client, implementation.number, request.comment, 'preparing', { check: started.check.id });
-  if (!started.started) {
-    await client.createComment(implementation.number, `Amendment preparation for #${implementation.number} could not start: ${neutralizeMarkers(started.error)}. The durable request remains queued for the scheduler; no action is needed yet.`);
-  }
+  const body = started.started
+    ? `**Amendment preparation started** for #${implementation.number}. The workflow prepares the authorized artifact change for independent analysis and human review and merge. No action is needed yet.`
+    : `Amendment preparation for #${implementation.number} could not start: ${neutralizeMarkers(started.error)}. The durable request remains queued for the scheduler; no action is needed yet.`;
+  if (started.check) await finishAmendmentRequest(client, implementation.number, request.comment, 'preparing', body, { check: started.check.id });
+  else await client.createComment(implementation.number, body);
   return { active: true, outcome: started.started ? 'preparing' : 'queued' };
 }
 

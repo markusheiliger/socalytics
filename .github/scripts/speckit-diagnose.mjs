@@ -857,13 +857,14 @@ export async function recordAuthorizedAmendment({ client, env, log, inputs }) {
   if (!amendment) reasons.push('No amendment pull request was created.');
   if (reasons.length) {
     if (amendment) await client.updatePullRequest(amendment.number, { state: 'closed' });
-    await finishAmendmentRequest(client, number, authorization, 'failed');
-    await client.createComment(number, `**Amendment preparation failed** for #${number}: ${neutralizeMarkers(reasons.join('; '))}\n\n**Recommended next step**: Address the reported failure and post a new \`/speckit amend\` command with the intended change. Implementation remains stopped.`);
+    await finishAmendmentRequest(client, number, authorization, 'failed',
+      `**Amendment preparation failed** for #${number}: ${neutralizeMarkers(reasons.join('; '))}\n\n**Recommended next step**: Address the reported failure and post a new \`/speckit amend\` command with the intended change. Implementation remains stopped.`);
     await setAttention(client, number, true);
   } else {
     await client.createComment(amendment.number, `<!-- ${AMEND_AUTHORIZATION_MARKER} ${JSON.stringify({ request: authorization, implementation: number, head: request.head })} -->\nWriter @${request.actor} authorized this artifact change on #${number}. Completed tasks must remain unchanged in every correction and revision.`);
-    await finishAmendmentRequest(client, number, authorization, 'created', { amendment: amendment.number });
-    await client.createComment(number, `**Amendment #${amendment.number} prepared for #${number}**: ${neutralizeMarkers(checked.report.summary)}\n\n**Recommended next step**: Wait for independent analysis of amendment #${amendment.number}; no action is needed while it is checked. Once consistent, review and merge it to resume #${number}. No implementation task has been ticked.`);
+    await finishAmendmentRequest(client, number, authorization, 'created',
+      `**Amendment #${amendment.number} prepared for #${number}**: ${neutralizeMarkers(checked.report.summary)}\n\n**Recommended next step**: Wait for independent analysis of amendment #${amendment.number}; no action is needed while it is checked. Once consistent, review and merge it to resume #${number}. No implementation task has been ticked.`,
+      { amendment: amendment.number });
     await beginAmendment(client, env, { amendment, folder, implementation, twin });
   }
   if (Number(env.SPECKIT_CHECK_RUN) > 0) await client.updateCheckRun(Number(env.SPECKIT_CHECK_RUN), {

@@ -301,7 +301,8 @@ is ticked. It may edit or remove authorized unchecked obligations and update dep
 must never claim unverified manual evidence. Implementation resumes only after merge into its implementation branch.
 Duplicate delivery reuses the request. An existing amendment is linked for review or rework, never silently replaced.
 Empty guidance, a running implementation, stale authorization, and non-writers are refused. Failed dispatches leave
-a durable request for the scheduler. No decision or amend command is executed automatically.
+a durable request for the scheduler. Request-state markers are embedded in visible preparation and outcome comments,
+not posted as separate empty comments. No decision or amend command is executed automatically.
 
 Writer-supplied text after `/speckit retry`, `/speckit sync`, or `/speckit author` and their flags is called
 **guidance**. Retry and sync guidance is stored in a bot-authored pull request marker so a replaced dispatch or

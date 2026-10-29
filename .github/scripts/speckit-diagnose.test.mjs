@@ -73,6 +73,9 @@ test('authorized preparation creates a reviewed amendment and preserves complete
     writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report: JSON.stringify({ summary: 'Moved SC-002 to manual evidence without claiming it was run.', artifacts: [{ file: 'specs/f/tasks.md', reason: 'Remove unchecked probe obligation.' }], responses: [] }) }] }));
     const result = await runRecord({ client: github, env: { ...modeEnv, GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success', SPECKIT_CREATED_PULL: '11', SPECKIT_CHECK_RUN: String(github.repo.checkRuns[0].id) }, log: silent });
     assert.equal(result.outcome, 'amendment');
+    const created = github.comments.find((item) => item.body.startsWith('<!-- speckit-amend:request-state ') && item.body.includes('"state":"created"'));
+    assert.match(created.body, /"amendment":11[\s\S]*\*\*Amendment #11 prepared for #9\*\*/);
+    assert.ok(github.comments.filter((item) => item.body.startsWith('<!-- speckit-amend:request-state ')).every((item) => item.body.replace(/<!--[\s\S]*?-->/g, '').trim()));
     assert.equal(github.repo.runs.at(-1).workflow, 'speckit-analyze.lock.yml');
     assert.equal(github.repo.merges.length, 0);
     assert.equal(github.comments.some((item) => item.body.startsWith('<!-- speckit-implement:retry -->')), false);
