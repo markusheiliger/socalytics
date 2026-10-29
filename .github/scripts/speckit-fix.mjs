@@ -18,6 +18,10 @@ import {
   FIX_CHECK_NAME,
   FIX_TITLE_PREFIX,
   FIX_WORKFLOW_FILE,
+  RECOVERY_FAILURE_MARKER,
+  failedRecoveryRoutes,
+  recoveryReassessment,
+  unresolvedRepair,
   MAX_CORRECTION_ROUNDS,
   MAX_STALLED_ROUNDS,
   ORCHESTRATE_WORKFLOW_FILE,
@@ -633,6 +637,36 @@ export function reworkOutcome(result, env) {
 // it to the implementation, and starts its consistency check; a reuse, a refusal, a failed author run, or a broken pull
 // request goes back to the implementation with the next steps. `fix` and `revise` are recorded like a rework of an
 // amendment. The Design decisions come from the spec's plan (designDecisionsFromPlan).
+async function reportAuthorFailure(client, env, { implementation, unlinked, message, reason, checkRun }) {
+  const pull = implementation.number;
+  if (unlinked) {
+    await client.createComment(pull, `${message}\n\nThis implementation is not affected and continues.`);
+    return;
+  }
+  const comments = await client.listIssueComments(pull);
+  const request = parseFixEvents(comments).filter((event) => event.event === 'requested').at(-1);
+  const source = request?.stamp ?? String(checkRun);
+  const guidance = parseGuidance(comments.find((comment) => comment.id === request?.commentId)?.body);
+  if (failedRecoveryRoutes(comments, implementation.head.sha).some((item) => item.source === source && item.route === 'author')) return;
+  const reassessed = recoveryReassessment(comments, implementation.head.sha);
+  await client.createComment(pull, [
+    `<!-- ${RECOVERY_FAILURE_MARKER} ${JSON.stringify({ route: 'author', head: implementation.head.sha, repair: unresolvedRepair(comments)?.id ?? null, source, guidance, reason })} -->`,
+    message,
+    '',
+    reassessed
+      ? `**Recommended next step**: Resolve the refused recovery on #${pull} using the cause above. The single reassessment was already requested; supply the external fix or missing evidence, not another unchanged retry or author request.`
+      : '**Recommended next step**: The scheduler will assess this failure for one bounded recovery diagnosis. Do not retry the implementation or repeat the failed author request; neither removes the cause.',
+  ].join('\n'));
+  await setAttention(client, pull, true);
+  if (!reassessed) {
+    try {
+      await client.dispatchWorkflow(ORCHESTRATE_WORKFLOW_FILE, defaultBranchOf(env), {});
+    } catch (error) {
+      await client.createComment(pull, `**Recovery scheduling failed on #${pull}**: ${neutralizeMarkers(error.message)}. Resolve the workflow dispatch failure; the failure evidence is saved for the scheduler. Do not retry unchanged implementation work.`);
+    }
+  }
+}
+
 export async function runRecord({ client, env, log }) {
   const inputs = inputsFrom(env);
   const result = readResult(env);
@@ -675,7 +709,7 @@ export async function runRecord({ client, env, log }) {
     if (!Number.isInteger(created) || created <= 0) {
       const why = `the decision named spec #${report.reuse} for this cause, but it is neither an open spec pull request authored by \`/speckit author\` nor a merged one that is still to be implemented`;
       await complete('failure', 'No spec was created', why);
-      await client.createComment(pullNumber, [`**No spec was created**: ${why}.`, '', ...(await nextSteps())].join('\n'));
+      await reportAuthorFailure(client, env, { implementation, unlinked, message: `**No spec was created**: ${why}.`, reason: why, checkRun });
       await askPerson();
       log(`#${pullNumber}: invalid reuse of #${report.reuse}.`);
       return { exitCode: 0, outcome: 'none' };
@@ -684,7 +718,7 @@ export async function runRecord({ client, env, log }) {
   if (!Number.isInteger(created) || created <= 0) {
     const why = report.refused || report.summary || 'the Spec Kit workflow `author` did not create one';
     await complete('failure', 'No spec was created', why);
-    await client.createComment(pullNumber, [`**No spec was created**: ${neutralizeMarkers(why)}`, '', ...(await nextSteps())].join('\n'));
+    await reportAuthorFailure(client, env, { implementation, unlinked, message: `**No spec was created**: ${neutralizeMarkers(why)}`, reason: why, checkRun });
     await askPerson();
     log(`#${pullNumber}: no spec was created.`);
     return { exitCode: 0, outcome: 'none' };
@@ -705,7 +739,7 @@ export async function runRecord({ client, env, log }) {
   if (broken.length > 0) {
     await discardCreatedFix(client, created);
     await complete('failure', 'The spec was rejected', broken.join('; '));
-    await client.createComment(pullNumber, [`**The authored spec #${created} was rejected and closed**: ${broken.map(neutralizeMarkers).join('; ')}.`, '', ...(await nextSteps())].join('\n'));
+    await reportAuthorFailure(client, env, { implementation, unlinked, message: `**The authored spec #${created} was rejected and closed**: ${broken.map(neutralizeMarkers).join('; ')}.`, reason: broken.join('; '), checkRun });
     await askPerson();
     log(`#${pullNumber}: rejected spec #${created}.`);
     return { exitCode: 0, outcome: 'rejected' };
@@ -917,7 +951,7 @@ export async function maintainFixSpec(client, env, { implementation, twin, rootD
         report(`- Closed the unfinished non-blocking spec authoring of #${implementation.number}.`);
         return { outcome: 'stale' };
       }
-      await client.createComment(implementation.number, [`**The spec authoring did not finish**.`, '', ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) })].join('\n'));
+      await reportAuthorFailure(client, env, { implementation, unlinked: false, message: '**The spec authoring did not finish**.', reason: 'The authoring run ended without a usable result.', checkRun: latest.id });
       report(`- Closed the unfinished spec authoring of #${implementation.number}.`);
       await setAttention(client, implementation.number, true);
       return { outcome: 'stale' };

@@ -390,7 +390,8 @@ test('merging continues the implementation; closing discards; a person\'s push i
   const discarded = diagnosisRepo();
   discarded.closePull(11);
   assert.equal((await runClosed({ client: discarded, env: env({ SPECKIT_PULL: '11', SPECKIT_ACTOR: 'dev' }), log: silent })).outcome, 'discarded');
-  assert.match(discarded.comments.at(-1).body, /^<!-- speckit-amend:closed 11 -->\nAmendment #11 was closed without merging by @dev\.[\s\S]*\*\*Recommended next step\*\*: Retry what stopped[\s\S]*\/speckit retry/);
+  assert.match(discarded.comments.at(-1).body, /^<!-- speckit-amend:closed 11 -->\nAmendment #11 was closed without merging by @dev\.[\s\S]*\*\*Recommended next step\*\*: Review the recovery blocker and provide the missing evidence/);
+  assert.doesNotMatch(discarded.comments.at(-1).body, /```text\n\/speckit retry/);
   assert.equal((await runClosed({ client: discarded, env: env({ SPECKIT_PULL: '9' }), log: silent })).outcome, 'ignored');
 
   const pushed = diagnosisRepo();

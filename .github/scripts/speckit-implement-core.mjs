@@ -137,6 +137,41 @@ export const LEGACY_FIX_TITLE_PREFIX = 'Fix spec: ';
 // Architecture changes of a spec pull request may only come from the spec's design (docs/architecture/**).
 export const ARCHITECTURE_PREFIX = 'docs/architecture/';
 export const DIAGNOSIS_COMMENT_MARKER = '<!-- speckit-implement:diagnosis -->';
+export const RECOVERY_FAILURE_MARKER = 'speckit-implement:recovery-failed';
+export const REASSESSMENT_MARKER = 'speckit-implement:reassessment';
+
+export function failedRecoveryRoutes(comments, head) {
+  const repair = unresolvedRepair(comments)?.id ?? null;
+  return trustedMarker(comments, RECOVERY_FAILURE_MARKER).filter((item) => item.head === head && (item.repair ?? null) === repair);
+}
+
+export function recoveryReassessment(comments, head) {
+  const repair = unresolvedRepair(comments)?.id ?? null;
+  return trustedMarker(comments, REASSESSMENT_MARKER).find((item) => item.head === head && item.repair === repair);
+}
+
+export async function reassessRecovery(client, { pull, comments, rediagnose, guidance = '' }) {
+  const existing = recoveryReassessment(comments, pull.head.sha);
+  if (existing) return { started: false, error: 'The one reassessment for this unchanged blocker was already requested. Review its evidence and resolve the remaining blocker; do not repeat an ineffective command.' };
+  const data = { head: pull.head.sha, repair: unresolvedRepair(comments)?.id ?? null };
+  const render = (state, detail) => `<!-- ${REASSESSMENT_MARKER} ${JSON.stringify({ ...data, state })} -->\n${detail}`;
+  const claim = await client.createComment(pull.number, render('claimed', '**Recovery reassessment requested**: one diagnosis will use the failed approaches as evidence. Do not retry the unchanged work.'));
+  const failures = failedRecoveryRoutes(comments, pull.head.sha);
+  let result;
+  try {
+    result = await rediagnose({
+      previous: comments.filter((item) => item.user?.login === BOT_LOGIN && String(item.body).startsWith(DIAGNOSIS_COMMENT_MARKER)).at(-1)?.id ?? '',
+      guidance: `${guidance}\nFailed recovery routes: ${failures.map((item) => `${item.route}: ${item.reason}${item.guidance ? ` (requested: ${clip(item.guidance, 1200)})` : ''}`).join('; ')}\nThis is the single reassessment of this unchanged blocker. Recommend a supported remedy or the precise external action/missing evidence, never a generic retry or a refused route.`,
+    });
+  } catch (error) {
+    result = { started: false, error: error.message };
+  }
+  if (!result.started) {
+    await client.updateComment(claim.id, render('failed', `**Action required on #${pull.number}**: recovery reassessment could not start: ${neutralizeMarkers(result.error)}. Resolve that dispatch or existing-amendment blocker before continuing; no automatic retry is queued.`));
+    await setAttention(client, pull.number, true);
+  }
+  return result;
+}
 export const AMEND_REQUEST_MARKER = 'speckit-amend:request';
 export const AMEND_REQUEST_STATE_MARKER = 'speckit-amend:request-state';
 export const AMEND_AUTHORIZATION_MARKER = 'speckit-amend:authorization';
@@ -569,7 +604,7 @@ const stopReason = (body) => String(body ?? '').match(STOP_PATTERN)?.[1].replace
 // The comment command that already failed the same way: the latest `/speckit retry` or `/speckit sync` recorded the
 // implementation branch head `head` (so nothing changed since), and the stop after it gave the same reason as the stop
 // before it. Recommending that command again would only repeat the failure. Returns { verb, reason } or null.
-export function repeatedFailure(comments, head) {
+export function repeatedFailure(comments, head, { includeState = false } = {}) {
   const ordered = [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
@@ -585,7 +620,8 @@ export function repeatedFailure(comments, head) {
   if (!state?.head || state.head !== head) return null;
   const before = ordered.slice(0, restartAt).map((comment) => stopReason(comment.body)).filter(Boolean).at(-1);
   const after = ordered.slice(restartAt + 1).map((comment) => stopReason(comment.body)).filter(Boolean)[0];
-  return before && after && before === after ? { verb: verbOf(ordered[restartAt].body), reason: after } : null;
+  return before && after && before === after ? { verb: verbOf(ordered[restartAt].body), reason: after,
+    ...(includeState ? { base: state.base ?? null, guidance: parseGuidance(ordered[restartAt].body) } : {}) } : null;
 }
 
 // The reason of the latest stop for a person, or null.
@@ -974,9 +1010,6 @@ export async function maintainCopilotHandoff(client, { pull, comments, pushedAt,
   const pending = pendingCopilotHandoff(comments, { pushedAt, now });
   if (!pending || pending.state === 'working') return null;
   const link = (comment) => comment.html_url ?? `#issuecomment-${comment.id}`;
-  const diagnosis = [...comments]
-    .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, DIAGNOSIS_COMMENT_MARKER))
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
   const branch = `\`${pull.head?.ref ?? 'the implementation branch'}\``;
   const what = pending.state === 'finished'
     ? `**Copilot finished without pushing** to ${branch}, so the implementation is still stopped and needs a person again. [Copilot's reply](${link(pending.reply)}) says what it did instead.`
@@ -993,7 +1026,8 @@ export async function maintainCopilotHandoff(client, { pull, comments, pushedAt,
     next,
   ].join('\n'));
   if (rediagnose) {
-    const result = await rediagnose({ previous: diagnosis?.id ?? '', guidance: `The Copilot handoff ${pending.handoff.id} ${pending.state} without a push. Reassess the failed recommendation using the request and reply; do not recommend it again on this unchanged head. A timeout alone does not establish an artifact defect.` });
+    const result = await reassessRecovery(client, { pull, comments: await client.listIssueComments(pull.number), rediagnose,
+      guidance: `The Copilot handoff ${pending.handoff.id} ${pending.state} without a push. Reassess the failed recommendation using the request and reply; do not recommend it again on this unchanged head. A timeout alone does not establish an artifact defect.` });
     if (!result.started) {
       await setAttention(client, pull.number, true);
       await client.createComment(pull.number, `**Re-diagnosis could not start** for #${pull.number}: ${neutralizeMarkers(result.error)}.\n\n**Recommended next step**: Address this dispatch or existing-amendment blocker before continuing #${pull.number}; do not repeat the failed Copilot request.`);
@@ -2037,9 +2071,9 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
       };
     } else {
       recommended = {
-        title: 'Retry what stopped',
-        why: 'The diagnosis did not identify another action that can be requested from this pull request.',
-        command: '/speckit retry',
+        title: 'Review the recovery blocker and provide the missing evidence',
+        why: 'No supported recovery was established. Use the failure or refusal above to identify the required external fix or missing information; repeating the unchanged work is not a remedy.',
+        kind: 'external',
       };
     }
   }
@@ -2054,13 +2088,6 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
   // Commands the recommendation or an option already suggests are not repeated.
   const used = new Set([recommended, ...others].map((option) => parseNextCommand(option.command)?.verb).filter(Boolean));
   const generic = [];
-  if (!used.has('retry')) {
-    generic.push({
-      title: 'Retry what stopped',
-      why: 'If the failure looks transient (runner, network, timeout, a flaky test) and nothing needs to change.',
-      command: '/speckit retry',
-    });
-  }
   generic.push({
     title: 'Push a fix yourself, or close the pull request',
     why: 'If you know the fix, or the spec should not be implemented as it is.',

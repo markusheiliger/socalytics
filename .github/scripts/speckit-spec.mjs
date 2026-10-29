@@ -39,6 +39,7 @@ import {
   pendingCopilotHandoff,
   acceptedImplementationAction,
   trustedMarker,
+  recoveryReassessment,
   ACTION_REQUIRED_MARKER,
   supersedeActionRequired,
   decideNext,
@@ -384,6 +385,15 @@ async function stopAtLimit(client, env, { pull, folder, requester }, decision) {
 // Starts a diagnosis of a stopped implementation by itself unless one already reported for this stop. A diagnosis
 // that ended without a report is closed with a comment first, so it never blocks the implementation.
 async function maybeDiagnose(client, env, { twin, pull, folder }, diagnosis, report) {
+  if (diagnosis.state === 'reported') return false;
+  if (recoveryReassessment(await client.listIssueComments(pull.number), pull.head.sha)) {
+    const output = { title: 'Recovery reassessment needs human action', summary: 'The one reassessment of this unchanged blocker did not finish. Resolve its workflow/dispatch failure or provide the missing evidence; do not retry unchanged work.' };
+    if (diagnosis.check) await client.updateCheckRun(diagnosis.check.id, { status: 'completed', conclusion: 'failure', external_id: CHECK_DIAGNOSED, output });
+    else await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: pull.head.sha, status: 'completed', conclusion: 'failure', external_id: CHECK_DIAGNOSED, output });
+    await client.createComment(pull.number, `**Action required on #${pull.number}**: ${output.summary}\n\nSee the [diagnosis runs](${diagnosisRunsUrl(env)}) and recovery failure above. No further automatic diagnosis is queued.`);
+    await setAttention(client, pull.number, true);
+    return false;
+  }
   if (diagnosis.state === 'stale') {
     await closeUnfinishedDiagnosis(client, diagnosis.check);
     const runs = diagnosisRunsUrl(env);
@@ -394,7 +404,6 @@ async function maybeDiagnose(client, env, { twin, pull, folder }, diagnosis, rep
     ].join('\n'));
     report.line('Closed the unfinished diagnosis.');
   }
-  if (diagnosis.state === 'reported') return false;
   const started = await startDiagnosis(client, env, { twin, pull: pull.number, folder, head: pull.head.sha, auto: true });
   report.line(started.started ? 'Started a diagnosis.' : `Warning: could not start a diagnosis: ${started.error}`);
   return started.started;
