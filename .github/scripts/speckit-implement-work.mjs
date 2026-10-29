@@ -554,8 +554,11 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
       if (changedBytes > MAX_PATCH_BYTES) result.reasons.push(`the resolution changes more than ${MAX_PATCH_BYTES} bytes besides the conflicts`);
     }
     if (result.reasons.length === 0) {
+      const current = splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', result.baseSha]));
+      // Git compares object identity, type and mode, including entries absent from both trees.
+      if (result.syncRepair) result.syncRepair.baseEquivalent = result.syncRepair.paths.filter((file) => !current.includes(file));
       paths = [...new Set([
-        ...splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', result.baseSha])),
+        ...current,
         ...(result.syncRepair?.paths ?? []),
       ])].sort();
       result.changedFiles = paths;
@@ -655,6 +658,11 @@ export function runVerdict({ env, inputs, resultDir, log }) {
       result.reasons.push(names.length > 0 ? `${names.at(-1)} failed` : `the verification did not succeed (${outcome || 'not run'})`);
     }
     result.uncovered = String(env.SPECKIT_VERIFY_UNCOVERED ?? '').split(',').map((file) => file.trim()).filter(Boolean);
+    if (env.SPECKIT_REQUIRED_SYNC && result.syncRepair && result.tree) {
+      result.reportedUncovered = [...result.uncovered];
+      result.uncovered = result.uncovered.filter((file) => !result.syncRepair.paths.includes(file) ||
+        !(result.syncRepair.baseEquivalent ?? []).includes(file));
+    }
     if (env.SPECKIT_REQUIRED_SYNC && result.uncovered.length > 0) result.reasons.push('required synchronization has files not covered by verification');
   }
   if (result.reasons.length === 0 && inputs.kind === 'merge' && result.environment && !pendingConflicts) {
@@ -1053,6 +1061,14 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   }
   if (reasons.length === 0 && barrier && result.tree !== gitOrThrow(git, ['write-tree']).trim()) {
     reasons.push('the replayed synchronization tree differs from the verified tree');
+  }
+  if (reasons.length === 0 && barrier && result.reportedUncovered) {
+    const changed = splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', result.baseSha]));
+    for (const file of result.reportedUncovered) {
+      if (!result.syncRepair?.paths.includes(file) || !result.syncRepair.baseEquivalent?.includes(file) || changed.includes(file)) {
+        reasons.push(`required synchronization has an uncovered path without trusted base-equivalence evidence: ${file}`);
+      }
+    }
   }
   if (reasons.length > 0) {
     await reportFailure({ client, inputs, reasons, resultDir });
