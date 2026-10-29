@@ -4,3 +4,6 @@ obj/
 
 # Python bytecode from the Spec Kit helper scripts
 __pycache__/
+
+# Sample videos downloaded with tools/download-samples.mjs
+/.samples/

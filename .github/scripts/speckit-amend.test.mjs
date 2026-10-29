@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  finishAmendmentRequest,
   main,
   maintainAmendment,
   pendingFeedback,
@@ -18,7 +19,7 @@ import {
   startRework,
   validateAnalysis,
 } from './speckit-amend.mjs';
-import { ATTENTION_LABEL } from './speckit-implement-core.mjs';
+import { AMEND_REQUEST_STATE_MARKER, ATTENTION_LABEL, trustedMarker } from './speckit-implement-core.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
 const env = (extra = {}) => ({ GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', ...extra });
@@ -46,6 +47,21 @@ async function recordAnalysis(github, report, { round = 0, mode = 'loop', detect
 
 const HIGH = { severity: 'HIGH', category: 'Inconsistency', location: 'plan.md CI-R10', summary: 'CI-R10 still expects a residual difference.', recommendation: 'Update it to the refined R6.' };
 const trackedOf = (findings) => JSON.stringify(findings.map((item, index) => ({ id: `F${index + 1}`, severity: item.severity, location: item.location ?? '', summary: item.summary })));
+
+test('amendment request state is stored in the visible status comment, not a separate empty comment', async () => {
+  for (const state of ['preparing', 'created', 'failed', 'stale']) {
+    const github = diagnosisRepo({ amendment: false });
+    const body = `**Amendment preparation ${state}** for #9.`;
+    const detail = state === 'preparing' ? { check: 123 } : state === 'created' ? { amendment: 11 } : {};
+    const before = github.comments.length;
+    await finishAmendmentRequest(github, 9, 501, state, body, detail);
+    assert.equal(github.comments.length, before + 1);
+    const comment = github.comments.at(-1);
+    assert.equal(comment.number, 9);
+    assert.equal(comment.body.replace(/<!--[\s\S]*?-->/g, '').trim(), body);
+    assert.deepEqual(trustedMarker([comment], AMEND_REQUEST_STATE_MARKER), [{ request: 501, state, ...detail, markerComment: comment }]);
+  }
+});
 
 test('a consistent amendment is handed to the requester for review', async () => {
   const github = diagnosisRepo();

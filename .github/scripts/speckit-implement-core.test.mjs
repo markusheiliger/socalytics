@@ -1053,9 +1053,10 @@ test('the scheduler asks for help again when a handoff to Copilot ended without 
   assert.equal(await state(), 'finished');
   assert.deepEqual(labels(), [HELP]);
   const note = github.comments.at(-1).body;
-  assert.match(note, /^<!-- speckit-implement:copilot-handoff-ended \{"handoff":\d+\} -->\n\*\*Copilot finished without pushing\*\* to `speckit\/f`/);
+  assert.match(note, /^<!-- speckit-implement:copilot-handoff-ended \{"handoff":\d+,"head":"sha-impl","request":null\} -->\n\*\*Copilot finished without pushing\*\* to `speckit\/f`/);
   assert.ok(note.includes(reply.html_url));
-  assert.match(note, new RegExp(`\\*\\*Recommended next step\\*\\*: Follow the \\[latest diagnosis\\]\\(${diagnosis.html_url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\) again`));
+  assert.match(note, /\*\*Recommended next step\*\*: Review the failed handoff/);
+  assert.doesNotMatch(note, /Follow the \[latest diagnosis\].*again/);
   assert.equal(note.match(/Recommended next step/g).length, 1);
   const count = github.comments.length;
   assert.equal(await state(), null, 'reported once');
@@ -1070,6 +1071,6 @@ test('the scheduler asks for help again when a handoff to Copilot ended without 
   quietPull.labels = [];
   const fresh = await quiet.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
   assert.equal(await maintainCopilotHandoff(quiet, { pull: quietPull, comments: await quiet.listIssueComments(9), now: Date.parse(fresh.created_at) + COPILOT_HANDOFF_MS }), 'expired');
-  assert.match(quiet.comments.at(-1).body, /\*\*Copilot has not pushed\*\* to `speckit\/f` within 60 minutes[\s\S]*\*\*Recommended next step\*\*: Post the `@copilot` request again/);
+  assert.match(quiet.comments.at(-1).body, /\*\*Copilot has not pushed\*\* to `speckit\/f` within 60 minutes[\s\S]*\*\*Recommended next step\*\*: Review the failed handoff/);
   assert.deepEqual(quietPull.labels.map((label) => label.name), [HELP]);
 });

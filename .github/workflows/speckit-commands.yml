@@ -1,7 +1,7 @@
 name: Spec Kit commands
 
 # Handles people's input on Spec Kit pull requests:
-# - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): retry, sync, specify, help;
+# - `/speckit <command>` comments on implementation pull requests: retry, sync, amend, author, help;
 #   and on spec twin issues (label speckit:spec): implement (the only way to request an implementation), help.
 #   - Feedback on amendment pull requests (speckit-amend/<folder>) and authored spec pull requests
 #     (speckit-spec/<folder>, earlier speckit-fix/<folder>): a comment, or a review with Comment or Request changes,

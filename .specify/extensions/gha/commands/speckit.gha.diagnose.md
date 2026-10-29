@@ -21,6 +21,7 @@ workflow started you): never ask, and turn every open question into a report que
 | Mode | Workspace | Task |
 | --- | --- | --- |
 | `diagnose` | the implementation branch `speckit/<folder>` | diagnose the stop (steps 1–6); for `artifacts`, create the amendment pull request |
+| `amend` | the implementation branch `speckit/<folder>` | apply the validated writer authorization consistently to the feature artifacts and create a reviewed amendment (step 5); report with the rework report |
 | `fix` | the amendment branch `speckit-amend/<folder>` | fix the consistency findings listed in the evidence (step 7) |
 | `revise` | the amendment branch `speckit-amend/<folder>` | rework the amendment with a person's feedback listed in the evidence (step 8) |
 
@@ -77,7 +78,7 @@ workflow started you): never ask, and turn every open question into a report que
    | `artifacts` | The task cannot be done as written, or doing it as written cannot meet the spec: a missing, ambiguous, or contradictory design decision; a wrong assumption in research; a task too vague to diagnose its failure; a missing prerequisite task; a wrong task order; or a code fix inside this feature needed first (a **corrective task**) | an amendment pull request (step 5) that the person reviews and merges |
    | `retry` | Transient infrastructure (timeouts, rate limits, runner or network failures, Copilot errors, a flaky test with evidence), or the agent took a poor approach although the artifacts are adequate | `/speckit retry <concrete guidance>` |
    | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | code, tests, or environment actions not fixed yet: `/speckit author <what to fix, where, and how>`; the fix is already on the base branch: `/speckit sync`; tooling under `.github/` or a non-code cause: name the action in the title, then `/speckit sync` |
-   | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered questions with the recommended choice first; `/speckit retry 1. <choice> 2. <choice>` prefilled with the recommended answers as guidance |
+   | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | when the decision changes this feature's artifacts, recommend `/speckit amend <concrete change>` for a writer to authorize a reviewed amendment; use `/speckit retry` only for answers that require no artifact change |
    | `unknown` | Not enough evidence | what was checked and ruled out; the workflow starts another diagnosis automatically with these findings as context |
 
    A merged result that fails although both sides pass alone (a conflict resolution or merge whose verification
@@ -106,7 +107,18 @@ workflow started you): never ask, and turn every open question into a report que
    complete is `retry` with guidance to make the change. Classify it as `artifacts` only when the task itself is
    ambiguous or contradictory about whether a change is required.
 
-5. **Amend (only for `artifacts`).**
+5. **Amend (for `artifacts`, or mode `amend` with validated writer authorization).**
+   - In `diagnose` mode, a requirement change is not authorized by the agent recommending it. Classify it as
+     `decision` and prominently recommend one ready-to-post `/speckit amend` command with the actual change,
+     expected behavior to preserve, and any manual evidence that must not be claimed as verified. Never send
+     a change to this feature's requirements, unchecked tasks, checkpoints, or dependency notes to Copilot's
+     implementation handoff: its scope forbids task-list edits. Do not hide task-list edits behind paraphrases
+     such as "remove the open item". A retry cannot apply artifact changes either.
+   - In mode `amend`, the trusted evidence contains the source writer command and starting revision. Apply only
+     that authorization and create an amendment for independent analysis and human review/merge. Preserve
+     every completed task verbatim, including its checkbox state; never tick any task or implement code.
+     Corrections and revisions of this authorized amendment preserve the same completed-task baseline.
+     Report summary, artifacts, and responses using the rework format, not a new diagnosis.
    - Edit the highest wrong artifact first, then carry the change down: `spec.md` (only with a person's answer) →
      `plan.md` (including risks and the documentation of decisions), `research.md`, `data-model.md`, `contracts/`,
      `quickstart.md` → `tasks.md`. Search the whole folder for every statement about the changed decision
@@ -172,7 +184,8 @@ workflow started you): never ask, and turn every open question into a report que
   fail. The person decides from the comment alone: `why` explains in one or two sentences why the option solves this
   problem (the comment adds what the command does).
 - The recommended command must fit the category: `retry` → `/speckit retry`; `outside` → `/speckit author`,
-  or `/speckit sync`; `decision` → `/speckit retry` with the recommended answers as guidance, or a Copilot prompt
+  or `/speckit sync`; `decision` → `/speckit amend` for changes to this feature's artifacts,
+  `/speckit retry` for answers requiring no artifact change, or a Copilot prompt
   (below) when the decision is carried out as a push (the categories each command fits are also listed under
   **Commands you can recommend**).
   `artifacts` must create an amendment pull request, and `unknown` starts another diagnosis automatically.
@@ -199,6 +212,10 @@ workflow started you): never ask, and turn every open question into a report que
   failed the same way**, the last `/speckit retry` or `/speckit sync` left the branch unchanged and stopped with the same
   reason as before; recommending it again only repeats the stop (a recommendation of it is moved to the other options at
   publication). Recommend what changes something instead, for example `/speckit author` for a cause outside this spec.
+- A failed Copilot handoff triggers one new diagnosis with the request and refusal as evidence. Do not recommend
+  the same failed request on the unchanged revision, including a paraphrase that leaves its contradiction intact.
+  A timeout alone does not establish an artifact defect. For a #377-style refusal about editing the task list,
+  recommend `/speckit amend` with the concrete authorized artifact change, not another Copilot prompt.
 - Guidance only steers the next agent's prompt; it changes no check, limit, or verification. A stop that happens before
   any agent runs (for example conflicts under `.github/` or `.specify/`) cannot be changed by guidance. Conflicts under
   `specs/` that the archive's reference rewrites cause are resolved by script and never need a person.
@@ -212,9 +229,9 @@ workflow started you): never ask, and turn every open question into a report que
   itself (task, repair, or conflict-resolution guidance) over asking a person to push it. Reviewing and merging the
   amendment pull request has `"command": null`. Add other options only when they are real alternatives, each with its
   `why`, and give each the command that does what its title says.
-- When the remedy is a change only a push to the implementation branch can make (a file the implementation agents
+- When the remedy is an external unblock that only a push to the implementation branch can make (a file the implementation agents
   may not change, such as another spec's folder, `.github/`, or `.specify/`, or the concrete change a person's
-  decision needs), give that option a `copilot` prompt and `"command": null` instead of telling the person to push
+  decision needs outside this feature's own artifacts), give that option a `copilot` prompt and `"command": null` instead of telling the person to push
   it. A person posts it as a comment, GitHub Copilot's cloud agent pushes the change to the pull request's branch,
   and that push continues the implementation by itself. The prompt is plain text for that agent, self-contained and
   ready to post (no placeholders, no code fences, at most 3000 characters): name every file, the exact change (old
@@ -233,7 +250,7 @@ workflow started you): never ask, and turn every open question into a report que
 - `artifacts` lists the changed files of the amendment; leave it empty otherwise. Ask at most three questions, each
   with its recommended choice first.
 
-## Rework report (modes `fix` and `revise`)
+## Rework report (modes `amend`, `fix`, and `revise`)
 
 ```json
 {

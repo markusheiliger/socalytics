@@ -5,6 +5,13 @@ import { canWrite, resolveImplementRequester } from './speckit-prepare.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   ARCHITECTURE_PREFIX,
+  AMEND_REQUEST_MARKER,
+  AMEND_REQUEST_STATE_MARKER,
+  AMEND_AUTHORIZATION_MARKER,
+  ATTENTION_LABEL,
+  BLOCKED_LABEL,
+  BOT_LOGIN,
+  CHECK_RUN_NAME,
   AMEND_BRANCH_PREFIX,
   AMEND_CHECK_NAME,
   AMEND_PRESENTED_MARKER,
@@ -33,6 +40,10 @@ import {
   nextStepContext,
   renderAmendmentHowTo,
   parseFixEvents,
+  parseCommandArguments,
+  pendingAmendmentRequest,
+  trustedMarker,
+  listTasks,
   renderFixHowTo,
   renderNextSteps,
   renderRetryComment,
@@ -69,6 +80,110 @@ export class AmendUsageError extends Error {}
 export async function findAmendment(client, folder) {
   const pulls = await client.listPullRequestsForHead(amendmentBranch(folder));
   return pulls.find((pull) => pull.state === 'open') ?? null;
+}
+
+export async function readAmendmentAuthorization(client, implementation, commentId) {
+  const comments = await client.listIssueComments(implementation.number);
+  const request = trustedMarker(comments, AMEND_REQUEST_MARKER).find((item) => item.comment === Number(commentId));
+  if (!request) throw new AmendUsageError('The trusted amendment authorization is missing.');
+  if (trustedMarker(comments, AMEND_REQUEST_STATE_MARKER).some((item) => item.request === request.comment && ['created', 'failed', 'stale'].includes(item.state))) {
+    throw new AmendUsageError('This amendment authorization has already been consumed; review its outcome before posting a new command.');
+  }
+  const source = (await client.listIssueComments(request.source)).find((item) => item.id === request.comment);
+  const match = String(source?.body ?? '').match(/^\s*\/speckit\s+amend\b([\s\S]*)$/i);
+  const parsed = match ? parseCommandArguments('amend', match[1].trim()) : null;
+  if (!source || source.user?.login !== request.actor || source.user?.type === 'Bot' || request.actor === BOT_LOGIN ||
+      !canWrite(await client.getPermission(request.actor)) || !parsed || parsed.unknownFlags.length ||
+      parsed.guidance.slice(0, 4000) !== request.guidance || !request.guidance?.trim()) {
+    throw new AmendUsageError('The writer command no longer authorizes this amendment.');
+  }
+  if (implementation.state !== 'open' || implementation.head.sha !== request.head) {
+    throw new AmendUsageError('The implementation changed after authorization; post a new amend command after reviewing its current state.');
+  }
+  return request;
+}
+
+export async function finishAmendmentRequest(client, pull, request, state, body, detail = {}) {
+  await client.createComment(pull, `<!-- ${AMEND_REQUEST_STATE_MARKER} ${JSON.stringify({ request, state, ...detail })} -->\n${body}`);
+}
+
+export async function maintainAmendmentRequest(client, env, { implementation, twin, folder, now = Date.now() }) {
+  const comments = await client.listIssueComments(implementation.number);
+  const pending = pendingAmendmentRequest(comments);
+  if (!pending) return { active: false };
+  let request;
+  try {
+    request = await readAmendmentAuthorization(client, implementation, pending.comment);
+  } catch (error) {
+    if (!(error instanceof AmendUsageError)) throw error;
+    await finishAmendmentRequest(client, implementation.number, pending.comment, 'stale',
+      `**Amendment preparation stopped**: ${neutralizeMarkers(error.message)}\n\n**Recommended next step**: Review the current state of #${implementation.number} and post a new \`/speckit amend\` command with the intended change.`);
+    await setAttention(client, implementation.number, true);
+    return { active: false, outcome: 'stale' };
+  }
+  const existing = await findAmendment(client, folder);
+  if (existing) {
+    const authorized = trustedMarker(await client.listIssueComments(existing.number), AMEND_AUTHORIZATION_MARKER)
+      .some((item) => item.request === request.comment && item.implementation === implementation.number);
+    await finishAmendmentRequest(client, implementation.number, request.comment, authorized ? 'created' : 'failed',
+      `**Recommended next step**: Review or rework amendment #${existing.number} for #${implementation.number}; it was not replaced.`,
+      { amendment: existing.number });
+    return { active: true, outcome: authorized ? 'reused' : 'existing amendment' };
+  }
+  const checks = await client.listCheckRuns(implementation.head.sha, CHECK_RUN_NAME);
+  if (pending.state?.check) {
+    const check = checks.find((item) => item.id === pending.state.check);
+    if (check && check.status !== 'completed' && now - Date.parse(check.started_at) < DIAGNOSIS_STALE_MS) return { active: true, outcome: 'preparing' };
+    if (!check || check.status !== 'completed') {
+      if (check) await client.updateCheckRun(check.id, { status: 'completed', conclusion: 'failure', output: { title: 'Amendment preparation timed out', summary: 'The authorized amendment preparation did not report a result.' } });
+      await finishAmendmentRequest(client, implementation.number, request.comment, 'failed',
+        `**Amendment preparation timed out** for #${implementation.number}.\n\n**Recommended next step**: Inspect the failed preparation run before posting a new \`/speckit amend\` command. The request is not retried indefinitely.`);
+      await setAttention(client, implementation.number, true);
+      return { active: false, outcome: 'failed' };
+    }
+    if (check?.conclusion !== 'failure' || check.output?.title !== 'Diagnosis could not start') {
+      await finishAmendmentRequest(client, implementation.number, request.comment, 'failed',
+        `**Amendment preparation did not finish** for #${implementation.number}.\n\n**Recommended next step**: Inspect the amendment preparation check and post a new \`/speckit amend\` command once its failure is addressed.`);
+      await setAttention(client, implementation.number, true);
+      return { active: false, outcome: 'failed' };
+    }
+  }
+  const { startDiagnosis } = await import('./speckit-diagnose.mjs');
+  const started = await startDiagnosis(client, env, {
+    twin, pull: implementation.number, folder, head: request.head, actor: request.actor,
+    guidance: request.guidance, previous: request.previous ?? '', mode: 'amend', authorization: request.comment, preserveAmendment: true,
+  });
+  const body = started.started
+    ? `**Amendment preparation started** for #${implementation.number}. The workflow prepares the authorized artifact change for independent analysis and human review and merge. No action is needed yet.`
+    : `Amendment preparation for #${implementation.number} could not start: ${neutralizeMarkers(started.error)}. The durable request remains queued for the scheduler; no action is needed yet.`;
+  if (started.check) await finishAmendmentRequest(client, implementation.number, request.comment, 'preparing', body, { check: started.check.id });
+  else await client.createComment(implementation.number, body);
+  return { active: true, outcome: started.started ? 'preparing' : 'queued' };
+}
+
+export async function requestAmendment(client, env, { implementation, twin, folder, actor, number, commentId, guidance, now = Date.now }) {
+  if (!guidance.trim()) return { rejected: 'nonempty guidance is required' };
+  const comments = await client.listIssueComments(implementation.number);
+  const previous = comments.filter((item) => item.user?.login === BOT_LOGIN && String(item.body).startsWith('<!-- speckit-implement:diagnosis -->')).at(-1);
+  const duplicate = trustedMarker(comments, AMEND_REQUEST_MARKER).find((item) => item.comment === commentId);
+  if (duplicate) return { outcome: 'already requested' };
+  const pending = pendingAmendmentRequest(comments);
+  const existing = await findAmendment(client, folder);
+  if (existing || pending) return { rejected: existing ? `amendment #${existing.number} is already open; review or rework it` : 'an authorized amendment is already being prepared' };
+  const labels = (implementation.labels ?? []).map((item) => item.name ?? item);
+  const checks = await client.listCheckRuns(implementation.head.sha, CHECK_RUN_NAME);
+  if (!labels.includes(ATTENTION_LABEL) || labels.includes(BLOCKED_LABEL) || checks.some((item) => item.status !== 'completed')) {
+    return { rejected: 'the implementation must be stopped for a person, without running work' };
+  }
+  const request = { comment: commentId, source: number, actor, head: implementation.head.sha, guidance, previous: previous?.id ?? null };
+  await client.createComment(implementation.number, [
+    `<!-- ${AMEND_REQUEST_MARKER} ${JSON.stringify(request)} -->`,
+    `**Amendment requested** by @${actor} for #${implementation.number} at \`${request.head}\`. Only this artifact change is authorized:`,
+    '', `> ${neutralizeMarkers(guidance).replace(/\n/g, '\n> ')}`, '',
+    'No requirement change has landed. The workflow prepares a spec-only amendment for independent analysis and human review and merge. Completed tasks are preserved; no task is ticked. Implementation stays stopped until the amendment is merged.',
+  ].join('\n'));
+  await readAmendmentAuthorization(client, implementation, commentId);
+  return maintainAmendmentRequest(client, env, { implementation, twin, folder, now: now() });
 }
 
 // Keeps Spec Kit pull requests out of pull request stacks, and amendments on their implementation branch. Merging a
@@ -124,7 +239,20 @@ export async function checkAmendment(client, { folder, amendment, kind = 'amend'
   const changesTasks = changedPaths.includes(tasksPath);
   const beforeTasks = changesTasks ? await client.getFileContent(tasksPath, amendment.base.sha) : null;
   const afterTasks = changesTasks ? await client.getFileContent(tasksPath, amendment.head.sha) : null;
-  return { changedPaths, ...validateAmendment({ folder, archived, changedPaths, beforeTasks, afterTasks }) };
+  const result = validateAmendment({ folder, archived, changedPaths, beforeTasks, afterTasks });
+  const authorization = trustedMarker(await client.listIssueComments(amendment.number), AMEND_AUTHORIZATION_MARKER).at(-1);
+  if (authorization) {
+    const original = await client.getFileContent(tasksPath, authorization.head);
+    const current = changesTasks ? afterTasks : await client.getFileContent(tasksPath, amendment.head.sha);
+    if (original === null || current === null) result.reasons.push('the authorized amendment task baseline is unavailable');
+    else {
+      const after = new Map(listTasks(current).map((task) => [task.id, task]));
+      for (const task of listTasks(original).filter((item) => item.done)) {
+        if (!after.get(task.id)?.done || after.get(task.id).text !== task.text) result.reasons.push(`the authorized amendment must preserve completed task ${task.id} unchanged`);
+      }
+    }
+  }
+  return { changedPaths, ...result };
 }
 
 // Resolves a spec pull request to its implementation pull request and twin: an amendment requires an open origin (head

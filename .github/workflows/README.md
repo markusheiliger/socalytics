@@ -276,6 +276,7 @@ diagnosis evidence file are generated from it, and a test fails when this table 
 | --- | --- | --- | --- |
 | `/speckit retry [--force] [guidance]` | implementation pull request | restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt's prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given | `--force`: restart even after 2 restarts in a row that left the branch unchanged |
 | `/speckit sync [guidance]` | implementation pull request | require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved | none |
+| `/speckit amend <guidance>` | implementation pull request | authorize the stated spec-only change and prepare an amendment for independent analysis and human review; implementation resumes only after the amendment is merged; completed tasks are preserved and no task is ticked | none |
 | `/speckit author [guidance]` | implementation pull request | author a new spec for a cause outside this spec with the Spec Kit workflow `author`; it is checked and merged to the default branch automatically, and this implementation waits until that spec is signed off with `/speckit implement` on its twin and implemented | none |
 | `/speckit implement` | spec twin issue | request the implementation of this spec: checks that it is `tasked` with all checklists checked, records who requested it, and starts it on GitHub (it waits for open prerequisites) | none |
 | `/speckit help` | anywhere | list these commands | none |
@@ -292,6 +293,16 @@ refuses the command instead of becoming guidance. An unknown command is answered
 guidance (`RENAMED_COMMANDS` in `speckit-commands.mjs`).
 
 ### Guidance
+
+`/speckit amend <guidance>` is a writer authorization for the stated change to this feature's artifacts, not
+implementation retry guidance. It records the source comment, actor, and implementation revision, then prepares a
+spec-only amendment for independent analysis and human review and merge. Completed tasks stay unchanged and no task
+is ticked. It may edit or remove authorized unchecked obligations and update dependent artifacts consistently; it
+must never claim unverified manual evidence. Implementation resumes only after merge into its implementation branch.
+Duplicate delivery reuses the request. An existing amendment is linked for review or rework, never silently replaced.
+Empty guidance, a running implementation, stale authorization, and non-writers are refused. Failed dispatches leave
+a durable request for the scheduler. Request-state markers are embedded in visible preparation and outcome comments,
+not posted as separate empty comments. No decision or amend command is executed automatically.
 
 Writer-supplied text after `/speckit retry`, `/speckit sync`, or `/speckit author` and their flags is called
 **guidance**. Retry and sync guidance is stored in a bot-authored pull request marker so a replaced dispatch or
@@ -482,7 +493,12 @@ and merge. Alternatives stay collapsed. Correctable findings trigger automatic c
 while automation is running, no action is needed yet. This goal never bypasses required verification or makes a
 failed or missing analysis a reason to merge.
 
-When the remedy is a change only a push to the implementation branch can make (another spec's folder, a protected
+When a decision changes this feature's requirements, unchecked tasks, checkpoints, or dependency notes, the diagnosis
+recommends one ready-to-post `/speckit amend` command with concrete guidance. The writer command authorizes preparation,
+not acceptance or verified manual evidence; independent analysis and human review/merge remain mandatory.
+This path does not use a Copilot implementation handoff, whose fixed scope intentionally forbids task-list edits.
+
+When the remedy is an external unblock that only a push to the implementation branch can make (another spec's folder, a protected
 path, or the change a person's decision needs), a `decision` diagnosis recommends a ready-to-paste `@copilot` prompt
 instead of describing the change: posted as a comment, it has GitHub Copilot's cloud agent (enabled for the
 repository) push the change to the pull request's branch, and that push continues the implementation by itself like
@@ -496,8 +512,11 @@ Posting such a request is a handoff: when a person with write access comments `@
 implementation pull request that waits for a person (`help wanted`, not `blocked`), job "Hand a stopped implementation
 over to Copilot" of `Spec Kit commands` removes `help wanted` at once and comments that Copilot is working on it and
 that its push continues the implementation by itself. If Copilot replies without having pushed, or has not pushed
-within 60 minutes, `Spec Kit orchestrate` puts `help wanted` back with a comment that says so and recommends following
-the latest diagnosis again. A push, a `/speckit retry`, or a `/speckit sync` after the handoff ends it.
+within 60 minutes, `Spec Kit orchestrate` records the ended handoff and starts one new diagnosis with the failed
+request and refusal or timeout as evidence. While it runs, no action is needed. The same failed Copilot request is
+rejected on the unchanged revision; a rewording that leaves the contradiction intact is not a valid recovery.
+A timeout alone does not establish an artifact defect. A push, a `/speckit retry`, or a `/speckit sync` after the
+handoff ends it. Open amendments and pending authorized requests are preserved.
 
 Implementation, amendment, and authored spec pull requests carry GitHub's default label `help wanted` ("Extra attention is
 needed") while they wait for a person, and lose it as soon as a person's action puts automation back to work or the
