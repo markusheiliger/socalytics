@@ -42,7 +42,7 @@
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] Edit `Support/DockerEngine.cs`: `PushAsync` reads the whole response and uses `PushDigest`, adds the registry manifest lookup and the engine image-record lookup (each under `EngineCallPolicy.RegistryLookupLimit`), and throws the determination's failure with the full body; no lookup when the response already carries a valid digest
+- [x] T007 [US1] Edit `Support/DockerEngine.cs`: `PushAsync` reads the whole response and uses `PushDigest`, adds the registry manifest lookup and the engine image-record lookup (each under `EngineCallPolicy.RegistryLookupLimit`), and throws the determination's failure with the full body; no lookup when the response already carries a valid digest
 
 ### Evidence after the fix
 

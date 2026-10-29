@@ -25,8 +25,6 @@ internal sealed class DockerEngine : IDisposable
 {
     private const string SocketPath = "/var/run/docker.sock";
 
-    private static readonly Regex StatusDigest = new(@"digest: (sha256:[0-9a-f]{64})", RegexOptions.CultureInvariant);
-
     private readonly HttpClient _http;
 
     /// <summary>The engine on the local socket.</summary>
@@ -68,29 +66,27 @@ internal sealed class DockerEngine : IDisposable
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadAsStringAsync(ct);
-        string? digest = null;
-        string? statusDigest = null;
-        foreach (var line in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            using var document = JsonDocument.Parse(line);
-            if (document.RootElement.TryGetProperty("errorDetail", out var error))
-            {
-                throw new InvalidOperationException("Pushing the Test Analyst image failed: " + error.GetRawText());
-            }
 
-            if (document.RootElement.TryGetProperty("aux", out var aux) && aux.TryGetProperty("Digest", out var value))
-            {
-                digest = value.GetString();
-            }
-            else if (document.RootElement.TryGetProperty("status", out var status)
-                && status.ValueKind == JsonValueKind.String
-                && StatusDigest.Match(status.GetString()!) is { Success: true } match)
-            {
-                statusDigest = match.Groups[1].Value;
-            }
-        }
+        var separator = name.IndexOf('/');
+        var repository = separator < 0 ? name : name[(separator + 1)..];
+        var result = await PushDigest.DetermineAsync(
+            body,
+            repository,
+            tag,
+            lookupCt => ToDigestAsync(LookupRegistryDigestAsync(repository, tag, lookupCt)),
+            lookupCt => ToDigestAsync(LookupEngineDigestAsync(name, tag, lookupCt)),
+            ct);
+        return result.Succeeded ? result.Digest! : throw new InvalidOperationException(result.FailureMessage);
+    }
 
-        return digest ?? statusDigest ?? throw new InvalidOperationException("The push did not report a manifest digest:\n" + body);
+    private const string UnavailablePrefix = "unavailable: ";
+
+    private static async Task<string?> ToDigestAsync(Task<DigestLookup> lookup)
+    {
+        var result = await lookup;
+        return result.Outcome.StartsWith(UnavailablePrefix, StringComparison.Ordinal)
+            ? throw new InvalidOperationException(result.Outcome[UnavailablePrefix.Length..])
+            : result.Digest;
     }
 
     /// <summary>The manifest digest the registry reports for <paramref name="repository"/> and <paramref name="tag"/> (<c>Docker-Content-Digest</c>).</summary>
