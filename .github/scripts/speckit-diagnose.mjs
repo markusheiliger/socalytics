@@ -42,6 +42,9 @@ import {
   nextStepContext,
   nextTaskGroup,
   failedCopilotRecoveries,
+  failedRecoveryRoutes,
+  recoveryReassessment,
+  reassessRecovery,
   normalizeRecovery,
   trustedMarker,
   pendingAmendmentRequest,
@@ -273,6 +276,10 @@ export async function runEvidence({ client, env, log }) {
   );
   if (previous) sections.push('## Previous diagnosis', '', clip(previous.body, 20_000), '');
   const failedRecoveries = failedCopilotRecoveries(comments, pull.head.sha);
+  const failedRoutes = failedRecoveryRoutes(comments, pull.head.sha);
+  if (failedRoutes.length) sections.push('## Refused or failed recovery routes for this unchanged blocker', '',
+    ...failedRoutes.map((item) => `- ${item.route}: ${neutralizeMarkers(item.reason)}${item.guidance ? `\n  Requested guidance: ${neutralizeMarkers(item.guidance)}` : ''}`),
+    'Do not repeat or paraphrase these unsupported routes. The single reassessment must identify a supported remedy or a precise external action/missing evidence.', '');
   if (failedRecoveries.length) {
     sections.push('## Failed Copilot recoveries on this unchanged revision', '',
       'Do not repeat these requests or paraphrase the same ineffective action. Address the refusal. If this feature needs a writer-approved artifact change, recommend `/speckit amend` with concrete guidance instead.', '');
@@ -372,6 +379,9 @@ export function validateReport(raw, { requireCategory = true } = {}) {
   if (requireCategory && !normalized.category) reasons.push(`the category must be one of ${CATEGORIES.join(', ')}`);
   if (!normalized.summary) reasons.push('the summary is missing');
   for (const option of normalized.options) {
+    if (option.kind === 'external' && (option.command || option.copilot)) {
+      reasons.push(`option "${option.title}" is an external prerequisite and must not attach an immediately runnable command`);
+    }
     if (!option.command) continue;
     const command = removePlaceholderArgument(option.command);
     if (command === null || !COMMAND_PATTERN.test(command) || command.length > MAX_RECOMMENDED_COMMAND || command.includes('```') || parseNextCommand(command)?.unknownFlags.length) {
@@ -455,6 +465,10 @@ function normalizeOption(item, index, reasons) {
     command: typeof item?.command === 'string' && item.command.trim() ? item.command.trim() : null,
     copilot: typeof item?.copilot === 'string' && item.copilot.trim() ? clip(item.copilot.trim(), MAX_COPILOT_PROMPT + 1) : null,
     recommended: item?.recommended === true,
+    ...(item?.kind === 'external' ? { kind: 'external' } : {}),
+    ...(typeof item?.target === 'string' ? { target: text(item.target, 40) } : {}),
+    ...(typeof item?.basis === 'string' ? { basis: text(item.basis, 40) } : {}),
+    ...(typeof item?.fixedBy === 'string' ? { fixedBy: text(item.fixedBy, 40) } : {}),
   };
 }
 
@@ -547,46 +561,12 @@ export function guidanceFrom(report, max = 500) {
 }
 
 // The category's own recommendation, used when the report has none that fits.
-function defaultRecommendation(report) {
-  const guidance = guidanceFrom(report);
-  switch (report.category) {
-    case 'retry':
-      return {
-        title: 'Retry what stopped',
-        why: `${report.summary} The same work is expected to pass when it runs again.`,
-        command: `/speckit retry The diagnosis found: ${guidanceFrom({ summary: report.summary }, 400)}`,
-      };
-    case 'outside':
-      return {
-        title: 'Fix the cause in a new spec, then continue once it is implemented',
-        why: `${report.summary} The cause lies outside this spec, so running the work here again cannot remove it.`,
-        command: `/speckit author ${guidance}`,
-      };
-    case 'artifacts':
-      return {
-        title: 'Wait for another diagnosis to create the amendment',
-        why: 'The diagnosis found a defect in the spec artifacts, but no amendment pull request was created for it.',
-        kind: 'wait',
-      };
-    case 'decision': {
-      const answers = report.questions
-        .map((item, index) => (item.choices[0] ? `${index + 1}. ${item.choices[0].replace(/\s+/g, ' ').replace(/[.\s]+$/, '')}.` : null))
-        .filter(Boolean);
-      return {
-        title: answers.length > 0 ? 'Answer the questions with the recommended choices' : 'Answer the questions',
-        why: answers.length > 0
-          ? 'Only a person can make this trade-off. The command answers with the first, recommended choice of each question; change the answers before posting if you decide otherwise.'
-          : 'Only a person can make this trade-off; add your answers after the command, numbered like the questions.',
-        command: answers.length > 0 ? `/speckit retry ${answers.join(' ')}` : '/speckit retry',
-      };
-    }
-    default:
-      return {
-        title: 'Wait for another diagnosis',
-        why: 'The evidence was not enough to name a cause; another automatic diagnosis looks at the current state with these findings as context.',
-        kind: 'wait',
-      };
-  }
+function defaultRecommendation() {
+  return {
+    title: 'Review the recovery blocker and provide the missing evidence',
+    why: 'No supported recovery was established. Use the reported cause and failed approaches to identify the external fix or missing information; repeating unchanged work is not a remedy.',
+    kind: 'external',
+  };
 }
 
 // The categories whose remedy can be a change a person (or Copilot's cloud agent for them) pushes to the implementation
@@ -596,7 +576,7 @@ export const COPILOT_CATEGORIES = Object.freeze(['decision']);
 // The options of a diagnosis comment with exactly one recommendation that fits the category: the agent's recommended
 // option when its command fits, else its first option that fits, else the category's default. An agent recommendation
 // that does not fit stays as another option, with a note. With an amendment, the amendment is the recommendation.
-export function recommendNextSteps(report, { amendment = null, repeated = null } = {}) {
+export function recommendNextSteps(report, { amendment = null, repeated = null, failed = [], baseFixReady = false } = {}) {
   const notes = [];
   const adjusted = [];
   const options = report.options.map((option) => ({ ...option }));
@@ -604,17 +584,24 @@ export function recommendNextSteps(report, { amendment = null, repeated = null }
     for (const option of options) if (option.command) option.recommended = false;
     return { options, notes, adjusted };
   }
-  const repeats = (option) => Boolean(repeated) && parseNextCommand(option.command)?.verb === repeated.verb;
-  const fits = (option) => (Boolean(option.command) && CATEGORY_COMMANDS[report.category].includes(parseNextCommand(option.command)?.verb) && !repeats(option))
+  const repeats = (option) => (Boolean(repeated) && !baseFixReady && ['retry', 'sync'].includes(parseNextCommand(option.command)?.verb) &&
+      !(option.basis === 'corrective' && option.target === 'implementation' && report.evidence.length > 0 &&
+        parseNextCommand(option.command)?.guidance && normalizeRecovery(parseNextCommand(option.command).guidance) !== normalizeRecovery(repeated.guidance)))
+    || failed.some((item) => item.route === parseNextCommand(option.command)?.verb);
+  const fits = (option) => (option.kind === 'external' && !option.command && !option.copilot && ['outside', 'decision', 'unknown'].includes(report.category))
+    || (Boolean(option.command) && CATEGORY_COMMANDS[report.category].includes(parseNextCommand(option.command)?.verb) && !repeats(option) &&
+      !(parseNextCommand(option.command)?.verb === 'author' && !['feature', 'environment'].includes(option.target)) &&
+      !(parseNextCommand(option.command)?.verb === 'sync' && (option.target !== 'base' || !/^[0-9a-f]{40}$/.test(option.fixedBy ?? ''))) &&
+      !(parseNextCommand(option.command)?.verb === 'retry' && report.evidence.length === 0))
     || (Boolean(option.copilot) && COPILOT_CATEGORIES.includes(report.category));
   const agentPick = options.find((option) => option.recommended) ?? null;
   if (agentPick && fits(agentPick)) return { options, notes, adjusted };
   if (agentPick) {
     agentPick.recommended = false;
     if (repeats(agentPick)) {
-      adjusted.push(`the recommended \`/speckit ${repeated.verb}\` already stopped the same way on the unchanged branch ("${clip(repeated.reason, 200)}"), so it is listed under the other options`);
+      adjusted.push(`the recommended \`/speckit ${parseNextCommand(agentPick.command)?.verb}\` already stopped the same way or was refused on the unchanged branch ("${clip(repeated?.reason ?? failed.map((item) => item.reason).join('; '), 200)}"), so it is listed under the other options`);
     } else {
-      notes.push(`the recommended option "${agentPick.title}" does not fit the category \`${report.category}\`, so it is listed under the other options`);
+      notes.push(`the recommended option "${agentPick.title}" does not fit the category \`${report.category}\` or lacks supported target/readiness evidence, so it is listed under the other options`);
     }
   }
   const fitting = options.find(fits);
@@ -628,12 +615,11 @@ export function recommendNextSteps(report, { amendment = null, repeated = null }
     pushed.recommended = true;
     return { options: [pushed, ...options.filter((option) => option !== pushed)], notes, adjusted };
   }
-  const fallback = repeated ? defaultRecommendation({ ...report, category: 'outside' }) : defaultRecommendation(report);
-  if (repeated && parseNextCommand(fallback.command)?.verb === repeated.verb) return { options, notes, adjusted };
+  const fallback = defaultRecommendation();
   return { options: [{ ...fallback, recommended: true }, ...options], notes, adjusted };
 }
 
-export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null, baseBranch = null, continuation = null, diagnosisUrl = null, repeated = null }) {
+export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null, baseBranch = null, continuation = null, diagnosisUrl = null, repeated = null, failed = [], exhausted = false, baseFixReady = false }) {
   const lines = [DIAGNOSIS_COMMENT_MARKER];
   const context = { behindBase, baseBranch, continuation, diagnosed: true, diagnosisUrl };
   if (!report) {
@@ -641,12 +627,12 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
       `**Diagnosis${round > 1 ? ` (round ${round})` : ''} did not produce a usable report**: ${reasons.map(neutralizeMarkers).join('; ') || 'no report'}.`,
       '',
       ...(runUrl ? [`See the [diagnosis run](${runUrl}).`, ''] : []),
-      ...renderNextSteps({ ...context, diagnosed: false }),
+      ...renderNextSteps({ ...context, diagnosed: exhausted }),
     );
     return lines.join('\n');
   }
   const safe = (value) => neutralizeMarkers(value);
-  const { options, notes, adjusted: repeatNotes } = recommendNextSteps(report, { amendment, repeated });
+  const { options, notes, adjusted: repeatNotes } = recommendNextSteps(report, { amendment, repeated, failed, baseFixReady });
   lines.push(
     `**Diagnosis${round > 1 ? ` (round ${round})` : ''}**: ${CATEGORY_TEXT[report.category]} (\`${report.category}\`, confidence ${report.confidence}).`,
     '',
@@ -729,17 +715,39 @@ export async function runRecord({ client, env, log }) {
       reasons.push('The proposed Copilot recovery already failed without a push on this revision; diagnose the refusal and recommend an executable action instead.');
     }
   }
-  const repeated = repeatedFailure(comments, implementation.head?.sha);
-  const recommendationProblems = report?.category ? recommendNextSteps(report, { amendment, repeated }).notes : [];
-  reasons.push(...recommendationProblems);
-  if (report?.category && !amendment && !report.options.some((option) => option.recommended && (option.command || option.copilot))) {
-    reasons.push('the report must recommend one actionable command (or, for `decision`, a Copilot prompt) that fits its category');
+  const repeated = repeatedFailure(comments, implementation.head?.sha, { includeState: true });
+  const failed = failedRecoveryRoutes(comments, implementation.head.sha);
+  if (report?.category && !amendment && !report.options.some((option) => option.recommended && (option.command || option.copilot || option.kind === 'external'))) {
+    reasons.push('the report must recommend one actionable command, a supported Copilot prompt, or a precise external action that fits its category');
   }
+  const sync = report?.options.find((option) => option.recommended && parseNextCommand(option.command)?.verb === 'sync');
+  let baseFixReady = false;
+  if (sync?.fixedBy) {
+    if (!/^[0-9a-f]{40}$/.test(sync.fixedBy)) reasons.push('the base fix must name a full commit SHA');
+    else {
+      try {
+        const ahead = await client.aheadBy(baseBranchOf(implementation), sync.fixedBy);
+        if (!Number.isInteger(ahead) || ahead < 0) reasons.push('the base fix comparison did not provide valid ancestry evidence');
+        else if (ahead > 0) reasons.push('the claimed fix is not on the implementation base branch');
+        else if (!repeated) baseFixReady = true;
+        else if (repeated.base) {
+          const previous = await client.aheadBy(repeated.base, sync.fixedBy);
+          if (!Number.isInteger(previous) || previous < 0) reasons.push('the failed synchronization base comparison did not provide valid ancestry evidence');
+          else baseFixReady = previous > 0;
+        }
+      } catch (error) {
+        reasons.push(`the base fix could not be verified: ${error.message}`);
+      }
+    }
+  }
+  const recommendationProblems = report?.category ? recommendNextSteps(report, { amendment, repeated, failed, baseFixReady }).notes : [];
+  reasons.push(...recommendationProblems);
   const usable = report && report.category && reasons.length === 0 ? report : null;
   const round = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).length + 1;
   const context = await nextStepContext(client, implementation, folder);
   const runUrl = env.GITHUB_RUN_ID ? `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
-  const repeat = !usable || usable.category === 'unknown' || (usable.category === 'artifacts' && !amendment);
+  const repeat = !usable || (usable.category === 'unknown' && !usable.options.some((option) => option.kind === 'external' && option.recommended)) || (usable.category === 'artifacts' && !amendment);
+  const exhausted = Boolean(recoveryReassessment(comments, implementation.head.sha));
   const comment = await client.createComment(pullNumber, renderDiagnosisComment({
     report: usable,
     reasons,
@@ -747,11 +755,14 @@ export async function runRecord({ client, env, log }) {
     runUrl,
     amendment,
     repeated,
+    failed,
+    exhausted,
+    baseFixReady,
     diagnosisUrl: diagnosisRunsUrl(env),
     ...context,
   }));
   const checkRun = Number(env.SPECKIT_CHECK_RUN);
-  const next = !repeat && !amendment && autoContinueEnabled(env) ? autoContinueCommand(usable, { amendment, repeated }) : null;
+  const next = !repeat && !amendment && autoContinueEnabled(env) ? autoContinueCommand(usable, { amendment, repeated, failed, baseFixReady }) : null;
   const continues = next !== null && !(await continuedSincePerson(client, pullNumber, comments));
   if (Number.isInteger(checkRun) && checkRun > 0) {
     await client.updateCheckRun(checkRun, {
@@ -759,20 +770,19 @@ export async function runRecord({ client, env, log }) {
       conclusion: usable ? 'neutral' : 'failure',
       external_id: CHECK_DIAGNOSED,
       output: usable
-        ? { title: repeat ? `Diagnosis continues: ${usable.category}` : continues ? `Continued automatically: ${usable.category}` : `Waiting for a decision: ${usable.category}`, summary: clip(usable.summary, 2000) }
+        ? { title: repeat && !exhausted ? `Diagnosis continues: ${usable.category}` : continues ? `Continued automatically: ${usable.category}` : `Waiting for a decision: ${usable.category}`, summary: clip(usable.summary, 2000) }
         : { title: 'Diagnosis without a usable report', summary: clip(reasons.join('; '), 2000) },
     });
   }
   if (repeat) {
-    const restarted = await startDiagnosis(client, env, {
-      twin,
-      pull: pullNumber,
-      folder,
-      head: (await client.getPullRequest(pullNumber)).head.sha,
-      previous: String(comment?.id ?? ''),
-      auto: true,
-    });
+    const restarted = await reassessRecovery(client, { pull: implementation, comments,
+      guidance: reasons.join('; ') || usable?.cause || 'The report did not establish a supported remedy.',
+      rediagnose: ({ guidance, previous }) => startDiagnosis(client, env, {
+        twin, pull: pullNumber, folder, head: implementation.head.sha, previous: String(previous || comment?.id || ''),
+        guidance, auto: true, preserveAmendment: true,
+      }) });
     if (!restarted.started) log(`Warning: could not continue the diagnosis: ${restarted.error}`);
+    if (!restarted.started) await setAttention(client, pullNumber, true);
   } else if (amendment) {
     const implementation = await client.getPullRequest(pullNumber);
     await beginAmendment(client, env, { amendment, folder, implementation, twin });
@@ -788,19 +798,19 @@ export async function runRecord({ client, env, log }) {
 
 // A diagnosis continues by itself (SPECKIT_AUTO_CONTINUE, on unless `false`) when its recommendation is a transient
 // one: `/speckit retry` for a `retry` diagnosis of high or medium confidence, or `/speckit sync` for an `outside` cause
-// already fixed on the base branch. Never with an amendment or after the same command already failed the same way.
+// already fixed on the base branch. A repeated failure requires a changed corrective approach or a newly verified base fix.
 export function autoContinueEnabled(env) {
   return String(env.SPECKIT_AUTO_CONTINUE ?? '').trim().toLowerCase() !== 'false';
 }
 
 // The recommended command a diagnosis continues with by itself ({ verb, guidance, … } of parseNextCommand), or null.
-export function autoContinueCommand(report, { amendment = null, repeated = null } = {}) {
-  if (!report || amendment || repeated) return null;
-  const option = recommendNextSteps(report, { amendment, repeated }).options.find((item) => item.recommended && item.command);
+export function autoContinueCommand(report, { amendment = null, repeated = null, failed = [], baseFixReady = false } = {}) {
+  if (!report || amendment) return null;
+  const option = recommendNextSteps(report, { amendment, repeated, failed, baseFixReady }).options.find((item) => item.recommended && item.command);
   const command = parseNextCommand(option?.command);
   if (!command) return null;
-  if (command.verb === 'retry' && report.category === 'retry' && ['high', 'medium'].includes(report.confidence)) return command;
-  if (command.verb === 'sync' && report.category === 'outside') return command;
+  if (command.verb === 'retry' && report.category === 'retry' && report.evidence.length > 0 && ['transient', 'corrective'].includes(option.basis) && ['high', 'medium'].includes(report.confidence)) return command;
+  if (command.verb === 'sync' && report.category === 'outside' && baseFixReady && option.target === 'base' && option.fixedBy) return command;
   return null;
 }
 
@@ -979,8 +989,8 @@ export function checkReportFile(file, log = console.log) {
   const { reasons, report } = validateReport(readFileSync(file, 'utf8'));
   const notes = report?.category ? recommendNextSteps(report).notes : [];
   if (report?.category && report.category !== 'artifacts' &&
-      !report.options.some((option) => option.recommended && (option.command || option.copilot))) {
-    notes.push('the report must recommend one actionable command (or, for `decision`, a Copilot prompt) that fits its category');
+      !report.options.some((option) => option.recommended && (option.command || option.copilot || option.kind === 'external'))) {
+    notes.push('the report must recommend one actionable command, a supported Copilot prompt, or a precise external action that fits its category');
   }
   const problems = [...reasons, ...notes];
   log(problems.length > 0 ? `Fix these problems before you report:\n${problems.map((item) => `- ${item}`).join('\n')}` : 'The report is valid.');

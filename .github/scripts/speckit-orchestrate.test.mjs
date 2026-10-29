@@ -10,7 +10,7 @@ import { UsageError, main, maintainFlakyTests, parseFlakyThreshold, resolveFolde
 import { decideForPull, phaseNotStarted, reconcileImplementationAttention, runContinue, runDecide, runSync as runSyncBase, runVerifyReport } from './speckit-spec.mjs';
 import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderFlakyLines, renderFlakySpecMarker, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, diagnosisRepo, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
-import { ACTION_REQUIRED_SUPERSEDED_MARKER, CHECK_DIAGNOSED, CHECK_DIAGNOSING, COPILOT_HANDOFF_MARKER, DIAGNOSIS_STALE_MS, FIX_CHECK_NAME, renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, supersedeActionRequired, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
+import { ACTION_REQUIRED_SUPERSEDED_MARKER, CHECK_DIAGNOSED, CHECK_DIAGNOSING, COPILOT_HANDOFF_MARKER, DIAGNOSIS_STALE_MS, FIX_CHECK_NAME, RECOVERY_FAILURE_MARKER, renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, supersedeActionRequired, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
 const IMPLEMENTING = 'speckit:stage:implementing';
@@ -97,6 +97,31 @@ test('scheduler restores a reported diagnosis label without a new comment or any
     assert.ok(pull.labels.some((label) => label.name === ATTENTION_LABEL));
     assert.equal(github.comments.length, comments);
     assert.equal(chainRuns(github).length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('scheduler diagnoses a refused author recovery once instead of rerunning implementation', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    const pull = github.repo.pulls[0];
+    github.setFile(pull.head.sha, 'specs/a/tasks.md', TASKS_OPEN);
+    await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: pull.head.sha, status: 'completed', conclusion: 'neutral', external_id: CHECK_DIAGNOSED });
+    await github.createComment(pull.number, `<!-- ${RECOVERY_FAILURE_MARKER} ${JSON.stringify({ head: pull.head.sha, route: 'author', reason: 'Trusted tooling must change on main.' })} -->\nNo spec was created.`);
+    await orchestrate(github, root);
+    await orchestrate(github, root);
+    const diagnoses = github.repo.runs.filter((item) => item.workflow === 'speckit-diagnose.lock.yml');
+    assert.equal(diagnoses.length, 1);
+    assert.match(diagnoses[0].inputs.guidance, /author: Trusted tooling must change on main/);
+    assert.equal(chainRuns(github).length, 0);
+    assert.equal((pull.labels ?? []).some((item) => item.name === ATTENTION_LABEL), false);
+    github.clock += DIAGNOSIS_STALE_MS + 1;
+    await decide(github, root, twin);
+    await decide(github, root, twin);
+    assert.equal(github.repo.runs.filter((item) => item.workflow === 'speckit-diagnose.lock.yml').length, 1, 'a stale reassessment cannot bypass the budget through the implementation controller');
+    assert.equal(pull.labels.some((item) => item.name === ATTENTION_LABEL), true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1027,7 +1052,8 @@ test('chain: decide stops at the attempt limit, retries with guidance, and does 
     assert.deepEqual([limited.outputs.action, limited.outputs.continue], ['stop', 'false']);
     assert.equal(pull.draft, true, 'a stop waiting for a person restores draft status');
     assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_DIAGNOSING);
-    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts[\s\S]*Wait for the diagnosis[\s\S]*The implementation continues with T001, with a fresh attempt count[^\n]*That work merges `main` first at its normal synchronization boundary[\s\S]*\/speckit retry/, 'T001 opens a phase that has not started, so the normal boundary merges main');
+    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts[\s\S]*Wait for the diagnosis/);
+    assert.doesNotMatch(github.comments.at(-1).body, /\/speckit retry/, 'wait for evidence instead of suggesting a speculative retry');
     assert.equal((await decide(github, root, twin)).outputs.action, 'none', 'a stop waits for its running diagnosis');
     const attention = () => (github.repo.pulls[0].labels ?? []).some((label) => label.name === ATTENTION_LABEL);
     assert.equal(attention(), false, 'a running diagnosis is processing');

@@ -329,12 +329,13 @@ test('waits while a diagnosis runs, then for a decision, and gives up on a stale
 test('renders the next steps a person can take', () => {
   const plain = renderNextSteps().join('\n');
   assert.match(plain, /^\*\*Recommended next step\*\*: Wait for the diagnosis\.\n\n- \*\*Why\*\*: It starts automatically/);
-  assert.match(plain, /<details><summary>Other options<\/summary>[\s\S]*- \*\*Retry what stopped\*\*\n {2}- Why: [^\n]+\n {2}- What it does: Does not merge the base branch[\s\S]*\/speckit retry[\s\S]*Push a fix yourself, or close the pull request[\s\S]*<\/details>$/);
+  assert.match(plain, /<details><summary>Other options<\/summary>[\s\S]*Push a fix yourself, or close the pull request[\s\S]*<\/details>$/);
+  assert.doesNotMatch(plain, /\/speckit retry/, 'no speculative retry without diagnosis evidence');
   assert.doesNotMatch(plain, /\/speckit (diagnose|resume|sync|apply)/);
   const auto = renderNextSteps({ diagnosisUrl: 'https://github.com/octo/repo/actions/workflows/speckit-diagnose.lock.yml', behindBase: 'release', baseBranch: 'release', continuation: 'continues with T004' }).join('\n');
   assert.match(auto, /^\*\*Recommended next step\*\*: \[Wait for the diagnosis\]\(https:\/\/github\.com\/octo\/repo\/actions\/workflows\/speckit-diagnose\.lock\.yml\)\.\n\n- \*\*Why\*\*: It starts automatically/);
   assert.doesNotMatch(auto, /\/speckit diagnose/);
-  assert.match(auto, /- What it does: Does not merge `release`: the implementation continues with T004 on the branch as it is, with a fresh attempt count \(at most 2 failed attempts\)/);
+  assert.doesNotMatch(auto, /\/speckit retry/, 'being behind a base does not establish a recovery');
   assert.doesNotMatch(auto, /Merge `release` first|\/speckit (resume|sync)/);
   const diagnosed = renderNextSteps({ options: [{ title: 'Retry with guidance', why: 'The agent mixed up the paths.', command: '/speckit retry Use the helper' }], amendment: { number: 7, title: 'Amend: Clarify R6', html_url: 'https://github.com/octo/repo/pull/7', status: 'consistent' }, diagnosed: true }).join('\n');
   assert.match(diagnosed, /^\*\*Recommended next step\*\*: \[Review and merge the amendment #7: Amend: Clarify R6 \(consistent\)\]\(https:\/\/github\.com\/octo\/repo\/pull\/7\)\.\n\n- \*\*Why\*\*: [^\n]+\n- \*\*What it does\*\*: Merging applies the amendment[\s\S]*Other options[\s\S]*- Why: The agent mixed up the paths\.[\s\S]*\/speckit retry Use the helper/);

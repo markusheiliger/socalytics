@@ -322,9 +322,15 @@ When a diagnosis recommends `/speckit retry` (category `retry`, confidence mediu
 (category `outside`, the fix is already on the base branch), the diagnosis record step posts that command itself, with
 the diagnosis guidance, as a comment that starts with the marker `speckit-implement:auto-continue` and says
 "Continued automatically with … as the diagnosis recommends". It does so at most once after each action of a person
-(a `/speckit` comment or a push), never when the same command already failed the same way, and never for `artifacts`,
+(a `/speckit` comment or a push), never for the same unchanged failure without a new corrective approach or verified base fix, and never for `artifacts`,
 `decision`, or `unknown`. A person is asked as before when it stops again. Set the repository variable
 `SPECKIT_AUTO_CONTINUE` to `false` to always wait for a person.
+
+Automatic retry requires nonempty diagnosis evidence and `basis: transient` or `corrective`; it is never a generic
+fallback. Sync uses `target: base` and a full `fixedBy` commit SHA, verified as belonging to the PR base before
+continuation. A diagnosis cannot infer that its fix exists just because the implementation is behind the base.
+After a repeated sync failure, that fix must also be absent from the base recorded by the failed synchronization.
+Corrective retry guidance must differ from the failed approach; changing only its metadata does not establish progress.
 
 ### Retry
 
@@ -412,7 +418,23 @@ recommends `sync`; inconsistent category/command reports are rejected at publica
 A diagnosis never recommends a command that already failed the same way: when the last `/speckit retry` or
 `/speckit sync` left the implementation branch at the same head and the stop after it has the same reason as the stop
 before it (`repeatedFailure`), the evidence tells the agent, and a recommendation of that command is moved to the other
-options at publication, with `/speckit author` as the fallback.
+options at publication. Neither retry nor author is synthesized as a fallback. Author requires a supported
+`feature` or `environment` target. Protected trusted tooling and unmet permissions or service prerequisites use an
+explicit external-action option with no immediately runnable command.
+
+A refused author request, failed Copilot handoff, or unusable diagnosis gets one shared automatic reassessment for
+the unchanged implementation head and pending repair. Its trusted outcome and refusal feed the diagnosis; repeating
+the request, switching verbs or adding unrelated base commits does not create another budget. The scheduler records
+the reassessment before dispatch. Failed dispatch is visible and requires its permission or workflow blocker to be
+resolved; repeated scheduler passes do not dispatch it again. Without a supported remedy after reassessment, the PR
+keeps `help wanted` and names the concrete external action or missing evidence, rather than spending another
+implementation/verification attempt.
+
+Required synchronization still selects the original repair's checks. For an original-only uncovered path, packaging
+records whether the staged tree equals the pinned trusted base, including type, mode and absence. The raw coverage
+report stays in the result. Trusted landing rechecks the verified tree and the base-equivalence evidence before
+discharging that historical coverage obligation. Actual uncovered changes remain blocked; original scope, repair
+snapshots, environment self-tests, attempt limits and the latest-base barrier remain required.
 
 Architecture impact: none. This changes repository automation, not the product design in `docs/architecture/`.
 

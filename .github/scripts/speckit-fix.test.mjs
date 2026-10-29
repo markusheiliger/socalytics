@@ -148,13 +148,25 @@ test('a missing, refused, or broken spec goes back to the implementation with th
   const none = fixRepo();
   const result = await authored(none, { SPECKIT_CREATED_PULL: '' });
   assert.equal(result.outcome, 'none');
-  assert.match(none.comments.at(-1).body, /^\*\*No spec was created\*\*: Lengthens the session lifetime[\s\S]*\*\*Recommended next step\*\*: Retry what stopped[\s\S]*```text\n\/speckit retry\n```/);
+  assert.match(none.comments.at(-1).body, /No spec was created\*\*: Lengthens the session lifetime[\s\S]*one bounded recovery diagnosis/);
+  assert.doesNotMatch(none.comments.at(-1).body, /```text\n\/speckit retry/);
+  assert.equal(none.repo.runs.at(-1).workflow, 'speckit-orchestrate.yml');
+  assert.match(none.comments.at(-1).body, /"guidance":"Make the test robust"/);
+  const comments = none.comments.length;
+  const runs = none.repo.runs.length;
+  await withResult(authorResult(), (dir) => runRecord({ client: none, env: env({
+    SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(none.repo.checkRuns.at(-1).id), SPECKIT_CREATED_PULL: '',
+  }), log: silent }));
+  assert.equal(none.comments.length, comments, 'duplicate author delivery keeps the durable failure outcome');
+  assert.equal(none.repo.runs.length, runs, 'duplicate author delivery does not dispatch the scheduler again');
 
   const broken = fixRepo({ files: [`${PREFIX}/spec.md`, 'src/platform/Tests/UploadSessionExpiryTests.cs'] });
   assert.equal((await authored(broken)).outcome, 'rejected');
   assert.equal(broken.repo.pulls.find((item) => item.number === 12).state, 'closed');
   assert.equal(broken.repo.branches[BRANCH], undefined);
-  assert.match(broken.comments.at(-1).body, /^\*\*The authored spec #12 was rejected and closed\*\*: it changes files outside `specs\/20261014-100000-upload-expiry\/` and `docs\/architecture\/`: `src\/platform\/Tests\/UploadSessionExpiryTests\.cs`/);
+  assert.match(broken.comments.at(-1).body, /\*\*The authored spec #12 was rejected and closed\*\*: it changes files outside `specs\/20261014-100000-upload-expiry\/` and `docs\/architecture\/`: `src\/platform\/Tests\/UploadSessionExpiryTests\.cs`/);
+  assert.match(broken.comments.at(-1).body, /^<!-- speckit-implement:recovery-failed /);
+  assert.equal(broken.repo.runs.at(-1).workflow, 'speckit-orchestrate.yml');
   assert.equal(broken.repo.checkRuns.find((check) => check.name === 'Spec Kit author').conclusion, 'failure');
 
   const elsewhere = fixRepo({ branch: `feature/${FOLDER}` });
