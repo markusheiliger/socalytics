@@ -57,7 +57,7 @@ The environment setup and verification already restore, build, and test the solu
 
 ## Phase 4: Polish & Cross-Cutting Concerns
 
-- [ ] T013 Run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SimulatedAgentWorkload"` after rebuilding, and confirm `SimulatedAgentWorkloadTests` and `FailOnceSucceedsOnTheSecondAttempt`, `FailPermanentEndsWithExecutionFailed`, and `StallExpiresTheFirstAttemptAndSucceedsOnTheSecond` pass unchanged, and report the result in the task summary
+- [x] T013 Run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SimulatedAgentWorkload"` after rebuilding, and confirm `SimulatedAgentWorkloadTests` and `FailOnceSucceedsOnTheSecondAttempt`, `FailPermanentEndsWithExecutionFailed`, and `StallExpiresTheFirstAttemptAndSucceedsOnTheSecond` pass unchanged, and report the result in the task summary — verified without changes by the assessed verification at 424e7454 (no change by this task)
 - [ ] T014 Run `node .github/scripts/check-markdown.mjs` and confirm with `git diff --name-only origin/<base>...HEAD` (`<base>` is the pull request's base branch) that it lists only files under `src/platform/Tests/`, optionally `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Execution/`, and `specs/20261027-135353-deterministic-fail-retryable-test/`, with no `docs/architecture/` change (the plan's Architecture Updates section is `None`, so no documentation task is required)
 
 ---
