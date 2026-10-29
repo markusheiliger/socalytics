@@ -153,9 +153,9 @@ public sealed class SimulatedAgentWorkloadBehaviorTests(PostgresContainerFixture
 		var attempts = await f.ScalarAsync($"SELECT count(*) FROM socalytics.agent_attempts WHERE invocation_id = '{invocationId}'", ct);
 		var checkpoints = await f.ScalarAsync(
 			$"SELECT count(*) FROM socalytics.agent_lineage_entries WHERE invocation_id = '{invocationId}' AND kind = 'checkpoint'", ct);
-		var runnerLines = string.Join(" | ", runnerLog.Entries.Select(e => $"{e.Level} {e.Message}{(e.Exception is null ? "" : " " + e.Exception)}"));
 		ended.ShouldNotBeNull(
-			$"The invocation did not end in time. Last read: {lastRead?.GetRawText() ?? "none"}; attempts: {attempts}; checkpoints: {checkpoints}; runner log: {runnerLines}");
+			$"The invocation did not end in time. Last read: {lastRead?.GetRawText() ?? "none"}; attempts: {attempts}; checkpoints: {checkpoints}; "
+			+ $"runner log: {string.Join(" | ", runnerLog.Entries.Select(e => $"{e.Level} {e.Message}{(e.Exception is null ? "" : " " + e.Exception)}"))}");
 		return (ended.Value, attempts, checkpoints);
 	}
 
