@@ -428,7 +428,7 @@ missed, the scheduler report says why, and:
 - the backlog refill and the flaky-test specs pause, because both author new specs;
 - an implementation that is not blocked itself but stopped for a person's decision (its diagnosis is reported), while
   implementations open longer than `SPECKIT_MAX_BLOCKED_DAYS` wait for it directly or through a chain, gets one
-  **Escalation** comment per stop that mentions its requester, names the waiting implementations, and recommends
+  **Action required** reminder per stop that mentions its requester, names the waiting implementations, and recommends
   following the latest diagnosis.
 
 A requested spec whose twin still has open blockers never gets a pull request in the first place: it waits as
@@ -519,12 +519,26 @@ A timeout alone does not establish an artifact defect. A push, a `/speckit retry
 handoff ends it. Open amendments and pending authorized requests are preserved.
 
 Implementation, amendment, and authored spec pull requests carry GitHub's default label `help wanted` ("Extra attention is
-needed") while they wait for a person, and lose it as soon as a person's action puts automation back to work or the
-pull request is merged or closed. The label is a convenience; the comments and check runs stay authoritative.
+needed") for the state **Awaiting human action**. An **Action required** comment explains that state and the next step;
+it is not a higher severity level or a separate state. The label is a convenience; the comments and check runs stay authoritative.
 
-Every label comes with a comment that explains it. `help wanted` is only added together with a comment that recommends
+The label clears when an accepted action puts automation back to work, including a queued authorized request,
+accepted feedback, or a Copilot handoff, or when the pull request merges or closes. A casual comment, `/speckit help`,
+or a rejected or unauthorized command does not clear it. Existing feedback rules still apply to amendment and authored
+spec comments and reviews. When a child pull request owns the review action, its waiting implementation does not
+duplicate that request.
+
+Every label comes with a comment that explains it. `help wanted` is initially added with a comment that recommends
 exactly one next step (a diagnosis, an outcome to decide on, or a review); a stop whose diagnosis is still running
 waits without it, so the label never appears before the recommendation does.
+
+On each scheduler run, current decisions, checks, and trusted workflow markers reconcile the label on existing open
+pull requests too, including authored specs whose originating implementation has merged or closed. A missing label is
+restored without reposting the existing recommendation, and stale labels clear during queued or running work.
+Old comments cannot re-label work resumed by a newer accepted action. Label API failures warn without stopping the
+workflow; subsequent reconciliation retries them. Historical reminder markers remain recognized without rewriting
+old comments. A stopped chain head that older blocked implementations wait for can receive one **Action required**
+reminder per stop; this adds context, not another state or label.
 
 When an amendment passes its consistency check (or a spec pull request authored by `/speckit author` is held for review) and correction rounds are finished, its description,
 review handoff comment, and notification on the stopped implementation explicitly recommend **Review and merge** the

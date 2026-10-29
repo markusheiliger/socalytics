@@ -271,7 +271,6 @@ export async function resolveAmendment(client, env, number) {
     const target = await authoredFor(client, amendment);
     if (!target) return { reason: 'no implementation pull request recorded this authored spec', amendment, folder, kind };
     listed = await client.getPullRequest(target);
-    if (listed.state !== 'open' && !listed.merged_at) return { reason: `the implementation pull request #${target} is not open or merged`, amendment, folder, kind };
   } else {
     listed = (await client.listPullRequestsForHead(implementationBranch(folder))).find((pull) => pull.state === 'open');
     if (!listed) return { reason: `there is no open implementation pull request for \`specs/${folder}\``, amendment, folder, kind };
@@ -884,12 +883,12 @@ export async function runFeedback({ client, env, log, now = Date.now, sleep = de
 // (rebase merges keep their author), so the merge itself does not start a new attempt window.
 export async function settleClosedAmendment(client, env, { amendment, folder, implementation, actor = null, dispatch = true }) {
   if (amendment.state === 'open') return { outcome: 'open' };
+  await setAttention(client, amendment.number, false);
   const marker = renderClosedMarker(amendment.number);
   const comments = await client.listIssueComments(implementation.number);
   if (comments.some((comment) => isBot(comment.user) && String(comment.body ?? '').includes(marker))) return { outcome: 'handled' };
   const amendmentComments = await client.listIssueComments(amendment.number);
   if (!amendment.merged_at && amendmentComments.some((comment) => isBot(comment.user) && String(comment.body ?? '').startsWith('Superseded by a new diagnosis'))) return { outcome: 'superseded' };
-  await setAttention(client, amendment.number, false);
   const by = actor ? `@${actor}` : 'a person';
   const base = implementationBranch(folder);
   // Merged into another branch (its base was changed, or it was merged as part of a stack): the implementation did not
@@ -977,6 +976,7 @@ export async function maintainAmendment(client, env, { folder, implementation, t
   }
   await guardPullRequest(client, env, await client.getPullRequest(latest.number), { report });
   const context = { amendment: await client.getPullRequest(latest.number), folder, implementation, twin, kind: 'amend' };
+  await setAttention(client, implementation.number, false);
   return maintainOpenSpecPull(client, env, context, { now, report });
 }
 
@@ -986,7 +986,10 @@ export async function maintainOpenSpecPull(client, env, context, { now = Date.no
   const number = context.amendment.number;
   const noun = context.kind === 'fix' ? 'spec' : 'amendment';
   const state = await reworkRunning(client, context, now);
-  if (state.running) return { outcome: 'running' };
+  if (state.running) {
+    await setAttention(client, number, false);
+    return { outcome: 'running' };
+  }
   if (state.stale) {
     await closeStaleCheck(client, state.stale);
     await reportSpecPullFailure(client, context, 'The consistency check or rework did not finish.');
@@ -1010,7 +1013,11 @@ export async function maintainOpenSpecPull(client, env, context, { now = Date.no
     report(`- Checking the changes pushed to ${noun} #${number}.`);
     return { outcome: 'checking' };
   }
-  if (state.stale) await setAttention(client, number, true);
+  const comments = await client.listIssueComments(number);
+  const hasAction = state.latest?.external_id === CHECK_AMEND_INCONSISTENT ||
+    comments.some((comment) => comment.user?.login === BOT_LOGIN && comment.body?.startsWith(AMEND_PRESENTED_MARKER) &&
+      Date.parse(comment.created_at) >= Date.parse(state.latest?.started_at ?? state.latest?.created_at ?? 0));
+  await setAttention(client, number, state.stale || hasAction);
   return { outcome: state.stale ? 'stale' : 'idle' };
 }
 

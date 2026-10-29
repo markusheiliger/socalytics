@@ -1009,8 +1009,36 @@ test('a Blocked comment tells a blocker with an implementation pull request from
   assert.match(waiting, /\*\*Requested, starting by itself\*\*/);
 });
 
-import { COPILOT_HANDOFF_MARKER, COPILOT_HANDOFF_MS, ATTENTION_LABEL as HELP, BLOCKED_LABEL as BLOCKED, isCopilotRequest, maintainCopilotHandoff, pendingCopilotHandoff } from './speckit-implement-core.mjs';
+import { COPILOT_HANDOFF_MARKER, COPILOT_HANDOFF_MS, ATTENTION_LABEL as HELP, BLOCKED_LABEL as BLOCKED, isCopilotRequest, maintainCopilotHandoff, pendingCopilotHandoff, setAttention } from './speckit-implement-core.mjs';
 import { diagnosisRepo } from './speckit-test-helpers.mjs';
+
+test('attention labels are idempotent, removed from closed PRs, and report recoverable API failures', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const warnings = [];
+  const options = { warn: (message) => warnings.push(message) };
+  const add = github.addLabels.bind(github);
+  github.addLabels = async () => { throw new Error('rate limited'); };
+  assert.equal(await setAttention(github, 9, true, options), false);
+  assert.match(warnings[0], /help wanted.*#9.*rate limited/);
+  let additions = 0;
+  github.addLabels = async (...args) => { additions += 1; return add(...args); };
+  assert.equal(await setAttention(github, 9, true, options), true);
+  const comments = github.comments.length;
+  assert.equal(await setAttention(github, 9, true, options), true);
+  assert.equal(github.repo.pulls[0].labels.filter((label) => label.name === HELP).length, 1);
+  assert.equal(additions, 1);
+  assert.equal(github.comments.length, comments);
+  github.closePull(9);
+  assert.equal(await setAttention(github, 9, true, options), true);
+  assert.equal(github.repo.pulls[0].labels.some((label) => label.name === HELP), false);
+  const remove = github.removeLabel.bind(github);
+  github.repo.pulls[0].labels.push({ name: HELP });
+  github.removeLabel = async () => { throw new Error('forbidden'); };
+  assert.equal(await setAttention(github, 9, false, options), false);
+  assert.match(warnings.at(-1), /help wanted.*#9.*forbidden/);
+  github.removeLabel = remove;
+  assert.equal(await setAttention(github, 9, false, options), true);
+});
 
 test('a handoff to Copilot is working until Copilot pushes, replies without a push, or the time runs out', () => {
   assert.equal(isCopilotRequest('@copilot Merge main'), true);

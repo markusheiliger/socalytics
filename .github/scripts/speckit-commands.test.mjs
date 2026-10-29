@@ -152,6 +152,24 @@ test('ignores people without write access and bots, reacts, and answers help and
   assert.match(elsewhere.rejected, /not a Spec Kit implementation or amendment pull request/);
 });
 
+test('only accepted work clears an implementation action-required label', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  await github.addLabels(9, [ATTENTION_LABEL]);
+  const attention = () => github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL);
+  for (const [body, actor] of [
+    ['Thanks for the update.', 'dev'],
+    ['/speckit help', 'dev'],
+    ['/speckit retry --unknown', 'dev'],
+    ['/speckit retry', 'stranger'],
+    ['/speckit retry', 'github-actions[bot]'],
+  ]) {
+    await run(github, body, { actor });
+    assert.equal(attention(), true, `${actor}: ${body}`);
+  }
+  assert.equal((await run(github, '/speckit retry')).outcome, 'retried');
+  assert.equal(attention(), false);
+});
+
 test('commands on amendments acquire their implementation publication lock and reject a changed lock target', async () => {
   const github = diagnosisRepo();
   const target = await runCommandTarget({

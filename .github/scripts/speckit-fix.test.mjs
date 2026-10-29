@@ -652,6 +652,30 @@ async function independentSpec(github) {
   return withResult(authorResult(), (dir) => runRecord({ client: github, env: env({ SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_CREATED_PULL: '12' }), log: silent }));
 }
 
+test('authored-spec review labels reconcile after either merge or closure of the originating implementation', async () => {
+  for (const merged of [true, false]) {
+    const github = fixRepo();
+    await independentSpec(github);
+    if (!merged) github.repo.pulls.find((pull) => pull.number === 9).merged_at = null;
+    for (const run of github.repo.runs) run.status = 'completed';
+    Object.assign(github.repo.checkRuns.at(-1), { status: 'completed', conclusion: 'success', external_id: 'speckit:amend-consistent' });
+    const context = await resolveAmendment(github, env(), 12);
+    assert.equal(context.reason, undefined);
+    await presentAmendment(github, env(), context, { consistent: true, held: { reason: 'push' } });
+    await github.removeLabel(12, ATTENTION_LABEL);
+    const comments = github.comments.length;
+    await maintainIndependentSpecs(github, env(), { now: github.clock });
+    assert.ok((await github.getPullRequest(12)).labels.some((label) => label.name === ATTENTION_LABEL));
+    await maintainIndependentSpecs(github, env(), { now: github.clock });
+    assert.equal(github.comments.length, comments);
+    github.commentAuthor = 'dev';
+    await github.createComment(12, 'Please rework the spec without weakening its success criteria.');
+    github.commentAuthor = undefined;
+    await maintainIndependentSpecs(github, env(), { now: github.clock });
+    assert.equal((await github.getPullRequest(12)).labels.some((label) => label.name === ATTENTION_LABEL), false);
+  }
+});
+
 test('the scheduler recovers an unlinked spec authored after its origin merged, through independent analysis and correction', async () => {
   const github = fixRepo();
   assert.equal((await independentSpec(github)).outcome, 'created');
