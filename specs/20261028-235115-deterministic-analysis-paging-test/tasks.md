@@ -29,7 +29,7 @@
 **⚠️ CRITICAL**: No fix in Phase 3 may start before the cause is recorded.
 
 - [ ] T002 Reproduce the failure of the test "has no violations with facts, and every control is reachable by keyboard with visible focus" in `src/clients/web/tests/e2e/simulated/analysis-review-access.spec.ts` as in quickstart step 3: run it under the CPU load and, in a temporary local-only change, with the delay defined in quickstart step 2 (a fixed 5000 ms on the facts request for `fromMs=10000`); keep a failing trace, read `src/clients/web/src/features/analysis/FactBrowser.tsx` and `src/clients/web/src/features/analysis/useFactPages.ts` to confirm which candidate cause of the spec produces it, remove the temporary delay again, and write what was observed (commands, failure counts, the trace's finding) as a new "Reproduction" subsection of the Evidence section of `specs/20261028-235115-deterministic-analysis-paging-test/research.md`; this task ends with that change to `research.md`, so it is never complete without a file change
-- [ ] T003 Record the reproduced evidence (commands, failure counts, the trace's finding, and the confirmed cause, or the contradicting cause and its location) in the Evidence section of `specs/20261028-235115-deterministic-analysis-paging-test/research.md`, leaving the Decisions section consistent with it
+- [ ] T003 Using the "Reproduction" subsection that T002 wrote to the Evidence section of `specs/20261028-235115-deterministic-analysis-paging-test/research.md` (do not repeat it), confirm or replace the "Expected cause" line there with the confirmed cause, or the contradicting cause and its location, and leave the Decisions section consistent with it
 
 **Checkpoint**: The cause and the file it lives in are known and recorded.
 
