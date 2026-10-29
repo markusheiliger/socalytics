@@ -34,6 +34,7 @@ import {
   renderRetryComment,
   renderSyncComment,
   setAttention,
+  supersedeActionRequired,
   specTitleOfPull,
   unresolvedRepair,
   unchangedRestarts,
@@ -147,6 +148,7 @@ export async function retryImplementation(client, env, { implementation, twin, f
   }
   await client.createComment(implementation.number, `${prefix}${renderRetryComment(`${text}${suffix}`, guidance, state)}`);
   await setAttention(client, implementation.number, false);
+  await supersedeActionRequired(client, implementation.number);
   try {
     await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
   } catch {
@@ -165,6 +167,7 @@ export async function requestSync(client, env, { implementation, twin }, { lead,
     await restartState(client, implementation),
   )}`);
   await setAttention(client, implementation.number, false);
+  await supersedeActionRequired(client, implementation.number);
   try {
     await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
   } catch {
@@ -482,13 +485,14 @@ export async function runCopilotHandoff({ client, env, log }) {
     log('The implementation does not wait for a person; nothing to hand over.');
     return { exitCode: 0, handled: false };
   }
-  await setAttention(client, number, false);
   await reply(client, number, [
     COPILOT_HANDOFF_MARKER,
     `**Copilot is working on it**: @${actor} asked GitHub Copilot's cloud agent to change \`${implementationBranch(folder)}\`, so this pull request no longer asks for help. Nothing is needed now: Copilot's push continues the implementation by itself with a fresh attempt count.`,
     '',
     `If Copilot finishes without pushing, or has not pushed within ${COPILOT_HANDOFF_MS / 60000} minutes, the scheduler asks for help here again.`,
   ]);
+  await setAttention(client, number, false);
+  await supersedeActionRequired(client, number);
   log(`Handed #${number} over to Copilot for @${actor}.`);
   return { exitCode: 0, handled: true };
 }

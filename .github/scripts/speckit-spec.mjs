@@ -17,6 +17,8 @@ import {
   CHECK_RUN_NAME,
   CHECK_SYNC_CONFLICT,
   DONE_COMMENT_MARKER,
+  DIAGNOSIS_COMMENT_MARKER,
+  AMEND_REQUEST_STATE_MARKER,
   FIX_CHECK_NAME,
   DIAGNOSIS_STALE_MS,
   MAX_SYNC_RESOLVE_ATTEMPTS,
@@ -35,6 +37,10 @@ import {
   folderOfBranch,
   pendingAmendmentRequest,
   pendingCopilotHandoff,
+  acceptedImplementationAction,
+  trustedMarker,
+  ACTION_REQUIRED_MARKER,
+  supersedeActionRequired,
   decideNext,
   explainDependencyBlock,
   describeParallelGroups,
@@ -241,24 +247,66 @@ export function needsRun(decision, env) {
   return true;
 }
 
-export async function reconcileImplementationAttention(client, decision, { blocked = false, now = Date.now() } = {}) {
-  if (blocked || !decision.pull) return;
-  if (!['failed', 'done', 'tasks', 'repair', 'verify', 'merge', 'wait', 'diagnosing', 'limit'].includes(decision.action)) return;
-  if (decision.action === 'failed' && decision.diagnosis?.state !== 'reported') return;
+export async function implementationAttention(client, decision, { blocked = false, now = Date.now() } = {}) {
+  if (blocked || !decision.pull) return null;
+  if (!['failed', 'done', 'tasks', 'repair', 'verify', 'merge', 'wait', 'diagnosing', 'limit'].includes(decision.action)) return null;
+  if (decision.action === 'failed' && decision.diagnosis?.state !== 'reported') return null;
   let needed = decision.action === 'done' || decision.action === 'failed';
+  let successor = null;
+  const comments = decision.comments ?? [];
+  const fixEvents = parseFixEvents(comments);
+  const authorRequest = fixEvents.filter((event) => event.event === 'requested').at(-1);
+  const authoring = authorRequest && authorRequest.link !== false
+    ? latestCheckRun(await client.listCheckRuns(decision.pull.head.sha, FIX_CHECK_NAME))
+    : null;
+  let recommendation = [...comments].reverse().find((comment) => comment.user?.login === BOT_LOGIN &&
+    startsWithMarker(comment.body, DIAGNOSIS_COMMENT_MARKER)) ?? null;
+  if (recommendation && (acceptedImplementationAction(comments, recommendation.created_at) ||
+      (decision.pushedAt && Date.parse(decision.pushedAt) > Date.parse(recommendation.created_at)))) {
+    const boundary = recommendation.created_at;
+    recommendation = null;
+    if (decision.action === 'failed') {
+      const failures = trustedMarker(comments, AMEND_REQUEST_STATE_MARKER)
+        .filter((item) => ['failed', 'stale'].includes(item.state)).map((item) => item.markerComment);
+      const discarded = fixEvents.filter((event) => event.event === 'discarded').map((event) => event.commentId);
+      failures.push(...comments.filter((comment) => comment.user?.login === BOT_LOGIN &&
+        (/^<!-- speckit-amend:closed \d+ -->/.test(comment.body ?? '') || discarded.includes(comment.id))));
+      recommendation = failures.filter((comment) => Date.parse(comment.created_at) > Date.parse(boundary) &&
+        !acceptedImplementationAction(comments, comment.created_at) &&
+        !(decision.pushedAt && Date.parse(decision.pushedAt) > Date.parse(comment.created_at)))
+        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+      const check = latestCheckRun(decision.checks ?? []);
+      const diagnosisFailed = check?.external_id === CHECK_DIAGNOSED && check.conclusion === 'failure' &&
+        Date.parse(check.started_at) > Date.parse(boundary) && !acceptedImplementationAction(comments, check.started_at);
+      const authoringFailed = authoring?.conclusion === 'failure' &&
+        !acceptedImplementationAction(comments, authoring.completed_at ?? authorRequest.at);
+      needed = Boolean(recommendation || diagnosisFailed || authoringFailed);
+    }
+  }
+  if (!recommendation) recommendation = [...comments].reverse().find((comment) => comment.user?.login === BOT_LOGIN &&
+    startsWithMarker(comment.body, UNBLOCKED_MARKER) && !comment.body.includes(RETRY_COMMENT_MARKER) &&
+    !acceptedImplementationAction(comments, comment.created_at)) ?? null;
   if (needed) {
-    const comments = decision.comments ?? [];
     const handoff = pendingCopilotHandoff(comments, { pushedAt: decision.pushedAt, now });
     const folder = folderOfBranch(decision.pull.head?.ref);
-    const authorRequest = parseFixEvents(comments).filter((event) => event.event === 'requested').at(-1);
-    const authoring = authorRequest && authorRequest.link !== false
-      ? latestCheckRun(await client.listCheckRuns(decision.pull.head.sha, FIX_CHECK_NAME))
-      : null;
     if (handoff?.state === 'working' || pendingAmendmentRequest(comments) ||
-        (authoring && authoring.status !== 'completed') ||
-        (folder && await findAmendment(client, folder))) needed = false;
+        (authoring && authoring.status !== 'completed')) needed = false;
+    else if (folder) {
+      successor = await findAmendment(client, folder);
+      if (successor) needed = false;
+    }
   }
-  await setAttention(client, decision.pull.number, needed);
+  return { needed, recommendation, successor };
+}
+
+export async function reconcileImplementationAttention(client, decision, options = {}) {
+  const attention = await implementationAttention(client, decision, options);
+  if (attention) await setAttention(client, decision.pull.number, attention.needed);
+  if ((decision.comments ?? []).some((comment) => comment.user?.login === BOT_LOGIN &&
+      String(comment.body ?? '').startsWith(`<!-- ${ACTION_REQUIRED_MARKER} `))) {
+    await supersedeActionRequired(client, decision.pull.number, { successor: attention?.successor });
+  }
+  return attention;
 }
 
 // Guidance from the latest restart or sync ends after the first prompted work succeeds, or a person pushes.

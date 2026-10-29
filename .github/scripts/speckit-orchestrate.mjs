@@ -25,7 +25,7 @@ import { maintainAmendment, maintainAmendmentRequest } from './speckit-amend.mjs
 import { maintainBacklog } from './speckit-backlog.mjs';
 import { startDiagnosis } from './speckit-diagnose.mjs';
 import { maintainFixSpec, maintainIndependentSpecs, startFixAuthoring } from './speckit-fix.mjs';
-import { contextFromEnv, decideForPull, needsRun, reconcileImplementationAttention } from './speckit-spec.mjs';
+import { contextFromEnv, decideForPull, implementationAttention, needsRun, reconcileImplementationAttention } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import {
@@ -37,6 +37,9 @@ import {
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
   DIAGNOSIS_COMMENT_MARKER,
+  ACTION_REQUIRED_MARKER,
+  acceptedImplementationAction,
+  supersedeActionRequired,
   IMPLEMENT_CHAIN_WORKFLOW_FILES,
   LEGACY_IMPLEMENT_WORKFLOW_FILES,
   ORCHESTRATE_WORKFLOW_FILE,
@@ -52,6 +55,7 @@ import {
   implementationBranch,
   isImplementRunOf,
   kindLabel,
+  latestCheckRun,
   neutralizeMarkers,
   parseFlakyMarkers,
   parseFlakySpecMarkers,
@@ -143,39 +147,72 @@ export function blockedTarget(inProgress, env, now = Date.now()) {
 // another stop) that waits for a person's decision, while implementations open longer than SPECKIT_MAX_BLOCKED_DAYS wait
 // for it, directly or through a chain. It gets one comment per stop that mentions its requester, names the waiting
 // implementations, and recommends following the latest diagnosis; `help wanted` stays with it. Returns the summary lines.
-// Keep the historical marker so already-posted reminders remain deduplicated.
-export const ACTION_REQUIRED_MARKER = 'speckit-implement:escalation';
+export { ACTION_REQUIRED_MARKER } from './speckit-implement-core.mjs';
 export async function maintainActionRequired(client, env, inProgress, { now = Date.now() } = {}) {
   const days = parseMaxBlockedDays(env.SPECKIT_MAX_BLOCKED_DAYS);
-  if (days === 0) return [];
   const sets = waitingSets(inProgress);
   const byNumber = new Map(inProgress.map((twin) => [twin.number, twin]));
   const lines = [];
   for (const head of inProgress) {
     const decision = head.decision ?? {};
-    if (head.blocked || head.active || decision.action !== 'failed' || decision.diagnosis?.state !== 'reported') continue;
+    const warn = (line) => lines.push(`- ${line}`);
+    const hasReminder = (decision.comments ?? []).some((comment) => comment.user?.login === BOT_LOGIN &&
+      String(comment.body ?? '').startsWith(`<!-- ${ACTION_REQUIRED_MARKER} `));
+    if (hasReminder) {
+      await supersedeActionRequired(client, head.pull, { warn });
+    }
+    const eligible = days !== 0 && !head.blocked && !head.active && decision.action === 'failed' && decision.diagnosis?.state === 'reported';
     const waiting = [...(sets.get(head.number) ?? [])]
       .map((number) => byNumber.get(number))
       .filter((twin) => twin?.openedAt && daysOpen(twin, now) > days)
       .sort((a, b) => Date.parse(a.openedAt) - Date.parse(b.openedAt));
-    if (waiting.length === 0) continue;
-    const comments = decision.comments ?? [];
-    const diagnosis = [...comments]
-      .filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER))
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
-    const key = String(diagnosis?.id ?? decision.diagnosis?.check?.id ?? 'stop');
-    const marker = `<!-- ${ACTION_REQUIRED_MARKER} ${JSON.stringify({ key })} -->`;
+    if (!hasReminder && (!eligible || waiting.length === 0)) continue;
     const refs = waiting.map((twin) => `#${twin.pull} (spec #${twin.number}, open ${formatDays(daysOpen(twin, now))})`);
     try {
+      const fresh = await decideForPull(client, {
+        twin: head.number, folder: head.folder, pullNumber: head.pull, now, context: contextFromEnv(env), dryRun: true,
+      });
+      const attention = await implementationAttention(client, fresh, {
+        blocked: (fresh.pull?.labels ?? []).some((label) => (label?.name ?? label) === BLOCKED_LABEL), now,
+      });
+      if (fresh.pull?.state !== 'open' || fresh.action !== 'failed' || !attention?.needed || !attention.recommendation) {
+        await reconcileImplementationAttention(client, fresh, { blocked: head.blocked, now });
+        await supersedeActionRequired(client, head.pull, { successor: attention?.successor, warn });
+        continue;
+      }
+      if (!eligible || !waiting.length) continue;
+      const diagnosis = attention.recommendation;
+      const key = String(diagnosis.id);
+      const marker = `<!-- ${ACTION_REQUIRED_MARKER} ${JSON.stringify({ key })} -->`;
+      const comments = await client.listIssueComments(head.pull);
+      const current = await client.getPullRequest(head.pull);
+      const currentCheck = latestCheckRun(await client.listCheckRuns(current.head.sha, CHECK_RUN_NAME));
+      const observedCheck = latestCheckRun(fresh.checks ?? []);
+      const accepted = acceptedImplementationAction(comments, diagnosis.created_at);
+      if (current.state !== 'open' || current.head.sha !== fresh.pull.head.sha ||
+          (current.labels ?? []).some((label) => (label?.name ?? label) === BLOCKED_LABEL) ||
+          currentCheck?.id !== observedCheck?.id || currentCheck?.status !== observedCheck?.status ||
+          currentCheck?.external_id !== observedCheck?.external_id || currentCheck?.conclusion !== observedCheck?.conclusion ||
+          accepted) {
+        if (accepted && !(current.labels ?? []).some((label) => (label?.name ?? label) === BLOCKED_LABEL)) {
+          await setAttention(client, head.pull, false);
+        }
+        await supersedeActionRequired(client, head.pull, { warn });
+        continue;
+      }
+      const finalAttention = await implementationAttention(client, { ...fresh, pull: current, comments }, { now });
+      if (!finalAttention?.needed) {
+        if (finalAttention) await setAttention(client, head.pull, false);
+        await supersedeActionRequired(client, head.pull, { successor: finalAttention?.successor, warn });
+        continue;
+      }
       await setAttention(client, head.pull, true);
       if (comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(marker))) continue;
       await client.createComment(head.pull, [
         marker,
         `**Action required**${head.requester ? ` @${head.requester}` : ''}: this implementation awaits human action, and ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for it, directly or through a chain: ${refs.join(', ')}. None of them moves until this one continues.`,
         '',
-        diagnosis
-          ? `**Recommended next step**: Follow the [latest diagnosis](${diagnosis.html_url ?? `#issuecomment-${diagnosis.id}`}): post the command or \`@copilot\` request it recommends.`
-          : '**Recommended next step**: Follow the recommendation of the latest stop comment above: post the command it recommends.',
+        `**Recommended next step**: Follow the [${String(diagnosis.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER) ? 'latest diagnosis' : 'current stop recommendation'}](${diagnosis.html_url ?? `#issuecomment-${diagnosis.id}`}): post the command or \`@copilot\` request it recommends.`,
       ].join('\n'));
       lines.push(`- Awaiting human action on #${head.pull} (spec #${head.number}): ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for its decision.`);
     } catch (error) {
@@ -336,6 +373,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
     }
     if (lifecycle.state === 'fallback') {
       await setAttention(client, lifecycle.pull.number, false);
+      await supersedeActionRequired(client, lifecycle.pull.number);
       await setBlocked(client, lifecycle.pull.number, false);
       await updateIssueWithLabels(client, issue, stageLabelChange(issue, computedStage));
       await client.createComment(issue.number, [
