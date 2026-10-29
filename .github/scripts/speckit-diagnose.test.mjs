@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { pendingFeedback, renderFeedback } from './speckit-amend.mjs';
+import { checkAmendment, pendingFeedback, renderFeedback, requestAmendment, settleClosedAmendment } from './speckit-amend.mjs';
 import { ATTENTION_LABEL, AUTO_CONTINUE_MARKER, IMPLEMENT_WORKFLOW_FILE, RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER, parseGuidance, renderRetryComment, syncBarrier, unchangedRestarts, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker, renderSyncComment, repeatedFailure, isTwinRunOf } from './speckit-implement-core.mjs';
-import { copilotRequestOf } from './speckit-implement-core.mjs';
+import { copilotRequestOf, COPILOT_HANDOFF_MARKER, maintainCopilotHandoff, renderCopilotRequest } from './speckit-implement-core.mjs';
 import { implementsTasks } from './speckit-diagnose.mjs';
 import { CATEGORIES, CATEGORY_COMMANDS, MAX_RECOMMENDED_COMMAND, MAX_STOP_SUBJECT, categoryCommands, checkReportFile, commandPatterns, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
@@ -27,6 +27,99 @@ const REPORT = {
   ],
   questions: [{ question: 'Keep the counter write?', choices: ['Yes', 'No'] }],
 };
+
+test('a #377-style decision prominently recommends a concrete reviewed amend command, never auto-continues it', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-amend-decision-'));
+  try {
+    const github = diagnosisRepo({ amendment: false });
+    const report = { ...REPORT, category: 'decision', artifacts: [], summary: 'SC-002 requires unsupported temporary mutation evidence; the writer must authorize manual evidence.',
+      options: [{ title: 'Authorize a reviewed artifact amendment for #9', why: 'The trusted runner cannot replay mutation probes. A retry or a Copilot task-list prohibition cannot change the artifacts.', command: '/speckit amend Make SC-002 manual local evidence outside automated completion; preserve its expected behavior and all completed tasks, remove the unchecked probe obligation, and update dependencies consistently. Do not claim manual probes passed.', recommended: true }] };
+    const output = path.join(dir, 'agent_output.json');
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report: JSON.stringify(report) }] }));
+    const result = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success' }), log: silent });
+    assert.equal(result.report.category, 'decision');
+    assert.equal(result.continued, null);
+    assert.equal(github.repo.runs.length, 0);
+    const comment = github.comments.find((item) => item.number === 9).body;
+    assert.match(comment, /\*\*Recommended next step\*\*: Authorize a reviewed artifact amendment for #9/);
+    assert.match(comment, /\/speckit amend Make SC-002 manual local evidence/);
+    assert.match(comment, /human review and merge/);
+    assert.doesNotMatch(comment, /@copilot|Do not edit or tick tasks/);
+    assert.match(validateReport({ ...report, options: [{ ...report.options[0], command: '/speckit amend' }] }).reasons.join(), /concrete amendment guidance/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('authorized preparation creates a reviewed amendment and preserves completed tasks through revisions', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-authorized-amend-'));
+  try {
+    const github = diagnosisRepo({ amendment: false });
+    await github.addLabels(9, ['help wanted']);
+    github.commentAuthor = 'dev';
+    const source = await github.createComment(9, '/speckit amend Make SC-002 manual and remove its unchecked obligation.');
+    github.commentAuthor = undefined;
+    await requestAmendment(github, env(), { implementation: await github.getPullRequest(9), twin: 5, folder: 'f', actor: 'dev', number: 9, commentId: source.id, guidance: 'Make SC-002 manual and remove its unchecked obligation.' });
+    const modeEnv = env({ SPECKIT_MODE: 'amend', SPECKIT_AUTHORIZATION: String(source.id), SPECKIT_EVIDENCE_DIR: dir });
+    await runEvidence({ client: github, env: modeEnv, log: silent });
+    assert.match(readFileSync(path.join(dir, 'evidence.md'), 'utf8'), /Writer-authorized artifact amendment[\s\S]*Preserve completed tasks verbatim/);
+    const template = diagnosisRepo().repo;
+    github.repo.branches['speckit-amend/f'] = 'sha-amend';
+    github.repo.commits['sha-amend'] = template.commits['sha-amend'];
+    github.repo.pulls.push(template.pulls.find((pull) => pull.number === 11));
+    github.repo.pullFiles[11] = ['specs/f/tasks.md', 'specs/f/spec.md'];
+    github.setFile('sha-amend', 'specs/f/tasks.md', '## P\n- [x] T001 Done\n');
+    const output = path.join(dir, 'agent_output.json');
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report: JSON.stringify({ summary: 'Moved SC-002 to manual evidence without claiming it was run.', artifacts: [{ file: 'specs/f/tasks.md', reason: 'Remove unchecked probe obligation.' }], responses: [] }) }] }));
+    const result = await runRecord({ client: github, env: { ...modeEnv, GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success', SPECKIT_CREATED_PULL: '11', SPECKIT_CHECK_RUN: String(github.repo.checkRuns[0].id) }, log: silent });
+    assert.equal(result.outcome, 'amendment');
+    assert.equal(github.repo.runs.at(-1).workflow, 'speckit-analyze.lock.yml');
+    assert.equal(github.repo.merges.length, 0);
+    assert.equal(github.comments.some((item) => item.body.startsWith('<!-- speckit-implement:retry -->')), false);
+    const context = { folder: 'f', amendment: await github.getPullRequest(11), implementation: await github.getPullRequest(9) };
+    assert.deepEqual((await checkAmendment(github, context)).reasons, []);
+    for (const changed of ['## P\n- [ ] T001 Done\n', '## P\n- [x] T001 Reworded\n', '## P\n', '## P\n- [x] T001 Done\n- [x] T002 Next\n']) {
+      github.setFile('sha-amend', 'specs/f/tasks.md', changed);
+      assert.ok((await checkAmendment(github, context)).reasons.length > 0, changed);
+    }
+    github.setFile('sha-amend', 'specs/f/tasks.md', '## P\n- [x] T001 Done\n');
+    github.closePull(11, { merged: true });
+    assert.equal((await settleClosedAmendment(github, env(), { ...context, amendment: await github.getPullRequest(11) })).outcome, 'merged');
+    assert.ok(github.comments.some((item) => item.body.startsWith('<!-- speckit-implement:retry -->')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a refused Copilot handoff re-diagnoses once with evidence and rejects the same failed recovery', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-handoff-rediagnosis-'));
+  try {
+    const github = diagnosisRepo({ amendment: false });
+    const prompt = 'Change the spec artifacts so SC-002 becomes manual evidence; remove the open probe item and update checkpoint and dependency notes.';
+    github.commentAuthor = 'dev';
+    await github.createComment(9, renderCopilotRequest(prompt));
+    github.commentAuthor = undefined;
+    await github.createComment(9, COPILOT_HANDOFF_MARKER);
+    github.commentAuthor = 'Copilot';
+    await github.createComment(9, 'I cannot remove the obligation while the request forbids editing tasks.md. I made no changes.');
+    github.commentAuthor = undefined;
+    const options = async () => ({ pull: await github.getPullRequest(9), comments: await github.listIssueComments(9), active: false, continues: false, blocked: false,
+      rediagnose: ({ previous, guidance }) => startDiagnosis(github, env(), { twin: 5, pull: 9, folder: 'f', head: 'sha-impl', previous, guidance, auto: true, preserveAmendment: true }) });
+    assert.equal(await maintainCopilotHandoff(github, await options()), 'finished');
+    assert.equal(github.repo.runs.length, 1);
+    assert.equal(await maintainCopilotHandoff(github, await options()), null);
+    assert.equal(github.repo.runs.length, 1);
+    await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir }), log: silent });
+    assert.match(readFileSync(path.join(dir, 'evidence.md'), 'utf8'), /Failed Copilot recoveries on this unchanged revision[\s\S]*remove the open probe item/);
+    const output = path.join(dir, 'agent_output.json');
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report: JSON.stringify({ ...REPORT, category: 'decision', artifacts: [], options: [{ title: 'Repeat', why: 'Try again', copilot: prompt, recommended: true }] }) }] }));
+    const result = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success' }), log: silent });
+    assert.equal(result.report, null);
+    assert.match(result.reasons.join(), /already failed without a push/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('starts a diagnosis with a linked check and dispatch, and leaves a failed dispatch retryable', async () => {
   const github = diagnosisRepo();

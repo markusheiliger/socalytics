@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { IMPLEMENT_STAGE, IMPLEMENTING_STAGE, TWIN_LABEL, deriveStage, hasLabel, implementBlockers, isImplementRequested, parseTwinFolder, specDir, stageLabel, stageLabelChange } from './speckit-prepare-core.mjs';
 import { canWrite, readSpecFolder, renderImplementRequested, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { startFixAuthoring } from './speckit-fix.mjs';
+import { requestAmendment } from './speckit-amend.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   ATTENTION_LABEL,
@@ -238,7 +239,7 @@ export async function runCommand({ client, env, log, now = Date.now, rootDir = e
     return { exitCode: 0, handled: true, command: command.name, rejected: 'publication target changed' };
   }
   const handler = HANDLERS[command.name];
-  const result = await handler({ client, env, actor, number, flags: command.flags, guidance: command.guidance.slice(0, 4000), now, ...target });
+  const result = await handler({ client, env, actor, number, commentId, flags: command.flags, guidance: command.guidance.slice(0, 4000), now, ...target });
   log(`/speckit ${command.name} by @${actor}: ${result.outcome}`);
   return { exitCode: 0, handled: true, command: command.name, ...result };
 }
@@ -326,6 +327,11 @@ async function handleAuthor({ client, env, actor, number, guidance, now, impleme
 }
 
 const HANDLERS = {
+  amend: async ({ client, env, ...target }) => {
+    const result = await requestAmendment(client, env, target);
+    if (result.rejected) await reply(client, target.number, `**\`/speckit amend\` was not run**: ${result.rejected}.\n\n**Recommended next step**: ${result.rejected.includes('already') ? 'Review or rework the existing amendment request' : 'Review the current implementation state and post `/speckit amend <guidance>` with the concrete artifact change'}.`);
+    return result;
+  },
   retry: handleRetry,
   sync: handleSync,
   author: handleAuthor,
