@@ -2,7 +2,7 @@
 
 **Branch**: `20261028-235115-deterministic-analysis-paging-test` | **Date**: 2026-10-28 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261028-235115-deterministic-analysis-paging-test/spec.md`
+**Input**: Feature specification from `/specs/archive/20261028-235115-deterministic-analysis-paging-test/spec.md`
 
 ## Summary
 
@@ -46,7 +46,7 @@ Post-design re-check: PASS, unchanged.
 ### Documentation (this feature)
 
 ```text
-specs/20261028-235115-deterministic-analysis-paging-test/
+specs/archive/20261028-235115-deterministic-analysis-paging-test/
 ├── plan.md
 ├── research.md
 ├── data-model.md

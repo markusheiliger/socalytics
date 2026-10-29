@@ -1,6 +1,6 @@
 # Tasks: Deterministic Keyboard Paging Test of the Connected Analysis Review
 
-**Input**: Design documents from `/specs/20261028-235115-deterministic-analysis-paging-test/`
+**Input**: Design documents from `/specs/archive/20261028-235115-deterministic-analysis-paging-test/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [quickstart.md](quickstart.md)
 
