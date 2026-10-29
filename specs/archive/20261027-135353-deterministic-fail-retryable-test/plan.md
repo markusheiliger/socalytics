@@ -2,7 +2,7 @@
 
 **Branch**: `20261027-135353-deterministic-fail-retryable-test` | **Date**: 2026-10-27 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261027-135353-deterministic-fail-retryable-test/spec.md`
+**Input**: Feature specification from `/specs/archive/20261027-135353-deterministic-fail-retryable-test/spec.md`
 
 ## Summary
 
@@ -46,7 +46,7 @@ Post-design re-check: unchanged, all gates pass; no Complexity Tracking entry.
 ### Documentation (this feature)
 
 ```text
-specs/20261027-135353-deterministic-fail-retryable-test/
+specs/archive/20261027-135353-deterministic-fail-retryable-test/
 ├── plan.md
 ├── research.md
 ├── data-model.md
