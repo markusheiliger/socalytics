@@ -58,6 +58,7 @@ The environment setup and verification already restore, build, and test the solu
 ## Phase 4: Polish & Cross-Cutting Concerns
 
 - [x] T013 Run `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~SimulatedAgentWorkload"` after rebuilding, and confirm `SimulatedAgentWorkloadTests` and `FailOnceSucceedsOnTheSecondAttempt`, `FailPermanentEndsWithExecutionFailed`, and `StallExpiresTheFirstAttemptAndSucceedsOnTheSecond` pass unchanged, and report the result in the task summary — verified without changes by the assessed verification at 424e7454 (no change by this task)
+
 > **Repository checks are not a task**: the whole-repository Markdown check (`node .github/scripts/check-markdown.mjs`) and the changed-files scope check (only `src/platform/Tests/`, optionally `src/platform/SocAlytics.Platform.Application/AgentOrchestration/Execution/`, and this spec folder, with no `docs/architecture/` change) are performed by the automated finalize and merge verification and are not a task of this spec; no task claims them as verified.
 
 ---
