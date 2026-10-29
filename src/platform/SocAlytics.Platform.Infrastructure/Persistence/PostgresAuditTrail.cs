@@ -94,6 +94,10 @@ internal sealed class PostgresAuditTrail(
         "toMs",
         "shortened",
         "mediaDigests",
+        "tool",
+        "callId",
+        "initiatingMemberId",
+        "limit",
     };
 
     private const string InsertSql =

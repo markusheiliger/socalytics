@@ -152,6 +152,8 @@ services:
       Analysis__Evidence__ResolutionsPerMinute: "60"
       Analysis__Evidence__MaxDuration: "00:10:00"
       Analysis__Evidence__MaxContext: "00:00:10"
+      AgentOrchestration__Tools__MaxCallsPerAttempt: "50"
+      AgentOrchestration__Tools__MaxClipResolutionsPerAttempt: "10"
     depends_on:
       migrator:
         condition: service_completed_successfully

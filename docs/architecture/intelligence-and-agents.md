@@ -70,7 +70,8 @@ Representative tools resolve as follows:
 - `get_video_clip()` resolves accepted evidence time ranges to short-lived
     presigned media access (its API side, the member evidence-media operation
     of [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access),
-    is implemented as development evidence; the MCP tool is future work).
+    and the agent tool operation `agentToolGetVideoClip` are implemented as
+    development evidence; the MCP tool is future work).
 
 When required analysis is unavailable or incomplete, MCP reports that state. It
 does not infer missing concepts from bounding boxes, silently trigger ad hoc LLM
@@ -79,7 +80,7 @@ derivation, or access raw metadata tables.
 The [Analyst Capability Catalog](analyst-capability-catalog.md) defines the
 canonical producers and dependencies for these accepted concepts.
 
-The platform side of the tools is decided and not yet implemented. A dedicated
+The platform side of the tools is implemented as development evidence. A dedicated
 `/api/v1/agent-tools` route group contains exactly one read-only operation per
 allowlisted tool, with stable operation identifiers (`agentToolGetMatch`,
 `agentToolGetVideoClip`, `agentToolFindCounterAttacks`, and so on); the
@@ -97,7 +98,8 @@ read; `get_video_clip()` uses the member evidence-media resolution, and its
 links are returned to the caller only. Until a producing capability is accepted,
 `get_player_stats()` and the concept tools answer an explicit "analysis
 unavailable" outcome naming the producing capability and read no facts. Each
-attempt has configured limits on tool calls and clip resolutions, and every call
+attempt has configured limits on tool calls and clip resolutions (development
+values, no production values), and every call
 that passes the attempt binding is recorded in the invocation's lineage with
 its call identifier, tool, argument and result digests, evidence references,
 and outcome, never evidence content. The MCP server's tools are decided and not
@@ -508,7 +510,7 @@ invocation fails and is never retried. Supersession of the conversation's run
 is not scope loss: the conversation stays bound to its run and usable, and its
 read shows that the run is no longer the match's current run.
 
-Evidence tool calls follow the same rule (decided and not yet implemented):
+Evidence tool calls follow the same rule (implemented as development evidence):
 each call re-evaluates the initiating user's execution authority before reading
 evidence; scope loss denies the call, fences the attempt, and fails the
 invocation in the same transaction, and every later tool call of the attempt

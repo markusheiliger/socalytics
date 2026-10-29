@@ -2,7 +2,7 @@
 
 **Branch**: `20261018-104924-agent-evidence-tools` | **Date**: 2026-10-18 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261018-104924-agent-evidence-tools/spec.md`
+**Input**: Feature specification from `/specs/archive/20261018-104924-agent-evidence-tools/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -59,7 +59,7 @@ telemetry; no concept derivation; scope loss fails closed; production limits sta
 
 | Principle | Gate | Result |
 | --- | --- | --- |
-| I. Architecture Is the Design Authority | The feature implements the platform side of [MCP Tools](../../docs/architecture/intelligence-and-agents.md#mcp-tools), the evidence rules of [Authorization, Lineage, And Lifecycle](../../docs/architecture/intelligence-and-agents.md#authorization-lineage-and-lifecycle), and the "MCP-facing application tools" area of [Control Plane](../../docs/architecture/platform-implementation.md#control-plane); decisions not yet stated there (route group, allowlist contract, `get_match` fact selection, unavailable concept tools, limits, lineage entries) are applied now as decided but not implemented (see Architecture Updates). | Pass |
+| I. Architecture Is the Design Authority | The feature implements the platform side of [MCP Tools](../../../docs/architecture/intelligence-and-agents.md#mcp-tools), the evidence rules of [Authorization, Lineage, And Lifecycle](../../../docs/architecture/intelligence-and-agents.md#authorization-lineage-and-lifecycle), and the "MCP-facing application tools" area of [Control Plane](../../../docs/architecture/platform-implementation.md#control-plane); decisions not yet stated there (route group, allowlist contract, `get_match` fact selection, unavailable concept tools, limits, lineage entries) are applied now as decided but not implemented (see Architecture Updates). | Pass |
 | II. Respect Source-Area Ownership | Production code lives in the existing platform layers inside the Agent Orchestration functional area; the simulated workload stays under `src/platform/Tests`; `src/agents/` stays reserved for Hermes and the later MCP server is not added; no new first-level area or project. | Pass |
 | III. API-First Control Plane | Agents reach evidence only through `/api/v1` operations in the OpenAPI document; the allowlist is a JSON Schema 2020-12 contract; the API never reads or relays media bytes and returns per-object links only. | Pass |
 | IV. Evidence Over Claims | Integration, contract, Host, and architecture tests cover every requirement (FR-021); passing tests are not presented as an MCP server, Hermes, or production readiness. | Pass |
@@ -72,21 +72,21 @@ Post-design re-check: unchanged, all gates pass. No Complexity Tracking entries.
 
 **Narratives** (implemented or changed by this feature):
 
-- [Intelligence and Agents → MCP Tools](../../docs/architecture/intelligence-and-agents.md#mcp-tools): the allowlist,
+- [Intelligence and Agents → MCP Tools](../../../docs/architecture/intelligence-and-agents.md#mcp-tools): the allowlist,
   the route group, attempt and policy binding, `get_match`, `get_video_clip`, unavailable concept tools, limits, and
   lineage.
-- [Intelligence and Agents → Authorization, Lineage, And Lifecycle](../../docs/architecture/intelligence-and-agents.md#authorization-lineage-and-lifecycle):
+- [Intelligence and Agents → Authorization, Lineage, And Lifecycle](../../../docs/architecture/intelligence-and-agents.md#authorization-lineage-and-lifecycle):
   re-evaluation and fencing at every evidence tool call; MCP calls and evidence references in lineage.
-- [Intelligence Agent Catalog → MCP Tool Policy](../../docs/architecture/intelligence-agent-catalog.md#mcp-tool-policy):
+- [Intelligence Agent Catalog → MCP Tool Policy](../../../docs/architecture/intelligence-agent-catalog.md#mcp-tool-policy):
   enforcement of the pinned tool policy.
-- [Platform Implementation Profile → Control Plane](../../docs/architecture/platform-implementation.md#control-plane)
-  ("MCP-facing application tools") and [Agent Runtime](../../docs/architecture/platform-implementation.md#agent-runtime):
+- [Platform Implementation Profile → Control Plane](../../../docs/architecture/platform-implementation.md#control-plane)
+  ("MCP-facing application tools") and [Agent Runtime](../../../docs/architecture/platform-implementation.md#agent-runtime):
   the `Tools` folder and table.
-- [Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md) (evidence clips paragraph) and
-  [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access):
+- [Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md) (evidence clips paragraph) and
+  [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access):
   the API side of `get_video_clip()` for agents.
-- [Security and Data Governance](../../docs/architecture/security-and-data-governance.md):
-  [Audit Events](../../docs/architecture/security-and-data-governance.md#audit-events), `CTL-007`, `THR-007`, and
+- [Security and Data Governance](../../../docs/architecture/security-and-data-governance.md):
+  [Audit Events](../../../docs/architecture/security-and-data-governance.md#audit-events), `CTL-007`, `THR-007`, and
   `DAT-008` (tool calls and evidence references in agent state).
 
 **Design updates** (applied now to the owning narratives, worded as decided but not yet implemented; the
@@ -152,7 +152,7 @@ evidence tools, or agent evidence access); the rewrites listed above are example
 ### Documentation (this feature)
 
 ```text
-specs/20261018-104924-agent-evidence-tools/
+specs/archive/20261018-104924-agent-evidence-tools/
 ├── plan.md
 ├── research.md
 ├── data-model.md

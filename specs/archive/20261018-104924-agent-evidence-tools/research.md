@@ -7,7 +7,7 @@
   `Api/AgentOrchestration/AgentToolEndpoints.cs`). Tool handlers compose the Analysis read cores of the fact-indexing and
   evidence-clip features through Application interfaces; they never call member endpoints over HTTP and never touch
   tables of the Analysis area directly.
-- **Rationale**: The platform is one well-structured monolith whose functional areas are folders ([Control Plane](../../docs/architecture/platform-implementation.md#control-plane));
+- **Rationale**: The platform is one well-structured monolith whose functional areas are folders ([Control Plane](../../../docs/architecture/platform-implementation.md#control-plane));
   "MCP-facing application tools" are a functional area whose only caller today is the agent workload of Agent
   Orchestration, and attempt binding, scope evaluation, fencing, and lineage are Agent Orchestration state. Placing them
   next to the workload operations reuses the workload authentication, `IInvocationScopeEvaluator`, and the lineage store
@@ -119,7 +119,7 @@
   `possession-and-transitions`, `spatial-aggregation`, `ball-action-analysis`, `set-play-analysis`,
   `formation-analysis`, `pressing-analysis`, `tactical-phase-aggregation`, and `null` for `get_player_stats` (no
   catalog capability produces player statistics). They read no facts.
-- **Rationale**: FR-014; the [Analyst Capability Catalog](../../docs/architecture/analyst-capability-catalog.md) names
+- **Rationale**: FR-014; the [Analyst Capability Catalog](../../../docs/architecture/analyst-capability-catalog.md) names
   the producers; reading nothing makes "never derive" structurally true.
 - **Alternatives considered**: Answering `501` (rejected: an unavailable analysis is a valid answer the agent must
   reason about, not an error).

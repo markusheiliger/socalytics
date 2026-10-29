@@ -62,8 +62,11 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.CancelAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListMatchAnalysisRunsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.IRunFactStreamReader, SocAlytics.Platform.Application.Analysis.Facts.RunFactStreamReader>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.IRunFactReader, SocAlytics.Platform.Application.Analysis.Facts.RunFactReader>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.ListRunFactsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.ListRunFactStreamsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Evidence.IEvidenceMediaResolver, SocAlytics.Platform.Application.Analysis.Evidence.EvidenceMediaResolver>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Evidence.ResolveEvidenceMediaHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisOperationalSummaryHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListNotificationReceiptsHandler>();
@@ -186,6 +189,17 @@ public static class ApplicationServiceCollectionExtensions
                 "AgentOrchestration options are invalid: Execution, Workloads, and Monitor values must be positive; workload clients need a unique ClientId and, when enabled, a PublicJwk.")
             .ValidateOnStart();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IInvocationScopeEvaluator, SocAlytics.Platform.Application.AgentOrchestration.InvocationScopeEvaluator>();
+
+        services.AddOptions<SocAlytics.Platform.Application.AgentOrchestration.Tools.AgentToolOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.AgentOrchestration.Tools.AgentToolOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.AgentOrchestration.Tools.AgentToolOptions>,
+            SocAlytics.Platform.Application.AgentOrchestration.Tools.AgentToolOptionsValidator>());
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Tools.AuthorizeToolCallHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Tools.GetMatchToolHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Tools.GetVideoClipTool>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Tools.UnavailableAnalysisToolHandler>();
 
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadTokenHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.AuthenticateAgentWorkloadRequestHandler>();

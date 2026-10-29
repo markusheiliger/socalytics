@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-tools/tool-allowlist/v1/tool-allowlist.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent tool allowlist v1",
+  "description": "The versioned allowlist of the platform tools a Specialist Agent workload may call under /api/v1/agent-tools: for each tool its identifier, operation identifier, POST path template, whether it answers with accepted evidence or always reports the analysis as unavailable, the capability that would produce its evidence, and the typed arguments and result schemas. The allowlist changes only with the architecture. Tool identifiers are written without parentheses.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "allowlistVersion", "tools"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "allowlistVersion": {
+      "description": "Version of the tool allowlist (SemVer 2.0.0 without build metadata).",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "tools": {
+      "description": "The eleven allowlisted tools.",
+      "type": "array",
+      "minItems": 11,
+      "maxItems": 11,
+      "items": { "$ref": "#/$defs/tool" }
+    }
+  },
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["toolId", "operationId", "method", "pathTemplate", "answers", "producingCapability", "argumentsSchema", "resultSchema"],
+      "properties": {
+        "toolId": {
+          "description": "The tool identifier, written without ().",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "operationId": {
+          "description": "The stable OpenAPI operation identifier of the tool's operation.",
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]{0,127}$"
+        },
+        "method": { "const": "POST" },
+        "pathTemplate": {
+          "type": "string",
+          "pattern": "^/api/v1/agent-tools/attempts/\\{attemptId\\}/[a-z][a-z0-9-]{0,63}$"
+        },
+        "answers": {
+          "description": "accepted-evidence: the tool reads accepted run evidence; analysis-unavailable: the tool always reports that its analysis is unavailable.",
+          "enum": ["accepted-evidence", "analysis-unavailable"]
+        },
+        "producingCapability": {
+          "description": "The Analyst capability that would produce the tool's evidence; null when no single capability applies.",
+          "enum": [
+            "counter-attack-analysis",
+            "possession-and-transitions",
+            "spatial-aggregation",
+            "ball-action-analysis",
+            "set-play-analysis",
+            "formation-analysis",
+            "pressing-analysis",
+            "tactical-phase-aggregation",
+            null
+          ]
+        },
+        "argumentsSchema": {
+          "description": "A JSON Schema describing the tool's arguments.",
+          "type": "object"
+        },
+        "resultSchema": {
+          "description": "A JSON Schema describing the tool's answered result.",
+          "type": "object"
+        }
+      }
+    }
+  }
+}

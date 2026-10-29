@@ -147,7 +147,8 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 		var fencingToken = envelope.GetProperty("fencingToken").GetString()!;
 		var attemptNumber = envelope.GetProperty("attemptNumber").GetInt32();
 		var leaseSeconds = envelope.GetProperty("leaseSeconds").GetInt32();
-		var behavior = BehaviorOf(envelope.GetProperty("question").GetString());
+		var question = envelope.GetProperty("question").GetString();
+		var behavior = BehaviorOf(question);
 
 		if (behavior == Behavior.Stall && attemptNumber == 1)
 		{
@@ -166,6 +167,12 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 		}
 
 		if (!await WorkAsync(attemptPath, fencingToken, leaseSeconds, cancellationToken))
+		{
+			return false;
+		}
+
+		var tools = await UseToolsAsync(attemptId, fencingToken, question, cancellationToken);
+		if (tools is null)
 		{
 			return false;
 		}
@@ -196,7 +203,7 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 			{
 				operationId = NewOperationId(),
 				fencingToken,
-				advice = $"Simulated advice from {agentId}",
+				advice = $"Simulated advice from {agentId}. {tools.Describe()}",
 				executionReferences = new
 				{
 					runtime = "simulated",
@@ -216,6 +223,138 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 
 		_logger?.LogWarning("The completion of {InvocationId} answered {Status}.", invocationId, (int)completion.StatusCode);
 		return false;
+	}
+
+	// Calls the evidence tools of the attempt in a fixed order; null when the attempt is stale, so the notification is settled by the platform.
+	private async Task<ToolUse?> UseToolsAsync(Guid attemptId, string fencingToken, string? question, CancellationToken cancellationToken)
+	{
+		var wantsFacts = question?.Contains("[simulate:tools-facts]", StringComparison.Ordinal) == true;
+		var wantsClip = question?.Contains("[simulate:tools-clip]", StringComparison.Ordinal) == true;
+		var wantsDenied = question?.Contains("[simulate:tools-denied]", StringComparison.Ordinal) == true;
+		var use = new ToolUse();
+		var calls = 0;
+
+		async Task<JsonElement?> CallAsync(string tool, string segment, object arguments)
+		{
+			var callId = $"sim-call-{++calls:D4}";
+			using var response = await SendAsync(
+				HttpMethod.Post, $"/api/v1/agent-tools/attempts/{attemptId}/{segment}",
+				new { callId, fencingToken, arguments }, cancellationToken);
+			if (response.IsSuccessStatusCode)
+			{
+				var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
+				use.Outcomes.Add($"{tool}={body.GetProperty("outcome").GetString()}");
+				return body.GetProperty("result");
+			}
+
+			if (response.StatusCode == HttpStatusCode.Conflict)
+			{
+				use.Stale = true;
+				return null;
+			}
+
+			use.Outcomes.Add($"{tool}={response.StatusCode switch
+			{
+				HttpStatusCode.Forbidden => "not-permitted",
+				HttpStatusCode.NotFound => "not-found",
+				HttpStatusCode.TooManyRequests => "limit-reached",
+				HttpStatusCode.BadRequest => "invalid",
+				_ => "failed",
+			}}");
+			return null;
+		}
+
+		var overview = await CallAsync("get_match", "get-match", new { });
+		if (use.Stale)
+		{
+			return null;
+		}
+
+		string? factReference = null;
+		Guid? factResultId = null;
+		var ordinal = 0;
+		if ((wantsFacts || wantsClip) && overview is { ValueKind: JsonValueKind.Object } match
+			&& match.TryGetProperty("streams", out var streams) && streams.ValueKind == JsonValueKind.Array)
+		{
+			foreach (var stream in streams.EnumerateArray())
+			{
+				if (stream.GetProperty("factCount").GetInt32() <= 0)
+				{
+					continue;
+				}
+
+				var capability = stream.GetProperty("capability");
+				var selection = new
+				{
+					facts = new
+					{
+						capabilityId = capability.GetProperty("id").GetString(),
+						capabilityVersion = capability.GetProperty("version").GetString(),
+						schemaVersion = stream.GetProperty("schemaVersion").GetString(),
+						nodeKey = stream.GetProperty("nodeKey").GetString(),
+					},
+				};
+				var selected = await CallAsync("get_match.facts", "get-match", selection);
+				if (use.Stale)
+				{
+					return null;
+				}
+
+				if (selected is { ValueKind: JsonValueKind.Object } answer && answer.TryGetProperty("facts", out var facts)
+					&& facts.GetProperty("items").EnumerateArray().FirstOrDefault() is { ValueKind: JsonValueKind.Object } first)
+				{
+					factResultId = first.GetProperty("acceptedResultId").GetGuid();
+					ordinal = first.GetProperty("ordinal").GetInt32();
+					factReference = $"fact:{factResultId}#{ordinal}";
+					use.Evidence.Add(factReference);
+				}
+
+				break;
+			}
+		}
+
+		if (wantsClip && factResultId is not null)
+		{
+			var clip = await CallAsync("get_video_clip", "get-video-clip", new { fact = new { acceptedResultId = factResultId, ordinal } });
+			if (use.Stale)
+			{
+				return null;
+			}
+
+			if (clip is not null)
+			{
+				use.Evidence.Add($"clip:{factReference}");
+			}
+		}
+
+		await CallAsync("get_formations", "get-formations", new { });
+		if (use.Stale)
+		{
+			return null;
+		}
+
+		if (wantsDenied)
+		{
+			await CallAsync("get_player_stats", "get-player-stats", new { });
+			if (use.Stale)
+			{
+				return null;
+			}
+		}
+
+		return use;
+	}
+
+	private sealed class ToolUse
+	{
+		public List<string> Outcomes { get; } = [];
+
+		public List<string> Evidence { get; } = [];
+
+		public bool Stale { get; set; }
+
+		public string Describe() =>
+			$"Simulated tool outcomes: {string.Join(", ", Outcomes)}. Evidence references: {(Evidence.Count == 0 ? "none" : string.Join(", ", Evidence))}.";
 	}
 
 	// Reads the pinned artifacts as the current attempt and returns their digests by kind; null when the attempt is settled or the read failed.
