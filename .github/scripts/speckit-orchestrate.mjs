@@ -43,6 +43,9 @@ import {
   IMPLEMENT_CHAIN_WORKFLOW_FILES,
   LEGACY_IMPLEMENT_WORKFLOW_FILES,
   ORCHESTRATE_WORKFLOW_FILE,
+  failedRecoveryRoutes,
+  recoveryReassessment,
+  reassessRecovery,
   START_COMMENT_MARKER,
   baseBranchOf,
   checkRunOutput,
@@ -344,6 +347,15 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
         }
       }
       let decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
+      if (!isBlocked && failedRecoveryRoutes(decision.comments ?? [], lifecycle.pull.head.sha).length > 0 &&
+          !recoveryReassessment(decision.comments ?? [], lifecycle.pull.head.sha)) {
+        await reassessRecovery(client, { pull: lifecycle.pull, comments: decision.comments,
+          rediagnose: ({ previous, guidance }) => startDiagnosis(client, env, {
+            twin: issue.number, pull: lifecycle.pull.number, folder, head: lifecycle.pull.head.sha,
+            previous, guidance, auto: true, preserveAmendment: true,
+          }) });
+        decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
+      }
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
       // A handoff to Copilot that ended without a push asks for help again.
       try {

@@ -191,9 +191,12 @@ safe-outputs:
           description: >-
             The report as one JSON object, as described in the speckit-gha-diagnose skill: for a diagnosis the fields
             category, confidence, summary, cause, evidence, artifacts, options, and questions, where every option is
-            an object {title, why, command, copilot, recommended}, exactly one is recommended, and its command (or,
-            for a change only a push can make, its Copilot prompt) fits the category and can be posted as it is (no
-            placeholders); for a rework the fields summary, artifacts, and responses.
+            an object {title, why, command, copilot, target, basis, fixedBy, kind, recommended}, exactly one is
+            recommended. A command or Copilot prompt must be supported for the category and target, with no
+            placeholders. An unmet external prerequisite uses kind external and no command or prompt. Retry needs
+            evidence of a transient failure or changed corrective approach; sync names the relevant full fix SHA
+            in fixedBy and target base. Never invent retry or author as a fallback. For a rework the fields are
+            summary, artifacts, and responses.
           required: true
           type: string
       steps:

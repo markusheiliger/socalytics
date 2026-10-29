@@ -634,7 +634,8 @@ test('repair: successful no-op lands unchanged without a commit and still requir
   };
   assert.equal((await runRepairReport({ client: github, env, log: silent })).exitCode, 1);
   assert.equal(unresolvedRepair(github.comments).id, repair.id);
-  assert.match(github.comments.at(-1).body, /reverifies without running a repair agent.*pending phase verification/);
+  assert.match(github.comments.at(-1).body, /repair attempt 1 reached reverification, but the phase verification failed[\s\S]*\*\*Recommended next step\*\*: \[Wait for the diagnosis\]/);
+  assert.doesNotMatch(github.comments.at(-1).body, /```text\n\s*\/speckit retry/);
   assert.doesNotMatch(github.comments.at(-1).body, /attempt 1 landed|fresh attempt count/);
   env.SPECKIT_VERIFY_RESULT = 'success';
   env.SPECKIT_VERIFICATION_OUTCOME = 'success';
@@ -1247,7 +1248,8 @@ test('converge: code changes are rejected, and the round limit asks the requeste
     assert.deepEqual([landed.exitCode, landed.check.conclusion, landed.check.external_id], [1, 'failure', CHECK_LIMIT]);
     assert.equal(remoteHead(repos), before);
     assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
-    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: \[Wait for the diagnosis\]\([^)]+speckit-diagnose\.lock\.yml\)[\s\S]*<summary>Other options<\/summary>[\s\S]*```text\n {2}\/speckit retry\n {2}```/);
+    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: \[Wait for the diagnosis\]\([^)]+speckit-diagnose\.lock\.yml\)[\s\S]*<summary>Other options<\/summary>/);
+    assert.doesNotMatch(github.comments.at(-1).body, /```text\n\s*\/speckit retry/);
     assert.doesNotMatch(github.comments.at(-1).body, /\/speckit resume/);
   });
 });
@@ -1364,6 +1366,67 @@ test('required sync records original-scope verification without resetting exhaus
       assert.equal(unresolvedRepair(github.comments).id, repair.id, 'the final latest-base check still gates clearance');
     });
   }
+});
+
+test('required sync reconciles only base-equivalent original uncovered paths and retains their test selection', async () => {
+  for (const variant of ['unchanged', 'content', 'mode']) {
+    const changed = variant !== 'unchanged';
+    await withRepos({ seed: (dir) => write(dir, '.github/workflows/old.yml', 'original\n'),
+      ...(changed ? { branch: (dir) => {
+        if (variant === 'content') write(dir, '.github/workflows/old.yml', 'changed\n');
+        else {
+          git(dir, 'config', 'core.filemode', 'false');
+          git(dir, 'update-index', '--chmod=+x', '.github/workflows/old.yml');
+        }
+      } } : {}) }, async (repos) => {
+      const github = fakeGitHub();
+      await github.createComment(9, renderRepairMarker({ id: 'merge:original', state: 'pending', scope: 'merge', at: github.tick() }));
+      await github.createComment(9, renderSyncComment('Required sync'));
+      const original = path.join(repos.base, 'failed-changed-files.txt');
+      writeFileSync(original, '.github/workflows/old.yml\n.github/workflows/reverted-addition.yml\n');
+      const { result } = work(repos, {
+        inputs: RESOLVE_INPUTS,
+        env: {
+          SPECKIT_REQUIRED_SYNC: syncBarrier(github.comments).request,
+          SPECKIT_SYNC_REPAIR: JSON.stringify(unresolvedRepair(github.comments)),
+          SPECKIT_SYNC_ORIGINAL_SCOPE: original,
+        },
+        verify: { outcome: 'success', checks: 'original checks', uncovered: '.github/workflows/old.yml,.github/workflows/reverted-addition.yml' },
+      });
+      assert.equal(result.verified, !changed, result.reasons.join('; '));
+      assert.ok(result.changedFiles.includes('.github/workflows/old.yml'));
+      assert.deepEqual(result.reportedUncovered, ['.github/workflows/old.yml', '.github/workflows/reverted-addition.yml']);
+      assert.deepEqual(result.uncovered, changed ? ['.github/workflows/old.yml'] : []);
+      assert.equal(result.syncRepair.covered, !changed);
+      const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+      assert.equal(landed.exitCode, changed ? 1 : 0, landed.reasons?.join('; '));
+    });
+  }
+});
+
+test('required sync trusted landing rejects forged base-equivalence evidence for a changed workflow', async () => {
+  await withRepos({ seed: (dir) => write(dir, '.github/workflows/old.yml', 'original\n'),
+    branch: (dir) => write(dir, '.github/workflows/old.yml', 'changed\n') }, async (repos) => {
+    const github = fakeGitHub();
+    await github.createComment(9, renderRepairMarker({ id: 'merge:original', state: 'pending', scope: 'merge', at: github.tick() }));
+    await github.createComment(9, renderSyncComment('Required sync'));
+    const original = path.join(repos.base, 'failed-changed-files.txt');
+    writeFileSync(original, '.github/workflows/old.yml\n');
+    const { result } = work(repos, {
+      inputs: RESOLVE_INPUTS,
+      env: { SPECKIT_REQUIRED_SYNC: syncBarrier(github.comments).request, SPECKIT_SYNC_REPAIR: JSON.stringify(unresolvedRepair(github.comments)), SPECKIT_SYNC_ORIGINAL_SCOPE: original },
+      verify: { outcome: 'success', checks: 'original checks', uncovered: '.github/workflows/old.yml' },
+      between: ({ result: packaged }) => {
+        packaged.syncRepair.baseEquivalent = ['.github/workflows/old.yml'];
+        writeFileSync(path.join(repos.resultDir, 'result.json'), JSON.stringify(packaged));
+      },
+    });
+    assert.equal(result.verified, true, 'the worker result claims equivalence');
+    const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+    assert.equal(landed.exitCode, 1);
+    assert.match(landed.reasons.join('; '), /uncovered path without trusted base-equivalence evidence/);
+    assert.equal(syncBarrier(github.comments).completion, null);
+  });
 });
 
 test('required sync finalize is a full-scope superset but cannot clear a replaced pending repair', async () => {
