@@ -16,7 +16,7 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Run `node --test tools/samples.test.mjs` from the repository root to confirm the baseline failure of the test 'refuses a missing folder, no videos, empty videos, and paths that differ only in case; never follows links' in `tools/samples.test.mjs` ("Paths differ only in case" escaping from the probe); no file changes
+No setup tasks: the baseline failure of the case-clash test is not a task, because a run that is expected to fail cannot be verified or ticked by the implementation automation. SC-001 and SC-003 are evidenced by T005, whose scratch copy without the refusal fails exactly the case-clash test.
 
 ## Phase 2: Foundational
 
@@ -51,7 +51,7 @@ No documentation task for `docs/architecture/` is needed: the plan's `## Archite
 
 ## Dependencies & Execution Order
 
-- Phase 1 (T001) first; Phase 3 depends on it only as a baseline.
+- Phase 1 has no tasks (T001 was removed: its expected-failure run cannot be verified automatically).
 - T002 → T003 → T004 (same file, sequential).
 - Phase 4 (T005, T006) depends on T004; T006 also needs T003 to be complete.
 - T007 last.
