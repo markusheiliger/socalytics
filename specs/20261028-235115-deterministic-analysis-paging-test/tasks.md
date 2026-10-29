@@ -18,7 +18,7 @@
 
 **Purpose**: Make the Web UI browser tests runnable.
 
-- [ ] T001 Install the Web UI dependencies and the pinned Playwright 1.63.0 Chromium in `src/clients/web` (`npm ci`, then the Playwright Chromium install if missing) and confirm `npx playwright test tests/e2e/simulated/analysis-review-access.spec.ts --project simulated -g "every control is reachable by keyboard"` starts and runs the test once
+- [x] T001 Install the Web UI dependencies and the pinned Playwright 1.63.0 Chromium in `src/clients/web` (`npm ci`, then the Playwright Chromium install if missing) and confirm `npx playwright test tests/e2e/simulated/analysis-review-access.spec.ts --project simulated -g "every control is reachable by keyboard"` starts and runs the test once — verified without changes by the assessed verification at a8ff400b (no change by this task)
 
 ---
 
