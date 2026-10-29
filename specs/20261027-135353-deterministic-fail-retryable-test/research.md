@@ -18,7 +18,7 @@ All Technical Context items are resolved. The cause of the flakiness is delibera
 | 2 | The test reads state before the third attempt's failure is committed | Last read in the failure message shows `running` or `queued` with 2 attempts, or the terminal read precedes the count | Helper: read the count only after the terminal read, as it already does; confirm no path reads earlier |
 | 3 | A report is still in flight at the count | Runner log shows a report after the cancellation | Helper: stop the runner after the terminal read and before the count (existing order) |
 | 4 | State shared between attempts: a DPoP proof or nonce, a token, or a fence that one attempt leaves behind | Runner log shows a 401/409 on a checkpoint, lease, or failure report of attempt 2 or 3 | Runner or platform, depending on which side rejects a valid request |
-| 5 | Another cause shown by the logs: container startup, scheduling under load, an unobserved event | The captured logs name it | Where the logs place it |
+| 5 | Another cause shown by the logs: container startup, scheduling under load, an unobserved event, or a transient iteration failure of the runner that is never retried because its pause runs on the frozen fake clock (the mechanism T017 names) | The captured logs name it; for the frozen-clock pause, the code plus an injected probe evidence the mechanism only | Where the logs place it; for the frozen-clock pause, the clock of that pause in the runner |
 
 ## Decision
 
