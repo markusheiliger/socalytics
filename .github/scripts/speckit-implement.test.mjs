@@ -859,6 +859,9 @@ test('task: land redoes a parallel task whose files a sibling changed, without c
   assert.equal(remoteSha(repos, 'speckit/f'), sibling);
   assert.deepEqual([result.check.status, result.check.conclusion, result.check.output.title], ['completed', 'neutral', 'T001 attempt 2 is redone from the new head']);
   assert.match(github.comments.at(-1).body, /\*\*T001 attempt 2 runs again\*\*[\s\S]*does not count as a failed attempt/);
+  const bullets = result.requeue.map((reason) => `- ${reason}`);
+  assert.deepEqual(github.comments.at(-1).body.split('\n').filter((line) => line.startsWith('- ')), bullets);
+  assert.equal(result.check.output.summary, bullets.join('\n'));
 }));
 
 // Runs the work job of one task in its own clone, as the matrix does, into results/speckit-result-<task>.
@@ -1494,9 +1497,31 @@ test('required sync rejects failed, skipped, missing and uncovered verification 
       assert.equal(landed.exitCode, 1);
       assert.equal(remoteHead(repos), before);
       assert.equal(syncBarrier(github.comments).completion, null);
+      if (verify?.uncovered) {
+        const bullet = '- required synchronization has files not covered by verification';
+        assert.deepEqual(github.comments.at(-1).body.split('\n').filter((line) => line === bullet), [bullet]);
+        assert.equal(landed.check.output.summary, bullet);
+      }
     });
   }
 });
+
+test('failure reports keep distinct reasons in first-occurrence order without changing validation evidence', () => withRepos({}, async (repos) => {
+  const { result } = work(repos);
+  const reasons = ['First reason', 'Second reason', 'First reason', 'first reason', 'Second reason'];
+  result.reasons = reasons;
+  result.verified = false;
+  writeFileSync(path.join(repos.resultDir, 'result.json'), JSON.stringify(result));
+  const github = fakeGitHub();
+  const before = remoteHead(repos);
+  const landed = await land(repos, github);
+  const bullets = ['- First reason', '- Second reason', '- first reason'];
+  assert.equal(landed.exitCode, 1);
+  assert.deepEqual(landed.reasons, reasons);
+  assert.equal(remoteHead(repos), before);
+  assert.deepEqual(github.comments.at(-1).body.split('\n').filter((line) => line.startsWith('- ')), bullets);
+  assert.equal(landed.check.output.summary, bullets.join('\n'));
+}));
 
 test('required sync rejects an unfinished work job or a replay that does not match the verified tree', async () => {
   for (const failure of ['cancelled', 'tree mismatch']) {
