@@ -10,7 +10,7 @@ Prerequisites: Node.js 24 and Playwright 1.63.0 Chromium; no Docker needed. From
    - **Delay**: a fixed 5000 ms on the request whose URL contains `fromMs=10000` (a temporary `page.route` on `factsRequest`, removed afterward).
 3. Before the fix, reproduce the failure the same way (step 2) and keep the trace; record the evidence in the code comment next to the fix and in the task report ([research.md](research.md) holds the analysis made before).
 4. Probes, each removed afterward: keep "Next page" disabled for the filtered selection; move the focus away from the control. Expected: the test fails on an unchanged assertion.
-5. Run the rest of the browser suite: `npm run test:e2e -- --project simulated`. Expected: unchanged results.
+5. The rest of the browser suite (`npm run test:e2e -- --project simulated`) and the Vitest unit tests (`npm test`) are run by the Phase 2 verification, with one retry. Expected: unchanged results.
 6. Validate Markdown: `node .github/scripts/check-markdown.mjs`.
 
 Passing runs are development evidence only.

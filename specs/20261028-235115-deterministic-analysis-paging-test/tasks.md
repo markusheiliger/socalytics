@@ -32,7 +32,6 @@
 
 - [x] T002 [US1] Establish the cause with evidence and fix it in `src/clients/web/tests/e2e/simulated/analysis-review-access.spec.ts`. First reproduce the failure of the test "has no violations with facts, and every control is reachable by keyboard with visible focus" as in quickstart steps 2 and 3 (under CPU load and, in a temporary local-only change, with a fixed 5000 ms delay on the facts request for `fromMs=10000`), keep a failing trace, and read `src/clients/web/src/features/analysis/FactBrowser.tsx` and `src/clients/web/src/features/analysis/useFactPages.ts` to confirm the cause. Then fix it (expected cause: the test acts on the previous selection): after the `toHaveURL` assertion following "Apply range", wait on observable conditions of the filtered page, namely `facts.first()` having `aria-label` matching `/: pass-1$/` (the unfiltered first page starts with `pass-0`) and `page.getByRole('button', { name: 'Next page' })` being enabled, inserted directly after the `toHaveURL` assertion and before the unchanged `toHaveCount(2)` and the "Next page" activation; keep every existing assertion and accessibility check (`expectNoAxeViolations`, `expectAllReachableByKeyboard`, `toBeFocused` and visible focus in `activateWithKeyboard`, `toHaveCount`) on the same states, use no retry, sleep, longer timeout, or `force`, and add a short code comment naming the evidenced cause and the observed failure counts. If the reproduction puts the cause in the page instead, change only `src/clients/web/src/features/analysis/FactBrowser.tsx` or `src/clients/web/src/features/analysis/useFactPages.ts` so the control stays mounted and focusable across the range reload, with no other behavior change. Afterwards run the whole file at least 5 times under the CPU load and once with the delay (quickstart step 2), then the two probes of quickstart step 4 (each must fail on an unchanged assertion), remove the temporary delay and both probes, and confirm with `git diff` that only the fix remains; report the commands, failure counts, the trace's finding, and the probe results in the final summary of the task
 - [x] T003 [US1] Run the test alone 20 times in a row (`npm run test:e2e -- tests/e2e/simulated/analysis-review-access.spec.ts --project simulated -g "every control is reachable by keyboard" --repeat-each 20 --workers 1` in `src/clients/web`) and confirm every run passes — verified without changes by the assessed verification at ae68bc45 (no change by this task)
-- [ ] T004 [US1] Run the rest of the Web UI browser suite (`npm run test:e2e -- --project simulated` in `src/clients/web`) and the Vitest unit tests (`npm test`), and confirm the results are unchanged except for the now deterministic test
 
 **Checkpoint**: User Story 1 is complete and independently verified.
 
@@ -40,9 +39,9 @@
 
 ## Dependencies & Execution Order
 
-- Phase 1 (T001) → Phase 2 (T002 → T003 → T004).
+- Phase 1 (T001) → Phase 2 (T002 → T003), then the Phase 2 verification.
 - No task changes anything under `specs/`, `.specify/`, or `.github/`: the implementation automation may not change those paths, so experiments, probes, and verification runs are not written to `research.md`. The cause and the run evidence are recorded in the code comment next to the fix (FR-001) and in the report of the task, which the automation posts on the pull request.
-- T002 is the only task that changes a file (the one file the cause lives in); T003 and T004 only run commands that the trusted runner can verify, so they complete without a change.
+- T002 is the only task that changes a file (the one file the cause lives in); T003 only runs a command that the trusted runner can verify, so it completes without a change. The rest of the simulated browser suite (`npm run test:e2e -- --project simulated`) and the Vitest unit tests (`npm test`) have no task of their own: the Phase 2 verification runs them, with one retry, and they must pass unchanged (SC-003).
 - SC-004 (the merge verification of #318 no longer failing) is post-merge evidence and has no task.
 
 ## Parallel Opportunities
@@ -52,4 +51,4 @@ None: all tasks share the one spec file or depend on the preceding run's result.
 ## Implementation Strategy
 
 - **MVP**: Phases 1 and 2 (User Story 1 is the whole feature).
-- Establish the cause and fix it where it lives (T002), prove determinism (T003), then widen to the rest of the suite (T004).
+- Establish the cause and fix it where it lives (T002), prove determinism (T003), then let the Phase 2 verification widen to the rest of the suite.

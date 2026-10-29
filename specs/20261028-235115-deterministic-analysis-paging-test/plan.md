@@ -16,7 +16,7 @@ The Playwright test "has no violations with facts, and every control is reachabl
 
 **Storage**: N/A
 
-**Testing**: Playwright `simulated` project (`npm run test:e2e -- --project simulated`, no Docker); Vitest unit tests for `useFactPages` stay unchanged
+**Testing**: Playwright `simulated` project (`npm run test:e2e -- --project simulated`, no Docker); Vitest unit tests for `useFactPages` stay unchanged; the rest of the simulated suite and Vitest are verified by the Phase 2 verification, not by a task
 
 **Target Platform**: Browser tests of the Web UI on the Linux verification runner
 
