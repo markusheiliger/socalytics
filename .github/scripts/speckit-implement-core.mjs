@@ -851,6 +851,64 @@ export function isTwinRunOf(workflowFile, title, twin) {
   return [`${workflow} spec #${twin}`, `${workflow} · spec #${twin}`, `[${workflow}] spec #${twin}`, `${workflow} #${twin}`].some((name) => text === name || text.startsWith(`${name} `));
 }
 
+// Historical marker retained so existing reminders keep their identity.
+export const ACTION_REQUIRED_MARKER = 'speckit-implement:escalation';
+export const ACTION_REQUIRED_SUPERSEDED_MARKER = '<!-- speckit-implement:reminder-superseded -->';
+
+export function acceptedImplementationAction(comments, after) {
+  const amendments = trustedMarker(comments, AMEND_REQUEST_MARKER);
+  const authors = parseFixEvents(comments).filter((event) => event.event === 'requested' && event.link !== false);
+  return comments.find((comment) => comment.user?.login === BOT_LOGIN && Date.parse(comment.created_at) > Date.parse(after) &&
+    ([...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER, COPILOT_HANDOFF_MARKER].some((marker) => startsWithMarker(comment.body, marker)) ||
+      amendments.some((request) => request.markerComment.id === comment.id) ||
+      authors.some((request) => request.commentId === comment.id))) ?? null;
+}
+
+export async function supersedeActionRequired(client, number, { successor = null, warn = console.warn } = {}) {
+  let updated = 0;
+  try {
+    const comments = await client.listIssueComments(number);
+    const reminders = trustedMarker(comments, ACTION_REQUIRED_MARKER)
+      .filter((item) => !item.markerComment.body.includes(ACTION_REQUIRED_SUPERSEDED_MARKER));
+    if (!reminders.length) return { updated };
+    const pull = await client.getPullRequest(number);
+    const child = successor?.state === 'open' && successor.base?.ref === pull.head?.ref &&
+      successor.head?.ref === amendmentBranch(folderOfBranch(pull.head?.ref)) ? successor : null;
+    let pushedAt;
+    for (const reminder of reminders) {
+      const diagnosis = comments.find((comment) => String(comment.id) === String(reminder.key) &&
+        comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, DIAGNOSIS_COMMENT_MARKER));
+      const boundary = diagnosis?.created_at ?? reminder.markerComment.created_at;
+      const accepted = acceptedImplementationAction(comments, boundary);
+      if (!accepted && !child && pull.state === 'open' && pushedAt === undefined) {
+        pushedAt = latestHumanCommit(await client.listPullRequestCommits(number)) ?? null;
+      }
+      if (!accepted && !child && pull.state === 'open' && !(pushedAt && Date.parse(pushedAt) > Date.parse(boundary))) continue;
+      const link = accepted?.html_url ?? (accepted ? `#issuecomment-${accepted.id}` : pull.html_url ?? `#${number}`);
+      const reason = accepted
+        ? `The action requested by this reminder was already accepted in [this workflow handoff](${link}).`
+        : child ? `This request was transferred to amendment #${child.number}.`
+        : pull.state !== 'open'
+          ? `This implementation was ${pull.merged_at ? 'merged' : 'closed'}.`
+          : `A later push resumed [this implementation](${link}).`;
+      const request = accepted && trustedMarker(comments, AMEND_REQUEST_MARKER).find((item) => item.markerComment.id === accepted.id);
+      const amendment = child?.number ?? (request && trustedMarker(comments, AMEND_REQUEST_STATE_MARKER)
+        .filter((item) => item.request === request.comment && item.state === 'created').at(-1)?.amendment);
+      await client.updateComment(reminder.markerComment.id, [
+        reminder.markerComment.body.split(/\r?\n/, 1)[0],
+        ACTION_REQUIRED_SUPERSEDED_MARKER,
+        `**Superseded**: ${reason} This reminder is not an outstanding request; do not repeat its command.`,
+        ...(amendment ? ['', `The change is tracked in amendment #${amendment}. Its current workflow status, not this historical reminder, determines the next step.`] : []),
+      ].join('\n'));
+      updated += 1;
+    }
+    return { updated };
+  } catch (error) {
+    warn(`Warning: could not supersede action-required reminders on #${number}: ${error.message}`);
+    return { updated, failed: true };
+  }
+}
+
 // Adds (`needed`) or removes ATTENTION_LABEL on a pull request; only an open pull request that is not blocked gets it.
 // The label is a convenience, so a failure never stops the workflow.
 export async function setAttention(client, number, needed, { warn = console.warn } = {}) {

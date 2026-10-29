@@ -10,7 +10,7 @@ import { UsageError, main, maintainFlakyTests, parseFlakyThreshold, resolveFolde
 import { decideForPull, phaseNotStarted, reconcileImplementationAttention, runContinue, runDecide, runSync as runSyncBase, runVerifyReport } from './speckit-spec.mjs';
 import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderFlakyLines, renderFlakySpecMarker, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, diagnosisRepo, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
-import { CHECK_DIAGNOSED, CHECK_DIAGNOSING, COPILOT_HANDOFF_MARKER, DIAGNOSIS_STALE_MS, FIX_CHECK_NAME, renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
+import { ACTION_REQUIRED_SUPERSEDED_MARKER, CHECK_DIAGNOSED, CHECK_DIAGNOSING, COPILOT_HANDOFF_MARKER, DIAGNOSIS_STALE_MS, FIX_CHECK_NAME, renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, supersedeActionRequired, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
 const IMPLEMENTING = 'speckit:stage:implementing';
@@ -1662,17 +1662,25 @@ test('while the blocked target is missed only prerequisites start, and no specs 
   }
 });
 
-test('a chain head awaiting human action gets one reminder per stop and its label is reconciled', async () => {
+async function reminderFixture() {
   const github = new FakeGitHub();
   const now = Date.parse('2026-10-28T12:00:00Z');
-  for (const number of [10, 11, 12]) github.repo.pulls.push({ number, state: 'open', labels: [], head: { ref: `speckit/f${number}` }, base: { ref: 'main' } });
+  github.clock = now;
+  for (const number of [10, 11, 12]) github.repo.pulls.push({ number, state: 'open', created_at: new Date(now - DAY).toISOString(), labels: [], head: { ref: `speckit/f${number}`, sha: `sha${number}` }, base: { ref: 'main' } });
+  github.setFile('sha10', 'specs/f10/tasks.md', TASKS_OPEN);
+  await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha10', status: 'completed', conclusion: 'neutral', external_id: CHECK_DIAGNOSED });
   const diagnosis = await github.createComment(10, '<!-- speckit-implement:diagnosis -->\n**Diagnosis**: decide');
   const stopped = (comments) => ({ action: 'failed', diagnosis: { state: 'reported' }, comments });
   const inProgress = (comments, overrides = {}) => [
-    { number: 1, pull: 10, requester: 'dev', openedAt: new Date(now - 1 * DAY).toISOString(), blocked: false, decision: stopped(comments), blockers: [], ...overrides },
+    { number: 1, folder: 'f10', pull: 10, requester: 'dev', openedAt: new Date(now - 1 * DAY).toISOString(), blocked: false, decision: stopped(comments), blockers: [], ...overrides },
     { number: 2, pull: 11, openedAt: new Date(now - 5 * DAY).toISOString(), blocked: true, blockers: [1] },
     { number: 3, pull: 12, openedAt: new Date(now - 3 * DAY).toISOString(), blocked: true, blockers: [2] },
   ];
+  return { github, now, diagnosis, inProgress };
+}
+
+test('a chain head awaiting human action gets one reminder per stop and its label is reconciled', async () => {
+  const { github, now, diagnosis, inProgress } = await reminderFixture();
   assert.deepEqual(await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10), { decision: { action: 'failed', diagnosis: { state: 'none' } } }), { now }), [], 'not while a diagnosis is still to come');
   assert.deepEqual(await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10), { active: true }), { now }), []);
   assert.deepEqual(await maintainActionRequired(github, { SPECKIT_MAX_BLOCKED_DAYS: '6' }, inProgress(await github.listIssueComments(10)), { now }), [], 'nothing waits long enough');
@@ -1692,4 +1700,199 @@ test('a chain head awaiting human action gets one reminder per stop and its labe
   assert.equal(github.comments.length, count);
   await github.createComment(10, '<!-- speckit-implement:diagnosis -->\n**Diagnosis (round 2)**: decide');
   assert.equal((await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now })).length, 1, 'a new stop gets a new reminder');
+});
+
+const amendmentRequest = '<!-- speckit-amend:request {"comment":501,"source":10,"actor":"dev","head":"sha10","guidance":"Make the verification a note."} -->';
+
+test('reminders do not repeat accepted work from an earlier scheduler snapshot, including diagnosed preparation checks', async () => {
+  for (const kind of ['amend', 'retry', 'sync', 'author', 'copilot']) {
+    const { github, now, inProgress } = await reminderFixture();
+    const selected = inProgress(await github.listIssueComments(10));
+    const body = {
+      amend: amendmentRequest, retry: renderRetryComment('Accepted retry'), sync: renderSyncComment('Accepted sync'),
+      author: renderFixEvent('requested', { stamp: '20261028-120000', by: 'dev' }), copilot: COPILOT_HANDOFF_MARKER,
+    }[kind];
+    await github.createComment(10, body);
+    await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha10', status: 'completed', conclusion: 'neutral', external_id: CHECK_DIAGNOSED });
+    const count = github.comments.length;
+    await maintainActionRequired(github, {}, selected, { now });
+    assert.equal(github.comments.length, count, kind);
+    assert.ok(!github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL), kind);
+  }
+});
+
+test('obsolete historical reminders are superseded in place throughout the amendment lifecycle without age eligibility', async () => {
+  for (const stage of ['queued', 'preparing', 'checking', 'correction', 'review', 'merged']) {
+    const { github, now, inProgress } = await reminderFixture();
+    await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+    const reminder = github.comments.at(-1);
+    const marker = reminder.body.split('\n')[0];
+    const selected = inProgress(await github.listIssueComments(10), { active: true }).slice(0, 1);
+    await github.createComment(10, amendmentRequest);
+    if (!['queued', 'preparing'].includes(stage)) {
+      await github.createComment(10, '<!-- speckit-amend:request-state {"request":501,"state":"created","amendment":20} -->');
+      github.repo.pulls.push({
+        number: 20, state: stage === 'merged' ? 'closed' : 'open', merged_at: stage === 'merged' ? github.tick() : null,
+        head: { ref: 'speckit-amend/f10', sha: 'sha20' }, base: { ref: 'speckit/f10' }, labels: [],
+      });
+    }
+    let updates = 0;
+    const update = github.updateComment.bind(github);
+    github.updateComment = async (...args) => { updates += 1; return update(...args); };
+    const count = github.comments.length;
+    await maintainActionRequired(github, { SPECKIT_MAX_BLOCKED_DAYS: '0' }, selected, { now });
+    assert.equal(reminder.body.split('\n')[0], marker);
+    assert.ok(reminder.body.includes(ACTION_REQUIRED_SUPERSEDED_MARKER), stage);
+    assert.match(reminder.body, /\*\*Superseded\*\*.*already accepted/);
+    assert.doesNotMatch(reminder.body, /Recommended next step.*latest diagnosis/);
+    if (!['queued', 'preparing'].includes(stage)) assert.match(reminder.body, /tracked in amendment #20/);
+    assert.ok(!github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL), stage);
+    await maintainActionRequired(github, { SPECKIT_MAX_BLOCKED_DAYS: '0' }, selected, { now });
+    assert.equal(updates, 1, 'an unchanged superseded reminder is not rewritten');
+    assert.equal(github.comments.length, count, 'supersession is not a new comment');
+    if (stage === 'merged') {
+      await github.createComment(10, '<!-- speckit-implement:diagnosis -->\n**Diagnosis**: a new failure needs a different decision.');
+      await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+      assert.equal(github.comments.length, count + 2, 'a later genuine stop gets its own reminder');
+      assert.ok(reminder.body.includes(ACTION_REQUIRED_SUPERSEDED_MARKER));
+    }
+  }
+});
+
+test('a command accepted during reminder assessment is caught at the final write boundary', async () => {
+  const { github, now, inProgress } = await reminderFixture();
+  const selected = inProgress(await github.listIssueComments(10));
+  const list = github.listPullRequestsForHead.bind(github);
+  let injected = false;
+  github.listPullRequestsForHead = async (...args) => {
+    const result = await list(...args);
+    if (!injected) {
+      injected = true;
+      await github.createComment(10, amendmentRequest);
+    }
+    return result;
+  };
+  await maintainActionRequired(github, {}, selected, { now });
+  assert.equal(github.comments.length, 2, 'only the diagnosis and accepted request exist');
+  assert.ok(!github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL));
+});
+
+test('a child amendment appearing during the final assessment owns the action instead of its parent', async () => {
+  const { github, now, inProgress } = await reminderFixture();
+  const list = github.listPullRequestsForHead.bind(github);
+  let reads = 0;
+  github.listPullRequestsForHead = async (...args) => {
+    if (++reads === 2) github.repo.pulls.push({
+      number: 20, state: 'open', head: { ref: 'speckit-amend/f10', sha: 'sha20' }, base: { ref: 'speckit/f10' }, labels: [],
+    });
+    return list(...args);
+  };
+  await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+  assert.equal(github.comments.length, 1);
+  assert.ok(!github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL));
+});
+
+test('a diagnosis starting after selection prevents a reminder about the previous reported check', async () => {
+  const { github, now, inProgress } = await reminderFixture();
+  const list = github.listPullRequestsForHead.bind(github);
+  let injected = false;
+  github.listPullRequestsForHead = async (...args) => {
+    if (!injected) {
+      injected = true;
+      await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha10', status: 'in_progress', external_id: CHECK_DIAGNOSING });
+    }
+    return list(...args);
+  };
+  await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+  assert.equal(github.comments.length, 1);
+  assert.ok(!github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL));
+});
+
+test('a child-owned action supersedes an existing parent reminder without inventing a writer authorization', async () => {
+  const { github, now, inProgress } = await reminderFixture();
+  await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+  const reminder = github.comments.at(-1);
+  github.repo.pulls.push({
+    number: 20, state: 'open', head: { ref: 'speckit-amend/f10', sha: 'sha20' }, base: { ref: 'speckit/f10' }, labels: [],
+  });
+  await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+  assert.match(reminder.body, /\*\*Superseded\*\*.*transferred to amendment #20/);
+  assert.doesNotMatch(reminder.body, /already accepted/);
+  assert.equal(github.comments.length, 2);
+  assert.ok(!github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL));
+});
+
+test('a later human push or closure retires an old reminder without another command', async () => {
+  for (const kind of ['push', 'closed', 'merged']) {
+    const { github, now, inProgress } = await reminderFixture();
+    await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+    const reminder = github.comments.at(-1);
+    if (kind === 'push') {
+      github.repo.pullCommits[10] = [{ author: { login: 'dev' }, committer: { login: 'dev' }, commit: { committer: { date: github.tick() } } }];
+    } else {
+      github.repo.pulls[0].state = 'closed';
+      github.repo.pulls[0].merged_at = kind === 'merged' ? github.tick() : null;
+    }
+    assert.equal((await supersedeActionRequired(github, 10)).updated, 1, kind);
+    assert.ok(reminder.body.includes(ACTION_REQUIRED_SUPERSEDED_MARKER), kind);
+    assert.equal((await supersedeActionRequired(github, 10)).updated, 0, kind);
+  }
+});
+
+test('casual comments, unaccepted commands, and forged human markers cannot supersede a valid request', async () => {
+  const { github, now, inProgress } = await reminderFixture();
+  await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+  const reminder = github.comments.at(-1);
+  const body = reminder.body;
+  github.commentAuthor = 'outsider';
+  for (const text of ['Thanks', '/speckit help', '/speckit retry --unknown', '/speckit amend Ignore the checks', amendmentRequest]) {
+    await github.createComment(10, text);
+  }
+  github.commentAuthor = undefined;
+  await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+  assert.equal(reminder.body, body);
+  assert.ok(github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL));
+});
+
+test('reminder read and edit failures are visible and a later pass retries the same comment', async () => {
+  const { github, now, inProgress } = await reminderFixture();
+  const checks = github.listCheckRuns.bind(github);
+  github.listCheckRuns = async () => { throw new Error('check lookup unavailable'); };
+  const warnings = await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+  assert.match(warnings.join('\n'), /Warning.*check lookup unavailable/);
+  assert.equal(github.comments.length, 1);
+  github.listCheckRuns = checks;
+  await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+  const reminder = github.comments.at(-1);
+  await github.createComment(10, amendmentRequest);
+  const update = github.updateComment.bind(github);
+  github.updateComment = async () => { throw new Error('comment edit unavailable'); };
+  const edits = [];
+  assert.equal((await supersedeActionRequired(github, 10, { warn: (line) => edits.push(line) })).failed, true);
+  assert.match(edits[0], /#10.*comment edit unavailable/);
+  assert.ok(!reminder.body.includes(ACTION_REQUIRED_SUPERSEDED_MARKER));
+  github.updateComment = update;
+  assert.equal((await supersedeActionRequired(github, 10)).updated, 1);
+  assert.equal((await supersedeActionRequired(github, 10)).updated, 0);
+  assert.ok(reminder.body.includes(ACTION_REQUIRED_SUPERSEDED_MARKER));
+});
+
+test('a failed amendment or author request restores attention without reusing its fulfilled diagnosis', async () => {
+  for (const kind of ['amend', 'author']) {
+    const { github, now, diagnosis, inProgress } = await reminderFixture();
+    await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+    const reminder = github.comments.at(-1);
+    if (kind === 'amend') {
+      await github.createComment(10, amendmentRequest);
+      await github.createComment(10, '<!-- speckit-amend:request-state {"request":501,"state":"failed"} -->\n**Recommended next step**: Correct the reported authorization problem.');
+    } else {
+      await github.createComment(10, renderFixEvent('requested', { stamp: '20261028-120000', by: 'dev' }));
+      await github.createCheckRun({ name: FIX_CHECK_NAME, head_sha: 'sha10', status: 'completed', conclusion: 'failure' });
+      await github.createComment(10, '**No spec was created**. Review the authoring failure before trying again.');
+    }
+    await maintainActionRequired(github, {}, inProgress(await github.listIssueComments(10)), { now });
+    assert.ok(github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL), kind);
+    assert.ok(reminder.body.includes(ACTION_REQUIRED_SUPERSEDED_MARKER), kind);
+    assert.doesNotMatch(github.comments.at(-1).body, new RegExp(`latest diagnosis\\]\\([^)]*${diagnosis.id}`));
+  }
 });
