@@ -50,6 +50,7 @@ import {
   readSpecTasks,
   setAmendmentStatus,
   setAttention,
+  supersedeActionRequired,
   specTitleOfPull,
   tasksPathOf,
   validateAmendment,
@@ -183,6 +184,7 @@ export async function requestAmendment(client, env, { implementation, twin, fold
     'No requirement change has landed. The workflow prepares a spec-only amendment for independent analysis and human review and merge. Completed tasks are preserved; no task is ticked. Implementation stays stopped until the amendment is merged.',
   ].join('\n'));
   await readAmendmentAuthorization(client, implementation, commentId);
+  await supersedeActionRequired(client, implementation.number);
   return maintainAmendmentRequest(client, env, { implementation, twin, folder, now: now() });
 }
 
@@ -913,6 +915,7 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
     ));
     const twin = Number(String(implementation.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
     await setAttention(client, implementation.number, false);
+    await supersedeActionRequired(client, implementation.number);
     if (dispatch && Number.isInteger(twin)) {
       try {
         await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
@@ -977,6 +980,7 @@ export async function maintainAmendment(client, env, { folder, implementation, t
   await guardPullRequest(client, env, await client.getPullRequest(latest.number), { report });
   const context = { amendment: await client.getPullRequest(latest.number), folder, implementation, twin, kind: 'amend' };
   await setAttention(client, implementation.number, false);
+  await supersedeActionRequired(client, implementation.number, { successor: context.amendment });
   return maintainOpenSpecPull(client, env, context, { now, report });
 }
 

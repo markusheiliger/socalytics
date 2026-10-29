@@ -536,9 +536,20 @@ On each scheduler run, current decisions, checks, and trusted workflow markers r
 pull requests too, including authored specs whose originating implementation has merged or closed. A missing label is
 restored without reposting the existing recommendation, and stale labels clear during queued or running work.
 Old comments cannot re-label work resumed by a newer accepted action. Label API failures warn without stopping the
-workflow; subsequent reconciliation retries them. Historical reminder markers remain recognized without rewriting
-old comments. A stopped chain head that older blocked implementations wait for can receive one **Action required**
+workflow; subsequent reconciliation retries them. Historical reminder markers remain recognized. A stopped chain head
+that older blocked implementations wait for can receive one **Action required**
 reminder per stop; this adds context, not another state or label.
+
+Reminders use the same current-action assessment as labels. Before posting, the scheduler refreshes the stop,
+accepted requests, checks, and controlling amendment instead of relying on its earlier selection snapshot.
+Amendment preparation completing with `speckit:diagnosed` is not another request to execute the old diagnosis.
+When an action is accepted or resolved, or an amendment owns the next step, the workflow edits the outstanding bot
+reminder in place as **Superseded**, preserving its comment ID and historical tracking marker. It removes the obsolete
+instruction and links the accepted handoff or controlling amendment without claiming that a particular stage runs
+forever. Cleanup also runs when no aged dependents remain or new reminders are disabled. Repeated passes do not
+repost comments or rewrite unchanged superseded bodies. A later stop uses its own current recommendation.
+Historical diagnoses and task-failure reports are not rewritten. Comment API failures warn and are retried; fresh
+checks and reconciliation limit races but are not an atomic transaction across GitHub resources.
 
 When an amendment passes its consistency check (or a spec pull request authored by `/speckit author` is held for review) and correction rounds are finished, its description,
 review handoff comment, and notification on the stopped implementation explicitly recommend **Review and merge** the
