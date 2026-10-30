@@ -16,4 +16,4 @@
 
 ## Evidence
 
-Implementation evidence is recorded in [`PayloadConformanceEvidence.md`](../../src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/PayloadConformanceEvidence.md). T001 to T005 append their results under the corresponding task headings there; T015 consolidates those entries with the later verification evidence (FR-001). Staggered stream reads were ruled out as a demonstrated cause by T004; the evidence file records that finding, and the one id snapshot read of both streams remains as a consistency measure.
+Implementation evidence is recorded in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/PayloadConformanceEvidence.md`. T001 to T005 append their results under the corresponding task headings there; T015 consolidates those entries with the later verification evidence (FR-001). Staggered stream reads were ruled out as a demonstrated cause by T004; the evidence file records that finding, and the one id snapshot read of both streams remains as a consistency measure.
