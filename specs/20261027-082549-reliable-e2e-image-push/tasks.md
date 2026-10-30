@@ -85,7 +85,7 @@
 
 ### Tests for User Story 3
 
-- [ ] T014 [P] [US3] Write `ImagePush/ImageBuildGateTests.cs`: a probe of concurrent builds on a fresh `ImageBuildGate` instance (never the process-wide static one, so the test neither waits for nor affects real builds) never exceeds that instance's limit, the gate is released on success, failure, and cancellation, a cancelled waiter never holds it, and code that does not build or push never waits for it
+- [x] T014 [P] [US3] Write `ImagePush/ImageBuildGateTests.cs`: a probe of concurrent builds on a fresh `ImageBuildGate` instance (never the process-wide static one, so the test neither waits for nor affects real builds) never exceeds that instance's limit, the gate is released on success, failure, and cancellation, a cancelled waiter never holds it, and code that does not build or push never waits for it
 - [ ] T015 [P] [US3] Write `ImagePush/AnalystImageCacheTests.cs`: concurrent tests (each using a fresh `ImageBuildGate` instance injected into the cache and the build delegate, never the static one) needing the same variant and inputs share one build and push, a different variant or other inputs gets its own image and is never served a mismatching one, a faulted build is reported to every waiting test and removed so a later test may retry (never cached as success), cancellation of one waiting test does not cancel the build for the others, a build whose waiters all cancelled stops, releases the gate, and has its entry removed, the per-key build count is observable, and a cached build cannot acquire the gate twice (no deadlock)
 
 ### Implementation for User Story 3
