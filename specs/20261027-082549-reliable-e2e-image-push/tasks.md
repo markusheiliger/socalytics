@@ -128,7 +128,7 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 
 ### Verification of the rules
 
-- [ ] T030 [US4] Compare the tests of the end-to-end project and of `src/platform/Tests/SocAlytics.Platform.Images.Tests` before and after with `git diff` against the base: no assertion removed or loosened, no test skipped, no test's own behavior timeout lengthened, every Docker-backed test still requires a running engine, no fixed sleep added other than the named `RetryDelay`, list the tests that kept their own build and push and confirm that each has the reason named in a comment (T025, T026), and nothing changed outside the end-to-end support code, its tests, the documentation, and this spec folder (FR-010, FR-013, SC-006); fix any deviation found
+- [x] T030 [US4] Compare the tests of the end-to-end project and of `src/platform/Tests/SocAlytics.Platform.Images.Tests` before and after with `git diff` against the base: no assertion removed or loosened, no test skipped, no test's own behavior timeout lengthened, every Docker-backed test still requires a running engine, no fixed sleep added other than the named `RetryDelay`, list the tests that kept their own build and push and confirm that each has the reason named in a comment (T025, T026), and nothing changed outside the end-to-end support code, its tests, the documentation, and this spec folder (FR-010, FR-013, SC-006); fix any deviation found
 
 **Checkpoint**: All user stories are complete.
 

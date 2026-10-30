@@ -27,7 +27,7 @@ public sealed class ImageBuildGateTests
             using var lease = await gate.AcquireAsync(CancellationToken.None);
             var now = Interlocked.Increment(ref running);
             InterlockedMax(ref observed, now);
-            await Task.Delay(20, TestContext.Current.CancellationToken);
+            await Task.Yield();
             Interlocked.Decrement(ref running);
         })).WaitAsync(Patience, TestContext.Current.CancellationToken);
 
@@ -43,7 +43,7 @@ public sealed class ImageBuildGateTests
         var first = await gate.AcquireAsync(CancellationToken.None);
 
         var second = gate.AcquireAsync(CancellationToken.None).AsTask();
-        await Task.Delay(100, TestContext.Current.CancellationToken);
+        await YieldAsync();
         second.IsCompleted.ShouldBeFalse();
 
         first.Dispose();
@@ -104,7 +104,7 @@ public sealed class ImageBuildGateTests
 
         using var cts = new CancellationTokenSource();
         var waiter = gate.AcquireAsync(cts.Token).AsTask();
-        await Task.Delay(50, TestContext.Current.CancellationToken);
+        await YieldAsync();
         waiter.IsCompleted.ShouldBeFalse();
 
         await cts.CancelAsync();
@@ -167,6 +167,15 @@ public sealed class ImageBuildGateTests
             {
                 return;
             }
+        }
+    }
+
+    // Gives a waiter every chance to run without a fixed sleep.
+    private static async Task YieldAsync()
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            await Task.Yield();
         }
     }
 }

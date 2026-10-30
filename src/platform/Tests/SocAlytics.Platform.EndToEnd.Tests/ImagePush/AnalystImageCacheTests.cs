@@ -130,7 +130,11 @@ public sealed class AnalystImageCacheTests
         await cts.CancelAsync();
         await Should.ThrowAsync<OperationCanceledException>(() => cancelling);
 
-        await Task.Delay(100, Token);
+        for (var i = 0; i < 100; i++)
+        {
+            await Task.Yield();
+        }
+
         staying.IsCompleted.ShouldBeFalse();
         cache.Contains(Succeed).ShouldBeTrue();
 
