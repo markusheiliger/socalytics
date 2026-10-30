@@ -84,3 +84,10 @@ Separate invocations with `--filter "FullyQualifiedName~PayloadConformanceTests.
 #### Failure mid-test followed by the other test
 
 A temporary edit made `PublishedMessagesConformToTheirSchemasAndCarryScopeIdentity` throw `InvalidOperationException` right after the wait (an unconditional `throw` is a compile error in this project, so it was guarded by `messages.Count > 0`). The class run reported Failed 1, Passed 1 of 2: the edited test failed with `temporary mid-test failure` and `CompletionBodiesAreValidatedAndStaleOnesAreRejectedByAcceptance` still passed. The edit was reverted and `git status` / `git diff` show no change to `PayloadConformanceTests.cs`.
+
+### T011 Widening against the fixed test
+
+Temporary test-side edit of `StartAsync` in `PayloadConformanceTests.cs` (reverted completely with `git checkout`; no `TEMP-T011` marker and no change to the file remain): the same widening as T003 variant 1. After finalization a background task repeatedly set `next_attempt_at` to the fake clock plus two minutes on every pending `analysis.ready-work` outbox row of `socalytics.outbox_messages` except the first by `created_at, id` (no publisher change). Command: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~PayloadConformanceTests"`.
+
+- Effect check: a second run of the same edit logged the delay it applied; it delayed 2 pending ready-work rows in one logged update (the other test of the class logged none), and the class again passed.
+- Result: Passed 2, Failed 0, Skipped 0, Total 2 (8 s). The fixed wait returns only once the run's publication state is complete, so it is not affected by delayed publication of the later ready-work rows; under the same widening the old wait accepted a partial set (T003).
