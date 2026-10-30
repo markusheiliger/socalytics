@@ -108,3 +108,26 @@ All Technical Context unknowns are resolved here. Versions and digests were read
   existing toolchain step, whose `SOCALYTICS_PYTHON`, `uv`, and `ffmpeg` it needs. `cache-keys.mjs` is not changed and
   no cache entry is added.
 - **Rationale**: FR-005.
+
+## D9: Smoke evidence parsing after a successful run with diagnostics
+
+- **Evidence**: The writer-confirmed defect from required synchronization run 41027321003 (work job 123968572002,
+  `/speckit amend` on #318): `install-analyst-cv.sh` runs the smoke script with `2>&1`, flattens newlines, and accepts
+  only combined text that starts with `Verified synthetic CV smoke check:`. ONNX Runtime writes a device-discovery
+  warning before the valid evidence line, so a zero-exit successful smoke run is rejected with `the smoke check
+  printed no evidence line`. The retrieved tail of that job's log (400 lines) holds only the synchronized
+  environment self-test output; the warning text itself is not in it, so this entry records the writer's
+  confirmation and the installer code (`smoke_output="$(timeout 300 ... 2>&1 ...)"`, the prefix test on the flattened
+  text), not a verbatim log line. No real-runner rerun has passed; only the corrective tasks T024 and T025 followed by
+  a real run can show that.
+- **Decision**: Capture standard output and standard error separately. Failure order stays: timeout (124), nonzero
+  exit, then evidence. Success needs a zero exit and a complete evidence line of the contract's form at the start of a
+  line of standard output; diagnostics on either stream are tolerated. Newline flattening and the 300-character bound
+  apply only to failure messages, which include both streams.
+- **Rationale**: FR-006 requires evidence of an executed decode, NumPy, and ONNX Runtime step, not a silent run;
+  library diagnostics are not failures. Requiring a complete, anchored line keeps truncated or malformed output
+  failing.
+- **Alternatives considered**: Discarding standard error (hides diagnostics of real failures); matching the prefix
+  anywhere in the combined text (accepts malformed or partial evidence); suppressing the warning in the smoke script
+  (changes the preserved execution requirements and does not cover other diagnostics). The separate misleading
+  exhausted-reassessment message is a workflow-tooling matter and is not part of this feature.
