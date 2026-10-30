@@ -65,9 +65,9 @@
 
 ## Phase 5: User Story 4 - Keep the new coverage proven and documented (Priority: P2)
 
-**Goal**: The README documents the check, and the action's tests fail when any rule is removed.
+**Goal**: The README documents the check, and the action's tests assert each rule.
 
-**Independent Test**: Read the README section; remove the pattern, the budget, or the check block locally and observe the corresponding test fail.
+**Independent Test**: Read the README section; check that the tests contain assertions for the pattern, the budget, and the check block; that they fail when a rule is removed is manual evidence (quickstart section 5), not a verified outcome.
 
 - [x] T010 [US4] In `.github/actions/environment-verify/README.md`, add a section "Sample tooling tests" after "Spec Kit tooling tests" documenting the check name, the command `node --test tools/samples.test.mjs`, the trigger (exactly the four files changed or deleted, always in finalize mode, never otherwise), the nested-run marker, the first-shard-only placement and its budget, the three failure messages, and the covered scope (exactly the four files, no broader `tools/` glob); update the check-order sentence (line 194), the `checks` description, the scope reason mention (line 71), and the covered-paths list (line 202) to include the four files and state that every other `tools/` path stays uncovered
 - [ ] T011 [US4] In `quickstart.md`, add a section "5. Manual mutation check (not verified by the implementation)" that states the three mutations (a weakened `applies` pattern in `action.yml`, a weakened `SAMPLE_TOOLING_FILE` pattern in `verification-plan.mjs`, and a changed `MAIN_MINUTES`) as steps a person can run on a temporary copy of the action folder, naming the cases in `analyst-projects.test.mjs`, `verification-scope.test.mjs`, and `verification-plan.test.mjs` expected to fail, and stating that this is manual evidence that the implementation does not run and does not claim as verified; the new tests' ability to detect each mutation rests on their existing assertions, which T013 runs (no mutation is executed by this task, and no repository file other than `quickstart.md` changes)
