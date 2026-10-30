@@ -124,7 +124,7 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 
 - [ ] T027 [P] [US4] Verify that the two end-to-end evidence statements of `docs/architecture/platform-implementation.md` (the Docker-backed end-to-end test bullet of the evidence list) and `docs/architecture/analysts-models-and-hardware.md` (the sentence that the Docker-backed end-to-end tests register the development Analyst images) remain true, and correct only a statement the change made false (the plan expects none, so the architecture stays unchanged otherwise)
 - [ ] T028 [P] [US4] Extend the `README.md` that T001 created in the end-to-end test project: keep its `## Cause` section from T001 (correct it only where the final design makes it false), the digest sources in order, the named limits and values of `EngineCallPolicy`, the retry rule (transient only, at most `MaxAttempts`, every reason reported, never after cancellation), the build and push bound with its value and why it is a guard, the per-class reuse rule and the tests that keep their own image, and the run commands of [quickstart.md](quickstart.md) (restore, build, the `ImagePush` filter, the full project, the Images tests), stating these are development values and not deployment support or production readiness
-- [ ] T029 [P] [US4] Edit `src/platform/README.md` to link to the end-to-end project's README and correct its end-to-end test description only where the change makes it false
+- [x] T029 [P] [US4] Edit `src/platform/README.md` to link to the end-to-end project's README and correct its end-to-end test description only where the change makes it false
 
 ### Verification of the rules
 
