@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Fix for**: #360 (implementation of `specs/20261027-082549-reliable-e2e-image-push`, twin #359)
+**Fix for**: #360 (implementation of `specs/archive/20261027-082549-reliable-e2e-image-push`, twin #359)
 
-**Input**: User description: "`SimulatedAgentWorkloadBehaviorTests.FailRetryableEndsWithAttemptsExhausted` in SocAlytics.Platform.Integration.Tests/AgentOrchestration failed and then passed on its one rerun in the verifications of three implementation pull requests (#201, #284, #360), so it is flaky. It is not caused by the stopped spec `specs/20261027-082549-reliable-e2e-image-push`, which changes only the End-to-End test support. Find and remove the real cause where it lives (the test, its shared helper `RunToEndAsync`, the simulated workload runner, or the platform code it covers) without weakening, skipping, or deleting the test or its assertions (state `failed`, `failureReason` `attempts-exhausted`, exactly 3 attempts), without retries, fixed sleeps, or longer timeouts as the fix, and without changing the documented behavior of submission, work delivery, fenced claim, lease, failure, retry, and attempt exhaustion. The spec `specs/20261027-082549-reliable-e2e-image-push` depends on this spec."
+**Input**: User description: "`SimulatedAgentWorkloadBehaviorTests.FailRetryableEndsWithAttemptsExhausted` in SocAlytics.Platform.Integration.Tests/AgentOrchestration failed and then passed on its one rerun in the verifications of three implementation pull requests (#201, #284, #360), so it is flaky. It is not caused by the stopped spec `specs/archive/20261027-082549-reliable-e2e-image-push`, which changes only the End-to-End test support. Find and remove the real cause where it lives (the test, its shared helper `RunToEndAsync`, the simulated workload runner, or the platform code it covers) without weakening, skipping, or deleting the test or its assertions (state `failed`, `failureReason` `attempts-exhausted`, exactly 3 attempts), without retries, fixed sleeps, or longer timeouts as the fix, and without changing the documented behavior of submission, work delivery, fenced claim, lease, failure, retry, and attempt exhaustion. The spec `specs/archive/20261027-082549-reliable-e2e-image-push` depends on this spec."
 
 ## Clarifications
 
@@ -38,7 +38,7 @@ The implementation first establishes which of these produces the failure, from t
 
 A maintainer running the Integration suite, or the verification of any implementation, sees `FailRetryableEndsWithAttemptsExhausted` pass whenever three retryable failures exhaust the attempts of an invocation, however loaded the runner, NATS, and the host are, and fail only when that behavior is broken.
 
-**Why this priority**: The test failed in the verifications of three implementations, and the implementation of `specs/20261027-082549-reliable-e2e-image-push` (#360) is held by its report; the person who asked wants the cause removed rather than rerun.
+**Why this priority**: The test failed in the verifications of three implementations, and the implementation of `specs/archive/20261027-082549-reliable-e2e-image-push` (#360) is held by its report; the person who asked wants the cause removed rather than rerun.
 
 **Independent Test**: Run the test repeatedly, alone and with its class without synthetic CPU load; every run passes. CPU-loaded runs are optional supplemental evidence. Then, as manual local evidence that a person runs outside the automated implementation, break the behavior with a probe (for example, stop redelivering after the second attempt, or make the third attempt succeed) and confirm the test still fails on its assertions or its bounded wait instead of passing or hanging.
 
@@ -79,6 +79,6 @@ A maintainer running the Integration suite, or the verification of any implement
 ## Assumptions
 
 - **Cause**: The test belongs to Agent Orchestration direct invocations (merged spec [Agent Orchestration Invocations](../20261017-204332-agent-orchestration-invocations/spec.md)); it exercises the real queue, claim, lease, failure, redelivery, and exhaustion operations against the in-process runner and the fixture's fake time. The concrete cause is established during implementation (FR-001).
-- **Dependencies**: [Reliable End-to-End Image Push](../../20261027-082549-reliable-e2e-image-push/spec.md) depends on this spec. Related specs that must not be repeated: [Deterministic Fail-Once Retry of the Simulated Agent Workload](../20261020-224223-deterministic-simulated-workload-retry/spec.md), [Deterministic Stall Expiry of the Simulated Agent Workload](../20261023-150804-deterministic-stall-expiry-test/spec.md), and [Harden Integration Test Timing](../20261019-221242-harden-integration-test-timing/spec.md).
+- **Dependencies**: [Reliable End-to-End Image Push](../20261027-082549-reliable-e2e-image-push/spec.md) depends on this spec. Related specs that must not be repeated: [Deterministic Fail-Once Retry of the Simulated Agent Workload](../20261020-224223-deterministic-simulated-workload-retry/spec.md), [Deterministic Stall Expiry of the Simulated Agent Workload](../20261023-150804-deterministic-stall-expiry-test/spec.md), and [Harden Integration Test Timing](../20261019-221242-harden-integration-test-timing/spec.md).
 - **Out of scope**: Other flaky tests, the Web UI and Host test projects, simulated behaviors unrelated to the retryable failure, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

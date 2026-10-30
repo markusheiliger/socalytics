@@ -2,7 +2,7 @@
 
 **Branch**: `20261027-082549-reliable-e2e-image-push` | **Date**: 2026-10-27 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261027-082549-reliable-e2e-image-push/spec.md`
+**Input**: Feature specification from `/specs/archive/20261027-082549-reliable-e2e-image-push/spec.md`
 
 ## Summary
 
@@ -66,8 +66,8 @@ shared test project is `Integration.Tests` (not edited; its fixture is only used
 None. The feature changes only the end-to-end test support code, its unit tests, and the project's documentation; no
 component, technology, topology, protocol, contract, or term of the architecture changes. `docs/architecture/` mentions
 the Docker-backed end-to-end tests only as evidence of what they cover
-([platform-implementation.md](../../docs/architecture/platform-implementation.md), the Docker-backed end-to-end test
-bullet of the evidence list, and [analysts-models-and-hardware.md](../../docs/architecture/analysts-models-and-hardware.md),
+([platform-implementation.md](../../../docs/architecture/platform-implementation.md), the Docker-backed end-to-end test
+bullet of the evidence list, and [analysts-models-and-hardware.md](../../../docs/architecture/analysts-models-and-hardware.md),
 the sentence that the Docker-backed end-to-end tests register the development Analyst images); neither says how a test
 image is pushed, which digest sources, limits, retries, or bounds apply, and no statement about planned, future, or
 unimplemented work is made true or false by this change, so no architecture task is required. The push and build
@@ -78,7 +78,7 @@ behavior is documented in the end-to-end project's README (FR-012).
 ### Documentation (this feature)
 
 ```text
-specs/20261027-082549-reliable-e2e-image-push/
+specs/archive/20261027-082549-reliable-e2e-image-push/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 (decisions, Evidence section; the rest of the cause goes to the end-to-end README)
 ├── data-model.md        # Phase 1 (support types, states, rules)
