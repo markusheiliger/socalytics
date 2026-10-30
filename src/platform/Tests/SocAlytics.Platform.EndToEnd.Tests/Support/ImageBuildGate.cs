@@ -3,9 +3,18 @@ namespace SocAlytics.Platform.EndToEnd.Tests.Support;
 /// <summary>Bounds the builds and pushes that run at the same time and records the highest concurrency it observed.</summary>
 internal sealed class ImageBuildGate
 {
+    /// <summary>
+    /// Builds and pushes of the whole test assembly run one at a time so the single container engine and registry stay unloaded.
+    /// The test collection already serializes the tests; this is a guard if the collection structure changes.
+    /// </summary>
+    public const int MaxConcurrentBuildsAndPushes = 1;
+
     private readonly SemaphoreSlim _semaphore;
     private int _current;
     private int _observedMaximum;
+
+    /// <summary>The single process-wide gate that every helper's uncached build and push acquires.</summary>
+    public static ImageBuildGate Shared { get; } = new(MaxConcurrentBuildsAndPushes);
 
     public ImageBuildGate(int limit)
     {
