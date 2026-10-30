@@ -101,3 +101,12 @@ Three temporary test-side probes in `PayloadConformanceTests.cs`, applied one af
 - Segment on a non-segment job (a copy of the first job with `executionScope` set to `match` while keeping `segment`): Failed 1 of 1 in 5 s on the no-segment assertion, `job.TryGetProperty("segment", out _)`. No hang.
 
 After the last probe `git status --short` shows no change to `PayloadConformanceTests.cs`; every probe change is gone.
+
+### T013 Unpublishable and unpublished rows (FR-004)
+
+Temporary test-side probe in `StartAsync` of `PayloadConformanceTests.cs` (marked `TEMP-T013`, reverted completely with `git checkout`): after finalization a background task repeatedly updated the first `analysis.ready-work` outbox row of the run (by `created_at, id`) in `socalytics.outbox_messages`. Each probe ran `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~PayloadConformanceTests.PublishedMessages"`. Passing and failing results are development evidence only.
+
+- Failed row (`state = 'failed'`, `failure_category = 'publish-rejected'`; the check constraint `ck_outbox_messages_failure_category` allows only `transport-unavailable`, `publish-timeout`, `publish-rejected`, so a first attempt with another value was rejected by the database and had no effect and was discarded): Failed 1 of 1 in 3 s, no hang, no assertion on a partial set: `System.InvalidOperationException : Outbox rows of the run's message set failed or were discarded: id=01a18e36-d48d-7033-ade4-3872e95fa412 message_type=analysis.ready-work subject=analysis.jobs.ready.dev-segment-capability state=failed attempt_count=0 failure_category=publish-rejected next_attempt_at=-`. It names the row and its last failure category.
+- Pending row not due (`state = 'pending'`, `next_attempt_at` 30 days ahead): Failed 1 of 1 after 2 m 32 s (the wait's own limit, `WaitLimit` of 150 s, inside the 180 s hang guard) through the wait's own failure, not the xUnit timeout: `System.TimeoutException : The run's publication state was not complete before the hang guard. Pending rows: id=01a18e37-3792-7a44-b72b-0a3f45d011b9 message_type=analysis.ready-work subject=analysis.jobs.ready.dev-segment-capability state=pending attempt_count=0 failure_category=- next_attempt_at=2026-11-29T19:11:34.9751720Z`. It names id, `message_type`, `subject`, `attempt_count`, `failure_category`, and `next_attempt_at`.
+
+After the probes `git checkout` restored `PayloadConformanceTests.cs`; `git status --short` shows no change to it and no `TEMP-T013` marker remains.
