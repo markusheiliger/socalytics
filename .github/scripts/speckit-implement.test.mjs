@@ -153,18 +153,18 @@ function landEnv(repos) {
   return { GITHUB_SERVER_URL: pathToFileURL(repos.remoteRoot).href, GITHUB_REPOSITORY: 'octo/repo', GITHUB_TOKEN: 'token', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_BASE_BRANCH: 'main' };
 }
 
-async function land(repos, github, { inputs = TASK_INPUTS, workResult = 'success' } = {}) {
+async function land(repos, github, { inputs = TASK_INPUTS, workResult = 'success', git: gitRunner = defaultGit(repos.land), env = {}, log = silent } = {}) {
   const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-head', status: 'in_progress', external_id: CHECK_ATTEMPT });
   const result = await runLand({
     client: github,
-    git: defaultGit(repos.land),
-    env: landEnv(repos),
+    git: gitRunner,
+    env: { ...landEnv(repos), ...env },
     inputs: { ...inputs, checkRun: check.id },
     folder: 'f',
     workspace: repos.land,
     resultDir: repos.resultDir,
     workResult,
-    log: silent,
+    log,
   });
   return { ...result, check: github.repo.checkRuns.find((run) => run.id === check.id) };
 }
@@ -1179,9 +1179,129 @@ test('task: land reports a refused push as a failure instead of redoing the task
   const result = await land(repos, github);
   assert.equal(result.exitCode, 1);
   assert.match(result.reasons.join(), /the push to `speckit\/f` was rejected: /);
+  assert.match(result.reasons.join(), /remote: denied by a rule/);
+  assert.match(result.reasons.join(), /The remote branch is unchanged at [0-9a-f]{40}/);
   assert.equal(remoteHead(repos), before);
   assert.deepEqual([result.check.conclusion, result.check.output.title], ['failure', 'T001 attempt 2 failed']);
 }));
+
+test('publication: both paths retain remote rejection diagnostics and redact credentials everywhere', async () => {
+  for (const inputs of [TASK_INPUTS, RESOLVE_INPUTS]) {
+    await withRepos({ main: (dir) => write(dir, 'docs/base.md', '# New base\n') }, async (repos) => {
+      const github = fakeGitHub();
+      let repair;
+      const workEnv = {};
+      if (inputs.kind === 'resolve') {
+        await github.createComment(9, renderRepairMarker({ id: 'phase:original', state: 'pending', scope: 'phase', tasks: ['T001'], at: github.tick() }));
+        repair = unresolvedRepair(github.comments);
+        await github.createComment(9, renderSyncComment('Required sync'));
+        workEnv.SPECKIT_REQUIRED_SYNC = syncBarrier(github.comments).request;
+        workEnv.SPECKIT_SYNC_REPAIR = JSON.stringify(repair);
+      }
+      const { result: verified } = work(repos, { inputs, env: workEnv, agent: inputs.kind === 'task' ? (r) => agentDoesT001(r.work) : undefined });
+      assert.equal(verified.verified, true);
+      const token = 'publication-test-secret/with+symbols';
+      const otherToken = 'secondary-test-secret';
+      const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+      const unknownBasic = Buffer.from('someone:another-secret').toString('base64');
+      const diagnostic = [
+        'remote: publication refused by repository policy',
+        `remote: token=${token}; encoded=${encodeURIComponent(token)}; basic=${basic}`,
+        `remote: secondary=${otherToken}`,
+        'remote: https://someone:unknown-password@example.invalid/repo.git',
+        `remote: AUTHORIZATION: basic ${unknownBasic}`,
+        'remote: Authorization: Bearer unknown-bearer-secret',
+        "error: failed to push some refs to 'https://github.com/octo/repo.git'",
+      ].join('\n');
+      const realGit = defaultGit(repos.land);
+      let pushes = 0;
+      const gitRunner = (args) => {
+        if (args.includes('push')) {
+          pushes++;
+          return { status: 1, stderr: diagnostic, stdout: 'remote: stdout rejection detail' };
+        }
+        return realGit(args);
+      };
+      const before = remoteHead(repos);
+      const summary = path.join(repos.base, 'publication-summary.md');
+      const logs = [];
+      const result = await land(repos, github, {
+        inputs, git: gitRunner, env: { GITHUB_TOKEN: token, GH_TOKEN: otherToken, GITHUB_STEP_SUMMARY: summary },
+        log: (line) => logs.push(line),
+      });
+      assert.equal(result.exitCode, 1);
+      assert.equal(result.requeue, undefined);
+      assert.equal(pushes, 1, 'a refusal on an unchanged branch is not retried');
+      assert.equal(remoteHead(repos), before);
+      assert.equal(classifyFailure(result.reasons), 'repeat');
+      const comment = github.comments.at(-1).body;
+      const stepSummary = readFileSync(summary, 'utf8');
+      for (const output of [result.reasons.join('\n'), comment, result.check.output.summary, logs.join('\n'), stepSummary]) {
+        assert.match(output, /remote: publication refused by repository policy/);
+        assert.match(output, /remote: stdout rejection detail/);
+        assert.match(output, /error: failed to push some refs/);
+        assert.match(output, /remote branch is unchanged at [0-9a-f]{40}/);
+        assert.doesNotMatch(output, /probably moved|workflows permission/);
+        for (const secret of [token, encodeURIComponent(token), basic, otherToken, unknownBasic, 'unknown-password', 'unknown-bearer-secret']) {
+          assert.ok(!output.includes(secret), `credential leaked: ${secret}`);
+        }
+      }
+      assert.match(comment, /"class":"repeat"/);
+      assert.match(comment, /stops for diagnosis/);
+      if (repair) {
+        assert.deepEqual(unresolvedRepair(github.comments), repair);
+        assert.equal(syncBarrier(github.comments).completion, null, 'failed publication cannot verify or release synchronization');
+      } else {
+        assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+      }
+    });
+  }
+});
+
+test('publication: an unreadable remote retains redacted push and fetch failures without claiming branch movement', async () => {
+  for (const inputs of [TASK_INPUTS, RESOLVE_INPUTS]) {
+    await withRepos({ main: (dir) => write(dir, 'docs/base.md', '# New base\n') }, async (repos) => {
+      work(repos, { inputs, agent: inputs.kind === 'task' ? (r) => agentDoesT001(r.work) : undefined });
+      const realGit = defaultGit(repos.land);
+      let pushed = false;
+      const gitRunner = (args) => {
+        if (args.includes('push')) {
+          pushed = true;
+          return { status: 1, stdout: '', stderr: 'remote: rejected by server\nerror: failed to push some refs' };
+        }
+        if (pushed && args.includes('fetch')) return { status: 1, stdout: '', stderr: 'fatal: cannot read https://user:fetch-password@example.invalid/repo.git\nAuthorization: token fetch-secret' };
+        return realGit(args);
+      };
+      const result = await land(repos, fakeGitHub(), { inputs, git: gitRunner });
+      assert.equal(result.exitCode, 1);
+      assert.equal(classifyFailure(result.reasons), 'infrastructure');
+      const output = JSON.stringify(result);
+      assert.match(output, /remote: rejected by server/);
+      assert.match(output, /and the branch could not be read/);
+      assert.match(output, /fatal: cannot read/);
+      assert.doesNotMatch(output, /fetch-password|fetch-secret|probably moved|branch is unchanged|moved from/);
+    });
+  }
+});
+
+test('publication: missing diagnostics are explicit and long diagnostics retain their redacted beginning and end', async () => {
+  for (const diagnostic of ['', `remote: policy rejection\n${'padding '.repeat(1000)}\nremote: credential=token\nerror: failed to push some refs`]) {
+    await withRepos({}, async (repos) => {
+      work(repos, { agent: (r) => agentDoesT001(r.work) });
+      const realGit = defaultGit(repos.land);
+      const gitRunner = (args) => args.includes('push') ? { status: 1, stdout: '', stderr: diagnostic } : realGit(args);
+      const result = await land(repos, fakeGitHub(), { git: gitRunner });
+      assert.equal(result.exitCode, 1);
+      const reason = result.reasons.join('\n');
+      if (diagnostic) {
+        assert.match(reason, /remote: policy rejection[\s\S]*\[Git diagnostic truncated\][\s\S]*remote: credential=\*\*\*[\s\S]*failed to push some refs/);
+        assert.ok(reason.length < 6400, 'large diagnostics remain bounded');
+      } else {
+        assert.match(reason, /git exited with status 1 without diagnostics/);
+      }
+    });
+  }
+});
 
 test('task: land reports failures without pushing and does not trust a forged result', () => withRepos({}, async (repos) => {
   agentDoesT001(repos.work, { tick: false });
@@ -1387,6 +1507,46 @@ test('required sync records original-scope verification without resetting exhaus
     });
   }
 });
+
+test('publication: a genuinely moved branch requeues a required sync without losing its repair scope', () => withRepos({
+  main: (dir) => write(dir, 'docs/base.md', '# New base\n'),
+}, async (repos) => {
+  const github = fakeGitHub();
+  await github.createComment(9, renderRepairMarker({ id: 'phase:original', state: 'pending', scope: 'phase', tasks: ['T001'], at: github.tick() }));
+  const repair = unresolvedRepair(github.comments);
+  await github.createComment(9, renderSyncComment('Required sync'));
+  const barrier = syncBarrier(github.comments);
+  const { result: verified } = work(repos, {
+    inputs: RESOLVE_INPUTS,
+    env: { SPECKIT_REQUIRED_SYNC: barrier.request, SPECKIT_SYNC_REPAIR: JSON.stringify(repair) },
+  });
+  assert.equal(verified.verified, true);
+  const before = remoteSha(repos, 'speckit/f');
+  const realGit = defaultGit(repos.land);
+  let sibling;
+  let pushes = 0;
+  const gitRunner = (args) => {
+    if (args.includes('push')) {
+      pushes++;
+      sibling = siblingLands(repos, (dir) => write(dir, 'docs/sibling.md', '# Concurrent change\n'));
+      return { status: 1, stdout: '', stderr: 'remote: non-fast-forward rejection\nerror: failed to push some refs' };
+    }
+    return realGit(args);
+  };
+  const result = await land(repos, github, { inputs: RESOLVE_INPUTS, git: gitRunner });
+  assert.equal(result.exitCode, 0);
+  assert.equal(pushes, 1, 'a stale verified merge is never force-pushed or retried');
+  assert.equal(result.reasons, undefined);
+  assert.match(result.requeue.join('\n'), new RegExp(`moved from ${before} to ${sibling}`));
+  assert.match(result.requeue.join('\n'), /remote: non-fast-forward rejection/);
+  assert.equal(remoteSha(repos, 'speckit/f'), sibling);
+  assert.equal(result.check.conclusion, 'neutral');
+  assert.match(github.comments.at(-1).body, /"outcome":"requeue"/);
+  assert.match(github.comments.at(-1).body, /does not count as a failed attempt/);
+  assert.deepEqual(unresolvedRepair(github.comments), repair);
+  assert.equal(syncBarrier(github.comments).request, barrier.request);
+  assert.equal(syncBarrier(github.comments).completion, null);
+}));
 
 test('required sync reconciles only base-equivalent original uncovered paths and retains their test selection', async () => {
   for (const variant of ['unchanged', 'content', 'mode']) {

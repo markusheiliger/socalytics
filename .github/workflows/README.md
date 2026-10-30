@@ -451,6 +451,12 @@ before it (`repeatedFailure`), the evidence tells the agent, and a recommendatio
 options at publication. Neither retry nor author is synthesized as a fallback. Author requires a supported
 `feature` or `environment` target. Protected trusted tooling and unmet permissions or service prerequisites use an
 explicit external-action option with no immediately runnable command.
+Both task and non-task publication retain the remote push rejection in their failure reports and landing logs,
+redacting token values, HTTP authorization headers, and URL credentials before reporting bounded diagnostics.
+After a rejected push, the publisher fetches the branch: an unchanged head is a refused push (`repeat`), a failed
+read leaves the branch state unknown (`infrastructure`), and a moved head follows the existing task replay rules or
+requeues non-task work for verification on the new head. No workflow-permission cause is inferred from generic Git
+failure text, and a failed publication neither releases required synchronization nor clears pending repair evidence.
 An earlier required synchronization that stopped without moving the branch is shown prominently in the diagnosis,
 with its request time and available link, even when its failure differs from the preceding stop. A verified or
 released synchronization is not reported as failed. Push-permission causes must not be asserted from generic Git

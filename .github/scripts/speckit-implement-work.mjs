@@ -851,6 +851,35 @@ function fetchArgs(env, branch) {
   return [...config, 'fetch', '--quiet', url, `+refs/heads/${branch}:${LANDED_HEAD_REF}`];
 }
 
+function gitFailureDiagnostic(result, env) {
+  let text = [result.stderr, result.stdout].filter((value) => value?.trim()).join('\n').trim()
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
+    .replace(/(\b(?:proxy-)?authorization\s*[:=]\s*(?:basic|bearer|token)\s+)[^\s'"]+/gi, '$1***');
+  for (const token of new Set([env.GITHUB_TOKEN, env.GH_TOKEN].filter(Boolean))) {
+    for (const secret of [token, encodeURIComponent(token), Buffer.from(`x-access-token:${token}`).toString('base64')]) {
+      text = text.replaceAll(secret, '***');
+    }
+  }
+  text = text.replace(/(https?:\/\/)[^\s/@]+@/gi, '$1***@');
+  if (!text) return `git exited with status ${result.status ?? 'unknown'} without diagnostics`;
+  return text.length > 6000 ? `${text.slice(0, 4500)}\n[Git diagnostic truncated]\n${text.slice(-1500)}` : text;
+}
+
+function inspectRejectedPush({ git, env, branch, onto, pushed }) {
+  const rejection = gitFailureDiagnostic(pushed, env);
+  const fetched = git(fetchArgs(env, branch));
+  if (fetched.status !== 0) {
+    return { reasons: [`the push to \`${branch}\` was rejected (${rejection}) and the branch could not be read (${gitFailureDiagnostic(fetched, env)})`] };
+  }
+  const newHead = gitOrThrow(git, ['rev-parse', LANDED_HEAD_REF]).trim();
+  if (newHead === onto) {
+    return { reasons: [`the push to \`${branch}\` was rejected: ${rejection}\nThe remote branch is unchanged at ${onto}.`] };
+  }
+  return { newHead, rejection };
+}
+
 // How often a task is rebuilt on a moved branch before it is redone from the newest head.
 const MAX_LAND_TRIES = 5;
 
@@ -908,14 +937,9 @@ async function pushTask({ client, inputs, git, env, folder, task, message, resul
     if (await publicationBlocked(client, inputs)) return { requeue: ['required synchronization was requested before task publication'] };
     const pushed = git(pushArgs(env, branch));
     if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim(), combined };
-    const rejection = pushed.stderr.trim().split('\n').at(-1);
-    const fetched = git(fetchArgs(env, branch));
-    if (fetched.status !== 0) {
-      return { reasons: [`the push to \`${branch}\` was rejected (${rejection}) and the branch could not be read (${fetched.stderr.trim().split('\n').at(-1)})`] };
-    }
-    const newHead = gitOrThrow(git, ['rev-parse', LANDED_HEAD_REF]).trim();
-    // An unmoved branch means the push itself was refused (rules, hooks, permissions), which a retry cannot fix.
-    if (newHead === onto) return { reasons: [`the push to \`${branch}\` was rejected: ${rejection}`] };
+    const inspected = inspectRejectedPush({ git, env, branch, onto, pushed });
+    if (inspected.reasons) return { reasons: inspected.reasons };
+    const { newHead } = inspected;
     // A completion without a change was assessed and verified on one head; it is never carried onto another.
     if (pinned) return { requeue: [`the branch \`${branch}\` moved after the completion of ${task} without a change was assessed; it is assessed again on the new head`] };
     if (git(['merge-base', '--is-ancestor', base, newHead]).status !== 0) return { requeue: [`the branch \`${branch}\` was rewritten since the task started`] };
@@ -972,7 +996,7 @@ async function completeSupersededProgress(client, parent, head) {
   }
 }
 
-async function push({ client, git, env, inputs, folder, resultDir, report, syncRequest }) {
+async function push({ client, git, env, inputs, folder, resultDir, report, syncRequest, onto }) {
   const branch = implementationBranch(folder);
   if (await publicationBlocked(client, inputs, syncRequest)) {
     const requeue = ['required synchronization was requested or replaced before publication'];
@@ -981,8 +1005,17 @@ async function push({ client, git, env, inputs, folder, resultDir, report, syncR
   }
   const pushed = git(pushArgs(env, branch));
   if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim() };
-  const reasons = [`the push to \`${branch}\` was rejected; the branch probably moved (${pushed.stderr.trim().split('\n').at(-1)})`];
+  const inspected = inspectRejectedPush({ git, env, branch, onto, pushed });
+  if (!inspected.reasons) {
+    const requeue = [`the branch \`${branch}\` moved from ${onto} to ${inspected.newHead} after the push was rejected: ${inspected.rejection}`];
+    await reportRequeue({ client, inputs, reasons: requeue });
+    report.line(`${title(inputs)} is redone from the new head: ${requeue.join('; ')}`);
+    report.flush();
+    return { requeue };
+  }
+  const { reasons } = inspected;
   await reportFailure({ client, inputs, reasons, resultDir, failureClass: classifyFailure(reasons) });
+  report.line(`${title(inputs)} failed: ${reasons.join('; ')}`);
   report.flush();
   return { reasons };
 }
@@ -1279,6 +1312,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     ];
   }
   const noOpSync = barrier && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0;
+  const onto = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
   if (!noOpSync) gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
   let head;
   let combined = [];
@@ -1312,7 +1346,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   } else if (noOpSync) {
     head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
   } else {
-    const pushed = await push({ client, git, env, inputs, folder, resultDir, report, syncRequest: barrier?.request });
+    const pushed = await push({ client, git, env, inputs, folder, resultDir, report, syncRequest: barrier?.request, onto });
     if (pushed.requeue) {
       report.flush();
       return { exitCode: 0, requeue: pushed.requeue };
