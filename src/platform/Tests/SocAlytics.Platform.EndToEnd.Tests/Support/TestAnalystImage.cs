@@ -93,7 +93,16 @@ internal static class TestAnalystImage
             .Build();
         try
         {
-            await image.CreateAsync(ct);
+            await EngineCallPolicy.ExecuteAsync(
+                $"The build of {localName}",
+                nameof(EngineCallPolicy.BuildLimit),
+                EngineCallPolicy.BuildLimit,
+                async buildCt =>
+                {
+                    await image.CreateAsync(buildCt);
+                    return true;
+                },
+                ct);
         }
         finally
         {
