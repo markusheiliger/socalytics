@@ -18,10 +18,18 @@ Read from the code at planning time (the failing run itself is not reproducible 
   see. Each test method starts its own `registry:2` and builds and pushes its image again (6 classes call the three
   helpers).
 
-To be established and recorded here by the implementation (FR-001) before the fix is finalized: a recorded push
-response of a failing and of a passing push, the history of the project, its images, and the runner setup between the
-passing and the failing branch (`git log` over `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests`,
-`src/analysts/`, `.github/actions/environment-*`), and the timings of builds and pushes. Stability runs (SC-001: five
+Established by the first implementation attempt (git history): no commit changed `DockerEngine.PushAsync` or the
+registry fixture between the passing and the failing branch, so a recent change on main is not the cause. The remaining
+suspects are the single-source digest (explains a failure after a complete push) and load with the shared five-minute
+timeout (explains an incomplete push); no recording evidences either, and the fix holds under both.
+
+Still to be established by the implementation (FR-001; T001 runs after the digest fix T007, because the task verification runs the whole Docker-backed project for a README change in it, and that project fails until the fix landed), recorded in the `## Cause` section of the end-to-end project's
+README (implementation agents may not change files under `specs/`): the Testcontainers build client's own request
+timeout and its value, read from the restored package (the attempt could only read the 4.15.0 source, which shows no
+timeout of its own). A recorded push response of a failing and of a passing push and the timings of builds and pushes
+need a reachable Linux engine; where none is, the README says they are not recorded, and a maintainer adds them here
+with the stability runs. T001 and T007 are in the same task phase (Phase 1), whose phase verification also runs the
+whole Docker-backed project and passes only after the digest fix. Stability runs (SC-001: five
 consecutive full runs, two after an engine restart, one under CPU load) are recorded here by a maintainer and are not
 a task gate.
 
@@ -60,7 +68,7 @@ a task gate.
   build failure Testcontainers reports for the image's own content (a Dockerfile or build-step failure, or any build
   exception without a transient cause in its inner exception chain). Cancellation of the test's token is never retried.
   The final failure lists every attempt's reason. Builds go through Testcontainers' own Docker client, whose request
-  timeout is not touched by the `HttpClient` change; T001 records the value it applies, and if it is shorter than
+  timeout is not touched by the `HttpClient` change; T001 (run after the digest fix, T007) records the value it applies in the end-to-end README, and if it is shorter than
   `BuildLimit` the build is configured or run so that `BuildLimit` and the test's token end it, or the limitation is
   documented in the README.
 - **Rationale**: FR-005, FR-006; the 214 MB image under load exceeded or reset on the shared limit.

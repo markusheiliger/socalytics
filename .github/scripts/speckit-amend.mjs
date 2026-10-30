@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 import { canWrite, resolveImplementRequester } from './speckit-prepare.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
+import { resetState } from './speckit-implement-core.mjs';
 import {
   ARCHITECTURE_PREFIX,
   AMEND_REQUEST_MARKER,
@@ -948,6 +949,8 @@ export async function runClosed({ client, env, log }) {
   if (!folder) return { exitCode: 0, outcome: 'ignored' };
   const implementation = (await client.listPullRequestsForHead(implementationBranch(folder))).find((pull) => pull.state === 'open');
   if (!implementation) return { exitCode: 0, outcome: 'no implementation' };
+  const reset = resetState(await client.listIssueComments(implementation.number));
+  if (reset.pending || (reset.completed && Date.parse(amendment.created_at) <= Date.parse(reset.completed.at))) return { exitCode: 0, outcome: 'superseded' };
   const result = await settleClosedAmendment(client, env, { amendment, folder, implementation, actor: env.SPECKIT_ACTOR || null });
   log(`Amendment #${number}: ${result.outcome}.`);
   return { exitCode: 0, outcome: result.outcome };
@@ -971,6 +974,8 @@ export async function maintainAmendment(client, env, { folder, implementation, t
   const pulls = await client.listPullRequestsForHead(amendmentBranch(folder));
   const latest = pulls.find((pull) => pull.state === 'open') ?? pulls[0];
   if (!latest) return { outcome: 'none' };
+  const reset = resetState(await client.listIssueComments(implementation.number));
+  if (reset.pending || (reset.completed && Date.parse(latest.created_at) <= Date.parse(reset.completed.at))) return { outcome: 'superseded' };
   if (latest.state !== 'open') {
     const amendment = await client.getPullRequest(latest.number);
     const settled = await settleClosedAmendment(client, env, { amendment, folder, implementation, actor: amendment.merged_by?.login ?? null, dispatch: false });

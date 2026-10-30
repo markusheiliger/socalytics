@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import { specDir } from './speckit-prepare-core.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
+import { resetEligibility } from './speckit-reset.mjs';
 import { AmendUsageError, beginAmendment, checkAmendment, decodeTracked, findAmendment, finishAmendmentRequest, pendingFeedback, presentAmendment, readAmendmentAuthorization, reportSpecPullFailure, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
 import { RETRY_EFFECT, requestSync, restartState, retryImplementation } from './speckit-commands.mjs';
 import {
@@ -56,6 +57,8 @@ import {
   repeatedFailure,
   setAttention,
   unresolvedRepair,
+  implementationComments,
+  implementationRunCurrent,
 } from './speckit-implement-core.mjs';
 
 export { checkAmendment, findAmendment };
@@ -213,7 +216,7 @@ export async function runEvidence({ client, env, log }) {
   const { tasksMarkdown, archived } = await readSpecTasks(client, folder, pull.head.sha);
   const next = nextTaskGroup(tasksMarkdown, 1)[0] ?? null;
   const checks = [...await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME)].sort((a, b) => a.id - b.id);
-  const comments = await client.listIssueComments(pullNumber);
+  const comments = implementationComments(await client.listIssueComments(pullNumber));
   const previousId = Number(env.SPECKIT_PREVIOUS);
   const previous = Number.isInteger(previousId) && previousId > 0 ? comments.find((comment) => comment.id === previousId) : null;
   let behind = null;
@@ -396,6 +399,12 @@ export function validateReport(raw, { requireCategory = true } = {}) {
       option.command = command;
       if (parseNextCommand(command)?.verb === 'amend' && !parseNextCommand(command).guidance.trim()) {
         reasons.push(`option "${option.title}" needs concrete amendment guidance`);
+        option.command = null;
+      }
+      if (parseNextCommand(command)?.verb === 'reset' &&
+          (command !== '/speckit reset' || option.target !== 'implementation' || normalized.evidence.length === 0 ||
+           !['retry', 'outside', 'decision'].includes(normalized.category) || !option.why)) {
+        reasons.push(`option "${option.title}" needs an evidence-backed, argument-free reset targeting the implementation in a supported category`);
         option.command = null;
       }
     }
@@ -679,6 +688,9 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
   }
   const pending = amendment ? { number: amendment.number, title: amendment.title ?? null, html_url: amendment.html_url ?? null, status: 'being checked for consistency first' } : null;
   const shown = options.map((option) => ({ ...option, title: safe(option.title), why: safe(option.why ?? ''), command: option.command ? safe(option.command) : null, copilot: option.copilot ? safe(option.copilot) : null }));
+  if (shown.some((option) => option.recommended && option.command === '/speckit reset')) {
+    lines.push('', `**Destructive restart${implementationPull ? ` of #${implementationPull}` : ''}**: only a writer posting \`/speckit reset\` authorizes it. All branch-only implementation, amendments, and task progress are discarded; the old head is retained in a recovery reference. The restart uses the spec on ${baseBranch ? `\`${baseBranch}\`` : 'the PR base'}, not branch-only amendments. No reset runs automatically, and eligibility is checked again when the command executes.`);
+  }
   lines.push('', ...renderNextSteps({ ...context, options: shown, amendment: pending }));
   const adjusted = [...reasons, ...notes, ...repeatNotes];
   if (adjusted.length > 0) lines.push('', `_Parts of the report were adjusted: ${adjusted.map(safe).join('; ')}._`);
@@ -708,6 +720,7 @@ function reworkOutcome(env) {
 // the consistency check. A rework (`fix`, `revise`) reports on the amendment pull request and checks it again.
 export async function runRecord({ client, env, log }) {
   const inputs = inputsFrom(env);
+  if (!await implementationRunCurrent(client, inputs.pull, env)) return { exitCode: 0, outcome: 'superseded' };
   if (inputs.mode === 'amend') return recordAuthorizedAmendment({ client, env, log, inputs });
   if (inputs.mode !== 'diagnose') return recordRework({ client, env, log, inputs });
   const { pull: pullNumber, folder, twin } = inputs;
@@ -718,8 +731,13 @@ export async function runRecord({ client, env, log }) {
     ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
     : reports.length > 0 ? validateReport(reports.at(-1)) : { reasons: ['the agent did not report'], report: null };
   const amendment = report?.category && reasons.length === 0 ? await createdAmendment(client, env, folder, reasons) : null;
-  const comments = await client.listIssueComments(pullNumber);
+  const comments = implementationComments(await client.listIssueComments(pullNumber));
   const implementation = await client.getPullRequest(pullNumber);
+  const reset = report?.options.find((option) => option.recommended && parseNextCommand(option.command)?.verb === 'reset');
+  if (reset) {
+    const eligibility = await resetEligibility(client, { implementation, twin, folder, ignoreRun: env.GITHUB_RUN_ID });
+    if (eligibility.reasons.length) reasons.push(`reset is not eligible: ${eligibility.reasons.join('; ')}`);
+  }
   const failedRecoveries = failedCopilotRecoveries(comments, implementation.head.sha);
   for (const option of report?.options ?? []) {
     if (option.copilot && failedRecoveries.some((item) => normalizeRecovery(item.request) === normalizeRecovery(`@copilot ${option.copilot}`) ||
@@ -833,6 +851,7 @@ export function autoContinueCommand(report, { amendment = null, repeated = null,
 // request (a `/speckit` comment by a person, or a push by a person): it continues once per person's action, so a
 // failure that keeps coming back stops for a person.
 export async function continuedSincePerson(client, pull, comments) {
+  comments = implementationComments(comments);
   const person = (comment) => comment.user?.login && comment.user.login !== BOT_LOGIN && !String(comment.user.login).endsWith('[bot]') && comment.user.type !== 'Bot';
   const commands = comments.filter((comment) => person(comment) && /^\s*\/speckit\b/.test(String(comment.body ?? ''))).map((comment) => Date.parse(comment.created_at));
   const pushed = Date.parse(latestHumanCommit(await client.listPullRequestCommits(pull)) ?? '') || 0;
@@ -843,6 +862,7 @@ export async function continuedSincePerson(client, pull, comments) {
 // Continues the implementation like the person's command would (speckit-commands.mjs), with a comment that starts with
 // AUTO_CONTINUE_MARKER.
 async function autoContinue(client, env, { twin, pull, folder, command }) {
+  if (!['retry', 'sync'].includes(command.verb)) throw new Error('Only retry and sync may continue automatically.');
   const implementation = await client.getPullRequest(pull);
   const guidance = neutralizeMarkers(command.guidance).slice(0, MAX_WRITER_GUIDANCE);
   const options = {

@@ -18,7 +18,7 @@ namespace SocAlytics.Platform.EndToEnd.Tests;
 /// receives each segment's media and has its result accepted (FR-029, SC-006).
 /// </summary>
 [Collection("EndToEnd")]
-public sealed class SegmentMediaEndToEndTests
+public sealed class SegmentMediaEndToEndTests(AnalystImageCache images) : IClassFixture<AnalystImageCache>
 {
     private const string Prefix = "analysts/";
     private const int PolicySeconds = 5;
@@ -30,14 +30,12 @@ public sealed class SegmentMediaEndToEndTests
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
         var ct = cts.Token;
 
-        var registry = new OciRegistryContainerFixture();
-        await registry.InitializeAsync();
-        PushedAnalystImage? image = null;
         string? compatibilityPath = null;
         try
         {
+            var registryHost = await images.GetRegistryHostAsync(ct);
             var settings = ToolchainSettings();
-            settings["Registry:Images:RegistryHost"] = registry.RegistryHost;
+            settings["Registry:Images:RegistryHost"] = registryHost;
             settings["Registry:Images:RepositoryPrefix"] = Prefix;
             settings["Registry:Images:UseHttp"] = "true";
             var started = await EndToEndHarness.StartAsync(ct, settings);
@@ -48,9 +46,9 @@ public sealed class SegmentMediaEndToEndTests
             }
 
             await using var harness = started;
-            image = await TestAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct, "media");
+            var image = await TestAnalystImage.GetCachedAsync(images, Prefix, ct, "media");
             await DockerRuntimeEndToEndTests.DefineDefaultWorkflowAsync(
-                harness, image.Reference(registry.RegistryHost), ct, "media", videoPolicy: "required", segmentationSeconds: PolicySeconds);
+                harness, image.Reference(registryHost), ct, "media", videoPolicy: "required", segmentationSeconds: PolicySeconds);
 
             using var docker = new DockerEngine();
             compatibilityPath = await DockerRuntimeEndToEndTests.WriteCompatibilityListAsync(docker, ct);
@@ -67,20 +65,14 @@ public sealed class SegmentMediaEndToEndTests
         }
         finally
         {
-            if (image is not null)
-            {
-                await TestAnalystImage.RemoveAsync(image);
-            }
-
             if (compatibilityPath is not null)
             {
                 File.Delete(compatibilityPath);
             }
-
-            await registry.DisposeAsync();
         }
     }
 
+    // The simulated runtime builds and pushes no image, so it has none to take from the cache.
     [Fact]
     public async Task The_simulated_runtime_verifies_the_segment_media_and_both_segment_results_are_accepted()
     {

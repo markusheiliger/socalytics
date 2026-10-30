@@ -303,6 +303,7 @@ diagnosis evidence file are generated from it, and a test fails when this table 
 
 | Command | Where | What it does | Flags |
 | --- | --- | --- | --- |
+| `/speckit reset` | implementation pull request | discard all branch-only changes and progress, keep a recovery reference, and restart from the current PR base; writer authorization is required and active work or open child PRs prevent reset | none |
 | `/speckit retry [--force] [guidance]` | implementation pull request | restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt's prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given | `--force`: restart even after 2 restarts in a row that left the branch unchanged |
 | `/speckit sync [guidance]` | implementation pull request | require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved | none |
 | `/speckit amend <guidance>` | implementation pull request | authorize the stated spec-only change and prepare an amendment for independent analysis and human review; implementation resumes only after the amendment is merged; completed tasks are preserved and no task is ticked | none |
@@ -320,6 +321,34 @@ bare `--` ends the flags (put it before guidance that itself starts with `--`), 
 refuses the command instead of becoming guidance. An unknown command is answered with the help; a renamed one
 (`specify` and `fix`, now `author`) is not run either, and the answer gives the command to post instead, with its
 guidance (`RENAMED_COMMANDS` in `speckit-commands.mjs`).
+
+### Destructive restart
+
+`/speckit reset` starts the same implementation pull request over from its **current PR base**. The writer's bare
+command is authorization: there are no flags, guidance, or extra confirmation. It discards every branch-only change,
+including amendments, checked tasks, and convergence additions. The base must already contain the active spec,
+plan, a nonempty fully unchecked task list, and checked checklists. Related open amendment or authored-spec pull
+requests, active handoffs, and queued or active work prevent reset; nothing is cancelled automatically.
+
+The trusted command job retains the old head indefinitely at `refs/tags/speckit-reset/pr-<pull>/<comment-id>` and
+atomically replaces the implementation ref under an exact-head lease. The new head is a unique empty start commit
+with exactly the pinned base's tree and that base commit as its only parent. It keeps the PR, twin, accepted
+implementation request, and native dependencies. Historical comments and checks remain audit records, not current
+progress: attempts, repairs, sync barriers, guidance, and child settlements start in a new reset generation. Old runs
+cannot publish or continue into it. Interrupted operations are reconciled from their trusted reset record.
+
+The normal loop is explicitly requested at its first task. If reset completes but that dispatch fails or is
+interrupted, the scheduler automatically retries the recorded continuation through the trusted command workflow,
+without another writer command or another branch reset, even when diagnosis auto-continuation is disabled.
+Ordinary phase-start base synchronization is unchanged,
+including its configured best-effort behavior; reset adds no new sync policy. It does not fix a defective base spec,
+grant tooling-edit permission, or promise that a legacy spec will finish. Narrower retry, sync, amendment, or repair
+remains preferable when it solves the cause without discarding implementation.
+
+Diagnoses may recommend `/speckit reset` for evidence-backed `retry`, `outside`, or `decision` findings, identifying
+what it discards and why that is appropriate. They recheck eligibility and warn about recovery and the actual base.
+**Only an explicit writer command executes it; diagnosis never auto-continues with reset.** No restore command,
+recovery-ref cleanup, token-permission expansion, or production-readiness claim is provided.
 
 ### Guidance
 
