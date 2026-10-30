@@ -391,7 +391,10 @@ the spec branch: the earliest artifact the findings or feedback name chooses the
 **Design decisions** comment comes from the `## Architecture Updates` section of the spec's plan. Once the
 analysis finds it consistent and its changed Markdown passes the Markdown check (the record job runs
 `check-markdown.mjs` on it, and every problem is a finding for the correction rounds; amendments get the same
-check), the pull request is merged automatically; it waits for review when it changes
+check). The check loads the owning spec folders' Markdown (or architecture Markdown) from the pinned pull request
+head, including unchanged linked artifacts and removing stale Markdown absent from that head. Only changed files
+are checked; tooling and configuration still come from the trusted default-branch checkout. Once consistent,
+the pull request is merged automatically; it waits for review when it changes
 `docs/architecture/` (a **Design decisions** comment explains why) or when a person pushed to it. On the default
 branch it is an ordinary spec with its own twin, and the stopped spec's twin is blocked by it like by any dependency.
 Once it is ready (`tasked`, checklists checked), the scheduler requests its implementation automatically on behalf of

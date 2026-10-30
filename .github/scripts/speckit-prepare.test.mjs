@@ -478,6 +478,35 @@ test('GitHub client paginates REST lists and surfaces GraphQL errors', async () 
   await assert.rejects(() => client.listTwinIssues('x'), /bad query/);
 });
 
+test('GitHub client lists regular files at a pinned tree and refuses truncated snapshots', async () => {
+  const calls = [];
+  const responses = [
+    response(200, {
+      truncated: false,
+      tree: [
+        { path: 'specs/f', type: 'tree', mode: '040000' },
+        { path: 'specs/f/plan.md', type: 'blob', mode: '100644' },
+        { path: 'specs/f/link.md', type: 'blob', mode: '120000' },
+        { path: 'tools/check.sh', type: 'blob', mode: '100755' },
+      ],
+    }),
+    response(200, { truncated: true, tree: [] }),
+    response(403, { message: 'Forbidden' }),
+  ];
+  const client = new GitHubClient({
+    token: 't',
+    repository: 'octo/repo',
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return responses.shift();
+    },
+  });
+  assert.deepEqual(await client.listRepositoryFiles('sha-head'), ['specs/f/plan.md', 'tools/check.sh']);
+  assert.equal(calls[0], 'https://api.github.com/repos/octo/repo/git/trees/sha-head?recursive=1');
+  await assert.rejects(() => client.listRepositoryFiles('sha-head'), /listing at sha-head is truncated/);
+  await assert.rejects(() => client.listRepositoryFiles('sha-head'), /HTTP 403/);
+});
+
 test('GitHub client creates missing labels and surfaces errors', async () => {
   const calls = [];
   const responses = [response(404, { message: 'Not Found' }), response(201, { name: 'x' }), response(500, { message: 'boom' })];
