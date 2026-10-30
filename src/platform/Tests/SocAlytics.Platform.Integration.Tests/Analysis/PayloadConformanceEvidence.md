@@ -91,3 +91,13 @@ Temporary test-side edit of `StartAsync` in `PayloadConformanceTests.cs` (revert
 
 - Effect check: a second run of the same edit logged the delay it applied; it delayed 2 pending ready-work rows in one logged update (the other test of the class logged none), and the class again passed.
 - Result: Passed 2, Failed 0, Skipped 0, Total 2 (8 s). The fixed wait returns only once the run's publication state is complete, so it is not affected by delayed publication of the later ready-work rows; under the same widening the old wait accepted a partial set (T003).
+
+### T012 Probes that must still fail the test (SC-003)
+
+Three temporary test-side probes in `PayloadConformanceTests.cs`, applied one after the other to the published payloads (the helper and edits marked `TEMP-T012`), each run with `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~PayloadConformanceTests.PublishedMessages"` and reverted with `git checkout` afterward. Passing and failing results are development evidence only.
+
+- Invalid job payload (`teamId` set to the number 123 on every ready-work payload): Failed 1 of 1 in 5 s on the schema assertion, `analysis.jobs.ready.dev-segment-capability: /teamId:type, ...`. No hang.
+- Missing segment identity field (`segment.timelineMappingDigest` removed from every segment job): Failed 1 of 1 in 4 s on the segment-identity assertion, `timelineMappingDigest`. No hang. (A first attempt whose edit did not reach the file passed unchanged; it was discarded and the probe reapplied and confirmed with `git diff --stat` before the run.)
+- Segment on a non-segment job (a copy of the first job with `executionScope` set to `match` while keeping `segment`): Failed 1 of 1 in 5 s on the no-segment assertion, `job.TryGetProperty("segment", out _)`. No hang.
+
+After the last probe `git status --short` shows no change to `PayloadConformanceTests.cs`; every probe change is gone.
