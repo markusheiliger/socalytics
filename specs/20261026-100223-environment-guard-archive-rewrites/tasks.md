@@ -13,14 +13,6 @@
 - **[P]**: Consecutive `[P]` tasks under one heading run in parallel, each from the same commit (different files, no dependencies on each other)
 - **[Story]**: Which user story this task belongs to (US1, US2, US3)
 
-## Phase 1: Setup
-
-**Purpose**: Establish the baseline before changing the tooling.
-
-- [ ] T001 Run `node --test .github/scripts/speckit-*.test.mjs` from the repository root and record that the existing tooling tests pass before any change (no file changes)
-
----
-
 ## Phase 2: Foundational (Blocking Prerequisites)
 
 **Purpose**: The shared criterion that both the merge-time check and the guard use (FR-002). It blocks every user story.
@@ -95,7 +87,7 @@
 
 ## Dependencies & Execution Order
 
-- Phase 1 (T001) first, then Phase 2: T002 before T003.
+- Phase 2 first (there is no Phase 1): T002 before T003.
 - Phase 2 blocks all stories. In Phase 3, T004 and T005 touch different files and run together (T005 consumes T002 and passes the `referenceRewrites` input of T004 by contract); T006 and T007 test their combined behavior and run together afterwards.
 - Phase 4 extends the test files of Phase 3, so it follows Phase 3; T008 and T009 touch different files.
 - Phase 5 (T010) runs after Phases 3 and 4. Phase 6 documentation tasks (T011 to T014) are independent of each other; T015 runs last.
