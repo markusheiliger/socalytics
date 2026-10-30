@@ -136,7 +136,7 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T031 Run `node .github/scripts/check-markdown.mjs --files src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/README.md src/platform/README.md specs/20261027-082549-reliable-e2e-image-push/research.md` and fix every finding
+- [x] T031 Run `node .github/scripts/check-markdown.mjs --files src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/README.md src/platform/README.md specs/20261027-082549-reliable-e2e-image-push/research.md` and fix every finding — verified without changes by the assessed verification at 9d5db6d4 (no change by this task)
 - [ ] T032 Run `dotnet restore src/platform/SocAlytics.Platform.slnx`, `dotnet build src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --no-restore`, and `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --no-build --filter "FullyQualifiedName~ImagePush"` and fix every failure (quickstart step 1)
 - [ ] T033 Run the full Docker-backed verification against a Linux engine, `dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests --no-build` and `dotnet test src/platform/Tests/SocAlytics.Platform.Images.Tests`, and fix every failure caused by this change (quickstart step 2; the repeated-run stability evidence of SC-001 is recorded manually by a maintainer in `research.md` and is not a gate)
 
