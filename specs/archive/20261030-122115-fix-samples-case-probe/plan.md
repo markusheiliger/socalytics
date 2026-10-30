@@ -2,7 +2,7 @@
 
 **Branch**: `20261030-122115-fix-samples-case-probe` | **Date**: 2026-10-30 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261030-122115-fix-samples-case-probe/spec.md`
+**Input**: Feature specification from `/specs/archive/20261030-122115-fix-samples-case-probe/spec.md`
 
 ## Summary
 
@@ -52,7 +52,7 @@ None. The change fixes the probe of a developer-tooling unit test under `tools/`
 ### Documentation (this feature)
 
 ```text
-specs/20261030-122115-fix-samples-case-probe/
+specs/archive/20261030-122115-fix-samples-case-probe/
 ├── plan.md
 ├── research.md
 ├── data-model.md

@@ -1,6 +1,6 @@
 # Tasks: Fix the Case-Sensitivity Probe of the Sample Tooling Test
 
-**Input**: Design documents from `/specs/20261030-122115-fix-samples-case-probe/`
+**Input**: Design documents from `/specs/archive/20261030-122115-fix-samples-case-probe/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, quickstart.md
 
