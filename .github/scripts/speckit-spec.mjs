@@ -87,6 +87,9 @@ import {
   implementWorkflowFor,
   IMPLEMENT_WORKFLOW_FILE,
   MAX_PARALLEL_TASKS,
+  implementationComments,
+  implementationRunCurrent,
+  resetState,
 } from './speckit-implement-core.mjs';
 
 // The implementation chain of one spec (the Spec Kit implement workflows): every run decides one unit of work from the state
@@ -110,6 +113,8 @@ export function contextFromEnv(env) {
 // With `dryRun` it changes nothing on GitHub (no task list update, no release of a sync barrier), for naming the next run.
 export async function decideForPull(client, { twin, folder, pullNumber, now = Date.now(), context, dryRun = false }) {
   const pull = await client.getPullRequest(pullNumber);
+  const history = await client.listIssueComments(pullNumber);
+  if (resetState(history).pending) return { action: 'resetting', pull, comments: [], checks: [] };
   // The branch archives the spec folder right before the merge, so it may be in either place.
   const { tasksMarkdown, archived } = await readSpecTasks(client, folder, pull.head.sha);
   if (tasksMarkdown === null) return { action: 'missing-tasks', pull };
@@ -122,7 +127,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
     }
   }
   const checks = await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME);
-  const comments = await client.listIssueComments(pullNumber);
+  const comments = implementationComments(history);
   const attempts = parseAttempts(comments);
   const restartedAt = [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].flatMap((marker) => markerTimes(comments, marker));
   const pushedAt = latestHumanCommit(await client.listPullRequestCommits(pullNumber));
@@ -580,6 +585,11 @@ async function reportSyncGivenUp(client, { decision, report }) {
 export async function runDecide({ client, env, log, now = Date.now }) {
   const report = createReporter(env, log);
   const { twin, pull: pullNumber } = readSpecInputs(env);
+  if (!await implementationRunCurrent(client, pullNumber, env)) {
+    setOutput(env, 'continue', 'false');
+    setOutput(env, 'action', 'none');
+    return { exitCode: 0, action: 'none' };
+  }
   const finish = (action, outputs = {}) => {
     report.flush();
     setOutput(env, 'action', action);
@@ -763,6 +773,7 @@ export async function predictRunSubject(client, env, options) {
 // branch into the implementation branch (integrateBase). A conflict is recorded on the head, so the decide job of the
 // same run starts the conflict resolution with Copilot CLI.
 export async function runSync({ client, env, log, now = Date.now }) {
+  if (!await implementationRunCurrent(client, readSpecInputs(env).pull, env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const { twin, pull: pullNumber } = readSpecInputs(env);
   report.line(`## ${renderImplementTitle('spec', twin, 'Merge the base branch')}`);
@@ -797,6 +808,7 @@ export async function runSync({ client, env, log, now = Date.now }) {
 // is recorded as a successful verify attempt of the phase, so the chain moves on; a failure stops the implementation
 // for a person with a pending repair of the phase (or of its only task), like a failed task verification.
 export async function runVerifyReport({ client, env, log }) {
+  if (!await implementationRunCurrent(client, readSpecInputs(env).pull, env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const { twin, pull: pullNumber } = readSpecInputs(env);
   const folder = String(env.SPECKIT_FOLDER ?? '');
@@ -865,6 +877,7 @@ export async function runVerifyReport({ client, env, log }) {
 // Every workflow of the chain, job "Start the next run": dispatches the next run of the chain, in the workflow of its
 // kind.
 export async function runContinue({ client, env, log }) {
+  if (!await implementationRunCurrent(client, readSpecInputs(env).pull, env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const { twin, pull: pullNumber } = readSpecInputs(env);
   const pull = await client.getPullRequest(pullNumber);

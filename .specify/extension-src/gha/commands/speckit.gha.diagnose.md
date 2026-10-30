@@ -217,6 +217,16 @@ workflow started you): never ask, and turn every open question into a report que
 - A recommended `/speckit retry` (category `retry`, confidence medium or high) or `/speckit sync` (category `outside`)
   may be posted by the automation itself, once after each action of a person: write its guidance so it is right without
   anyone reading it first, and use `low` confidence when a person should look before it runs again.
+- `/speckit reset` is a legitimate recommendation for `retry`, `outside`, or `decision` only when cited evidence
+  establishes that discarding branch-only implementation or execution state and starting from the current PR base
+  solves the obstacle better than retry, sync, amendment, or repair. Use `target: implementation`, nonempty evidence,
+  and exactly `/speckit reset`, with no flags or guidance. Explain the lost implementation, branch-only amendments,
+  and task progress; the retained recovery reference; and the affected PR and actual base. The base must contain the
+  active ready spec with a nonempty fully unchecked task list. Active or queued work, active handoffs, and open
+  related amendment or authored-spec PRs prevent execution. Publication checks eligibility; the writer's command
+  checks it again. A recommendation never authorizes or automatically executes reset, regardless of confidence.
+  Never recommend it for unknown causes, as a fallback for repeated failure, to bypass protected paths, or for a
+  defect still present on the base. It discards branch-only amendments rather than preserving their corrections.
 - Never recommend a command that already failed the same way. When the evidence has a section **A command that already
   failed the same way**, the last `/speckit retry` or `/speckit sync` left the branch unchanged and stopped with the same
   reason as before; recommending it again only repeats the stop (a recommendation of it is moved to the other options at

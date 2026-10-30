@@ -5,6 +5,49 @@ export const CHECK_RUN_NAME = 'Spec Kit implementation';
 export const START_COMMENT_MARKER = '<!-- speckit-implement:start -->';
 export const RETRY_COMMENT_MARKER = '<!-- speckit-implement:retry -->';
 export const SYNC_COMMENT_MARKER = '<!-- speckit-implement:sync -->';
+export const RESET_MARKER = '<!-- speckit-implement:reset ';
+const RESET_PATTERN = /^<!-- speckit-implement:reset (\{[^\n]*\}) -->/;
+const SHA_PATTERN = /^[0-9a-f]{40}$/;
+
+export function resetState(comments) {
+  const records = [];
+  for (const comment of comments) {
+    if (comment.user?.login !== BOT_LOGIN || !String(comment.body ?? '').startsWith(RESET_MARKER)) continue;
+    let value;
+    try {
+      value = JSON.parse(String(comment.body).match(RESET_PATTERN)?.[1] ?? 'null');
+    } catch {
+      throw new Error('The trusted reset record is malformed; inspect it before continuing.');
+    }
+    if (!value || !['pending', 'completed', 'failed'].includes(value.state) ||
+        !Number.isSafeInteger(value.source) || value.source <= 0 ||
+        !SHA_PATTERN.test(value.oldHead ?? '') || !SHA_PATTERN.test(value.baseSha ?? '') ||
+        !value.base || !value.branch || !value.recovery ||
+        (value.newHead != null && !SHA_PATTERN.test(value.newHead))) {
+      throw new Error('The trusted reset record is invalid; inspect it before continuing.');
+    }
+    records.push({ ...value, comment: comment.id, at: comment.created_at });
+  }
+  const completed = records.filter((record) => record.state === 'completed').at(-1) ?? null;
+  const latest = records.at(-1);
+  return { completed, pending: latest?.state === 'pending' ? latest : null, records };
+}
+
+export function implementationComments(comments) {
+  const { completed } = resetState(comments);
+  if (!completed) return comments;
+  const boundary = comments.findIndex((comment) => comment.id === completed.comment);
+  return comments.slice(boundary + 1);
+}
+
+export async function implementationRunCurrent(client, pull, env = {}) {
+  const state = resetState(await client.listIssueComments(pull));
+  if (state.pending) return false;
+  if (!state.completed) return true;
+  if (!env.GITHUB_RUN_ID) return true;
+  const run = await client.getWorkflowRun(env.GITHUB_RUN_ID);
+  return Boolean(run && Date.parse(run.created_at) > Date.parse(state.completed.at));
+}
 // Leads a retry or sync comment that the diagnosis posted to continue automatically (speckit-diagnose.mjs). The comment
 // still counts as the restart that follows the marker: startsWithMarker skips it.
 export const AUTO_CONTINUE_MARKER = '<!-- speckit-implement:auto-continue -->';
@@ -22,6 +65,7 @@ export const renderSyncBarrierMarker = (state) => `<!-- speckit-implement:sync-b
 
 // Requests and acknowledgements live on the pull request, not in replaceable workflow inputs or head-bound checks.
 export function syncBarrier(comments, { includeReleased = false } = {}) {
+  comments = implementationComments(comments);
   const trusted = comments.filter((comment) => comment.user?.login === BOT_LOGIN);
   const request = trusted.filter((comment) => startsWithMarker(comment.body, SYNC_COMMENT_MARKER)).at(-1);
   if (!request) return null;
@@ -177,6 +221,7 @@ export const AMEND_REQUEST_STATE_MARKER = 'speckit-amend:request-state';
 export const AMEND_AUTHORIZATION_MARKER = 'speckit-amend:authorization';
 
 export function trustedMarker(comments, marker) {
+  comments = implementationComments(comments);
   const prefix = `<!-- ${marker} `;
   return comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(prefix))
     .map((comment) => {
@@ -242,6 +287,7 @@ export const UNBLOCKED_MARKER = '<!-- speckit-implement:unblocked -->';
 // The keys of the blocks explained since the block was last lifted (renderBlockedMarker, UNBLOCKED_MARKER), oldest
 // first; empty when the latest block is already lifted.
 export function currentBlocks(comments) {
+  comments = implementationComments(comments);
   let keys = [];
   for (const comment of comments ?? []) {
     if (comment.user?.login !== BOT_LOGIN) continue;
@@ -260,6 +306,7 @@ export function currentBlocks(comments) {
 
 // Whether a workflow comment already explains the block `key` (renderBlockedMarker) since the block was last lifted.
 export function blockExplained(comments, key) {
+  comments = implementationComments(comments);
   const wanted = JSON.stringify(key);
   return currentBlocks(comments).some((item) => JSON.stringify(item) === wanted);
 }
@@ -272,6 +319,7 @@ export const renderSyncSkippedMarker = (sha) => `<!-- speckit-implement:sync-ski
 
 // The base branch commits that were not merged before a phase, from the workflow's comments.
 export function syncSkippedShas(comments) {
+  comments = implementationComments(comments);
   return new Set(comments
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .map((comment) => String(comment.body ?? '').match(SYNC_SKIPPED_PATTERN)?.[1])
@@ -284,6 +332,7 @@ const REFRESH_SKIPPED_PATTERN = /<!-- speckit-implement:refresh-skipped ([0-9a-f
 export const renderRefreshSkippedMarker = (sha) => `<!-- speckit-implement:refresh-skipped ${sha} -->`;
 
 export function refreshSkippedShas(comments) {
+  comments = implementationComments(comments);
   return new Set((comments ?? [])
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .map((comment) => String(comment.body ?? '').match(REFRESH_SKIPPED_PATTERN)?.[1])
@@ -298,6 +347,7 @@ export const renderBaseOwnedMarker = (files) => `<!-- speckit-implement:base-own
 // The files only the base branch owns that conflict resolutions changed on this pull request, from the workflow's
 // comments (sorted, without duplicates).
 export function baseOwnedChanges(comments) {
+  comments = implementationComments(comments);
   const files = new Set();
   for (const comment of comments ?? []) {
     if (comment.user?.login !== BOT_LOGIN) continue;
@@ -545,6 +595,7 @@ export function renderRepairMarker(repair) {
 }
 
 export function unresolvedRepair(comments) {
+  comments = implementationComments(comments);
   const repairs = new Map();
   for (const comment of comments) {
     if (comment.user?.login !== BOT_LOGIN) continue;
@@ -592,6 +643,7 @@ const renderRestartState = ({ head, base = null }) => `<!-- speckit-implement:re
 // the restarts since which the branch has not changed. A workflow restart without a recorded state (a merged
 // amendment) ends the run of unchanged restarts; sync requests (also of a lifted block) are not counted.
 export function unchangedRestarts(comments, head) {
+  comments = implementationComments(comments);
   const restarts = [];
   const ordered = [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN && RESTART_COMMENT_MARKERS.some((marker) => startsWithMarker(comment.body, marker)))
@@ -617,6 +669,7 @@ const stopReason = (body) => String(body ?? '').match(STOP_PATTERN)?.[1].replace
 // implementation branch head `head` (so nothing changed since), and the stop after it gave the same reason as the stop
 // before it. Recommending that command again would only repeat the failure. Returns { verb, reason } or null.
 export function repeatedFailure(comments, head, { includeState = false } = {}) {
+  comments = implementationComments(comments);
   const ordered = [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
@@ -654,6 +707,7 @@ export function failedSynchronization(comments, head) {
 
 // The reason of the latest stop for a person, or null.
 export function latestStopReason(comments) {
+  comments = implementationComments(comments);
   return [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
@@ -922,8 +976,10 @@ export const ACTION_REQUIRED_SUPERSEDED_MARKER = '<!-- speckit-implement:reminde
 export function acceptedImplementationAction(comments, after) {
   const amendments = trustedMarker(comments, AMEND_REQUEST_MARKER);
   const authors = parseFixEvents(comments).filter((event) => event.event === 'requested' && event.link !== false);
+  const resets = resetState(comments).records;
   return comments.find((comment) => comment.user?.login === BOT_LOGIN && Date.parse(comment.created_at) > Date.parse(after) &&
     ([...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER, COPILOT_HANDOFF_MARKER].some((marker) => startsWithMarker(comment.body, marker)) ||
+      resets.some((reset) => reset.comment === comment.id && reset.state !== 'failed') ||
       amendments.some((request) => request.markerComment.id === comment.id) ||
       authors.some((request) => request.commentId === comment.id))) ?? null;
 }
@@ -1016,6 +1072,7 @@ export function isCopilotRequest(body) {
 // COPILOT_HANDOFF_MS). A push that is not by github-actions[bot] (`pushedAt`), a restart or sync after the handoff, or
 // an ended marker for it closes the handoff (null).
 export function pendingCopilotHandoff(comments, { pushedAt = null, now = Date.now() } = {}) {
+  comments = implementationComments(comments);
   const handoff = [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, COPILOT_HANDOFF_MARKER))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
@@ -1388,6 +1445,7 @@ export function renderAttemptMarker({ kind, task = null, attempt, outcome, phase
 // The attempt ledger of a pull request: the outcomes the workflow reported, oldest first. Only comments by the
 // workflow count, so text in other comments cannot forge outcomes. Markers written before `kind` carry it as `step`.
 export function parseAttempts(comments) {
+  comments = implementationComments(comments);
   const attempts = [];
   for (const comment of comments) {
     if (comment.user?.login !== BOT_LOGIN) continue;
@@ -1490,6 +1548,7 @@ export function latestCheckRun(checkRuns) {
 
 // Creation times of workflow-authored comments that start with a marker; text inside other comments cannot forge them.
 export function markerTimes(comments, marker) {
+  comments = implementationComments(comments);
   return comments
     .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, marker))
     .map((comment) => comment.created_at);
@@ -1855,6 +1914,17 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
 // `whenToRecommend` and `guidanceScope` brief the diagnosis agent.
 export const PR_COMMANDS = [
   {
+    name: 'reset',
+    usage: '/speckit reset',
+    scope: 'pr',
+    flags: {},
+    help: 'discard all branch-only changes and progress, keep a recovery reference, and restart from the current PR base; writer authorization is required and active work or open child PRs prevent reset',
+    recommend: true,
+    categories: ['retry', 'outside', 'decision'],
+    whenToRecommend: 'Evidence establishes that discarding branch-only implementation or execution state and starting from the current PR base is preferable to a narrower retry, sync, amendment, or repair. Explain the lost implementation and amendments, retained recovery reference, and eligibility. Never use reset as a fallback for unknown causes or defects it cannot fix. Only a writer may post the command; a recommendation never authorizes or automatically executes it.',
+    guidanceScope: 'none; reset accepts no arguments and restarts the normal implementation loop at its first task',
+  },
+  {
     name: 'retry',
     usage: '/speckit retry [--force] [guidance]',
     scope: 'pr',
@@ -1983,6 +2053,8 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
     return `Does not merge ${base}; ${argument ? 'runs a repair agent with the guidance, then reverifies' : 'reverifies without running a repair agent'} the pending ${continuation.repair.scope} verification. The original failed scope must pass before normal planning continues; if this repair attempt fails, the implementation stops for a person again. With guidance, a successful no-change repair also reaches reverification without an empty commit.${flag}`;
   }
   switch (parsed.verb) {
+    case 'reset':
+      return `Only a writer's explicit \`/speckit reset\` comment authorizes execution. Discards all branch-only changes, including amendments and task progress, preserves the old head in a recovery reference, and restarts from the current PR base ${base} with a fresh empty start commit. Active work, open child PRs, or an ineligible base spec prevent reset. It does not repair requirements or grant permission to edit protected tooling.`;
     case 'amend':
       return 'A writer authorizes only the stated artifact change. The workflow prepares a spec-only amendment, checks it independently, and asks for human review and merge. It preserves completed tasks, never ticks tasks, and keeps implementation stopped until the amendment is merged. Existing repair scope and attempt limits are unchanged.';
     case 'sync':
@@ -2031,7 +2103,7 @@ export function renderCommandReference({ baseBranch = null, repair = null, comma
         `- What it does without guidance: ${effect(`/speckit ${command.name}`)}`,
       );
     } else {
-      lines.push(`- What it does: ${effect(`/speckit ${command.name} guidance`)}`);
+      lines.push(`- What it does: ${effect(`/speckit ${command.name}${command.name === 'reset' ? '' : ' guidance'}`)}`);
     }
     lines.push('');
   }
@@ -2182,6 +2254,7 @@ export function parseFixFor(body) {
 const FIX_EVENT_PATTERN = /<!-- speckit-fix:(requested|created|merged|discarded|linked|landed|stopped) (\{[^\n]*?\}) -->/g;
 export const renderFixEvent = (event, data = {}) => `<!-- speckit-fix:${event} ${JSON.stringify(data)} -->`;
 export function parseFixEvents(comments) {
+  comments = implementationComments(comments);
   const events = [];
   for (const comment of comments ?? []) {
     if (comment.user?.login !== BOT_LOGIN) continue;
