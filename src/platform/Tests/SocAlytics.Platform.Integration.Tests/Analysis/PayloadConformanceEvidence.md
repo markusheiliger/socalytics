@@ -29,6 +29,7 @@ The original intermittent failure did not reproduce in the 40 runs before the ch
 
 - Before (T003): delaying the pending ready-work rows of the run, the old wait either accepted a partial set (variant 1, passed after reading one message) or timed out on the first condition that depended on publication order (variant 2, failed after 3 m 8 s).
 - After (T011): the same delay applied to the fixed test, which passed with 2 of 2 tests in 8 s because it returns only once the run's publication state is complete.
+- Deliberate reproduction (T018, SC-001, FR-001): with the segment ready-work rows held for a bounded 1110 fake seconds (later than the old wait's budget of 1080 fake seconds), the old test failed (`No ready-work message was published.`, 3 m 6 s) and the fixed test passed (1 m 38 s).
 
 ### Probes that must still fail (T012)
 
@@ -165,6 +166,16 @@ After the probes `git checkout` restored `PayloadConformanceTests.cs`; `git stat
 ### T014 Shared helpers (FR-005)
 
 No shared helper changed. `git diff --stat 9bd4d0fe HEAD -- Analysis/Support Recordings/Support` (`9bd4d0fe` is the merge base with the default branch) prints nothing, and `git status --short` shows no uncommitted change under either folder. The only test-project files this implementation changed are `Analysis/PayloadConformanceTests.cs` and this file, and T005 changed no file. Therefore no other integration test uses a changed helper, and no further test run is needed for this task.
+
+### T018 Deliberate reproduction, old fails and fixed passes
+
+Temporary test-side edit of `StartAsync` in `PayloadConformanceTests.cs` (no publisher change): before finalization a background task repeatedly set `next_attempt_at` to the hold end on the pending `analysis.ready-work` rows of `socalytics.outbox_messages` whose payload `executionScope` is `segment`, until the fake clock reached the hold end. Delay span: 1110 fake-clock seconds from the start of the run. The old wait's fixed budget is 360 advances of 3 s = 1080 fake seconds, so the span ends 30 s after the old wait gives up. The fixed wait advances the same 3 s per check (250 ms pacing) inside its 150 s `WaitLimit`, so it needs about 370 advances to pass the span. Passing and failing results are development evidence only.
+
+Command for both runs: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~PayloadConformanceTests.PublishedMessages"` (the temporary edit logged one update that held 1 row, from fake 22:58:02Z to 23:16:32Z).
+
+- Fixed version with the edit: Passed 1 of 1 (1 m 38 s), inside the 150 s `WaitLimit`: it returned once the held row was published and the run's publication state was complete.
+- Old wait and read (merge-base version `9bd4d0fe` of the file, restored temporarily) with the same edit: Failed 1 of 1 (3 m 6 s), `System.TimeoutException : No ready-work message was published.` The old wait gave up after its fixed budget, before the held row was published.
+- Reverted: `git checkout` restored the file, no `TEMP-T018` marker or temporary log remains, and `git status --short` shows no change to `PayloadConformanceTests.cs` beyond the fix (`git diff --stat 9bd4d0fe` of the file: 183 insertions, 19 deletions).
 
 ## Scope check (T016)
 
