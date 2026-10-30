@@ -39,6 +39,6 @@ Expected: no output (only the action folder and the spec's own files changed).
 
 ## 4. Evidence in a real job (after merge)
 
-The next conflict resolution or `/speckit sync` of `specs/20261018-110526-agents-python-environment` shows, in the
+The next conflict resolution or `/speckit sync` of `specs/archive/20261018-110526-agents-python-environment` shows, in the
 step summary of the self-test, "Reused result" and a job that records its verdict inside the 90-minute limit. This
 is observed, not simulated, and is not production-readiness evidence.

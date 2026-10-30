@@ -2,7 +2,7 @@
 
 The server's interface to the agent runtime (MCP over Streamable HTTP), to the orchestrator (health), and to the
 platform (outbound calls), plus its image. Platform semantics are those of
-[Agent Tools API](../../20261018-104924-agent-evidence-tools/contracts/agent-tools-api.md); this contract adds none.
+[Agent Tools API](../../archive/20261018-104924-agent-evidence-tools/contracts/agent-tools-api.md); this contract adds none.
 Values marked *profile* stay open in
 [Production Deployment and Operations](../../../docs/architecture/production-operations.md#versioned-production-profile).
 

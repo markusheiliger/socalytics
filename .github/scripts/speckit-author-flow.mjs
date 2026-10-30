@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { assess, collectFacts, hasArchitectureTask } from './speckit-author.mjs';
 import { runMarkdownChecks } from './check-markdown.mjs';
-import { describeParallelGroups } from './speckit-implement-core.mjs';
+import { describeParallelGroups, protectedTaskPaths } from './speckit-implement-core.mjs';
 import { isValidFolderName, parseTwinFolder, specDir } from './speckit-prepare-core.mjs';
 import { UsageError, defaultGit, resolveFolder } from './speckit-orchestrate.mjs';
 import { FlowError, describeRun, option, readFlowState, readJson, readRunInputs, runAsScript, runDir, runFlowCommand, writeFlowState, writeResult } from './speckit-flow.mjs';
@@ -363,6 +363,8 @@ export function check({ rootDir, run, after, git, env = {}, strict = false }) {
   }
   if (after === 'tasks') {
     if (!facts.hasTasks) throw new FlowError(`/speckit-tasks did not write specs/${folder}/tasks.md.`);
+    const unimplementable = renderProtectedTasks(facts.tasksMarkdown, folder);
+    if (unimplementable) throw new FlowError(unimplementable);
     const groups = describeParallelGroups(facts.tasksMarkdown);
     const docsTask = Boolean(facts.architecture?.present && !facts.architecture.none && !hasArchitectureTask(facts.tasksMarkdown));
     if (strict && docsTask) throw new FlowError(`specs/${folder}/tasks.md still has no task that references docs/architecture/, although plan.md lists Architecture Updates.`);
@@ -377,6 +379,19 @@ export function check({ rootDir, run, after, git, env = {}, strict = false }) {
     return { refine, docs_task: docsTask, repair: refine || docsTask, warnings: groups.warnings, file: relative(rootDir, file) };
   }
   throw new UsageError('check needs --after plan or --after tasks.');
+}
+
+// Why a spec cannot be implemented by the automation, or '' when it can: an open task targets a file under .github/
+// outside the two environment actions, which implementations may never change. Such a task fails every attempt; the
+// change belongs directly on the default branch as repository tooling, not in a spec.
+export function renderProtectedTasks(tasksMarkdown, folder) {
+  const found = protectedTaskPaths(tasksMarkdown);
+  if (found.length === 0) return '';
+  return [
+    `specs/${folder} cannot be implemented by the Spec Kit automation: these tasks change repository tooling that an implementation may never change, so every attempt would fail:`,
+    ...found.map((entry) => `- ${entry.task}: ${entry.files.join(', ')}`),
+    'Changes to the repository tooling (.github/ outside .github/actions/environment-setup and environment-verify) are made directly on the default branch, not through a spec. Remove those tasks, or do not author this spec.',
+  ].join('\n');
 }
 
 // The environment check after the plan (environment.json): whether the spec needs tooling that the environment
@@ -503,6 +518,9 @@ export function ready({ rootDir, run, git, env = {}, markdown = runMarkdownCheck
   if (existsSync(path.join(runDir(rootDir, run), 'findings.json')) && findings({ rootDir, run }).blocking) reasons.push('/speckit-analyze still reports CRITICAL or HIGH findings');
   const lint = checkMarkdown({ rootDir, files: publishedMarkdown(rootDir, folder, git), markdown });
   if (!lint.clean) reasons.push(`the Markdown check still fails:\n${lint.output}`);
+  const tasksFile = path.join(rootDir, specDir(folder), 'tasks.md');
+  const unimplementable = existsSync(tasksFile) ? renderProtectedTasks(readFileSync(tasksFile, 'utf8'), folder) : '';
+  if (unimplementable) reasons.push(unimplementable);
   if (reasons.length > 0) throw new FlowError(`specs/${folder} is not ready to implement:\n- ${reasons.join('\n- ')}`);
   const spec = readFileSync(path.join(rootDir, specDir(folder), 'spec.md'), 'utf8');
   const title = spec.match(/^#\s+(?:Feature Specification:\s*)?(.+)$/m)?.[1]?.trim() ?? folder;

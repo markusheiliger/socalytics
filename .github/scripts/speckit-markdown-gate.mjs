@@ -1,19 +1,26 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // The Markdown gate of spec and amendment pull requests: their changed Markdown files are written over the trusted
-// default-branch checkout of the record job and checked with check-markdown.mjs, so nothing from the pull request
-// but Markdown content (never configuration or code) reaches the job. Spec and amendment pull requests may only change
-// these paths; other files are left to the path rules.
+// default-branch checkout of the record job and checked with check-markdown.mjs. Their owning spec folders (or the
+// architecture folder) supply Markdown link context from the same head, including unchanged archived artifacts.
+// Nothing but Markdown content (never configuration or code) reaches the job.
 const GATED_PREFIXES = ['specs/', 'docs/architecture/'];
 const CHECK_SCRIPT = fileURLToPath(new URL('./check-markdown.mjs', import.meta.url));
 const MAX_FINDINGS = 20;
 
 const isGated = (file) => typeof file === 'string' && file.endsWith('.md') && GATED_PREFIXES.some((prefix) => file.startsWith(prefix)) &&
-  !file.split('/').includes('..');
+  file.split('/').every((part) => part && part !== '.' && part !== '..' && !/[\\:\u0000-\u001f]/.test(part));
+
+function contextFolder(file) {
+  if (file.startsWith('docs/architecture/')) return 'docs/architecture';
+  const parts = file.split('/');
+  const depth = parts[1] === 'archive' ? 3 : 2;
+  return parts.length > depth ? parts.slice(0, depth).join('/') : null;
+}
 
 const runCheck = (root, listFile) => spawnSync(process.execPath, [CHECK_SCRIPT, '--files', listFile], { cwd: root, encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
 
@@ -47,9 +54,25 @@ export async function markdownGate(client, { pull, root = process.cwd(), run = r
     .map((file) => file.filename);
   if (files.length === 0) return [];
   const head = pull.head?.sha ?? pull.head?.ref;
+  const folders = [...new Set(files.map(contextFolder).filter(Boolean))];
+  const inContext = (file) => isGated(file) && folders.some((folder) => file.startsWith(`${folder}/`));
+  const snapshot = new Set((await client.listRepositoryFiles(head)).filter(isGated));
+  const context = new Set([...snapshot].filter(inContext));
   for (const file of files) {
+    if (!snapshot.has(file)) throw new Error(`Changed Markdown file ${file} is missing from ${head}.`);
+    context.add(file);
+  }
+  for (const folder of folders) {
+    const directory = path.join(root, folder);
+    if (!existsSync(directory)) continue;
+    for (const entry of readdirSync(directory, { recursive: true })) {
+      const file = `${folder}/${entry.replaceAll('\\', '/')}`;
+      if (inContext(file) && !snapshot.has(file)) rmSync(path.join(root, file));
+    }
+  }
+  for (const file of context) {
     const content = await client.getFileContent(file, head);
-    if (content === null) continue;
+    if (content === null) throw new Error(`Markdown context file ${file} could not be read at ${head}.`);
     mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
     writeFileSync(path.join(root, file), content);
   }

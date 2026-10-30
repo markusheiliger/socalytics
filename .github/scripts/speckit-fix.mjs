@@ -2,7 +2,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { PENDING_LABEL, TWIN_LABEL, countOpenChecklistItems, hasLabel, isValidFolderName, parseFixForLine, resolveTwins } from './speckit-prepare-core.mjs';
+import { IMPLEMENT_STAGE, PENDING_LABEL, TWIN_LABEL, countOpenChecklistItems, deriveStage, hasLabel, implementBlockers, isImplementRequested, isValidFolderName, parseFixForLine, parseTwinFolder, resolveTwins, stageLabelChange } from './speckit-prepare-core.mjs';
+import { readSpecFolder, renderImplementRequested, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import { beginAmendment, decodeTracked, guardPullRequest, maintainOpenSpecPull, resolveAmendment } from './speckit-amend.mjs';
 import { defaultGit } from './speckit-orchestrate.mjs';
@@ -17,6 +18,10 @@ import {
   FIX_CHECK_NAME,
   FIX_TITLE_PREFIX,
   FIX_WORKFLOW_FILE,
+  RECOVERY_FAILURE_MARKER,
+  failedRecoveryRoutes,
+  recoveryReassessment,
+  unresolvedRepair,
   MAX_CORRECTION_ROUNDS,
   MAX_STALLED_ROUNDS,
   ORCHESTRATE_WORKFLOW_FILE,
@@ -39,6 +44,7 @@ import {
   renderGuidanceMarker,
   renderNextSteps,
   setAttention,
+  supersedeActionRequired,
   setBlocked,
   renderBlockedMarker,
 } from './speckit-implement-core.mjs';
@@ -152,7 +158,7 @@ export async function authoredFor(client, pull) {
   if (legacy) {
     const implementation = await client.getPullRequest(legacy);
     if (implementation.state === 'open') return legacy;
-    if (implementation.merged_at && await recordedOrigin(client, pull, implementation)) return legacy;
+    if (implementation.state === 'closed' && await recordedOrigin(client, pull, implementation)) return legacy;
   }
   const comments = await client.listIssueComments(pull.number);
   for (const comment of comments) {
@@ -245,6 +251,7 @@ export async function startFixAuthoring(client, env, { twin, implementation, gui
       : `**A new spec is being authored** for @${actor}. The Spec Kit workflow \`author\` writes an ordinary spec and opens it as a pull request against \`${baseBranch}\`; it is checked for consistency and then merged automatically, or handed over for review when it changes \`docs/architecture/\`. It does not block this implementation, which continues meanwhile.`,
     ...(value ? ['', 'Guidance for the decision:', '', ...neutralizeMarkers(value).split('\n').map((line) => `> ${line}`)] : []),
   ].join('\n'));
+  if (link) await supersedeActionRequired(client, implementation.number);
   try {
     await client.dispatchWorkflow(FIX_WORKFLOW_FILE, defaultBranch, {
       issue: String(twin),
@@ -630,6 +637,36 @@ export function reworkOutcome(result, env) {
 // it to the implementation, and starts its consistency check; a reuse, a refusal, a failed author run, or a broken pull
 // request goes back to the implementation with the next steps. `fix` and `revise` are recorded like a rework of an
 // amendment. The Design decisions come from the spec's plan (designDecisionsFromPlan).
+async function reportAuthorFailure(client, env, { implementation, unlinked, message, reason, checkRun }) {
+  const pull = implementation.number;
+  if (unlinked) {
+    await client.createComment(pull, `${message}\n\nThis implementation is not affected and continues.`);
+    return;
+  }
+  const comments = await client.listIssueComments(pull);
+  const request = parseFixEvents(comments).filter((event) => event.event === 'requested').at(-1);
+  const source = request?.stamp ?? String(checkRun);
+  const guidance = parseGuidance(comments.find((comment) => comment.id === request?.commentId)?.body);
+  if (failedRecoveryRoutes(comments, implementation.head.sha).some((item) => item.source === source && item.route === 'author')) return;
+  const reassessed = recoveryReassessment(comments, implementation.head.sha);
+  await client.createComment(pull, [
+    `<!-- ${RECOVERY_FAILURE_MARKER} ${JSON.stringify({ route: 'author', head: implementation.head.sha, repair: unresolvedRepair(comments)?.id ?? null, source, guidance, reason })} -->`,
+    message,
+    '',
+    reassessed
+      ? `**Recommended next step**: Resolve the refused recovery on #${pull} using the cause above. The single reassessment was already requested; supply the external fix or missing evidence, not another unchanged retry or author request.`
+      : '**Recommended next step**: The scheduler will assess this failure for one bounded recovery diagnosis. Do not retry the implementation or repeat the failed author request; neither removes the cause.',
+  ].join('\n'));
+  await setAttention(client, pull, true);
+  if (!reassessed) {
+    try {
+      await client.dispatchWorkflow(ORCHESTRATE_WORKFLOW_FILE, defaultBranchOf(env), {});
+    } catch (error) {
+      await client.createComment(pull, `**Recovery scheduling failed on #${pull}**: ${neutralizeMarkers(error.message)}. Resolve the workflow dispatch failure; the failure evidence is saved for the scheduler. Do not retry unchanged implementation work.`);
+    }
+  }
+}
+
 export async function runRecord({ client, env, log }) {
   const inputs = inputsFrom(env);
   const result = readResult(env);
@@ -672,7 +709,7 @@ export async function runRecord({ client, env, log }) {
     if (!Number.isInteger(created) || created <= 0) {
       const why = `the decision named spec #${report.reuse} for this cause, but it is neither an open spec pull request authored by \`/speckit author\` nor a merged one that is still to be implemented`;
       await complete('failure', 'No spec was created', why);
-      await client.createComment(pullNumber, [`**No spec was created**: ${why}.`, '', ...(await nextSteps())].join('\n'));
+      await reportAuthorFailure(client, env, { implementation, unlinked, message: `**No spec was created**: ${why}.`, reason: why, checkRun });
       await askPerson();
       log(`#${pullNumber}: invalid reuse of #${report.reuse}.`);
       return { exitCode: 0, outcome: 'none' };
@@ -681,7 +718,7 @@ export async function runRecord({ client, env, log }) {
   if (!Number.isInteger(created) || created <= 0) {
     const why = report.refused || report.summary || 'the Spec Kit workflow `author` did not create one';
     await complete('failure', 'No spec was created', why);
-    await client.createComment(pullNumber, [`**No spec was created**: ${neutralizeMarkers(why)}`, '', ...(await nextSteps())].join('\n'));
+    await reportAuthorFailure(client, env, { implementation, unlinked, message: `**No spec was created**: ${neutralizeMarkers(why)}`, reason: why, checkRun });
     await askPerson();
     log(`#${pullNumber}: no spec was created.`);
     return { exitCode: 0, outcome: 'none' };
@@ -702,7 +739,7 @@ export async function runRecord({ client, env, log }) {
   if (broken.length > 0) {
     await discardCreatedFix(client, created);
     await complete('failure', 'The spec was rejected', broken.join('; '));
-    await client.createComment(pullNumber, [`**The authored spec #${created} was rejected and closed**: ${broken.map(neutralizeMarkers).join('; ')}.`, '', ...(await nextSteps())].join('\n'));
+    await reportAuthorFailure(client, env, { implementation, unlinked, message: `**The authored spec #${created} was rejected and closed**: ${broken.map(neutralizeMarkers).join('; ')}.`, reason: broken.join('; '), checkRun });
     await askPerson();
     log(`#${pullNumber}: rejected spec #${created}.`);
     return { exitCode: 0, outcome: 'rejected' };
@@ -805,11 +842,11 @@ export async function mergeSpecPull(client, env, { amendment, folder, implementa
 // branch waits for the twin, which the scheduler then links (maintainFixSpec).
 export async function settleClosedFix(client, env, { amendment: pull, folder, implementation, actor = null, automatic = false }) {
   if (pull.state === 'open') return { outcome: 'open' };
+  await setAttention(client, pull.number, false);
   const events = parseFixEvents(await client.listIssueComments(implementation.number)).filter((event) => event.pull === pull.number);
   if (events.some((event) => ['merged', 'discarded'].includes(event.event))) return { outcome: 'handled' };
   const by = actor ? `@${actor}` : 'a person';
   const defaultBranch = defaultBranchOf(env);
-  await setAttention(client, pull.number, false);
   try {
     await client.deleteBranch(isPrerequisiteBranch(pull.head?.ref) ? pull.head.ref : fixBranch(folder));
   } catch {
@@ -866,13 +903,38 @@ function cycleNote(prerequisite, twin) {
   return `- Warning: spec twin #${prerequisite} already depends on #${twin}, so #${twin} cannot depend on it without a dependency cycle; remove the wrong one of the two dependencies.`;
 }
 
+// A prerequisite spec that `/speckit author` authored to unblock an implementation exists only to let that
+// implementation continue, so the scheduler requests its implementation as soon as it is ready, like `/speckit implement`
+// would (tasked, checklists checked on the default branch checkout in rootDir), on behalf of the person who asked for
+// it. Returns true when it requested it now.
+export async function requestAuthoredPrerequisite(client, env, { prerequisite, requester, implementation, rootDir }, { report = () => {} } = {}) {
+  if (!rootDir || !requester || prerequisite?.state !== 'open') return false;
+  const folder = parseTwinFolder(prerequisite.body);
+  const entry = folder ? readSpecFolder(rootDir, folder) : null;
+  if (!entry) return false;
+  const computedStage = deriveStage(entry.artifacts, entry.tasks);
+  if (isImplementRequested(prerequisite, computedStage)) return false;
+  const reasons = implementBlockers({ folder, computedStage, openChecklistItems: entry.openChecklistItems });
+  if (reasons.length > 0) {
+    report(`- Spec twin #${prerequisite.number} (authored for #${implementation.number}) is not ready to request yet: ${reasons.join('; ')}.`);
+    return false;
+  }
+  await client.createComment(prerequisite.number, [
+    renderImplementRequested({ by: requester }),
+    `**Implementation requested automatically** for @${requester}: \`/speckit author\` wrote this spec to unblock implementation pull request #${implementation.number}, and \`specs/${folder}\` is \`tasked\` with its checklists checked on the default branch. It starts ahead of other specs; its implementation pull request is opened by the scheduler and assigned to @${requester}.`,
+  ].join('\n'));
+  await updateIssueWithLabels(client, prerequisite, stageLabelChange(prerequisite, IMPLEMENT_STAGE));
+  report(`- Requested the implementation of #${prerequisite.number}, authored to unblock #${implementation.number}.`);
+  return true;
+}
+
 // Scheduler side (Spec Kit orchestrate), for every implementation in progress: maintains the open pull request of the
 // spec `/speckit author` authored for it like an amendment, settles a closed one, and once a merged one has a twin
 // (after its dependency inference), makes this spec depend on it and names the twin with the command that signs it
 // off. From then on the generic dependency handling (maintainDependencyBlock) blocks and retries the implementation.
 // `blocked` tells whether the spec holds the implementation before that dependency exists. An authoring run that
 // never reported is closed.
-export async function maintainFixSpec(client, env, { implementation, twin }, { now = Date.now(), report = () => {} } = {}) {
+export async function maintainFixSpec(client, env, { implementation, twin, rootDir = null }, { now = Date.now(), report = () => {} } = {}) {
   const comments = await client.listIssueComments(implementation.number);
   try {
     await maintainUnlinkedSpec(client, env, { implementation, twin, comments }, { now, report });
@@ -889,7 +951,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
         report(`- Closed the unfinished non-blocking spec authoring of #${implementation.number}.`);
         return { outcome: 'stale' };
       }
-      await client.createComment(implementation.number, [`**The spec authoring did not finish**.`, '', ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) })].join('\n'));
+      await reportAuthorFailure(client, env, { implementation, unlinked: false, message: '**The spec authoring did not finish**.', reason: 'The authoring run ended without a usable result.', checkRun: latest.id });
       report(`- Closed the unfinished spec authoring of #${implementation.number}.`);
       await setAttention(client, implementation.number, true);
       return { outcome: 'stale' };
@@ -925,8 +987,12 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     report(`- Spec #${pull.number} is merged; its twin does not exist yet.`);
     return { outcome: 'waiting', blocked: await hold() };
   }
-  // A linked prerequisite is a dependency like any other, as long as the dependency exists.
-  if (state.linked && (prerequisite.state !== 'open' || (await client.listBlockedBy(twin)).some((blocker) => blocker.number === prerequisite.number))) return { outcome: 'linked', blocked: false };
+  // A linked prerequisite is a dependency like any other, as long as the dependency exists; it is requested once ready.
+  const requester = state.requested?.by ?? null;
+  if (state.linked && (prerequisite.state !== 'open' || (await client.listBlockedBy(twin)).some((blocker) => blocker.number === prerequisite.number))) {
+    await requestAuthoredPrerequisite(client, env, { prerequisite, requester, implementation, rootDir }, { report });
+    return { outcome: 'linked', blocked: false };
+  }
   // Dependency inference of the new twin runs first, so it never sees (and is never rejected for) a cycle with this
   // link.
   if (hasLabel(prerequisite, PENDING_LABEL)) {
@@ -939,14 +1005,16 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     return { outcome: link.outcome, blocked: await hold() };
   }
   if (state.linked) return { outcome: 'linked', blocked: false };
-  // Like every spec, the new twin starts only once someone signs it off with `/speckit implement`; the comment names
-  // the twin with that command, and the block it explains is the generic dependency block.
-  const requester = state.requested?.by ?? null;
+  // The new twin exists only to unblock this implementation, so it is requested right away once ready; otherwise the
+  // comment names it with `/speckit implement`, and the block it explains is the generic dependency block.
+  const requested = await requestAuthoredPrerequisite(client, env, { prerequisite, requester, implementation, rootDir }, { report });
   const block = await explainDependencyBlock(client, (await client.listBlockedBy(twin)).filter((blocker) => blocker.state === 'open'));
   await client.createComment(implementation.number, [
     renderFixEvent('linked', { pull: pull.number, folder: fixFolder, twin: prerequisite.number }),
     renderBlockedMarker(block.key),
-    `**Spec #${pull.number} is spec twin [#${prerequisite.number}](${prerequisite.html_url ?? `#${prerequisite.number}`})**, and this spec now depends on it.${requester ? ` @${requester}, you asked for it with \`/speckit author\`:` : ''} it is implemented once someone with write access signs it off with \`/speckit implement\` on #${prerequisite.number}; this implementation retries by itself once #${prerequisite.number} is implemented.`,
+    requested
+      ? `**Spec #${pull.number} is spec twin [#${prerequisite.number}](${prerequisite.html_url ?? `#${prerequisite.number}`})**, and this spec now depends on it. Its implementation was requested automatically${requester ? ` for @${requester}, who asked for it with \`/speckit author\`` : ''}; this implementation retries by itself once #${prerequisite.number} is implemented.`
+      : `**Spec #${pull.number} is spec twin [#${prerequisite.number}](${prerequisite.html_url ?? `#${prerequisite.number}`})**, and this spec now depends on it.${requester ? ` @${requester}, you asked for it with \`/speckit author\`:` : ''} it is implemented once someone with write access signs it off with \`/speckit implement\` on #${prerequisite.number}; this implementation retries by itself once #${prerequisite.number} is implemented.`,
     '',
     ...block.lines,
   ].join('\n'));

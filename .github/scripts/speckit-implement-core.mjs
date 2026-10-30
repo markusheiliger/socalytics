@@ -5,6 +5,49 @@ export const CHECK_RUN_NAME = 'Spec Kit implementation';
 export const START_COMMENT_MARKER = '<!-- speckit-implement:start -->';
 export const RETRY_COMMENT_MARKER = '<!-- speckit-implement:retry -->';
 export const SYNC_COMMENT_MARKER = '<!-- speckit-implement:sync -->';
+export const RESET_MARKER = '<!-- speckit-implement:reset ';
+const RESET_PATTERN = /^<!-- speckit-implement:reset (\{[^\n]*\}) -->/;
+const SHA_PATTERN = /^[0-9a-f]{40}$/;
+
+export function resetState(comments) {
+  const records = [];
+  for (const comment of comments) {
+    if (comment.user?.login !== BOT_LOGIN || !String(comment.body ?? '').startsWith(RESET_MARKER)) continue;
+    let value;
+    try {
+      value = JSON.parse(String(comment.body).match(RESET_PATTERN)?.[1] ?? 'null');
+    } catch {
+      throw new Error('The trusted reset record is malformed; inspect it before continuing.');
+    }
+    if (!value || !['pending', 'completed', 'failed'].includes(value.state) ||
+        !Number.isSafeInteger(value.source) || value.source <= 0 ||
+        !SHA_PATTERN.test(value.oldHead ?? '') || !SHA_PATTERN.test(value.baseSha ?? '') ||
+        !value.base || !value.branch || !value.recovery ||
+        (value.newHead != null && !SHA_PATTERN.test(value.newHead))) {
+      throw new Error('The trusted reset record is invalid; inspect it before continuing.');
+    }
+    records.push({ ...value, comment: comment.id, at: comment.created_at });
+  }
+  const completed = records.filter((record) => record.state === 'completed').at(-1) ?? null;
+  const latest = records.at(-1);
+  return { completed, pending: latest?.state === 'pending' ? latest : null, records };
+}
+
+export function implementationComments(comments) {
+  const { completed } = resetState(comments);
+  if (!completed) return comments;
+  const boundary = comments.findIndex((comment) => comment.id === completed.comment);
+  return comments.slice(boundary + 1);
+}
+
+export async function implementationRunCurrent(client, pull, env = {}) {
+  const state = resetState(await client.listIssueComments(pull));
+  if (state.pending) return false;
+  if (!state.completed) return true;
+  if (!env.GITHUB_RUN_ID) return true;
+  const run = await client.getWorkflowRun(env.GITHUB_RUN_ID);
+  return Boolean(run && Date.parse(run.created_at) > Date.parse(state.completed.at));
+}
 // Leads a retry or sync comment that the diagnosis posted to continue automatically (speckit-diagnose.mjs). The comment
 // still counts as the restart that follows the marker: startsWithMarker skips it.
 export const AUTO_CONTINUE_MARKER = '<!-- speckit-implement:auto-continue -->';
@@ -22,6 +65,7 @@ export const renderSyncBarrierMarker = (state) => `<!-- speckit-implement:sync-b
 
 // Requests and acknowledgements live on the pull request, not in replaceable workflow inputs or head-bound checks.
 export function syncBarrier(comments, { includeReleased = false } = {}) {
+  comments = implementationComments(comments);
   const trusted = comments.filter((comment) => comment.user?.login === BOT_LOGIN);
   const request = trusted.filter((comment) => startsWithMarker(comment.body, SYNC_COMMENT_MARKER)).at(-1);
   if (!request) return null;
@@ -137,6 +181,66 @@ export const LEGACY_FIX_TITLE_PREFIX = 'Fix spec: ';
 // Architecture changes of a spec pull request may only come from the spec's design (docs/architecture/**).
 export const ARCHITECTURE_PREFIX = 'docs/architecture/';
 export const DIAGNOSIS_COMMENT_MARKER = '<!-- speckit-implement:diagnosis -->';
+export const RECOVERY_FAILURE_MARKER = 'speckit-implement:recovery-failed';
+export const REASSESSMENT_MARKER = 'speckit-implement:reassessment';
+
+export function failedRecoveryRoutes(comments, head) {
+  const repair = unresolvedRepair(comments)?.id ?? null;
+  return trustedMarker(comments, RECOVERY_FAILURE_MARKER).filter((item) => item.head === head && (item.repair ?? null) === repair);
+}
+
+export function recoveryReassessment(comments, head) {
+  const repair = unresolvedRepair(comments)?.id ?? null;
+  return trustedMarker(comments, REASSESSMENT_MARKER).find((item) => item.head === head && item.repair === repair);
+}
+
+export async function reassessRecovery(client, { pull, comments, rediagnose, guidance = '' }) {
+  const existing = recoveryReassessment(comments, pull.head.sha);
+  if (existing) return { started: false, error: 'The one reassessment for this unchanged blocker was already requested. Review its evidence and resolve the remaining blocker; do not repeat an ineffective command.' };
+  const data = { head: pull.head.sha, repair: unresolvedRepair(comments)?.id ?? null };
+  const render = (state, detail) => `<!-- ${REASSESSMENT_MARKER} ${JSON.stringify({ ...data, state })} -->\n${detail}`;
+  const claim = await client.createComment(pull.number, render('claimed', '**Recovery reassessment requested**: one diagnosis will use the failed approaches as evidence. Do not retry the unchanged work.'));
+  const failures = failedRecoveryRoutes(comments, pull.head.sha);
+  let result;
+  try {
+    result = await rediagnose({
+      previous: comments.filter((item) => item.user?.login === BOT_LOGIN && String(item.body).startsWith(DIAGNOSIS_COMMENT_MARKER)).at(-1)?.id ?? '',
+      guidance: `${guidance}\nFailed recovery routes: ${failures.map((item) => `${item.route}: ${item.reason}${item.guidance ? ` (requested: ${clip(item.guidance, 1200)})` : ''}`).join('; ')}\nThis is the single reassessment of this unchanged blocker. Recommend a supported remedy or the precise external action/missing evidence, never a generic retry or a refused route.`,
+    });
+  } catch (error) {
+    result = { started: false, error: error.message };
+  }
+  if (!result.started) {
+    await client.updateComment(claim.id, render('failed', `**Action required on #${pull.number}**: recovery reassessment could not start: ${neutralizeMarkers(result.error)}. Resolve that dispatch or existing-amendment blocker before continuing; no automatic retry is queued.`));
+    await setAttention(client, pull.number, true);
+  }
+  return result;
+}
+export const AMEND_REQUEST_MARKER = 'speckit-amend:request';
+export const AMEND_REQUEST_STATE_MARKER = 'speckit-amend:request-state';
+export const AMEND_AUTHORIZATION_MARKER = 'speckit-amend:authorization';
+
+export function trustedMarker(comments, marker) {
+  comments = implementationComments(comments);
+  const prefix = `<!-- ${marker} `;
+  return comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(prefix))
+    .map((comment) => {
+      try {
+        const line = comment.body.split(/\r?\n/, 1)[0];
+        if (!line.endsWith(' -->')) return null;
+        return { ...JSON.parse(line.slice(prefix.length, -4)), markerComment: comment };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+}
+
+export function pendingAmendmentRequest(comments) {
+  const request = trustedMarker(comments, AMEND_REQUEST_MARKER).at(-1);
+  if (!request) return null;
+  const state = trustedMarker(comments, AMEND_REQUEST_STATE_MARKER).filter((item) => item.request === request.comment).at(-1);
+  return state && ['created', 'failed', 'stale'].includes(state.state) ? null : { ...request, state };
+}
 
 export function diagnosisRunsUrl(env) {
   const server = String(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '');
@@ -161,13 +265,20 @@ export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 // GitHub's default label for "Extra attention is needed": an implementation, amendment, or prerequisite spec pull
 // request carries it while it waits for a person (stopped, a diagnosis or a prerequisite spec outcome to decide on, or
 // ready for review) and loses it once a person's action puts automation back to work or closes the pull request. It is
-// only added together with a comment that recommends what to do, never while a diagnosis runs, and never on a blocked
-// pull request.
+// only added together with a comment that recommends what to do, never while a diagnosis runs, and on a blocked pull
+// request only while a blocker is not requested for implementation (setBlocked; its Blocked comment recommends
+// `/speckit implement` on that blocker).
 export const ATTENTION_LABEL = 'help wanted';
 // An implementation that waits for a prerequisite (an open blocked-by dependency of its twin, or a prerequisite spec
-// that is still being reviewed) carries BLOCKED_LABEL instead of ATTENTION_LABEL. It is only added together with a
+// that is still being reviewed) carries BLOCKED_LABEL, and ATTENTION_LABEL only while a blocker waits for its
+// `/speckit implement` request. It is only added together with a
 // comment that says what it waits for and how it is unblocked (setBlocked), and lifted by maintainDependencyBlock.
 export const BLOCKED_LABEL = 'blocked';
+// The implementations whose merge unblocks the most others (Spec Kit orchestrate, maintainRoadblocks): not blocked
+// themselves, ranked by how many implementations wait for them, also through chains. It is added together with a
+// comment that names the waiting implementations, and moves with the queue on every scheduler run.
+export const ROADBLOCK_LABEL = 'roadblock';
+export const ROADBLOCK_MARKER = '<!-- speckit-implement:roadblock -->';
 const BLOCKED_MARKER_PATTERN = /<!-- speckit-implement:blocked (\{[^\n]*?\}) -->/g;
 export const renderBlockedMarker = (key) => `<!-- speckit-implement:blocked ${JSON.stringify(key)} -->`;
 // Ends a block: the comment that lifts it carries this marker, so the lift (and its retry) happens once per block.
@@ -176,6 +287,7 @@ export const UNBLOCKED_MARKER = '<!-- speckit-implement:unblocked -->';
 // The keys of the blocks explained since the block was last lifted (renderBlockedMarker, UNBLOCKED_MARKER), oldest
 // first; empty when the latest block is already lifted.
 export function currentBlocks(comments) {
+  comments = implementationComments(comments);
   let keys = [];
   for (const comment of comments ?? []) {
     if (comment.user?.login !== BOT_LOGIN) continue;
@@ -194,6 +306,7 @@ export function currentBlocks(comments) {
 
 // Whether a workflow comment already explains the block `key` (renderBlockedMarker) since the block was last lifted.
 export function blockExplained(comments, key) {
+  comments = implementationComments(comments);
   const wanted = JSON.stringify(key);
   return currentBlocks(comments).some((item) => JSON.stringify(item) === wanted);
 }
@@ -206,9 +319,23 @@ export const renderSyncSkippedMarker = (sha) => `<!-- speckit-implement:sync-ski
 
 // The base branch commits that were not merged before a phase, from the workflow's comments.
 export function syncSkippedShas(comments) {
+  comments = implementationComments(comments);
   return new Set(comments
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .map((comment) => String(comment.body ?? '').match(SYNC_SKIPPED_PATTERN)?.[1])
+    .filter(Boolean));
+}
+// Marks that the upkeep merge of a blocked implementation (Spec Kit orchestrate, refreshBlocked) did not merge the base
+// branch at a commit (it conflicts, or GitHub refused it), so the scheduler does not try that commit again. Separate from
+// SYNC_SKIPPED_PATTERN: the merges before a phase, the convergence, and the merge still try it with conflict resolution.
+const REFRESH_SKIPPED_PATTERN = /<!-- speckit-implement:refresh-skipped ([0-9a-f]{7,40}) -->/;
+export const renderRefreshSkippedMarker = (sha) => `<!-- speckit-implement:refresh-skipped ${sha} -->`;
+
+export function refreshSkippedShas(comments) {
+  comments = implementationComments(comments);
+  return new Set((comments ?? [])
+    .filter((comment) => comment.user?.login === BOT_LOGIN)
+    .map((comment) => String(comment.body ?? '').match(REFRESH_SKIPPED_PATTERN)?.[1])
     .filter(Boolean));
 }
 // Marks that a conflict resolution changed files that only the base branch owns, to fix a clash of the merged result.
@@ -220,6 +347,7 @@ export const renderBaseOwnedMarker = (files) => `<!-- speckit-implement:base-own
 // The files only the base branch owns that conflict resolutions changed on this pull request, from the workflow's
 // comments (sorted, without duplicates).
 export function baseOwnedChanges(comments) {
+  comments = implementationComments(comments);
   const files = new Set();
   for (const comment of comments ?? []) {
     if (comment.user?.login !== BOT_LOGIN) continue;
@@ -291,6 +419,21 @@ export const ENVIRONMENT_PREFIXES = ['.github/actions/environment-setup/', '.git
 export const isEnvironmentPath = (file) => ENVIRONMENT_PREFIXES.some((prefix) => file.startsWith(prefix));
 export const isProtectedPath = (file) => !isEnvironmentPath(file) && PROTECTED_PREFIXES.some((prefix) => file.startsWith(prefix));
 
+// Open tasks whose target is a file an implementation may never change: [{ task, files }]. Such a task can never land,
+// so a spec that has one cannot be implemented by the automation (repository tooling is changed directly on the default
+// branch instead). A Spec Kit task names the file it changes first ("In `X`, add …"); only that target counts, and only
+// under .github/ outside the two environment actions: later mentions, spec folders, and .specify/ paths are almost
+// always references, and commands a task runs (`node .github/scripts/…`) are left out, because running a script does
+// not change it.
+const COMMAND_SPAN = /`(?:node|npm|npx|dotnet|uv|python3?|git|gh|docker|pwsh|bash|sh|specify)\s[^`\r\n]*`/g;
+export function protectedTaskPaths(tasksMarkdown) {
+  const concrete = (file) => /\.[A-Za-z0-9]+$/.test(file) && (file.includes('/') || file.includes('\\'));
+  return listTasks(tasksMarkdown)
+    .filter((task) => !task.done)
+    .map((task) => ({ task: task.id, files: taskNamedFiles(String(task.text).replace(COMMAND_SPAN, ' '), { exists: () => true, isSafe: concrete, max: 1 }) }))
+    .filter((entry) => entry.files.length > 0 && entry.files[0].startsWith('.github/') && isProtectedPath(entry.files[0]));
+}
+
 // Reasons why a branch mixes changes to the environment actions with other changes. `branchPaths` are all paths
 // the implementation branch changes compared to its base branch.
 export function environmentExclusivityReasons({ folder, branchPaths }) {
@@ -314,6 +457,31 @@ export function implementationBranch(folder) {
 // (on its branch, right before the merge).
 export function tasksPathOf(folder, { archived = false } = {}) {
   return `${specDir(folder, { archived })}/tasks.md`;
+}
+
+// Files named in task text, in first-mention order, limited to existing safe repository-relative paths.
+export function taskNamedFiles(text, { exists, isSafe, max = Number.POSITIVE_INFINITY } = {}) {
+  if (typeof exists !== 'function' || typeof isSafe !== 'function') throw new TypeError('exists and isSafe must be functions');
+  const limit = Number.isFinite(Number(max)) ? Math.max(0, Math.floor(Number(max))) : Number.POSITIVE_INFINITY;
+  if (limit === 0) return [];
+  const files = [];
+  const seen = new Set();
+  const add = (value, backticked = false) => {
+    const file = String(value).replace(/^[([{<"'`]+/, '').replace(/[)\]}>,"';:!?.]+$/, '');
+    if (!file || (!backticked && !(/[\\/]/.test(file) || /\.[A-Za-z0-9][A-Za-z0-9_-]*$/.test(file)))) return;
+    if (seen.has(file) || !isSafe(file) || !exists(file)) return;
+    seen.add(file);
+    files.push(file);
+  };
+  for (const match of String(text ?? '').matchAll(/`([^`\r\n]+)`|([^\s`]+)/g)) {
+    if (match[1] !== undefined) {
+      for (const token of match[1].match(/\S+/g) ?? []) add(token, true);
+    } else {
+      add(match[2]);
+    }
+    if (files.length >= limit) break;
+  }
+  return files;
 }
 
 // Reads tasks.md of a spec at a ref, wherever the spec folder is; null when it is in neither place.
@@ -427,6 +595,7 @@ export function renderRepairMarker(repair) {
 }
 
 export function unresolvedRepair(comments) {
+  comments = implementationComments(comments);
   const repairs = new Map();
   for (const comment of comments) {
     if (comment.user?.login !== BOT_LOGIN) continue;
@@ -472,8 +641,9 @@ const renderRestartState = ({ head, base = null }) => `<!-- speckit-implement:re
 
 // The latest restarts by a person, newest first, as long as each recorded `head` as the implementation branch head:
 // the restarts since which the branch has not changed. A workflow restart without a recorded state (a merged
-// amendment, an implemented prerequisite) ends the run of unchanged restarts.
+// amendment) ends the run of unchanged restarts; sync requests (also of a lifted block) are not counted.
 export function unchangedRestarts(comments, head) {
+  comments = implementationComments(comments);
   const restarts = [];
   const ordered = [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN && RESTART_COMMENT_MARKERS.some((marker) => startsWithMarker(comment.body, marker)))
@@ -498,7 +668,8 @@ const stopReason = (body) => String(body ?? '').match(STOP_PATTERN)?.[1].replace
 // The comment command that already failed the same way: the latest `/speckit retry` or `/speckit sync` recorded the
 // implementation branch head `head` (so nothing changed since), and the stop after it gave the same reason as the stop
 // before it. Recommending that command again would only repeat the failure. Returns { verb, reason } or null.
-export function repeatedFailure(comments, head) {
+export function repeatedFailure(comments, head, { includeState = false } = {}) {
+  comments = implementationComments(comments);
   const ordered = [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
@@ -514,11 +685,29 @@ export function repeatedFailure(comments, head) {
   if (!state?.head || state.head !== head) return null;
   const before = ordered.slice(0, restartAt).map((comment) => stopReason(comment.body)).filter(Boolean).at(-1);
   const after = ordered.slice(restartAt + 1).map((comment) => stopReason(comment.body)).filter(Boolean)[0];
-  return before && after && before === after ? { verb: verbOf(ordered[restartAt].body), reason: after } : null;
+  return before && after && before === after ? { verb: verbOf(ordered[restartAt].body), reason: after,
+    ...(includeState ? { base: state.base ?? null, guidance: parseGuidance(ordered[restartAt].body) } : {}) } : null;
+}
+
+export function failedSynchronization(comments, head) {
+  const ordered = [...comments].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const barrier = syncBarrier(ordered, { includeReleased: true });
+  if (!barrier || barrier.completion) return null;
+  const request = ordered.find((comment) => String(comment.id ?? comment.created_at) === barrier.request);
+  let state;
+  try {
+    state = JSON.parse(String(request?.body).match(RESTART_STATE_PATTERN)?.[1] ?? 'null');
+  } catch {
+    return null;
+  }
+  if (!state?.head || state.head !== head) return null;
+  const reason = latestStopReason(ordered.slice(ordered.indexOf(request) + 1));
+  return reason ? { at: request.created_at, url: request.html_url ?? null, reason } : null;
 }
 
 // The reason of the latest stop for a person, or null.
 export function latestStopReason(comments) {
+  comments = implementationComments(comments);
   return [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
@@ -726,13 +915,17 @@ export function parseMaxActiveSpecs(value) {
   return Number.isInteger(number) && number > 0 ? number : DEFAULT_MAX_ACTIVE_SPECS;
 }
 
-// Checks `taskId` in a tasks.md; null when the task is missing or already checked.
-export function tickTask(tasksMarkdown, taskId) {
+// Checks `taskId` in a tasks.md; null when the task is missing or already checked. An optional note is appended to the
+// task line, so a task ticked without this spec's own change says where its work came from (a tick alone would claim
+// this spec implemented it).
+export function tickTask(tasksMarkdown, taskId, note = '') {
   const lines = String(tasksMarkdown ?? '').split('\n');
   const matchOf = (line) => line.replace(/\r$/, '').match(TASK_PATTERN);
   const index = lines.findIndex((line) => matchOf(line)?.[2] === taskId);
   if (index < 0 || matchOf(lines[index])[1] !== ' ') return null;
-  lines[index] = lines[index].replace('[ ]', '[x]');
+  const ticked = lines[index].replace('[ ]', '[x]');
+  const cr = ticked.endsWith('\r') ? '\r' : '';
+  lines[index] = note ? `${ticked.replace(/\r$/, '').trimEnd()} — ${String(note).replace(/[\r\n]+/g, ' ').trim()}${cr}` : ticked;
   return lines.join('\n');
 }
 
@@ -776,30 +969,172 @@ export function isTwinRunOf(workflowFile, title, twin) {
   return [`${workflow} spec #${twin}`, `${workflow} · spec #${twin}`, `[${workflow}] spec #${twin}`, `${workflow} #${twin}`].some((name) => text === name || text.startsWith(`${name} `));
 }
 
+// Historical marker retained so existing reminders keep their identity.
+export const ACTION_REQUIRED_MARKER = 'speckit-implement:escalation';
+export const ACTION_REQUIRED_SUPERSEDED_MARKER = '<!-- speckit-implement:reminder-superseded -->';
+
+export function acceptedImplementationAction(comments, after) {
+  const amendments = trustedMarker(comments, AMEND_REQUEST_MARKER);
+  const authors = parseFixEvents(comments).filter((event) => event.event === 'requested' && event.link !== false);
+  const resets = resetState(comments).records;
+  return comments.find((comment) => comment.user?.login === BOT_LOGIN && Date.parse(comment.created_at) > Date.parse(after) &&
+    ([...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER, COPILOT_HANDOFF_MARKER].some((marker) => startsWithMarker(comment.body, marker)) ||
+      resets.some((reset) => reset.comment === comment.id && reset.state !== 'failed') ||
+      amendments.some((request) => request.markerComment.id === comment.id) ||
+      authors.some((request) => request.commentId === comment.id))) ?? null;
+}
+
+export async function supersedeActionRequired(client, number, { successor = null, warn = console.warn } = {}) {
+  let updated = 0;
+  try {
+    const comments = await client.listIssueComments(number);
+    const reminders = trustedMarker(comments, ACTION_REQUIRED_MARKER)
+      .filter((item) => !item.markerComment.body.includes(ACTION_REQUIRED_SUPERSEDED_MARKER));
+    if (!reminders.length) return { updated };
+    const pull = await client.getPullRequest(number);
+    const child = successor?.state === 'open' && successor.base?.ref === pull.head?.ref &&
+      successor.head?.ref === amendmentBranch(folderOfBranch(pull.head?.ref)) ? successor : null;
+    let pushedAt;
+    for (const reminder of reminders) {
+      const diagnosis = comments.find((comment) => String(comment.id) === String(reminder.key) &&
+        comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, DIAGNOSIS_COMMENT_MARKER));
+      const boundary = diagnosis?.created_at ?? reminder.markerComment.created_at;
+      const accepted = acceptedImplementationAction(comments, boundary);
+      if (!accepted && !child && pull.state === 'open' && pushedAt === undefined) {
+        pushedAt = latestHumanCommit(await client.listPullRequestCommits(number)) ?? null;
+      }
+      if (!accepted && !child && pull.state === 'open' && !(pushedAt && Date.parse(pushedAt) > Date.parse(boundary))) continue;
+      const link = accepted?.html_url ?? (accepted ? `#issuecomment-${accepted.id}` : pull.html_url ?? `#${number}`);
+      const reason = accepted
+        ? `The action requested by this reminder was already accepted in [this workflow handoff](${link}).`
+        : child ? `This request was transferred to amendment #${child.number}.`
+        : pull.state !== 'open'
+          ? `This implementation was ${pull.merged_at ? 'merged' : 'closed'}.`
+          : `A later push resumed [this implementation](${link}).`;
+      const request = accepted && trustedMarker(comments, AMEND_REQUEST_MARKER).find((item) => item.markerComment.id === accepted.id);
+      const amendment = child?.number ?? (request && trustedMarker(comments, AMEND_REQUEST_STATE_MARKER)
+        .filter((item) => item.request === request.comment && item.state === 'created').at(-1)?.amendment);
+      await client.updateComment(reminder.markerComment.id, [
+        reminder.markerComment.body.split(/\r?\n/, 1)[0],
+        ACTION_REQUIRED_SUPERSEDED_MARKER,
+        `**Superseded**: ${reason} This reminder is not an outstanding request; do not repeat its command.`,
+        ...(amendment ? ['', `The change is tracked in amendment #${amendment}. Its current workflow status, not this historical reminder, determines the next step.`] : []),
+      ].join('\n'));
+      updated += 1;
+    }
+    return { updated };
+  } catch (error) {
+    warn(`Warning: could not supersede action-required reminders on #${number}: ${error.message}`);
+    return { updated, failed: true };
+  }
+}
+
 // Adds (`needed`) or removes ATTENTION_LABEL on a pull request; only an open pull request that is not blocked gets it.
 // The label is a convenience, so a failure never stops the workflow.
-export async function setAttention(client, number, needed) {
+export async function setAttention(client, number, needed, { warn = console.warn } = {}) {
   try {
     const pull = await client.getPullRequest(number);
     const names = (pull.labels ?? []).map((label) => label?.name ?? label);
     const has = names.includes(ATTENTION_LABEL);
+    if (pull.state !== 'open') needed = false;
     if (needed && !has && pull.state === 'open' && !names.includes(BLOCKED_LABEL)) await client.addLabels(number, [ATTENTION_LABEL]);
     if (!needed && has) await client.removeLabel(number, ATTENTION_LABEL);
-  } catch {
-    // The label only signals the state; comments and check runs carry it.
+    return true;
+  } catch (error) {
+    warn(`Warning: could not reconcile \`${ATTENTION_LABEL}\` on #${number}: ${error.message}`);
+    return false;
   }
+}
+
+// A writer's `@copilot` request on a stopped implementation hands it to GitHub Copilot's cloud agent: the pull request
+// stops asking for help (the handoff comment says why), and Copilot's push continues the implementation like any push
+// that is not by github-actions[bot]. When Copilot replies without having pushed, or has not pushed within
+// COPILOT_HANDOFF_MS, the scheduler asks for help again (maintainCopilotHandoff), so a stop never goes unnoticed.
+export const COPILOT_HANDOFF_MARKER = '<!-- speckit-implement:copilot-handoff -->';
+export const COPILOT_HANDOFF_ENDED_MARKER = 'speckit-implement:copilot-handoff-ended';
+export const COPILOT_HANDOFF_MS = 60 * 60 * 1000;
+// The REST login of GitHub Copilot's cloud agent on comments and commits.
+export const COPILOT_LOGIN = 'Copilot';
+export const normalizeRecovery = (value) => String(value ?? '').replace(/\r\n/g, '\n').trim().replace(/\s+/g, ' ').toLowerCase();
+
+export function failedCopilotRecoveries(comments, head) {
+  return trustedMarker(comments, COPILOT_HANDOFF_ENDED_MARKER).filter((item) => item.head === head && item.request);
+}
+
+// Whether a comment asks Copilot's cloud agent for a change: it starts with the mention, like the requests diagnoses
+// recommend (renderCopilotRequest). A mention later in the text ("thanks @copilot") is not a handoff.
+export function isCopilotRequest(body) {
+  return /^\s*@copilot\b/i.test(String(body ?? ''));
+}
+
+// The latest handoff to Copilot that still decides whether the pull request asks for help, and its state: `working`
+// (Copilot may still push), `finished` (Copilot replied after the handoff without a push), or `expired` (no push within
+// COPILOT_HANDOFF_MS). A push that is not by github-actions[bot] (`pushedAt`), a restart or sync after the handoff, or
+// an ended marker for it closes the handoff (null).
+export function pendingCopilotHandoff(comments, { pushedAt = null, now = Date.now() } = {}) {
+  comments = implementationComments(comments);
+  const handoff = [...comments]
+    .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, COPILOT_HANDOFF_MARKER))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  if (!handoff) return null;
+  const at = Date.parse(handoff.created_at);
+  const after = (comment) => Date.parse(comment.created_at) > at;
+  if (pushedAt && Date.parse(pushedAt) > at) return null;
+  if (comments.some((comment) => comment.user?.login === BOT_LOGIN && after(comment) &&
+    [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => startsWithMarker(comment.body, marker)))) return null;
+  if (trustedMarker(comments, COPILOT_HANDOFF_ENDED_MARKER).some((item) => item.handoff === handoff.id)) return null;
+  const reply = comments.find((comment) => comment.user?.login === COPILOT_LOGIN && after(comment)) ?? null;
+  if (reply) return { handoff, state: 'finished', reply };
+  return { handoff, state: now - at >= COPILOT_HANDOFF_MS ? 'expired' : 'working', reply: null };
+}
+
+// Spec Kit orchestrate, for every implementation in progress: asks for help again when a handoff to Copilot ended
+// without a push, unless the chain is running, will be continued (`continues`), or the implementation is blocked.
+export async function maintainCopilotHandoff(client, { pull, comments, pushedAt, active, continues, blocked, now = Date.now(), rediagnose = null }) {
+  if (active || continues || blocked) return null;
+  const pending = pendingCopilotHandoff(comments, { pushedAt, now });
+  if (!pending || pending.state === 'working') return null;
+  const link = (comment) => comment.html_url ?? `#issuecomment-${comment.id}`;
+  const branch = `\`${pull.head?.ref ?? 'the implementation branch'}\``;
+  const what = pending.state === 'finished'
+    ? `**Copilot finished without pushing** to ${branch}, so the implementation is still stopped and needs a person again. [Copilot's reply](${link(pending.reply)}) says what it did instead.`
+    : `**Copilot has not pushed** to ${branch} within ${COPILOT_HANDOFF_MS / 60000} minutes of the [request](${link(pending.handoff)}), so the implementation is still stopped and needs a person again. Check that Copilot's cloud agent is enabled for this repository and whether its session failed.`;
+  const request = comments.filter((comment) => comment.user?.login !== BOT_LOGIN && isCopilotRequest(comment.body) &&
+    Date.parse(comment.created_at) <= Date.parse(pending.handoff.created_at)).at(-1);
+  const next = rediagnose
+    ? '**Recommended next step**: Wait for a new diagnosis using the failed request and refusal or timeout as evidence; do not repeat the failed recommendation. No action is needed while diagnosis runs.'
+    : '**Recommended next step**: Review the failed handoff and its refusal or timeout before choosing a different recovery; do not repeat the failed recommendation.';
+  await client.createComment(pull.number, [
+    `<!-- ${COPILOT_HANDOFF_ENDED_MARKER} ${JSON.stringify({ handoff: pending.handoff.id, head: pull.head?.sha, request: request?.body ?? null })} -->`,
+    what,
+    '',
+    next,
+  ].join('\n'));
+  if (rediagnose) {
+    const result = await reassessRecovery(client, { pull, comments: await client.listIssueComments(pull.number), rediagnose,
+      guidance: `The Copilot handoff ${pending.handoff.id} ${pending.state} without a push. Reassess the failed recommendation using the request and reply; do not recommend it again on this unchanged head. A timeout alone does not establish an artifact defect.` });
+    if (!result.started) {
+      await setAttention(client, pull.number, true);
+      await client.createComment(pull.number, `**Re-diagnosis could not start** for #${pull.number}: ${neutralizeMarkers(result.error)}.\n\n**Recommended next step**: Address this dispatch or existing-amendment blocker before continuing #${pull.number}; do not repeat the failed Copilot request.`);
+    }
+  } else await setAttention(client, pull.number, true);
+  return pending.state;
 }
 
 // Adds or removes BLOCKED_LABEL on an implementation pull request. Blocking needs `explain` ({ key, lines }): unless a
 // workflow comment already carries the marker of `key` (the comment that caused the block usually does), a comment with
-// `lines` says what the implementation waits for and how it is unblocked. A blocked pull request loses ATTENTION_LABEL:
-// the person's part is described there. Removing it is silent; the comment that lifts the block explains it.
+// `lines` says what the implementation waits for and how it is unblocked. A blocked pull request carries ATTENTION_LABEL
+// exactly while a blocker is not requested for implementation (`key.unrequested`, whose explanation recommends
+// `/speckit implement` on it): nothing else can start that blocker. Once every blocker is requested, or the block is
+// lifted, the label goes; the comment that lifts the block explains it, and a lifted block that still needs a person adds
+// the label again with its own recommendation.
 export async function setBlocked(client, number, blocked, { explain = null } = {}) {
   if (blocked && !explain?.key) throw new Error('setBlocked needs an explanation to block a pull request');
   try {
     const pull = await client.getPullRequest(number);
     const names = (pull.labels ?? []).map((label) => label?.name ?? label);
     const has = names.includes(BLOCKED_LABEL);
+    const attention = names.includes(ATTENTION_LABEL);
     if (blocked && pull.state === 'open') {
       if (!blockExplained(await client.listIssueComments(number), explain.key)) {
         await client.createComment(number, [renderBlockedMarker(explain.key), ...explain.lines].join('\n'));
@@ -808,9 +1143,14 @@ export async function setBlocked(client, number, blocked, { explain = null } = {
         await client.ensureLabel({ name: BLOCKED_LABEL, color: 'd93f0b', description: 'Implementation is on hold waiting for a prerequisite' });
         await client.addLabels(number, [BLOCKED_LABEL]);
       }
-      if (names.includes(ATTENTION_LABEL)) await client.removeLabel(number, ATTENTION_LABEL);
+      const unrequested = Array.isArray(explain.key.unrequested) && explain.key.unrequested.length > 0;
+      if (unrequested && !attention) await client.addLabels(number, [ATTENTION_LABEL]);
+      if (!unrequested && attention) await client.removeLabel(number, ATTENTION_LABEL);
     }
-    if ((!blocked || pull.state !== 'open') && has) await client.removeLabel(number, BLOCKED_LABEL);
+    if ((!blocked || pull.state !== 'open') && has) {
+      await client.removeLabel(number, BLOCKED_LABEL);
+      if (attention) await client.removeLabel(number, ATTENTION_LABEL);
+    }
   } catch {
     // The label only signals the state; comments and check runs carry it.
   }
@@ -901,8 +1241,9 @@ export async function openPrerequisites(client, twin) {
 
 // Scheduler side, for an open implementation pull request of `twin`: blocks it while its twin has open blocked-by
 // dependencies, whoever added them. Once none is open (and `hold`, a prerequisite spec still under review, is false), a
-// block that is not lifted yet is lifted once (UNBLOCKED_MARKER): the implementation retries with a fresh attempt count
-// on its current phase base, or, when a prerequisite was closed without being implemented, asks for a person.
+// block that is not lifted yet is lifted once (UNBLOCKED_MARKER): the implementation requests the required
+// synchronization (it merges the base branch, which now carries its prerequisites, passes full verification, and
+// continues with a fresh attempt count), or, when a prerequisite was closed without being implemented, asks for a person.
 export async function maintainDependencyBlock(client, env, { implementation, twin, hold = false }, { report = () => {} } = {}) {
   const blockers = await client.listBlockedBy(twin);
   const open = blockers.filter((blocker) => blocker.state === 'open');
@@ -939,24 +1280,59 @@ export async function maintainDependencyBlock(client, env, { implementation, twi
     report(`- A prerequisite of #${pull.number} was not implemented (${list(notImplemented)} closed); it needs a person.`);
     return { outcome: 'stopped', blocked: false, blockers: [] };
   }
+  // The base branch now carries what the implementation waited for, so it is merged and fully verified before any work
+  // continues (the required synchronization of `/speckit sync`), also in the middle of a phase.
+  const base = baseBranchOf(pull);
   const lead = [
     UNBLOCKED_MARKER,
     implemented.length > 0
-      ? `**The block is lifted**: prerequisite ${list(implemented)} ${implemented.length === 1 ? 'is' : 'are'} implemented. The implementation retries with a fresh attempt count on its current phase base.`
-      : '**The block is lifted**: the spec twin has no open prerequisites anymore. The implementation retries with a fresh attempt count on its current phase base.',
+      ? `**The block is lifted**: prerequisite ${list(implemented)} ${implemented.length === 1 ? 'is' : 'are'} implemented`
+      : '**The block is lifted**: the spec twin has no open prerequisites anymore',
   ].join('\n');
   const guidance = implemented.length > 0
     ? `This implementation waited for the spec twin(s) ${list(implemented)}, which are now implemented on the base branch. Continue as planned; do not work around what they provide in this spec.`
     : '';
-  await client.createComment(pull.number, renderRetryComment(lead, guidance));
-  await setBlocked(client, pull.number, false);
-  try {
-    await dispatchImplementation(client, env, { twin, pull: pull.number, title: specTitleOfPull(pull) });
-  } catch {
-    // The retry comment persists the request; the next scheduler run continues the implementation.
-  }
-  report(`- The prerequisites of #${pull.number} are implemented${implemented.length > 0 ? ` (${list(implemented)})` : ''}; lifted its block and retried it.`);
+  await requestSync(client, env, { implementation: pull, twin }, {
+    lead,
+    effect: `the implementation merges \`${base}\`, passes full verification, and then continues with a fresh attempt count. Pending repair scope and attempt limits are unchanged.`,
+    guidance,
+    unblock: true,
+  });
+  report(`- The prerequisites of #${pull.number} are implemented${implemented.length > 0 ? ` (${list(implemented)})` : ''}; lifted its block and requested the required synchronization with \`${base}\`.`);
   return { outcome: 'retried', blocked: false, blockers: [] };
+}
+
+// The implementation branch head and the base branch head at a restart (renderRestartState).
+export async function restartState(client, implementation) {
+  let base = null;
+  try {
+    base = await client.getBranchSha(baseBranchOf(implementation));
+  } catch {}
+  return { head: implementation.head.sha, base };
+}
+
+// Requests the required synchronization (`/speckit sync`, a diagnosis, or a lifted block): the sync comment persists the
+// request, which merges the pull request base and passes full verification before any work continues. `lead` says who
+// or what requested it and `effect` what happens (the default describes the command); `prefix` leads the comment (the
+// diagnosis' AUTO_CONTINUE_MARKER) and `suffix` ends its first paragraph. `unblock` removes BLOCKED_LABEL once the
+// request is recorded, so a lifted block is never lost.
+export async function requestSync(client, env, { implementation, twin }, { lead, effect = null, guidance = '', prefix = '', suffix = '', unblock = false }) {
+  const reach = guidance ? ` ${describeGuidanceReach('sync', { lastStop: latestStopReason(await client.listIssueComments(implementation.number)) })}` : '';
+  const what = effect ?? `merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.`;
+  await client.createComment(implementation.number, `${prefix}${renderSyncComment(
+    `${lead}; ${what}${reach}${suffix}`,
+    guidance,
+    await restartState(client, implementation),
+  )}`);
+  if (unblock) await setBlocked(client, implementation.number, false);
+  await setAttention(client, implementation.number, false);
+  await supersedeActionRequired(client, implementation.number);
+  try {
+    await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
+  } catch {
+    // The durable request survives a failed dispatch or replacement by another pending run; the next scheduler run
+    // continues the implementation.
+  }
 }
 
 // Implementation pull requests stay draft until the verified result is either merged immediately or deliberately
@@ -1032,16 +1408,44 @@ export async function dispatchImplementation(client, env, { twin, pull, title, s
   await client.dispatchWorkflow(workflow, defaultBranchOf(env), { issue: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}), ...(next ? { subject: next } : {}) });
 }
 
-// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, repair, converge, resolve, or verify
-// (the verification of a finished phase, named by `phase`). `outcome` is success, failure, requeue (redone from a
-// newer head; not a failure), or attention (a person is needed).
-export function renderAttemptMarker({ kind, task = null, attempt, outcome, phase = undefined }) {
-  return `<!-- speckit-implement:attempt ${JSON.stringify({ kind, task: task || null, attempt: Number(attempt), outcome, ...(phase !== undefined ? { phase } : {}) })} -->`;
+// The classes of a failed attempt, recorded in its attempt marker by the land job that reported it, which decide whether
+// an automatic second attempt can help (retryState):
+// - `repeat`: certain to fail the same way again (the agent made no change without a completion claim, a change outside
+//   the allowed files, a refused push, environment-action validation, a conflict that needs a person): stops at once
+//   for the diagnosis;
+// - `infrastructure`: the work job failed before the agent ran (no agent output and no result): one more attempt after
+//   a short wait (job `pause` of speckit-implement-prepare.yml, repository variable SPECKIT_RETRY_WAIT, default 300 s);
+// - `agent`: the agent's change failed the build, the tests, or the land checks: one more attempt that gets this
+//   failure as evidence. A failure without a class (every marker written before the classes existed) counts as `agent`.
+export const FAILURE_CLASSES = ['repeat', 'infrastructure', 'agent'];
+export const failureClassOf = (attempt) => (FAILURE_CLASSES.includes(attempt?.class) ? attempt.class : 'agent');
+
+// How a failure class is named in a stop.
+export const FAILURE_CLASS_TEXT = {
+  repeat: 'the failure is certain to repeat, so it was not retried',
+  infrastructure: 'the work job failed before the agent ran',
+  agent: 'the agent\'s change failed the build, the tests, or the land checks',
+};
+
+// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, repair, converge, resolve, verify
+// (the verification of a finished phase, named by `phase`), or merge (only failures; merges are counted by their check
+// runs). `outcome` is success, failure, requeue (redone from a newer head; not a failure), or attention (a person is
+// needed). A failure carries its class (FAILURE_CLASSES).
+export function renderAttemptMarker({ kind, task = null, attempt, outcome, phase = undefined, failureClass = undefined }) {
+  return `<!-- speckit-implement:attempt ${JSON.stringify({
+    kind,
+    task: task || null,
+    attempt: Number(attempt),
+    outcome,
+    ...(phase !== undefined ? { phase } : {}),
+    ...(FAILURE_CLASSES.includes(failureClass) ? { class: failureClass } : {}),
+  })} -->`;
 }
 
 // The attempt ledger of a pull request: the outcomes the workflow reported, oldest first. Only comments by the
 // workflow count, so text in other comments cannot forge outcomes. Markers written before `kind` carry it as `step`.
 export function parseAttempts(comments) {
+  comments = implementationComments(comments);
   const attempts = [];
   for (const comment of comments) {
     if (comment.user?.login !== BOT_LOGIN) continue;
@@ -1050,13 +1454,72 @@ export function parseAttempts(comments) {
     try {
       const value = JSON.parse(match[1]);
       const kind = value.kind ?? value.step;
-      if (!['task', 'repair', 'converge', 'resolve', 'verify'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
-      attempts.push({ kind, task: value.task ?? null, attempt: Number(value.attempt) || 0, outcome: value.outcome, at: comment.created_at, ...(kind === 'verify' ? { phase: value.phase ?? null } : {}) });
+      if (!['task', 'repair', 'converge', 'resolve', 'verify', 'merge'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
+      attempts.push({
+        kind,
+        task: value.task ?? null,
+        attempt: Number(value.attempt) || 0,
+        outcome: value.outcome,
+        at: comment.created_at,
+        ...(kind === 'verify' ? { phase: value.phase ?? null } : {}),
+        ...(FAILURE_CLASSES.includes(value.class) ? { class: value.class } : {}),
+      });
     } catch {
       // A malformed marker is ignored.
     }
   }
   return attempts.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
+// Whether one work item gets another automatic attempt, from its attempts in the current window (oldest first):
+// `exceeded` after MAX_TASK_ATTEMPTS failures or MAX_TASK_ATTEMPTS * 2 attempts of any outcome, at once after a failure
+// of class `repeat`, and at once when the window started with an automatic continuation (autoContinuedStop) of this
+// item and its first failure has the class of the failure that stopped it. `failureClass` is the class of its latest
+// failure, `previous` that failure (whose report is the evidence of the next attempt), and `wait` tells that the next
+// attempt follows an infrastructure failure and starts after a short wait.
+export function retryState(list, { kind = null, task = null, stopped = null, limit = MAX_TASK_ATTEMPTS } = {}) {
+  const failures = list.filter((attempt) => attempt.outcome === 'failure');
+  const previous = failures.at(-1) ?? null;
+  const failureClass = previous ? failureClassOf(previous) : null;
+  const sameAsStop = Boolean(stopped && failures.length > 0 && stopped.kind === kind && (stopped.task ?? null) === (task ?? null) &&
+    failureClassOf(failures[0]) === stopped.class);
+  const exceeded = failures.length >= limit || list.length >= limit * 2 || failureClass === 'repeat' || sameAsStop;
+  return {
+    failures: failures.length,
+    total: list.length,
+    exceeded,
+    failureClass,
+    sameAsStop,
+    previous,
+    wait: !exceeded && list.at(-1)?.outcome === 'failure' && failureClass === 'infrastructure',
+  };
+}
+
+// The failed work item that stopped the implementation when the current attempt window starts with an automatic
+// continuation of the diagnosis (AUTO_CONTINUE_MARKER): its kind, task, failure class, and the continuation's time
+// (`at`). Null otherwise, also after a person's retry, sync, or push, which give the full attempt count.
+export function autoContinuedStop(comments, attempts, windowStart) {
+  const restart = comments
+    .filter((comment) => comment.user?.login === BOT_LOGIN && [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => startsWithMarker(comment.body, marker)))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  if (!restart || !String(restart.body ?? '').startsWith(AUTO_CONTINUE_MARKER)) return null;
+  if (windowStart && Date.parse(restart.created_at) < Date.parse(windowStart)) return null;
+  const last = attempts.filter((attempt) => Date.parse(attempt.at) < Date.parse(restart.created_at)).at(-1);
+  if (last?.outcome !== 'failure') return null;
+  return { kind: last.kind, task: last.task ?? null, class: failureClassOf(last), at: restart.created_at };
+}
+
+// The report of a failed attempt (the comment that recorded it: its reasons, the end of its verification output, and
+// the agent's summary) as evidence for the next attempt, without markers and cut to MAX_ATTEMPT_EVIDENCE characters;
+// empty when the comment is gone.
+export const MAX_ATTEMPT_EVIDENCE = 6000;
+export function attemptEvidence(comments, failure) {
+  if (!failure) return '';
+  const comment = comments.find((item) => item.created_at === failure.at && parseAttempts([item]).some((recorded) =>
+    recorded.kind === failure.kind && recorded.task === failure.task && recorded.attempt === failure.attempt && recorded.outcome === 'failure'));
+  if (!comment) return '';
+  const text = neutralizeMarkers(String(comment.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim());
+  return text.length > MAX_ATTEMPT_EVIDENCE ? `${text.slice(0, MAX_ATTEMPT_EVIDENCE)}\n… (cut off)` : text;
 }
 
 // External ID of the check run that shows one attempt: speckit:attempt:<kind>:<task>:<attempt>.
@@ -1085,6 +1548,7 @@ export function latestCheckRun(checkRuns) {
 
 // Creation times of workflow-authored comments that start with a marker; text inside other comments cannot forge them.
 export function markerTimes(comments, marker) {
+  comments = implementationComments(comments);
   return comments
     .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, marker))
     .map((comment) => comment.created_at);
@@ -1106,9 +1570,13 @@ const checkTime = (check) => Date.parse(check.started_at ?? check.created_at ?? 
 // landed after its last successful verification (verifyNeeded) → the next group of tasks (planGroup) → converge (until a successful convergence is newer than the last successful task) → merge, or resolve after a merge
 // (or merging the base branch before it) found conflicts on this head. Only failures
 // count against the attempt limit; all outcomes (including redos from a newer head) are capped separately so no-op
-// attempts cannot loop forever. A stop that needs a person (attempt limit, attention, or a diagnosis that runs or waits
+// attempts cannot loop forever. The class of a failure decides whether a second attempt follows (retryState): never
+// after a failure that is certain to repeat, after a short wait (`wait`) after an infrastructure failure, and never
+// when `stopped` (autoContinuedStop) shows that the window started with an automatic continuation after the same item
+// failed with the same class. Each entry of a retried item carries its `previous` failure, whose report is the evidence
+// of the next attempt. A stop that needs a person (attempt limit, attention, or a diagnosis that runs or waits
 // for a decision) holds everything until a person pushes or retries.
-export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowStart, done = false, resumedAt = null, now = Date.now(), maxEntries = MAX_MATRIX_JOBS_PER_RUN }) {
+export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowStart, done = false, resumedAt = null, now = Date.now(), maxEntries = MAX_MATRIX_JOBS_PER_RUN, stopped = null }) {
   const mergeChecks = checks.filter((check) => check.external_id === CHECK_MERGE);
   const stale = mergeChecks.filter((check) => check.status !== 'completed' && now - checkTime(check) >= MERGE_STALE_MS);
   if (mergeChecks.some((check) => check.status !== 'completed' && !stale.includes(check))) return { action: 'wait' };
@@ -1137,19 +1605,25 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
     return { failures: list.filter((attempt) => attempt.outcome === 'failure').length, total: list.length };
   };
   const exceeded = ({ failures, total }) => failures >= MAX_TASK_ATTEMPTS || total >= MAX_TASK_ATTEMPTS * 2;
+  // The retry state of one work item (retryState), and what a stop or its next attempt carries.
+  const stateOf = (kind, task, match, limit = MAX_TASK_ATTEMPTS) => retryState(inWindow.filter(match), { kind, task, stopped, limit });
+  const limitOf = (state) => ({ attempts: state.total, ...(state.failureClass ? { failureClass: state.failureClass } : {}), ...(state.sameAsStop ? { sameAsStop: true } : {}) });
+  const entryOf = (task, state) => ({ task, attempt: state.total + 1, ...(state.previous ? { previous: state.previous } : {}) });
+  const waitOf = (states) => (states.some((state) => state.wait) ? { wait: true } : {});
 
   // An already-current required sync can succeed without moving the head, leaving old conflict checks on it.
   const unresolved = (check) => !attempts.some((attempt) => attempt.kind === 'resolve' && attempt.outcome === 'success' && Date.parse(attempt.at) > checkTime(check));
   // Merging the base branch before a phase or the convergence conflicted on this head: resolve first, best effort.
-  // After MAX_SYNC_RESOLVE_ATTEMPTS failed attempts, or one that needs a person, the work continues on its base.
+  // After MAX_SYNC_RESOLVE_ATTEMPTS failed attempts, a failure that is certain to repeat, or one that needs a person,
+  // the work continues on its base.
   let syncGivenUp = null;
   const syncConflict = latestCheckRun(checks.filter((check) => check.external_id === CHECK_SYNC_CONFLICT && unresolved(check)));
   if (syncConflict) {
     const list = inWindow.filter((attempt) => attempt.kind === 'resolve' && Date.parse(attempt.at) >= checkTime(syncConflict));
-    const failures = list.filter((attempt) => attempt.outcome === 'failure').length;
+    const state = retryState(list, { kind: 'resolve', stopped, limit: MAX_SYNC_RESOLVE_ATTEMPTS });
     const handedOver = list.some((attempt) => attempt.outcome === 'attention');
-    if (!handedOver && failures < MAX_SYNC_RESOLVE_ATTEMPTS && list.length < MAX_SYNC_RESOLVE_ATTEMPTS * 2) {
-      return { action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: list.length + 1 }]], stale };
+    if (!handedOver && !state.exceeded) {
+      return { action: 'tasks', kind: 'resolve', sync: true, order: [[entryOf(null, state)]], stale, ...waitOf([state]) };
     }
     syncGivenUp = syncConflict;
   }
@@ -1162,12 +1636,12 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   }
   const group = planGroup(tasksMarkdown, { maxTasks: maxEntries });
   if (group) {
-    const ofTask = (id) => tally((attempt) => attempt.kind === 'task' && attempt.task === id);
-    for (const id of group.tasks) {
-      const count = ofTask(id);
-      if (exceeded(count)) return { action: 'limit', kind: 'task', task: id, attempts: count.total, stale };
+    const ofTask = (id) => stateOf('task', id, (attempt) => attempt.kind === 'task' && attempt.task === id);
+    const states = group.tasks.map((id) => [id, ofTask(id)]);
+    for (const [id, state] of states) {
+      if (state.exceeded) return { action: 'limit', kind: 'task', task: id, ...limitOf(state), stale };
     }
-    const entries = group.tasks.map((id) => ({ task: id, attempt: ofTask(id).total + 1 }));
+    const entries = states.map(([id, state]) => entryOf(id, state));
     // The order of the run: a sequential group has one entry per task (run one after another), a parallel group one
     // entry with all its tasks (run at the same time).
     return {
@@ -1178,6 +1652,7 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
       phase: group.phase,
       completesPhase: group.completesPhase,
       stale,
+      ...waitOf(states.map(([, state]) => state)),
       ...givenUp,
     };
   }
@@ -1186,24 +1661,39 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   const lastTask = Math.max(0, ...attempts.filter((attempt) => attempt.kind === 'task' && attempt.outcome === 'success').map(atOf));
   const converged = attempts.some((attempt) => attempt.kind === 'converge' && attempt.outcome === 'success' && atOf(attempt) > lastTask);
   let kind;
-  let count;
+  let state;
   if (!converged) {
     kind = 'converge';
-    count = tally((attempt) => attempt.kind === 'converge' && atOf(attempt) > lastTask);
+    state = stateOf(kind, null, (attempt) => attempt.kind === 'converge' && atOf(attempt) > lastTask);
   } else if (latestCheckRun(checks.filter((check) => [CHECK_MERGE, CHECK_CONFLICT].includes(check.external_id) && (check.external_id !== CHECK_CONFLICT || unresolved(check))))?.external_id === CHECK_CONFLICT) {
     kind = 'resolve';
     // Only attempts at the current conflict count; earlier, already resolved conflicts do not.
     const conflictAt = checkTime(latestCheckRun(checks.filter((check) => check.external_id === CHECK_CONFLICT)));
-    count = tally((attempt) => attempt.kind === 'resolve' && atOf(attempt) >= conflictAt);
+    state = stateOf(kind, null, (attempt) => attempt.kind === 'resolve' && atOf(attempt) >= conflictAt);
   } else {
-    const merges = mergeChecks.filter((check) => checkTime(check) >= since);
-    const merge = { failures: merges.filter((check) => stale.includes(check) || check.conclusion === 'failure').length, total: merges.length };
-    if (exceeded(merge)) return { action: 'limit', kind: 'merge', attempts: merge.total, stale };
+    // Merges are counted by their check runs on this head; the class of a failure comes from the attempt marker its
+    // land job wrote after the check started (none, as before the classes existed, counts as `agent`). A merge whose
+    // branch moved during verification is an `agent` failure and stays retryable.
+    const merges = mergeChecks.filter((check) => checkTime(check) >= since).sort((a, b) => checkTime(a) - checkTime(b));
+    const failedMerge = (check) => stale.includes(check) || check.conclusion === 'failure';
+    const markers = inWindow.filter((attempt) => attempt.kind === 'merge' && attempt.outcome === 'failure');
+    const classOf = (check, index) => {
+      const next = merges[index + 1];
+      return markers.find((attempt) => atOf(attempt) >= checkTime(check) && (!next || atOf(attempt) < checkTime(next)))?.class;
+    };
+    const list = merges.map((check, index) => {
+      const at = check.started_at ?? check.created_at;
+      if (!failedMerge(check)) return { kind: 'merge', task: null, outcome: check.conclusion === 'success' ? 'success' : 'requeue', at };
+      const failureClass = classOf(check, index);
+      return { kind: 'merge', task: null, outcome: 'failure', at, ...(failureClass ? { class: failureClass } : {}) };
+    });
+    const merge = retryState(list, { kind: 'merge', stopped });
+    if (merge.exceeded) return { action: 'limit', kind: 'merge', ...limitOf(merge), stale };
     // The flag survives into the merge decision, so a pending repair that wraps it does not merge the base branch again.
-    return { action: 'merge', kind: 'merge', attempt: merge.total + 1, stale, ...givenUp };
+    return { action: 'merge', kind: 'merge', attempt: merge.total + 1, stale, ...waitOf([merge]), ...givenUp };
   }
-  if (exceeded(count)) return { action: 'limit', kind, attempts: count.total, stale };
-  return { action: 'tasks', kind, order: [[{ task: null, attempt: count.total + 1 }]], stale, ...(kind === 'converge' ? givenUp : {}) };
+  if (state.exceeded) return { action: 'limit', kind, ...limitOf(state), stale };
+  return { action: 'tasks', kind, order: [[entryOf(null, state)]], stale, ...waitOf([state]), ...(kind === 'converge' ? givenUp : {}) };
 }
 
 // The first finished phase whose tasks this chain landed after the phase's last successful verification (attempt kind
@@ -1318,8 +1808,9 @@ export function appendPullRequestTasks(body, tasks, heading) {
 }
 
 // Reasons why the agent's change for `taskId` cannot be accepted. `before` and `after` are the contents of
-// specs/<folder>/tasks.md; `changedPaths` are all changed repository paths.
-export function validateTaskChange({ folder, archived = false, taskId, before, after, changedPaths }) {
+// specs/<folder>/tasks.md; `changedPaths` are all changed repository paths. `note` is the provenance note the land job
+// itself appends when it ticks a task without a change (tickTask); an agent's change never carries one.
+export function validateTaskChange({ folder, archived = false, taskId, before, after, changedPaths, note = '' }) {
   const reasons = [];
   const tasksPath = tasksPathOf(folder, { archived });
   const protectedPaths = changedPaths.filter((file) => file !== tasksPath && isProtectedPath(file));
@@ -1333,8 +1824,9 @@ export function validateTaskChange({ folder, archived = false, taskId, before, a
   const ticked = (index) => {
     const was = beforeLines[index].match(TASK_PATTERN);
     const now = afterLines[index].match(TASK_PATTERN);
+    const expected = note ? tickTask(beforeLines[index], taskId, note) : beforeLines[index].replace(/\[ \]/, '[x]');
     return was && now && was[2] === taskId && now[2] === taskId && was[1] === ' ' && now[1] !== ' '
-      && beforeLines[index].replace(/\[ \]/, '[x]') === afterLines[index].replace(/\[[xX]\]/, '[x]');
+      && expected !== null && expected.replace(/\[[xX]\]/, '[x]') === afterLines[index].replace(/\[[xX]\]/, '[x]');
   };
   // An unchanged tasks.md is expected: the land job checks the task after verification (runLand).
   if (differing === null || differing.length > 1 || (differing.length === 1 && !ticked(differing[0]))) {
@@ -1422,6 +1914,17 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
 // `whenToRecommend` and `guidanceScope` brief the diagnosis agent.
 export const PR_COMMANDS = [
   {
+    name: 'reset',
+    usage: '/speckit reset',
+    scope: 'pr',
+    flags: {},
+    help: 'discard all branch-only changes and progress, keep a recovery reference, and restart from the current PR base; writer authorization is required and active work or open child PRs prevent reset',
+    recommend: true,
+    categories: ['retry', 'outside', 'decision'],
+    whenToRecommend: 'Evidence establishes that discarding branch-only implementation or execution state and starting from the current PR base is preferable to a narrower retry, sync, amendment, or repair. Explain the lost implementation and amendments, retained recovery reference, and eligibility. Never use reset as a fallback for unknown causes or defects it cannot fix. Only a writer may post the command; a recommendation never authorizes or automatically executes it.',
+    guidanceScope: 'none; reset accepts no arguments and restarts the normal implementation loop at its first task',
+  },
+  {
     name: 'retry',
     usage: '/speckit retry [--force] [guidance]',
     scope: 'pr',
@@ -1442,6 +1945,17 @@ export const PR_COMMANDS = [
     categories: ['outside'],
     whenToRecommend: 'The fix of a cause outside this spec is already on the base branch, or tooling under `.github/` or a non-code cause was fixed there: the merge and its verification must happen before work continues.',
     guidanceScope: 'the conflict resolution when the merge conflicts, otherwise the first prompted work after the clean merge (it is kept until that work succeeds)',
+  },
+  {
+    name: 'amend',
+    usage: '/speckit amend <guidance>',
+    scope: 'pr',
+    flags: {},
+    help: 'authorize the stated spec-only change and prepare an amendment for independent analysis and human review; implementation resumes only after the amendment is merged; completed tasks are preserved and no task is ticked',
+    recommend: true,
+    categories: ['decision'],
+    whenToRecommend: 'A person must authorize a requirement or scope change that must be propagated through this feature\'s spec artifacts and unchecked tasks. Recommend concrete guidance, not a retry or a Copilot implementation handoff.',
+    guidanceScope: 'the authorized amendment of this feature\'s artifacts, not implementation; it is reviewed and merged before implementation resumes',
   },
   {
     name: 'author',
@@ -1539,6 +2053,10 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
     return `Does not merge ${base}; ${argument ? 'runs a repair agent with the guidance, then reverifies' : 'reverifies without running a repair agent'} the pending ${continuation.repair.scope} verification. The original failed scope must pass before normal planning continues; if this repair attempt fails, the implementation stops for a person again. With guidance, a successful no-change repair also reaches reverification without an empty commit.${flag}`;
   }
   switch (parsed.verb) {
+    case 'reset':
+      return `Only a writer's explicit \`/speckit reset\` comment authorizes execution. Discards all branch-only changes, including amendments and task progress, preserves the old head in a recovery reference, and restarts from the current PR base ${base} with a fresh empty start commit. Active work, open child PRs, or an ineligible base spec prevent reset. It does not repair requirements or grant permission to edit protected tooling.`;
+    case 'amend':
+      return 'A writer authorizes only the stated artifact change. The workflow prepares a spec-only amendment, checks it independently, and asks for human review and merge. It preserves completed tasks, never ticks tasks, and keeps implementation stopped until the amendment is merged. Existing repair scope and attempt limits are unchanged.';
     case 'sync':
       return `Requires merging ${base} into the implementation branch and successful full verification before any work continues (Copilot resolves conflicts). A pending repair retains its original scope and attempt limit; full verification can clear it only when the original failed scope is covered and passes. ${guidance}`;
     case 'retry':
@@ -1585,7 +2103,7 @@ export function renderCommandReference({ baseBranch = null, repair = null, comma
         `- What it does without guidance: ${effect(`/speckit ${command.name}`)}`,
       );
     } else {
-      lines.push(`- What it does: ${effect(`/speckit ${command.name} guidance`)}`);
+      lines.push(`- What it does: ${effect(`/speckit ${command.name}${command.name === 'reset' ? '' : ' guidance'}`)}`);
     }
     lines.push('');
   }
@@ -1679,6 +2197,7 @@ const optionEffect = (option, context) => {
   if (option.effect) return option.effect;
   if (option.command) return describeCommandEffect(option.command, context);
   if (option.copilot) {
+    if (option.target === 'tooling') return `Copilot works on the trusted tooling on \`${context.defaultBranch ?? context.baseBranch ?? 'the default branch'}\`, not on the implementation branch. The fix must be validated and applied there before continuing${context.implementationPull ? ` #${context.implementationPull}` : ' the implementation'}. This does not itself resume the implementation or clear a pending repair.`;
     return context.continuation?.repair
       ? `${COPILOT_EFFECT} After Copilot pushed, request \`/speckit retry\` to reverify the pending repair; a push alone does not clear it.`
       : COPILOT_EFFECT;
@@ -1735,6 +2254,7 @@ export function parseFixFor(body) {
 const FIX_EVENT_PATTERN = /<!-- speckit-fix:(requested|created|merged|discarded|linked|landed|stopped) (\{[^\n]*?\}) -->/g;
 export const renderFixEvent = (event, data = {}) => `<!-- speckit-fix:${event} ${JSON.stringify(data)} -->`;
 export function parseFixEvents(comments) {
+  comments = implementationComments(comments);
   const events = [];
   for (const comment of comments ?? []) {
     if (comment.user?.login !== BOT_LOGIN) continue;
@@ -1771,9 +2291,9 @@ export function setAmendmentStatus(body, lines) {
 //   implementation branch lacks, else null.
 // - `continuation`: what a restart continues with (continuationOf).
 // - `diagnosed`: whether a diagnosis already reported.
-export function renderNextSteps({ options = null, amendment = null, amendmentPull = null, baseBranch = null, behindBase = null, continuation = null, diagnosed = false, diagnosisUrl = null } = {}) {
+export function renderNextSteps({ options = null, amendment = null, amendmentPull = null, baseBranch = null, defaultBranch = null, implementationPull = null, behindBase = null, continuation = null, diagnosed = false, diagnosisUrl = null } = {}) {
   const all = options ?? [];
-  const context = { baseBranch: baseBranch ?? behindBase, continuation, diagnosed };
+  const context = { baseBranch: baseBranch ?? behindBase, defaultBranch, implementationPull, continuation, diagnosed };
   const pending = amendment ?? (amendmentPull ? { number: amendmentPull } : null);
   let recommended;
   let others = all;
@@ -1801,9 +2321,9 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
       };
     } else {
       recommended = {
-        title: 'Retry what stopped',
-        why: 'The diagnosis did not identify another action that can be requested from this pull request.',
-        command: '/speckit retry',
+        title: 'Review the recovery blocker and provide the missing evidence',
+        why: 'No supported recovery was established. Use the failure or refusal above to identify the required external fix or missing information; repeating the unchanged work is not a remedy.',
+        kind: 'external',
       };
     }
   }
@@ -1813,18 +2333,11 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
   const details = optionDetails(recommended, context);
   if (details.length > 0) lines.push('', ...details.map(([label, text]) => `- **${label}**: ${text}`));
   if (recommended.command) lines.push('', 'Comment this on the pull request (people with write access):', '', '```text', recommended.command, '```');
-  else if (recommended.copilot) lines.push('', 'Comment this on the pull request (people with write access):', '', '```text', ...renderCopilotRequest(recommended.copilot).split('\n'), '```');
+  else if (recommended.copilot) lines.push('', copilotPromptLocation(recommended, context), '', '```text', ...copilotPrompt(recommended, context).split('\n'), '```');
 
   // Commands the recommendation or an option already suggests are not repeated.
   const used = new Set([recommended, ...others].map((option) => parseNextCommand(option.command)?.verb).filter(Boolean));
   const generic = [];
-  if (!used.has('retry')) {
-    generic.push({
-      title: 'Retry what stopped',
-      why: 'If the failure looks transient (runner, network, timeout, a flaky test) and nothing needs to change.',
-      command: '/speckit retry',
-    });
-  }
   generic.push({
     title: 'Push a fix yourself, or close the pull request',
     why: 'If you know the fix, or the spec should not be implemented as it is.',
@@ -1835,10 +2348,25 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
     lines.push(`- **${optionTitle(option)}**`);
     for (const [label, text] of optionDetails(option, context)) lines.push(`  - ${label}: ${text}`);
     if (option.command) lines.push('', '  ```text', `  ${option.command}`, '  ```');
-    else if (option.copilot) lines.push('', '  ```text', ...renderCopilotRequest(option.copilot).split('\n').map((line) => `  ${line}`), '  ```');
+    else if (option.copilot) lines.push('', `  ${copilotPromptLocation(option, context)}`, '', '  ```text', ...copilotPrompt(option, context).split('\n').map((line) => `  ${line}`), '  ```');
   }
   lines.push('', '</details>');
   return lines;
+}
+
+function copilotPromptLocation(option, context) {
+  return option.target === 'tooling'
+    ? `Run this in Copilot Chat with the repository checked out on \`${context.defaultBranch ?? context.baseBranch ?? 'the default branch'}\` (not as a PR comment):`
+    : 'Comment this on the pull request (people with write access):';
+}
+
+function copilotPrompt(option, context) {
+  if (option.target !== 'tooling') return renderCopilotRequest(option.copilot);
+  return [
+    `Work on the repository's default branch \`${context.defaultBranch ?? context.baseBranch ?? 'the default branch'}\`${context.implementationPull ? ` to unblock implementation PR #${context.implementationPull}` : ''}.`,
+    option.copilot,
+    'Change only the named trusted-tooling files and directly related tests and documentation. Do not implement the feature, change its spec artifacts, weaken verification, or push to the implementation branch. Validate the fix and report the exact continuation step and any remaining permission or external prerequisite. Do not commit, push, or post commands without explicit approval.',
+  ].join('\n\n');
 }
 
 function optionDetails(option, context) {

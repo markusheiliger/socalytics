@@ -186,7 +186,7 @@ layer with it, even where the choices below coincide.
 
 ## R-14 Evaluation harness
 
-- **Decision**: The [Analyst Evaluation Harness](../20261023-082736-analyst-evaluation-harness/spec.md) spec exists but the
+- **Decision**: The [Analyst Evaluation Harness](../archive/20261023-082736-analyst-evaluation-harness/spec.md) spec exists but the
   harness is not implemented in this repository state. FR-019 is recorded as deferred in the capability README and the
   architecture status statements; no test depends on the harness. If the harness is implemented before this feature
   merges, the implementation adds a ball label kind with a centre-distance matching rule and the report through the harness;

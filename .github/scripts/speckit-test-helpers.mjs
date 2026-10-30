@@ -159,6 +159,15 @@ export class FakeGitHub {
       ?? null;
   }
 
+  async listRepositoryFiles(ref) {
+    const branch = Object.entries(this.repo.branches).find(([, sha]) => sha === ref)?.[0];
+    const prefixes = [...new Set([ref, this.repo.branches[ref], branch].filter(Boolean))].map((value) => `${value}:`);
+    return [...new Set([...this.repo.files.keys()].flatMap((key) => {
+      const prefix = prefixes.find((value) => key.startsWith(value));
+      return prefix ? [key.slice(prefix.length)] : [];
+    }))];
+  }
+
   async getPullRequest(number) {
     const pull = this.repo.pulls.find((item) => item.number === number);
     return structuredClone({ ...pull, head: { ...pull.head, sha: this.repo.branches[pull.head.ref] ?? pull.head.sha } });

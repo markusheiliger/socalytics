@@ -6,7 +6,7 @@
 
 **Input**: User description: "Make two flaky Analyst Manager tests deterministic without weakening them: `QueueCredentialProviderTests.Requests_a_credential_with_an_ephemeral_public_key_and_renews_at_two_thirds` asserts the request body does not contain \"SU\", which random base32 key text contains in about 5 percent of runs; `UpstreamStagerTests.Pages_are_staged_verified_and_the_analyst_launches_with_the_inputs_mount` reads `_runtime.Attempts.Single()` before the simulated attempt is registered."
 
-**Fix for**: #195 (implementation of `specs/20261018-110526-agents-python-environment`, twin #174)
+**Fix for**: #195 (implementation of `specs/archive/20261018-110526-agents-python-environment`, twin #174)
 
 ## Problem
 
@@ -61,4 +61,4 @@ A maintainer or the verification environment runs the Analyst Manager tests. The
 
 - A NATS user public key is 56 characters of base32 starting with `U` (the NKey prefix); the test's expected length and alphabet follow that format.
 - The request body of the queue credential request has only the properties `userPublicKey` and `capabilities` (`QueueCredentialsRequest` in `PlatformClient`); a test that lists them exactly also fails if a seed field is added.
-- Dependencies: the code under test belongs to [Manager Work Execution](../20261012-141233-manager-work-execution/spec.md) and [Partial-Coverage Barriers](../20261017-212004-partial-coverage-barriers/spec.md). The implementation this fix unblocks is #195 ([Agents Python Verification Environment](../../archive/20261018-110526-agents-python-environment/spec.md), `specs/20261018-110526-agents-python-environment`), which depends on this spec and waits for it.
+- Dependencies: the code under test belongs to [Manager Work Execution](../20261012-141233-manager-work-execution/spec.md) and [Partial-Coverage Barriers](../20261017-212004-partial-coverage-barriers/spec.md). The implementation this fix unblocks is #195 ([Agents Python Verification Environment](../../archive/20261018-110526-agents-python-environment/spec.md), `specs/archive/20261018-110526-agents-python-environment`), which depends on this spec and waits for it.

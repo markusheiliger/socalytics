@@ -8,9 +8,11 @@ import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
 import { archiveSpec, defaultGit as archiveGit } from './speckit-archive.mjs';
-import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, baseOwnedChanges, pointSpecLinks, renderBaseOwnedMarker, renderGuidanceMarker, renderRepairMarker, renderSyncComment, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
+import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, baseOwnedChanges, pointSpecLinks, renderBaseOwnedMarker, renderGuidanceMarker, renderRepairMarker, renderSyncComment, syncBarrier, taskNamedFiles, unresolvedRepair } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
+  classifyFailure,
+  failureOutlook,
   combinedGroupEdits,
   defaultGit,
   lastAgentMessage,
@@ -22,17 +24,20 @@ import {
   startAttemptChecks,
   runIntegrate,
   runLand,
+  doneByPush,
   runMergeLand,
   runPackage,
   runRepairReport,
   runVerdict,
 } from './speckit-implement.mjs';
 import { main as convergeMain } from './speckit-converge.mjs';
+import { main as completionMain, taskDigest } from './speckit-completion.mjs';
 import { main as groupMain } from './speckit-group.mjs';
 import { main as mergeMain } from './speckit-merge.mjs';
 import { main as repairMain, repairVerificationScope } from './speckit-repair.mjs';
 import { main as resolveMain } from './speckit-resolve.mjs';
 import { FakeGitHub, silent } from './speckit-test-helpers.mjs';
+import { workflowFailure } from './speckit-workflow-job.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
 const TASKS = '# Tasks\n\n## Phase 1\n\n- [ ] T001 Create docs/x.md\n- [ ] T002 Create docs/y.md\n';
@@ -102,8 +107,9 @@ const appendConvergence = (work, tasks = '- [ ] T003 Add the missing guard (FR-0
 );
 
 // Runs the work job of a kind: integrate (resolve, merge), the simulated agent, package (task, converge, resolve),
-// and verdict with a simulated environment-verify outcome (`verify: null` means no verify action).
-function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { outcome: 'success', checks: 'Markdown check' }, env: extraEnv = {} } = {}) {
+// `between` (the steps after package, for example the trusted runner of a completion without a change), and verdict
+// with a simulated environment-verify outcome (`verify: null` means no verify action).
+function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { outcome: 'success', checks: 'Markdown check' }, env: extraEnv = {}, between } = {}) {
   mkdirSync(repos.resultDir, { recursive: true });
   const outputFile = path.join(repos.resultDir, 'github-output.txt');
   writeFileSync(outputFile, '');
@@ -113,6 +119,7 @@ function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { 
   agent?.(repos);
   if (agentExit !== null && inputs.kind !== 'merge') writeFileSync(path.join(repos.resultDir, 'agent-exit.txt'), `${agentExit}\n`);
   const packaged = inputs.kind === 'merge' ? null : runPackage(run);
+  between?.(packaged);
   let result = packaged?.result ?? integrated.result;
   if (inputs.kind !== 'converge') {
     const ready = inputs.kind === 'merge' ? integrated.result.reasons.length === 0 && integrated.result.conflicts.length === 0 : packaged.verify;
@@ -146,18 +153,18 @@ function landEnv(repos) {
   return { GITHUB_SERVER_URL: pathToFileURL(repos.remoteRoot).href, GITHUB_REPOSITORY: 'octo/repo', GITHUB_TOKEN: 'token', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_BASE_BRANCH: 'main' };
 }
 
-async function land(repos, github, { inputs = TASK_INPUTS, workResult = 'success' } = {}) {
+async function land(repos, github, { inputs = TASK_INPUTS, workResult = 'success', git: gitRunner = defaultGit(repos.land), env = {}, log = silent } = {}) {
   const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-head', status: 'in_progress', external_id: CHECK_ATTEMPT });
   const result = await runLand({
     client: github,
-    git: defaultGit(repos.land),
-    env: landEnv(repos),
+    git: gitRunner,
+    env: { ...landEnv(repos), ...env },
     inputs: { ...inputs, checkRun: check.id },
     folder: 'f',
     workspace: repos.land,
     resultDir: repos.resultDir,
     workResult,
-    log: silent,
+    log,
   });
   return { ...result, check: github.repo.checkRuns.find((run) => run.id === check.id) };
 }
@@ -165,6 +172,369 @@ async function land(repos, github, { inputs = TASK_INPUTS, workResult = 'success
 const remoteHead = (repos) => git(repos.base, `--git-dir=${repos.bare}`, 'log', '-1', '--format=%H %P|%s', 'speckit/f').trim();
 const remoteShow = (repos, spec) => git(repos.base, `--git-dir=${repos.bare}`, 'show', spec);
 const remoteSha = (repos, ref) => git(repos.base, `--git-dir=${repos.bare}`, 'rev-parse', ref).trim();
+
+test('taskNamedFiles keeps distinct existing safe paths in first-mention order and respects its cap', () => {
+  const existing = new Set(['docs/a.md', 'src/b.ts', 'unsafe.txt', 'src/c.ts', '../secret.md']);
+  const text = 'Use `docs/a.md`, then src/b.ts and `docs/a.md`; unsafe.txt, Missing.md, `../secret.md`, and `src/c.ts`.';
+  const options = {
+    exists: (file) => existing.has(file),
+    isSafe: (file) => !file.startsWith('../') && file !== 'unsafe.txt',
+  };
+  assert.deepEqual(taskNamedFiles(text, { ...options, max: 2 }), ['docs/a.md', 'src/b.ts']);
+  assert.deepEqual(taskNamedFiles(text, { ...options, max: 10 }), ['docs/a.md', 'src/b.ts', 'src/c.ts']);
+  assert.deepEqual(taskNamedFiles(text, { ...options, max: 0 }), []);
+});
+
+test('task: package selects named files for unchanged verification without reporting changes', () => withRepos({
+  branch: (dir) => write(dir, 'docs/x.md', '# Existing task work\n'),
+}, (repos) => {
+  const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+  const { packaged, result } = work(repos, {
+    env: { SPECKIT_HEAD: head },
+    agent: () => {},
+    verify: { outcome: 'success', checks: 'platform build and tests' },
+  });
+  assert.equal(packaged.result.patchBytes, 0);
+  assert.deepEqual(result.changedFiles, []);
+  assert.deepEqual(result.taskFiles, ['docs/x.md']);
+  assert.equal(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8'), 'docs/x.md\n');
+  assert.deepEqual(result.unchanged, {
+    status: 'passed',
+    head,
+    checks: ['platform build and tests'],
+    uncovered: [],
+    files: ['docs/x.md'],
+  });
+  assert.deepEqual([result.reasons, result.verified], [[], false]);
+}));
+
+test('task: unchanged verification records failed and not-run outcomes without changing verdict state', () => withRepos({
+  branch: (dir) => write(dir, 'docs/x.md', '# Existing task work\n'),
+}, (repos) => {
+  for (const [verify, expected] of [
+    [{ outcome: 'failure', checks: 'platform build and tests' }, 'failed'],
+    [{ outcome: 'skipped', checks: '' }, 'not-run'],
+  ]) {
+    rmSync(repos.resultDir, { recursive: true, force: true });
+    const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+    const { result } = work(repos, { env: { SPECKIT_HEAD: head }, agent: () => {}, verify });
+    assert.equal(result.unchanged.status, expected);
+    assert.deepEqual([result.reasons, result.verified], [[], false]);
+  }
+}));
+
+test('task: an unchanged task passes only with current-head task-specific verification', () => withRepos({
+  branch: (dir) => write(dir, 'docs/x.md', '# Existing task work\n'),
+}, async (repos) => {
+  const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+  const { result: verified } = work(repos, {
+    env: { SPECKIT_HEAD: head },
+    agent: () => {},
+    verify: { outcome: 'success', checks: 'platform build and tests' },
+  });
+  const github = fakeGitHub();
+  github.repo.branches['speckit/f'] = head;
+  const landed = await land(repos, github);
+  assert.equal(landed.exitCode, 0);
+  assert.equal(verified.unchanged.status, 'passed');
+  assert.equal(landed.check.output.title, 'T001 already satisfied');
+  assert.match(github.comments.at(-1).body, /T001 already satisfied and ticked[\s\S]*verification passed on the unchanged branch/);
+  assert.match(remoteHead(repos), /\|feat\(f\): T001 already satisfied$/);
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001 .* — already satisfied by [0-9a-f]+ on the implementation branch \(verified; no change by this task\)/);
+  assert.match(github.comments.at(-1).body, /Provenance: already satisfied by [0-9a-f]+ on the implementation branch/);
+}));
+
+test('task: an unchanged task whose work landed on the base branch since the implementation started is ticked with its provenance', async () => {
+  for (const [created, accepted] of [['2000-01-01T00:00:00Z', true], [new Date(Date.now() + 3_600_000).toISOString(), false]]) {
+    await withRepos({ main: (dir) => write(dir, 'docs/x.md', '# Landed on main\n') }, async (repos) => {
+      // The implementation branch merged its base branch, which already holds the task's work.
+      git(repos.base, `--git-dir=${repos.bare}`, 'update-ref', 'refs/heads/speckit/f', 'refs/heads/main');
+      for (const dir of [repos.work, repos.land]) {
+        git(dir, 'fetch', '-q', 'origin');
+        git(dir, 'reset', '-q', '--hard', 'origin/speckit/f');
+      }
+      const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+      const landedOnMain = git(repos.work, 'log', '-1', '--format=%h', 'origin/main').trim();
+      work(repos, { env: { SPECKIT_HEAD: head }, agent: () => {}, verify: { outcome: 'success', checks: 'platform build and tests' } });
+      const github = fakeGitHub();
+      github.repo.branches['speckit/f'] = head;
+      github.repo.pulls.find((pull) => pull.number === 9).created_at = created;
+      const landed = await land(repos, github);
+      if (accepted) {
+        assert.equal(landed.exitCode, 0);
+        assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), new RegExp(`- \\[x\\] T001 .* — already satisfied by ${landedOnMain} on main \\(verified; no change by this task\\)`));
+        assert.match(github.comments.at(-1).body, new RegExp(`Provenance: already satisfied by ${landedOnMain} on main`));
+      } else {
+        // Work that was on the base branch before the implementation started is not evidence for this task.
+        assert.equal(landed.exitCode, 1);
+        assert.match(landed.reasons.join('; '), /changed on main since the implementation started/);
+        assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+      }
+    });
+  }
+});
+
+test('task: missing, uncovered, mismatched, and shared unchanged work fails without ticking', () => withRepos({
+  tasks: `${TASKS}- [ ] T002 Reuse docs/x.md\n`,
+  branch: (dir) => write(dir, 'docs/x.md', '# Existing task work\n'),
+}, async (repos) => {
+  const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+  for (const [verify, headNow, status, reason] of [
+    [{ outcome: 'failure', checks: 'platform build and tests' }, head, 'failed', /verification of the unchanged branch failed/],
+    [null, head, 'not-configured', /verification of the unchanged branch was not configured/],
+    [{ outcome: 'success', checks: 'Markdown check' }, head, 'passed', /no test or build check covered/],
+    [{ outcome: 'success', checks: 'platform build and tests' }, 'moved-head', 'passed', /ran on a different head/],
+  ]) {
+    rmSync(repos.resultDir, { recursive: true, force: true });
+    const worked = work(repos, { env: { SPECKIT_HEAD: head }, agent: () => {}, verify });
+    const github = fakeGitHub();
+    github.repo.branches['speckit/f'] = headNow;
+    const landed = await land(repos, github);
+    assert.equal(landed.exitCode, 1);
+    assert.match(landed.reasons.join('; '), reason);
+    assert.equal(remoteSha(repos, 'speckit/f'), head);
+    assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+    assert.equal(worked.result.unchanged.status, status);
+  }
+  rmSync(repos.resultDir, { recursive: true, force: true });
+  work(repos, { env: { SPECKIT_HEAD: head }, agent: () => {}, verify: { outcome: 'success', checks: 'platform build and tests' } });
+  const github = fakeGitHub({ body: '## Tasks (2)\n\n- [ ] T001 Create docs/x.md\n- [ ] T002 Reuse docs/x.md\n' });
+  github.repo.branches['speckit/f'] = head;
+  const landed = await land(repos, github);
+  assert.equal(landed.exitCode, 1);
+  assert.match(landed.reasons.join('; '), /no named file is specific to this task/);
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+}));
+
+test('task: empty-patch land survives a moved branch without reapplying the patch', async () => {
+  for (const mode of ['verified', 'doneByPush']) {
+    await withRepos({
+      branch: (dir) => write(dir, 'docs/x.md', '# Existing task work\n'),
+    }, async (repos) => {
+      const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+      work(repos, {
+        env: { SPECKIT_HEAD: head },
+        agent: () => {},
+        verify: { outcome: 'success', checks: 'platform build and tests' },
+      });
+      const github = fakeGitHub();
+      github.repo.branches['speckit/f'] = head;
+      if (mode === 'doneByPush') {
+        const at = new Date(Date.now() + 60_000).toISOString();
+        github.repo.pullCommits = { 9: [
+          { sha: 'human', author: { login: 'Copilot' }, committer: { login: 'web-flow' }, commit: { committer: { date: at } } },
+        ] };
+      }
+      const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'in_progress', external_id: CHECK_ATTEMPT });
+      const realGit = defaultGit(repos.land);
+      let pushes = 0;
+      let applies = 0;
+      const racingGit = (args) => {
+        if (args[0] === 'apply') applies += 1;
+        if (args.includes('push') && ++pushes === 1) {
+          const seed = path.join(repos.base, 'seed');
+          write(seed, 'docs/sibling.md', '# Parallel task\n');
+          git(seed, 'add', '-A');
+          git(seed, 'commit', '-q', '-m', 'parallel task');
+          git(seed, 'push', '-q', repos.bare, 'HEAD:refs/heads/speckit/f');
+          return { status: 1, stdout: '', stderr: 'push rejected: branch moved' };
+        }
+        return realGit(args);
+      };
+      const landed = await runLand({
+        client: github, git: racingGit, env: landEnv(repos), inputs: { ...TASK_INPUTS, checkRun: check.id },
+        folder: 'f', workspace: repos.land, resultDir: repos.resultDir, workResult: 'success', log: silent,
+      });
+      assert.equal(landed.exitCode, 0, `${mode}: ${(landed.reasons ?? []).join('; ')}`);
+      assert.equal(pushes, 2, mode);
+      assert.equal(applies, 0, mode);
+      assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001/, mode);
+      assert.equal(remoteShow(repos, 'speckit/f:docs/sibling.md'), '# Parallel task\n', mode);
+    });
+  }
+});
+
+// A conditional task (T001) and a verification task (T002), as upstream Spec Kit writes them; neither needs a change.
+const COMPLETION_TASKS = '# Tasks\n\n## Phase 1\n\n- [ ] T001 Only if docs/evidence.md reports a platform defect, fix it in src/T/Fix.cs and add a test\n- [ ] T002 Run `dotnet test src/T/T.csproj --filter Evidence` 3 times in a row\n';
+const COMPLETION_BODY = '## Tasks (2)\n\n- [ ] T001 Only if docs/evidence.md reports a platform defect\n- [ ] T002 Run the evidence tests\n';
+const EVIDENCE_DOC = '# Evidence\n\n## T004\n\nThe cause is the test scenario; no platform defect.\n';
+const seedCompletion = (dir) => {
+  write(dir, 'docs/evidence.md', EVIDENCE_DOC);
+  write(dir, 'src/T/T.csproj', '<Project />\n');
+};
+const conditionFalse = {
+  format: 1,
+  task: 'T001',
+  verdict: 'accept',
+  outcome: 'not-applicable',
+  rationale: 'The task applies only to a platform defect; the evidence records a test-scenario cause.',
+  obligations: [{ text: 'Fix a platform defect if docs/evidence.md reports one', disposition: 'condition-false' }],
+  condition: { text: 'docs/evidence.md reports a platform defect', evidence: [{ path: 'docs/evidence.md', lines: [5, 5], excerpt: 'no platform defect.' }] },
+};
+const EVIDENCE_TESTS = { runner: 'dotnet-test', project: 'src/T/T.csproj', filter: 'Evidence', runs: 3 };
+const verifyOnly = {
+  format: 1,
+  task: 'T002',
+  verdict: 'accept',
+  outcome: 'verified',
+  rationale: 'The task only runs the evidence tests.',
+  obligations: [{ text: 'Run the evidence tests 3 times in a row', disposition: 'verify' }],
+  requirements: [EVIDENCE_TESTS],
+  unsupported: [],
+};
+const taskTextOf = (id) => COMPLETION_TASKS.split('\n').find((line) => line.includes(` ${id} `)).replace(/^- \[ \] T\d+ /, '');
+
+// What the implement-task workflow collects (workflow.json) when its assessment accepted a completion without a change.
+function recordCompletion(repos, { task = 'T001', assessment, head, status = 'completed', error = '' }) {
+  mkdirSync(repos.resultDir, { recursive: true });
+  const completion = {
+    format: 1,
+    task,
+    outcome: assessment.outcome,
+    taskDigest: taskDigest(taskTextOf(task)),
+    head,
+    claim: { format: 1, task, outcome: assessment.outcome, rationale: 'No change is needed.' },
+    assessment,
+  };
+  writeFileSync(path.join(repos.resultDir, 'workflow.json'), JSON.stringify({ workflow: 'implement-task', status, step: status === 'completed' ? 'result' : 'assess', error, result: status === 'completed' ? { completion } : null }));
+}
+
+const landedFiles = (repos) => git(repos.base, `--git-dir=${repos.bare}`, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'speckit/f').trim().split('\n');
+
+test('task: a conditional task whose condition does not hold lands as not applicable, with its evidence and no change', () => withRepos({
+  tasks: COMPLETION_TASKS,
+  seed: seedCompletion,
+}, async (repos) => {
+  const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+  const { packaged, result, output } = work(repos, {
+    env: { SPECKIT_HEAD: head },
+    agent: () => recordCompletion(repos, { assessment: conditionFalse, head }),
+    verify: { outcome: 'success', checks: 'platform build and tests' },
+  });
+  assert.deepEqual(result.reasons, []);
+  assert.equal(packaged.verify, false, 'no unrelated verification is imposed on a not-applicable task');
+  assert.match(output, /completion=not-applicable/);
+  assert.equal(result.completion.assessment.condition.evidence[0].blob, git(repos.work, 'rev-parse', `${head}:docs/evidence.md`).trim(), 'the citation is bound to the content it was read from');
+  const github = fakeGitHub({ body: COMPLETION_BODY });
+  github.repo.branches['speckit/f'] = head;
+  const landed = await land(repos, github);
+  assert.equal(landed.exitCode, 0, (landed.reasons ?? []).join('; '));
+  assert.equal(landed.check.output.title, 'T001 not applicable');
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), new RegExp(`- \\[x\\] T001 .* — not applicable: docs/evidence\\.md reports a platform defect \\(assessed at ${head.slice(0, 8)}; no change by this task\\)`));
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T002/);
+  assert.deepEqual(landedFiles(repos), ['specs/f/tasks.md'], 'only the tick lands');
+  assert.match(remoteHead(repos), /\|feat\(f\): T001 not applicable$/);
+  const comment = github.comments.at(-1).body;
+  assert.match(comment, /T001 not applicable and ticked[\s\S]*Condition: docs\/evidence\.md reports a platform defect[\s\S]*Evidence: \[`docs\/evidence\.md` lines 5-5\]\([^)]*\/blob\/[0-9a-f]{40}\/docs\/evidence\.md#L5-L5\)/);
+  assert.match(github.repo.pulls[0].body, /- \[x\] T001/);
+}));
+
+test('task: a verification task lands verified without changes only after the trusted runner passed every required run', async () => {
+  for (const failAt of [null, 2]) {
+    await withRepos({ tasks: COMPLETION_TASKS, seed: seedCompletion }, async (repos) => {
+      const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+      const commands = [];
+      let runs = 0;
+      const exec = (command, args) => {
+        commands.push([command, ...args].join(' '));
+        runs += 1;
+        return { status: runs === failAt ? 1 : 0, output: '', timedOut: false };
+      };
+      const { result, output } = work(repos, {
+        inputs: { ...TASK_INPUTS, task: 'T002' },
+        env: { SPECKIT_HEAD: head },
+        agent: () => recordCompletion(repos, { task: 'T002', assessment: verifyOnly, head }),
+        between: () => completionMain(['verify', '--workspace', repos.work, '--result-dir', repos.resultDir], { env: {}, log: silent, exec }),
+      });
+      assert.match(output, /completion=verified/);
+      assert.match(output, /verify=false/, 'the environment verification is not run without an environment-verify requirement');
+      const github = fakeGitHub({ body: COMPLETION_BODY });
+      github.repo.branches['speckit/f'] = head;
+      const landed = await land(repos, github, { inputs: { ...TASK_INPUTS, task: 'T002' } });
+      if (failAt === null) {
+        assert.deepEqual(commands, [
+          'dotnet test src/T/T.csproj --filter Evidence',
+          'dotnet test src/T/T.csproj --filter Evidence --no-build',
+          'dotnet test src/T/T.csproj --filter Evidence --no-build',
+        ]);
+        assert.equal(result.completion.execution.status, 'passed');
+        assert.equal(landed.exitCode, 0, (landed.reasons ?? []).join('; '));
+        assert.equal(landed.check.output.title, 'T002 verified without changes');
+        assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), new RegExp(`- \\[x\\] T002 .* — verified without changes by the assessed verification at ${head.slice(0, 8)} \\(no change by this task\\)`));
+        assert.deepEqual(landedFiles(repos), ['specs/f/tasks.md']);
+        assert.match(github.comments.at(-1).body, /T002 verified without changes and ticked[\s\S]*Verification: `dotnet test src\/T\/T\.csproj --filter Evidence`, 3 consecutive passing runs passed 3 of 3 runs/);
+      } else {
+        assert.equal(commands.length, 2, 'a failed run is never retried');
+        assert.equal(landed.exitCode, 1);
+        assert.match(landed.reasons.join('; '), /passed 1 of 3 required runs/);
+        assert.equal(remoteSha(repos, 'speckit/f'), head);
+        assert.match(github.comments.at(-1).body, /T002 attempt 2 failed/);
+      }
+    });
+  }
+});
+
+test('task: a rejected, tampered, or stale completion without a change fails without ticking', async () => {
+  const scenarios = [
+    ['the assessment rejected it', (repos, head) => recordCompletion(repos, { assessment: conditionFalse, head, status: 'failed', error: 'The independent assessment rejected the completion of T001 without a change:\n- The task requires a fix.' }), /rejected the completion of T001 without a change/],
+    ['an obligation needs a change', (repos, head) => recordCompletion(repos, { assessment: { ...conditionFalse, obligations: [...conditionFalse.obligations, { text: 'Record the decision in docs/evidence.md', disposition: 'change' }] }, head }), /the task still requires a change: Record the decision/],
+    ['the claim is for another commit', (repos) => recordCompletion(repos, { assessment: conditionFalse, head: 'c'.repeat(40) }), /assessed on another commit/],
+    ['the evidence does not say so', (repos, head) => recordCompletion(repos, { assessment: { ...conditionFalse, condition: { ...conditionFalse.condition, evidence: [{ path: 'docs/evidence.md', lines: [5, 5], excerpt: 'a platform defect was found' }] } }, head }), /excerpt does not appear/],
+    ['the verification was not run', (repos, head) => recordCompletion(repos, { task: 'T001', assessment: { ...verifyOnly, task: 'T001' }, head }), /T001 attempt 2 failed|did not run on the current head/],
+  ];
+  for (const [name, record, reason] of scenarios) {
+    await withRepos({ tasks: COMPLETION_TASKS, seed: seedCompletion }, async (repos) => {
+      const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+      work(repos, { env: { SPECKIT_HEAD: head }, agent: () => record(repos, head) });
+      const github = fakeGitHub({ body: COMPLETION_BODY });
+      github.repo.branches['speckit/f'] = head;
+      const landed = await land(repos, github);
+      assert.equal(landed.exitCode, 1, name);
+      assert.match(landed.reasons.join('; '), reason, name);
+      assert.equal(remoteSha(repos, 'speckit/f'), head, name);
+    });
+  }
+});
+
+test('task: a completion without a change is assessed again when the branch moved before or during the landing', () => withRepos({
+  tasks: COMPLETION_TASKS,
+  seed: seedCompletion,
+}, async (repos) => {
+  const head = git(repos.work, 'rev-parse', 'HEAD').trim();
+  work(repos, { env: { SPECKIT_HEAD: head }, agent: () => recordCompletion(repos, { assessment: conditionFalse, head }) });
+  const moved = fakeGitHub({ body: COMPLETION_BODY });
+  moved.repo.branches['speckit/f'] = 'd'.repeat(40);
+  const stale = await land(repos, moved);
+  assert.equal(stale.exitCode, 1);
+  assert.match(stale.reasons.join('; '), /assessed on a different head/);
+
+  const github = fakeGitHub({ body: COMPLETION_BODY });
+  github.repo.branches['speckit/f'] = head;
+  const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'in_progress', external_id: CHECK_ATTEMPT });
+  const realGit = defaultGit(repos.land);
+  let pushes = 0;
+  const racingGit = (args) => {
+    if (args.includes('push') && ++pushes === 1) {
+      const seed = path.join(repos.base, 'seed');
+      git(seed, 'fetch', '-q', repos.bare, 'speckit/f');
+      git(seed, 'reset', '-q', '--hard', 'FETCH_HEAD');
+      write(seed, 'docs/sibling.md', '# Parallel task\n');
+      git(seed, 'add', '-A');
+      git(seed, 'commit', '-q', '-m', 'parallel task');
+      git(seed, 'push', '-q', repos.bare, 'HEAD:refs/heads/speckit/f');
+      return { status: 1, stdout: '', stderr: 'push rejected: branch moved' };
+    }
+    return realGit(args);
+  };
+  const landed = await runLand({
+    client: github, git: racingGit, env: landEnv(repos), inputs: { ...TASK_INPUTS, checkRun: check.id },
+    folder: 'f', workspace: repos.land, resultDir: repos.resultDir, workResult: 'success', log: silent,
+  });
+  assert.equal(landed.exitCode, 0);
+  assert.match(landed.requeue.join('; '), /moved after the completion of T001 without a change was assessed/);
+  assert.equal(pushes, 1, 'the decision is never carried onto the new head');
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+}));
 
 // On Windows, `bash` on the PATH is often WSL's System32 launcher, which neither receives the environment these tests
 // pass nor understands Windows paths; Git for Windows' bash does both.
@@ -217,6 +587,7 @@ test('task: package writes the change and the changed paths, and verdict records
   assert.ok(readFileSync(path.join(repos.resultDir, 'changes.patch'), 'utf8').includes('docs/x.md'));
   assert.deepEqual([result.verified, result.verification, result.checks], [true, 'configured', [{ name: 'Markdown check', passed: true }]]);
   assert.deepEqual(result.changedFiles.sort(), ['docs/x.md', 'specs/f/tasks.md']);
+  assert.equal('unchanged' in result, false);
 }));
 
 test('repair: package and land change code without changing completed task checkboxes', () => withRepos({ tasks: DONE_TASKS }, async (repos) => {
@@ -266,7 +637,8 @@ test('repair: successful no-op lands unchanged without a commit and still requir
   };
   assert.equal((await runRepairReport({ client: github, env, log: silent })).exitCode, 1);
   assert.equal(unresolvedRepair(github.comments).id, repair.id);
-  assert.match(github.comments.at(-1).body, /reverifies without running a repair agent.*pending phase verification/);
+  assert.match(github.comments.at(-1).body, /repair attempt 1 reached reverification, but the phase verification failed[\s\S]*\*\*Recommended next step\*\*: \[Wait for the diagnosis\]/);
+  assert.doesNotMatch(github.comments.at(-1).body, /```text\n\s*\/speckit retry/);
   assert.doesNotMatch(github.comments.at(-1).body, /attempt 1 landed|fresh attempt count/);
   env.SPECKIT_VERIFY_RESULT = 'success';
   env.SPECKIT_VERIFICATION_OUTCOME = 'success';
@@ -322,6 +694,7 @@ test('repair workflow: unchanged HEAD reverifies the original product scope, or 
     });
     assert.equal(run.status, 0, run.stderr);
     assert.match(readFileSync(output, 'utf8'), available ? /mode=phase/ : /mode=finalize/);
+    assert.match(readFileSync(output, 'utf8'), new RegExp(`^tree=${git(repos.work, 'rev-parse', 'HEAD^{tree}').trim()}$`, 'm'), 'the shards rebuild and compare this tree');
     assert.equal(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8'), available ? 'src/platform/Host.cs\n' : '');
   }
   assert.match(workflow, /mode: \$\{\{ steps\.tree\.outputs\.mode \}\}/);
@@ -329,7 +702,7 @@ test('repair workflow: unchanged HEAD reverifies the original product scope, or 
   assert.match(unit, /echo '\/\.speckit-repair-evidence\/' >> \.git\/info\/exclude/);
   assert.match(workflow, /ref: \$\{\{ needs\.decide\.outputs\.verify_only == 'true' && needs\.decide\.outputs\.head \|\| needs\.implement\.outputs\.head \}\}/);
   assert.match(workflow, /Require the verification action\n        run: test -f tooling\/\.github\/actions\/environment-verify\/action\.yml/);
-  assert.match(workflow, /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}/);
+  assert.match(workflow, /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verdict\.outputs\.verification \}\}/);
   const guard = workflow.match(/Require the verification action\n        run: ([^\n]+)/)[1];
   assert.equal(runBash(guard, { cwd: repos.land }).status, 1, 'missing verifier fails the job instead of skipping verification');
 }));
@@ -370,41 +743,57 @@ test('repair fallback: finalize dispatches real product verification commands wi
   write(repos.work, 'src/analysts/manager/SocAlytics.Analysts.Manager.slnx', '');
   write(repos.work, 'src/analysts/manager/Worker.Tests.csproj', '');
   write(repos.work, 'src/analysts/manager/global.json', '{"sdk":{"version":"10.0.100"}}');
-  write(repos.work, 'src/clients/web/package.json', '{}');
+  write(repos.work, 'src/clients/web/package.json', '{"scripts":{"build":"b","test":"t","test:e2e":"e"}}');
   write(repos.work, 'src/clients/web/node_modules/@playwright/test/package.json', '{"version":"1.63.0"}');
   write(repos.base, 'markdown.mjs', '');
   const mode = repairVerificationScope({ scope: 'phase', repairChangedFiles: '' }).mode;
   const run = runBash(script, { cwd: repos.work, encoding: 'utf8', env: {
-    ...prependPath(process.env, bin), MODE: mode, WORKSPACE: repos.work,
+    ...prependPath(process.env, bin), MODE: mode, WORKSPACE: repos.work, SHARD: '',
     CHANGED_FILES: '', LOG_FILE: path.join(repos.base, 'verification.log'),
     GITHUB_OUTPUT: path.join(repos.base, 'output'), GITHUB_STEP_SUMMARY: path.join(repos.base, 'summary'),
     MARKDOWN_CHECK: path.join(repos.base, 'markdown.mjs'), CALLS: path.join(repos.base, 'calls'),
     ANALYST_PROJECTS: fileURLToPath(new URL('../actions/environment-verify/analyst-projects.py', import.meta.url)),
+    VERIFICATION_PLAN: fileURLToPath(new URL('../actions/environment-verify/verification-plan.mjs', import.meta.url)),
     SOCALYTICS_PYTHON: PYTHON, ENVIRONMENT_TESTS: '',
   } });
-  assert.equal(run.status, 0, run.stderr);
+  assert.equal(run.status, 0, run.stderr + readFileSync(path.join(repos.base, 'verification.log'), 'utf8'));
   const calls = readFileSync(path.join(repos.base, 'calls'), 'utf8');
-  assert.match(calls, /dotnet test src\/platform\/Tests\/Host.Tests.csproj --no-build/);
-  assert.match(calls, /dotnet test src\/platform\/Tests\/Integration.Tests.csproj --no-build/);
+  // Each component builds and tests from its own folder.
+  assert.match(calls, /dotnet test Tests\/Host.Tests.csproj --no-build/);
+  assert.match(calls, /dotnet test Tests\/Integration.Tests.csproj --no-build/);
   assert.match(calls, /dotnet test Worker.Tests.csproj --no-build/);
   assert.match(calls, /npm test\nnpm run test:e2e/);
 }));
 
 test('task: package rejects missing ticks, protected paths, and agent failures; verdict records failed verification', async () => {
   const cases = [
-    { name: 'wrong tick', agent: (r) => { agentDoesT001(r.work, { tick: false }); write(r.work, 'specs/f/tasks.md', TASKS.replace('- [ ] T002', '- [x] T002')); }, reason: /may only change by checking T001/, verify: false },
-    { name: 'protected path', agent: (r) => agentDoesT001(r.work, { extra: { '.github/workflows/evil.yml': 'x' } }), reason: /changed protected paths: \.github\/workflows\/evil\.yml/, verify: false },
-    { name: 'timeout', agent: (r) => agentDoesT001(r.work), agentExit: '124', reason: /did not finish within 60 minutes/, verify: false },
-    { name: 'no agent', agentExit: null, reason: /the agent did not run/, verify: false },
-    { name: 'failed check', agent: (r) => agentDoesT001(r.work), check: { outcome: 'failure', checks: 'platform build and tests,Markdown check' }, reason: /^Markdown check failed$/, verify: true },
-    { name: 'crashed verification', agent: (r) => agentDoesT001(r.work), check: { outcome: 'failure', checks: '' }, reason: /the verification did not succeed \(failure\)/, verify: true },
+    { name: 'wrong tick', agent: (r) => { agentDoesT001(r.work, { tick: false }); write(r.work, 'specs/f/tasks.md', TASKS.replace('- [ ] T002', '- [x] T002')); }, reason: /may only change by checking T001/, verify: false, failureClass: 'repeat' },
+    { name: 'protected path', agent: (r) => agentDoesT001(r.work, { extra: { '.github/workflows/evil.yml': 'x' } }), reason: /changed protected paths: \.github\/workflows\/evil\.yml/, verify: false, failureClass: 'repeat' },
+    { name: 'timeout', agent: (r) => agentDoesT001(r.work), agentExit: '124', reason: /did not finish within 60 minutes/, verify: false, failureClass: 'agent' },
+    { name: 'no agent', agentExit: null, reason: /the agent did not run/, verify: false, failureClass: 'infrastructure' },
+    { name: 'failed check', agent: (r) => agentDoesT001(r.work), check: { outcome: 'failure', checks: 'platform build and tests,Markdown check' }, reason: /^Markdown check failed$/, verify: true, failureClass: 'agent' },
+    { name: 'crashed verification', agent: (r) => agentDoesT001(r.work), check: { outcome: 'failure', checks: '' }, reason: /the verification did not succeed \(failure\)/, verify: true, failureClass: 'agent' },
+    { name: 'no change on a moved head', agent: () => {}, reason: /^$/, landReason: /ran on a different head/, verify: true, failureClass: 'agent' },
   ];
   for (const testCase of cases) {
-    await withRepos({}, (repos) => {
+    await withRepos({}, async (repos) => {
       const { packaged, result } = work(repos, { agent: testCase.agent, agentExit: testCase.agentExit === undefined ? '0' : testCase.agentExit, verify: testCase.check });
       assert.equal(packaged.verify, testCase.verify, testCase.name);
       assert.equal(result.verified, false, testCase.name);
       assert.match(result.reasons.join(), testCase.reason, testCase.name);
+      // The land job records the class of the failure, and the comment says what follows from it.
+      const github = fakeGitHub();
+      const landed = await land(repos, github);
+      assert.notEqual(landed.exitCode, 0, testCase.name);
+      const report = github.comments.at(-1).body;
+      if (testCase.landReason) assert.match(report, testCase.landReason, testCase.name);
+      assert.match(report, new RegExp(`"outcome":"failure","class":"${testCase.failureClass}"`), testCase.name);
+      assert.match(report, {
+        repeat: /It stops for diagnosis: the failure is certain to repeat, so it was not retried\./,
+        infrastructure: /It is retried once after a short wait, because the work job failed before the agent ran\./,
+        agent: /It is retried once with the failure evidence: the next attempt gets this report\./,
+      }[testCase.failureClass], testCase.name);
+      assert.doesNotMatch(report, /retried until the attempt limit/, testCase.name);
     });
   }
 });
@@ -487,6 +876,9 @@ test('task: land redoes a parallel task whose files a sibling changed, without c
   assert.equal(remoteSha(repos, 'speckit/f'), sibling);
   assert.deepEqual([result.check.status, result.check.conclusion, result.check.output.title], ['completed', 'neutral', 'T001 attempt 2 is redone from the new head']);
   assert.match(github.comments.at(-1).body, /\*\*T001 attempt 2 runs again\*\*[\s\S]*does not count as a failed attempt/);
+  const bullets = result.requeue.map((reason) => `- ${reason}`);
+  assert.deepEqual(github.comments.at(-1).body.split('\n').filter((line) => line.startsWith('- ')), bullets);
+  assert.equal(result.check.output.summary, bullets.join('\n'));
 }));
 
 // Runs the work job of one task in its own clone, as the matrix does, into results/speckit-result-<task>.
@@ -739,6 +1131,44 @@ test('land: a single task finds its result where download-artifact puts a single
   assert.deepEqual([result.ok, result.exitCode], [true, 0]);
   assert.equal(remoteShow(repos, 'speckit/f:docs/x.md'), '# X\n');
 }));
+test('task: a task a push already did lands without a change, but an agent cannot skip one', () => withRepos({}, async (repos) => {
+  // The agent makes no change: without a push that is not the workflow's, that fails the attempt.
+  const taskHead = git(repos.work, 'rev-parse', 'HEAD').trim();
+  work(repos, { env: { SPECKIT_HEAD: taskHead }, agent: () => {} });
+  const before = remoteHead(repos);
+  const github = fakeGitHub();
+  github.repo.branches['speckit/f'] = taskHead;
+  const refused = await land(repos, github);
+  assert.equal(refused.exitCode, 1);
+  assert.match(refused.reasons.join(), /the task names no verifiable file/);
+  assert.equal(remoteHead(repos), before);
+
+  // A person (or Copilot for them) pushed after that attempt: the task lands with only its tick.
+  const at = new Date(Date.now() + 60_000).toISOString();
+  github.repo.pullCommits = { 9: [
+    { sha: 'a', author: { login: 'github-actions[bot]' }, committer: { login: 'github-actions[bot]' }, commit: { committer: { date: at } } },
+    { sha: 'b', author: { login: 'Copilot' }, committer: { login: 'web-flow' }, commit: { committer: { date: at } } },
+  ] };
+  work(repos, { env: { SPECKIT_HEAD: taskHead }, agent: () => {} });
+  const landed = await land(repos, github, { inputs: { ...TASK_INPUTS, attempt: 2 } });
+  assert.deepEqual([landed.exitCode, landed.reasons ?? []], [0, []]);
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001 .* — already done by a push to the implementation branch \(verified; no change by this task\)/, 'the land job ticked the task and said where its work came from');
+}));
+
+test('doneByPush: only a push after the task started, or a push at the head, lets a task land without a change', async () => {
+  const commit = (login, date) => ({ author: { login }, committer: { login }, commit: { committer: { date } } });
+  const client = (commits, comments = []) => ({ listPullRequestCommits: async () => commits, listIssueComments: async () => comments });
+  const attempt = (task, at) => ({ user: { login: 'github-actions[bot]' }, created_at: at, body: `<!-- speckit-implement:attempt {"kind":"task","task":"${task}","attempt":1,"outcome":"failure"} -->\nfailed` });
+  const bot = (date) => commit('github-actions[bot]', date);
+  assert.equal(await doneByPush(client([bot('2026-10-26T10:00:00Z')]), { pull: 9, task: 'T001' }), false, 'only workflow commits');
+  assert.equal(await doneByPush(client([bot('2026-10-26T10:00:00Z'), commit('dev', '2026-10-26T11:00:00Z')]), { pull: 9, task: 'T001' }), true, 'a person pushed last');
+  const earlier = [commit('dev', '2026-10-26T09:00:00Z'), bot('2026-10-26T10:00:00Z')];
+  assert.equal(await doneByPush(client(earlier, [attempt('T001', '2026-10-26T08:00:00Z')]), { pull: 9, task: 'T001' }), true, 'a push after the first attempt of the task');
+  assert.equal(await doneByPush(client(earlier, [attempt('T001', '2026-10-26T09:30:00Z')]), { pull: 9, task: 'T001' }), false, 'a push before the task started does not count');
+  assert.equal(await doneByPush(client(earlier, [attempt('T002', '2026-10-26T08:00:00Z')]), { pull: 9, task: 'T001' }), false, 'another task\'s attempt does not count');
+  assert.equal(await doneByPush({ listPullRequestCommits: async () => { throw new Error('down'); } }, { pull: 9, task: 'T001' }), false);
+});
+
 test('task: land reports a refused push as a failure instead of redoing the task', () => withRepos({ tasks: PARALLEL_TASKS }, async (repos) => {
   work(repos, { agent: (r) => agentDoesT001(r.work) });
   const hook = path.join(repos.bare, 'hooks', 'pre-receive');
@@ -749,9 +1179,129 @@ test('task: land reports a refused push as a failure instead of redoing the task
   const result = await land(repos, github);
   assert.equal(result.exitCode, 1);
   assert.match(result.reasons.join(), /the push to `speckit\/f` was rejected: /);
+  assert.match(result.reasons.join(), /remote: denied by a rule/);
+  assert.match(result.reasons.join(), /The remote branch is unchanged at [0-9a-f]{40}/);
   assert.equal(remoteHead(repos), before);
   assert.deepEqual([result.check.conclusion, result.check.output.title], ['failure', 'T001 attempt 2 failed']);
 }));
+
+test('publication: both paths retain remote rejection diagnostics and redact credentials everywhere', async () => {
+  for (const inputs of [TASK_INPUTS, RESOLVE_INPUTS]) {
+    await withRepos({ main: (dir) => write(dir, 'docs/base.md', '# New base\n') }, async (repos) => {
+      const github = fakeGitHub();
+      let repair;
+      const workEnv = {};
+      if (inputs.kind === 'resolve') {
+        await github.createComment(9, renderRepairMarker({ id: 'phase:original', state: 'pending', scope: 'phase', tasks: ['T001'], at: github.tick() }));
+        repair = unresolvedRepair(github.comments);
+        await github.createComment(9, renderSyncComment('Required sync'));
+        workEnv.SPECKIT_REQUIRED_SYNC = syncBarrier(github.comments).request;
+        workEnv.SPECKIT_SYNC_REPAIR = JSON.stringify(repair);
+      }
+      const { result: verified } = work(repos, { inputs, env: workEnv, agent: inputs.kind === 'task' ? (r) => agentDoesT001(r.work) : undefined });
+      assert.equal(verified.verified, true);
+      const token = 'publication-test-secret/with+symbols';
+      const otherToken = 'secondary-test-secret';
+      const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+      const unknownBasic = Buffer.from('someone:another-secret').toString('base64');
+      const diagnostic = [
+        'remote: publication refused by repository policy',
+        `remote: token=${token}; encoded=${encodeURIComponent(token)}; basic=${basic}`,
+        `remote: secondary=${otherToken}`,
+        'remote: https://someone:unknown-password@example.invalid/repo.git',
+        `remote: AUTHORIZATION: basic ${unknownBasic}`,
+        'remote: Authorization: Bearer unknown-bearer-secret',
+        "error: failed to push some refs to 'https://github.com/octo/repo.git'",
+      ].join('\n');
+      const realGit = defaultGit(repos.land);
+      let pushes = 0;
+      const gitRunner = (args) => {
+        if (args.includes('push')) {
+          pushes++;
+          return { status: 1, stderr: diagnostic, stdout: 'remote: stdout rejection detail' };
+        }
+        return realGit(args);
+      };
+      const before = remoteHead(repos);
+      const summary = path.join(repos.base, 'publication-summary.md');
+      const logs = [];
+      const result = await land(repos, github, {
+        inputs, git: gitRunner, env: { GITHUB_TOKEN: token, GH_TOKEN: otherToken, GITHUB_STEP_SUMMARY: summary },
+        log: (line) => logs.push(line),
+      });
+      assert.equal(result.exitCode, 1);
+      assert.equal(result.requeue, undefined);
+      assert.equal(pushes, 1, 'a refusal on an unchanged branch is not retried');
+      assert.equal(remoteHead(repos), before);
+      assert.equal(classifyFailure(result.reasons), 'repeat');
+      const comment = github.comments.at(-1).body;
+      const stepSummary = readFileSync(summary, 'utf8');
+      for (const output of [result.reasons.join('\n'), comment, result.check.output.summary, logs.join('\n'), stepSummary]) {
+        assert.match(output, /remote: publication refused by repository policy/);
+        assert.match(output, /remote: stdout rejection detail/);
+        assert.match(output, /error: failed to push some refs/);
+        assert.match(output, /remote branch is unchanged at [0-9a-f]{40}/);
+        assert.doesNotMatch(output, /probably moved|workflows permission/);
+        for (const secret of [token, encodeURIComponent(token), basic, otherToken, unknownBasic, 'unknown-password', 'unknown-bearer-secret']) {
+          assert.ok(!output.includes(secret), `credential leaked: ${secret}`);
+        }
+      }
+      assert.match(comment, /"class":"repeat"/);
+      assert.match(comment, /stops for diagnosis/);
+      if (repair) {
+        assert.deepEqual(unresolvedRepair(github.comments), repair);
+        assert.equal(syncBarrier(github.comments).completion, null, 'failed publication cannot verify or release synchronization');
+      } else {
+        assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+      }
+    });
+  }
+});
+
+test('publication: an unreadable remote retains redacted push and fetch failures without claiming branch movement', async () => {
+  for (const inputs of [TASK_INPUTS, RESOLVE_INPUTS]) {
+    await withRepos({ main: (dir) => write(dir, 'docs/base.md', '# New base\n') }, async (repos) => {
+      work(repos, { inputs, agent: inputs.kind === 'task' ? (r) => agentDoesT001(r.work) : undefined });
+      const realGit = defaultGit(repos.land);
+      let pushed = false;
+      const gitRunner = (args) => {
+        if (args.includes('push')) {
+          pushed = true;
+          return { status: 1, stdout: '', stderr: 'remote: rejected by server\nerror: failed to push some refs' };
+        }
+        if (pushed && args.includes('fetch')) return { status: 1, stdout: '', stderr: 'fatal: cannot read https://user:fetch-password@example.invalid/repo.git\nAuthorization: token fetch-secret' };
+        return realGit(args);
+      };
+      const result = await land(repos, fakeGitHub(), { inputs, git: gitRunner });
+      assert.equal(result.exitCode, 1);
+      assert.equal(classifyFailure(result.reasons), 'infrastructure');
+      const output = JSON.stringify(result);
+      assert.match(output, /remote: rejected by server/);
+      assert.match(output, /and the branch could not be read/);
+      assert.match(output, /fatal: cannot read/);
+      assert.doesNotMatch(output, /fetch-password|fetch-secret|probably moved|branch is unchanged|moved from/);
+    });
+  }
+});
+
+test('publication: missing diagnostics are explicit and long diagnostics retain their redacted beginning and end', async () => {
+  for (const diagnostic of ['', `remote: policy rejection\n${'padding '.repeat(1000)}\nremote: credential=token\nerror: failed to push some refs`]) {
+    await withRepos({}, async (repos) => {
+      work(repos, { agent: (r) => agentDoesT001(r.work) });
+      const realGit = defaultGit(repos.land);
+      const gitRunner = (args) => args.includes('push') ? { status: 1, stdout: '', stderr: diagnostic } : realGit(args);
+      const result = await land(repos, fakeGitHub(), { git: gitRunner });
+      assert.equal(result.exitCode, 1);
+      const reason = result.reasons.join('\n');
+      if (diagnostic) {
+        assert.match(reason, /remote: policy rejection[\s\S]*\[Git diagnostic truncated\][\s\S]*remote: credential=\*\*\*[\s\S]*failed to push some refs/);
+        assert.ok(reason.length < 6400, 'large diagnostics remain bounded');
+      } else {
+        assert.match(reason, /git exited with status 1 without diagnostics/);
+      }
+    });
+  }
+});
 
 test('task: land reports failures without pushing and does not trust a forged result', () => withRepos({}, async (repos) => {
   agentDoesT001(repos.work, { tick: false });
@@ -838,7 +1388,8 @@ test('converge: code changes are rejected, and the round limit asks the requeste
     assert.deepEqual([landed.exitCode, landed.check.conclusion, landed.check.external_id], [1, 'failure', CHECK_LIMIT]);
     assert.equal(remoteHead(repos), before);
     assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
-    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: \[Wait for the diagnosis\]\([^)]+speckit-diagnose\.lock\.yml\)[\s\S]*<summary>Other options<\/summary>[\s\S]*```text\n {2}\/speckit retry\n {2}```/);
+    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: \[Wait for the diagnosis\]\([^)]+speckit-diagnose\.lock\.yml\)[\s\S]*<summary>Other options<\/summary>/);
+    assert.doesNotMatch(github.comments.at(-1).body, /```text\n\s*\/speckit retry/);
     assert.doesNotMatch(github.comments.at(-1).body, /\/speckit resume/);
   });
 });
@@ -957,6 +1508,107 @@ test('required sync records original-scope verification without resetting exhaus
   }
 });
 
+test('publication: a genuinely moved branch requeues a required sync without losing its repair scope', () => withRepos({
+  main: (dir) => write(dir, 'docs/base.md', '# New base\n'),
+}, async (repos) => {
+  const github = fakeGitHub();
+  await github.createComment(9, renderRepairMarker({ id: 'phase:original', state: 'pending', scope: 'phase', tasks: ['T001'], at: github.tick() }));
+  const repair = unresolvedRepair(github.comments);
+  await github.createComment(9, renderSyncComment('Required sync'));
+  const barrier = syncBarrier(github.comments);
+  const { result: verified } = work(repos, {
+    inputs: RESOLVE_INPUTS,
+    env: { SPECKIT_REQUIRED_SYNC: barrier.request, SPECKIT_SYNC_REPAIR: JSON.stringify(repair) },
+  });
+  assert.equal(verified.verified, true);
+  const before = remoteSha(repos, 'speckit/f');
+  const realGit = defaultGit(repos.land);
+  let sibling;
+  let pushes = 0;
+  const gitRunner = (args) => {
+    if (args.includes('push')) {
+      pushes++;
+      sibling = siblingLands(repos, (dir) => write(dir, 'docs/sibling.md', '# Concurrent change\n'));
+      return { status: 1, stdout: '', stderr: 'remote: non-fast-forward rejection\nerror: failed to push some refs' };
+    }
+    return realGit(args);
+  };
+  const result = await land(repos, github, { inputs: RESOLVE_INPUTS, git: gitRunner });
+  assert.equal(result.exitCode, 0);
+  assert.equal(pushes, 1, 'a stale verified merge is never force-pushed or retried');
+  assert.equal(result.reasons, undefined);
+  assert.match(result.requeue.join('\n'), new RegExp(`moved from ${before} to ${sibling}`));
+  assert.match(result.requeue.join('\n'), /remote: non-fast-forward rejection/);
+  assert.equal(remoteSha(repos, 'speckit/f'), sibling);
+  assert.equal(result.check.conclusion, 'neutral');
+  assert.match(github.comments.at(-1).body, /"outcome":"requeue"/);
+  assert.match(github.comments.at(-1).body, /does not count as a failed attempt/);
+  assert.deepEqual(unresolvedRepair(github.comments), repair);
+  assert.equal(syncBarrier(github.comments).request, barrier.request);
+  assert.equal(syncBarrier(github.comments).completion, null);
+}));
+
+test('required sync reconciles only base-equivalent original uncovered paths and retains their test selection', async () => {
+  for (const variant of ['unchanged', 'content', 'mode']) {
+    const changed = variant !== 'unchanged';
+    await withRepos({ seed: (dir) => write(dir, '.github/workflows/old.yml', 'original\n'),
+      ...(changed ? { branch: (dir) => {
+        if (variant === 'content') write(dir, '.github/workflows/old.yml', 'changed\n');
+        else {
+          git(dir, 'config', 'core.filemode', 'false');
+          git(dir, 'update-index', '--chmod=+x', '.github/workflows/old.yml');
+        }
+      } } : {}) }, async (repos) => {
+      const github = fakeGitHub();
+      await github.createComment(9, renderRepairMarker({ id: 'merge:original', state: 'pending', scope: 'merge', at: github.tick() }));
+      await github.createComment(9, renderSyncComment('Required sync'));
+      const original = path.join(repos.base, 'failed-changed-files.txt');
+      writeFileSync(original, '.github/workflows/old.yml\n.github/workflows/reverted-addition.yml\n');
+      const { result } = work(repos, {
+        inputs: RESOLVE_INPUTS,
+        env: {
+          SPECKIT_REQUIRED_SYNC: syncBarrier(github.comments).request,
+          SPECKIT_SYNC_REPAIR: JSON.stringify(unresolvedRepair(github.comments)),
+          SPECKIT_SYNC_ORIGINAL_SCOPE: original,
+        },
+        verify: { outcome: 'success', checks: 'original checks', uncovered: '.github/workflows/old.yml,.github/workflows/reverted-addition.yml' },
+      });
+      assert.equal(result.verified, !changed, result.reasons.join('; '));
+      assert.ok(result.changedFiles.includes('.github/workflows/old.yml'));
+      assert.deepEqual(result.reportedUncovered, ['.github/workflows/old.yml', '.github/workflows/reverted-addition.yml']);
+      assert.deepEqual(result.uncovered, changed ? ['.github/workflows/old.yml'] : []);
+      assert.equal(result.syncRepair.covered, !changed);
+      const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+      assert.equal(landed.exitCode, changed ? 1 : 0, landed.reasons?.join('; '));
+    });
+  }
+});
+
+test('required sync trusted landing rejects forged base-equivalence evidence for a changed workflow', async () => {
+  await withRepos({ seed: (dir) => write(dir, '.github/workflows/old.yml', 'original\n'),
+    branch: (dir) => write(dir, '.github/workflows/old.yml', 'changed\n') }, async (repos) => {
+    const github = fakeGitHub();
+    await github.createComment(9, renderRepairMarker({ id: 'merge:original', state: 'pending', scope: 'merge', at: github.tick() }));
+    await github.createComment(9, renderSyncComment('Required sync'));
+    const original = path.join(repos.base, 'failed-changed-files.txt');
+    writeFileSync(original, '.github/workflows/old.yml\n');
+    const { result } = work(repos, {
+      inputs: RESOLVE_INPUTS,
+      env: { SPECKIT_REQUIRED_SYNC: syncBarrier(github.comments).request, SPECKIT_SYNC_REPAIR: JSON.stringify(unresolvedRepair(github.comments)), SPECKIT_SYNC_ORIGINAL_SCOPE: original },
+      verify: { outcome: 'success', checks: 'original checks', uncovered: '.github/workflows/old.yml' },
+      between: ({ result: packaged }) => {
+        packaged.syncRepair.baseEquivalent = ['.github/workflows/old.yml'];
+        writeFileSync(path.join(repos.resultDir, 'result.json'), JSON.stringify(packaged));
+      },
+    });
+    assert.equal(result.verified, true, 'the worker result claims equivalence');
+    const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+    assert.equal(landed.exitCode, 1);
+    assert.match(landed.reasons.join('; '), /uncovered path without trusted base-equivalence evidence/);
+    assert.equal(syncBarrier(github.comments).completion, null);
+  });
+});
+
 test('required sync finalize is a full-scope superset but cannot clear a replaced pending repair', async () => {
   for (const scope of ['task', 'group', 'phase']) {
     for (const replaced of [false, true]) {
@@ -1022,9 +1674,31 @@ test('required sync rejects failed, skipped, missing and uncovered verification 
       assert.equal(landed.exitCode, 1);
       assert.equal(remoteHead(repos), before);
       assert.equal(syncBarrier(github.comments).completion, null);
+      if (verify?.uncovered) {
+        const bullet = '- required synchronization has files not covered by verification';
+        assert.deepEqual(github.comments.at(-1).body.split('\n').filter((line) => line === bullet), [bullet]);
+        assert.equal(landed.check.output.summary, bullet);
+      }
     });
   }
 });
+
+test('failure reports keep distinct reasons in first-occurrence order without changing validation evidence', () => withRepos({}, async (repos) => {
+  const { result } = work(repos);
+  const reasons = ['First reason', 'Second reason', 'First reason', 'first reason', 'Second reason'];
+  result.reasons = reasons;
+  result.verified = false;
+  writeFileSync(path.join(repos.resultDir, 'result.json'), JSON.stringify(result));
+  const github = fakeGitHub();
+  const before = remoteHead(repos);
+  const landed = await land(repos, github);
+  const bullets = ['- First reason', '- Second reason', '- first reason'];
+  assert.equal(landed.exitCode, 1);
+  assert.deepEqual(landed.reasons, reasons);
+  assert.equal(remoteHead(repos), before);
+  assert.deepEqual(github.comments.at(-1).body.split('\n').filter((line) => line.startsWith('- ')), bullets);
+  assert.equal(landed.check.output.summary, bullets.join('\n'));
+}));
 
 test('required sync rejects an unfinished work job or a replay that does not match the verified tree', async () => {
   for (const failure of ['cancelled', 'tree mismatch']) {
@@ -1359,6 +2033,58 @@ test('merge: integrate reports the changed paths and environment changes; the ve
     const { result } = work(repos, { inputs: MERGE_INPUTS, verify: { outcome: 'success', checks: 'Markdown check', selfTest: 'failure' } });
     assert.equal(result.verified, false);
     assert.match(result.reasons.join(), /changed environment actions failed their self-test \(failure\)/);
+  });
+});
+
+test('merge: integrate with a pinned base rebuilds the same merged tree after the base branch moved', async () => {
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n'), main: (dir) => write(dir, 'docs/m.md', '# M\n') }, (repos) => {
+    const planned = work(repos, { inputs: MERGE_INPUTS });
+    const { baseSha, tree } = planned.integrated.result;
+    assert.match(planned.output, new RegExp(`^base_sha=${baseSha}$`, 'm'));
+    assert.match(planned.output, new RegExp(`^tree=${tree}$`, 'm'));
+    assert.equal(tree, git(repos.work, 'write-tree').trim());
+    // The base branch moves on before a shard starts.
+    const mover = path.join(repos.base, 'mover');
+    git(repos.base, 'clone', '-q', '--branch', 'main', repos.bare, mover);
+    write(mover, 'docs/later.md', '# Later\n');
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-q', '-m', 'later');
+    git(mover, 'push', '-q', 'origin', 'HEAD:main');
+    git(repos.land, 'fetch', '-q', 'origin');
+    const run = (env) => runIntegrate({ git: defaultGit(repos.land), env: { SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_BASE_BRANCH: 'main', ...env }, inputs: MERGE_INPUTS, folder: 'f', resultDir: path.join(repos.base, `shard-${Object.keys(env).length}`), log: silent });
+    const pinned = run({ SPECKIT_BASE_SHA: baseSha });
+    assert.deepEqual([pinned.result.baseSha, pinned.result.tree], [baseSha, tree], 'a shard verifies exactly the planned tree');
+    git(repos.land, 'merge', '--abort');
+    assert.notEqual(run({}).result.tree, tree, 'without the pin the moved base branch changes the tree');
+    git(repos.land, 'merge', '--abort');
+    assert.throws(() => run({ SPECKIT_BASE_SHA: 'main' }), /SPECKIT_BASE_SHA is not a commit SHA/);
+  });
+});
+
+test('merge: the verdict of a sharded verification names every failed check and every missing shard', async () => {
+  const combined = {
+    SPECKIT_VERIFY_COMBINED: 'true',
+    SPECKIT_VERIFY_FAILED: 'platform build and tests,Web UI build and tests',
+    SPECKIT_VERIFY_PROBLEMS: 'verification shard 3/3 (manager) did not report\n',
+  };
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n') }, (repos) => {
+    const { result } = work(repos, { inputs: MERGE_INPUTS, env: combined, verify: { outcome: 'failure', checks: 'Markdown check,platform build and tests,Web UI build and tests' } });
+    assert.equal(result.verified, false);
+    assert.deepEqual(result.checks, [
+      { name: 'Markdown check', passed: true },
+      { name: 'platform build and tests', passed: false },
+      { name: 'Web UI build and tests', passed: false },
+    ]);
+    assert.deepEqual(result.reasons, ['platform build and tests, Web UI build and tests failed', 'verification shard 3/3 (manager) did not report']);
+  });
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n') }, (repos) => {
+    const { result } = work(repos, { inputs: MERGE_INPUTS, env: { SPECKIT_VERIFY_COMBINED: 'true' }, verify: { outcome: 'success', checks: 'Markdown check,platform build and tests' } });
+    assert.equal(result.verified, true);
+    assert.ok(result.checks.every((check) => check.passed));
+  });
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, 'docs/x.md', '# X\n') }, (repos) => {
+    const { result } = work(repos, { inputs: MERGE_INPUTS, env: { SPECKIT_VERIFY_COMBINED: 'true' }, verify: { outcome: 'failure', checks: '' } });
+    assert.deepEqual(result.reasons, ['the verification did not succeed (failure)']);
   });
 });
 
@@ -1844,3 +2570,43 @@ test('archive: references to specs that the base branch archived meanwhile are p
   assert.equal(remoteShow(repos, 'speckit/f:docs/uses-g.md'), 'See [g](../specs/archive/g/spec.md) and specs/archive/g/contracts/api.yaml.\n');
   assert.match(github.comments.at(-1).body, /`docs\/uses-g\.md`/);
 }));
+test('task: classifies a failure as certain to repeat, infrastructure, or a failed agent result', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-class-'));
+  try {
+    for (const [status, error] of [['failed', 'the Spec Kit workflow `implement-task` did not start: boom'], ['failed', 'the Spec Kit workflow `implement-task` left no run state']]) {
+      writeFileSync(path.join(dir, 'workflow.json'), JSON.stringify({ workflow: 'implement-task', status, step: null, error }));
+      assert.equal(classifyFailure([workflowFailure(dir)]), 'infrastructure', error);
+    }
+    writeFileSync(path.join(dir, 'workflow.json'), JSON.stringify({ workflow: 'implement-task', status: 'failed', step: 'implement', error: 'the agent failed' }));
+    assert.equal(classifyFailure([workflowFailure(dir)]), 'agent', 'a failure of the agent step');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.equal(classifyFailure(['the agent did not run']), 'infrastructure');
+  assert.equal(classifyFailure(['Markdown check failed'], { workFinished: false, agentOutput: false }), 'infrastructure', 'no result and no agent output');
+  assert.equal(classifyFailure(['the push to `speckit/f` was rejected (stale info) and the branch could not be read (fatal)']), 'infrastructure');
+  assert.equal(classifyFailure(['the push to `speckit/f` was rejected: protected branch']), 'repeat');
+  assert.equal(classifyFailure(['changed protected paths: .github/x.yml']), 'repeat');
+  assert.equal(classifyFailure(['conflicts in protected paths need a person: .github/x.yml']), 'repeat');
+  assert.equal(classifyFailure(['the resolution changed protected files: .specify/x']), 'repeat');
+  assert.equal(classifyFailure(['merging main failed: fatal: refusing']), 'repeat');
+  assert.equal(classifyFailure(['platform build and tests failed'], { noChange: true }), 'repeat', 'no change without a completion claim');
+  assert.equal(classifyFailure(['platform build and tests failed']), 'agent');
+  assert.equal(classifyFailure(['the agent did not finish within 60 minutes']), 'agent');
+});
+
+test('task: the failure comment says what follows: evidence, a wait, or the diagnosis', () => {
+  const bot = 'github-actions[bot]';
+  const failed = (attempt, at, failureClass) => ({ user: { login: bot }, created_at: at, body: `<!-- speckit-implement:attempt ${JSON.stringify({ kind: 'task', task: 'T001', attempt, outcome: 'failure', ...(failureClass ? { class: failureClass } : {}) })} -->\nfailed` });
+  const inputs = (attempt) => ({ kind: 'task', task: 'T001', attempt: String(attempt) });
+  const now = Date.parse('2026-10-06T12:00:00Z');
+  assert.equal(failureOutlook({ inputs: inputs(1), failureClass: 'agent', now }), 'evidence');
+  assert.equal(failureOutlook({ inputs: inputs(1), failureClass: 'infrastructure', now }), 'wait');
+  assert.equal(failureOutlook({ inputs: inputs(1), failureClass: 'repeat', now }), 'repeat');
+  assert.equal(failureOutlook({ comments: [failed(1, '2026-10-06T11:00:00Z')], inputs: inputs(2), failureClass: 'agent', now }), 'limit', 'an old marker without a class counts');
+  const continued = { user: { login: bot }, created_at: '2026-10-06T11:30:00Z', body: '<!-- speckit-implement:auto-continue -->\n<!-- speckit-implement:retry -->\nContinued.' };
+  assert.equal(failureOutlook({ comments: [failed(2, '2026-10-06T11:00:00Z', 'agent'), continued], inputs: inputs(1), failureClass: 'agent', now }), 'same', 'an automatic continuation that fails the same way stops');
+  assert.equal(failureOutlook({ comments: [failed(2, '2026-10-06T11:00:00Z', 'agent'), continued], inputs: inputs(1), failureClass: 'infrastructure', now }), 'wait');
+  const person = { user: { login: bot }, created_at: '2026-10-06T11:40:00Z', body: '<!-- speckit-implement:retry -->\nRetried by @dev.' };
+  assert.equal(failureOutlook({ comments: [failed(2, '2026-10-06T11:00:00Z', 'agent'), continued, person], inputs: inputs(1), failureClass: 'agent', now }), 'evidence', "a person's retry gives the full count");
+});

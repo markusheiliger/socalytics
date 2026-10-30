@@ -19,10 +19,19 @@ using Xunit;
 namespace SocAlytics.Platform.EndToEnd.Tests;
 
 [Collection("EndToEnd")]
-public sealed class DockerRuntimeEndToEndTests
+public sealed class DockerRuntimeEndToEndTests : IClassFixture<AnalystImageCache>
 {
     private const string Prefix = "analysts/";
     private const string WorkflowId = "e2e-docker-workflow";
+
+    // Every test takes its image and registry from the class fixture: no test here removes images to prove cleanup, so the
+    // fixture owns the class's single registry and removes the images when the class ends.
+    private readonly AnalystImageCache _images;
+
+    public DockerRuntimeEndToEndTests(AnalystImageCache images)
+    {
+        _images = images;
+    }
 
     [Fact]
     public async Task A_ready_job_runs_in_a_restricted_container_and_is_accepted_once()
@@ -30,15 +39,13 @@ public sealed class DockerRuntimeEndToEndTests
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
         var ct = cts.Token;
 
-        var registry = new OciRegistryContainerFixture();
-        await registry.InitializeAsync();
-        PushedAnalystImage? image = null;
+        var registryHost = await _images.GetRegistryHostAsync(ct);
         string? compatibilityPath = null;
         try
         {
             var started = await EndToEndHarness.StartAsync(ct, new Dictionary<string, string?>
             {
-                ["Registry:Images:RegistryHost"] = registry.RegistryHost,
+                ["Registry:Images:RegistryHost"] = registryHost,
                 ["Registry:Images:RepositoryPrefix"] = Prefix,
                 ["Registry:Images:UseHttp"] = "true",
             });
@@ -49,9 +56,9 @@ public sealed class DockerRuntimeEndToEndTests
             }
 
             await using var harness = started;
-            image = await TestAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct);
+            var image = await TestAnalystImage.GetCachedAsync(_images, Prefix, ct);
             var imageDigest = "sha-256:" + image.Digest["sha256:".Length..];
-            await DefineDefaultWorkflowAsync(harness, image.Reference(registry.RegistryHost), ct);
+            await DefineDefaultWorkflowAsync(harness, image.Reference(registryHost), ct);
 
             using var docker = new DockerEngine();
             compatibilityPath = await WriteCompatibilityListAsync(docker, ct);
@@ -105,17 +112,10 @@ public sealed class DockerRuntimeEndToEndTests
         }
         finally
         {
-            if (image is not null)
-            {
-                await TestAnalystImage.RemoveAsync(image);
-            }
-
             if (compatibilityPath is not null)
             {
                 File.Delete(compatibilityPath);
             }
-
-            await registry.DisposeAsync();
         }
     }
 
@@ -127,7 +127,7 @@ public sealed class DockerRuntimeEndToEndTests
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
         var ct = cts.Token;
-        await using var scenario = await Scenario.StartAsync(mode, ct);
+        await using var scenario = await Scenario.StartAsync(_images, mode, ct);
         if (scenario is null)
         {
             Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
@@ -155,7 +155,7 @@ public sealed class DockerRuntimeEndToEndTests
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
         var ct = cts.Token;
-        await using var scenario = await Scenario.StartAsync("hang", ct);
+        await using var scenario = await Scenario.StartAsync(_images, "hang", ct);
         if (scenario is null)
         {
             Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
@@ -178,7 +178,7 @@ public sealed class DockerRuntimeEndToEndTests
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
         var ct = cts.Token;
-        await using var scenario = await Scenario.StartAsync("hang", ct, leaseSeconds: 3, staleTimeoutSeconds: 6);
+        await using var scenario = await Scenario.StartAsync(_images, "hang", ct, leaseSeconds: 3, staleTimeoutSeconds: 6);
         if (scenario is null)
         {
             Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
@@ -282,13 +282,10 @@ public sealed class DockerRuntimeEndToEndTests
     /// <summary>The platform, a registry with one failure-mode Test Analyst, and a Docker-backed Manager that offers it.</summary>
     private sealed class Scenario : IAsyncDisposable
     {
-        private readonly OciRegistryContainerFixture _registry;
-
         private Scenario(
-            OciRegistryContainerFixture registry, EndToEndHarness harness, PushedAnalystImage image, DockerEngine docker, string compatibilityPath,
+            EndToEndHarness harness, PushedAnalystImage image, DockerEngine docker, string compatibilityPath,
             Microsoft.Extensions.Hosting.IHost manager)
         {
-            _registry = registry;
             Harness = harness;
             Image = image;
             Docker = docker;
@@ -313,38 +310,34 @@ public sealed class DockerRuntimeEndToEndTests
         public string ManagerLabel { get; }
 
         /// <summary>Returns null when SoftHSM2 is unavailable.</summary>
-        public static async Task<Scenario?> StartAsync(string mode, CancellationToken ct, int leaseSeconds = 60, int staleTimeoutSeconds = 120)
+        public static async Task<Scenario?> StartAsync(AnalystImageCache images, string mode, CancellationToken ct, int leaseSeconds = 60, int staleTimeoutSeconds = 120)
         {
-            var registry = new OciRegistryContainerFixture();
-            await registry.InitializeAsync();
+            var registryHost = await images.GetRegistryHostAsync(ct);
             var started = await EndToEndHarness.StartAsync(ct, new Dictionary<string, string?>
             {
-                ["Registry:Images:RegistryHost"] = registry.RegistryHost,
+                ["Registry:Images:RegistryHost"] = registryHost,
                 ["Registry:Images:RepositoryPrefix"] = Prefix,
                 ["Registry:Images:UseHttp"] = "true",
             });
             if (started is null)
             {
-                await registry.DisposeAsync();
                 return null;
             }
 
-            var image = await TestAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct, mode);
+            var image = await TestAnalystImage.GetCachedAsync(images, Prefix, ct, mode);
             var docker = new DockerEngine();
             var compatibilityPath = await WriteCompatibilityListAsync(docker, ct);
             await DefineDefaultWorkflowAsync(
-                started, image.Reference(registry.RegistryHost), ct, mode, maxAttempts: 1, leaseSeconds: leaseSeconds, staleTimeoutSeconds: staleTimeoutSeconds);
+                started, image.Reference(registryHost), ct, mode, maxAttempts: 1, leaseSeconds: leaseSeconds, staleTimeoutSeconds: staleTimeoutSeconds);
             var manager = await started.StartManagerAsync(ct, dockerCompatibilityListPath: compatibilityPath);
-            return new Scenario(registry, started, image, docker, compatibilityPath, manager);
+            return new Scenario(started, image, docker, compatibilityPath, manager);
         }
 
         public async ValueTask DisposeAsync()
         {
             await Harness.DisposeAsync();
-            await TestAnalystImage.RemoveAsync(Image);
             Docker.Dispose();
             File.Delete(CompatibilityPath);
-            await _registry.DisposeAsync();
         }
     }
 

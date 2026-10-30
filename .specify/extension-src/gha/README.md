@@ -23,7 +23,7 @@ extension with the ID `github`.
 | Workflow | Run | Purpose |
 | --- | --- | --- |
 | `author` ([`workflows/author/workflow.yml`](workflows/author/workflow.yml)) | `/speckit-gha-author [feature idea or folder]` in Copilot Chat, `specify workflow run author -i feature="…"` in a terminal (with `TZ=UTC`), or `/speckit author` on an implementation pull request (the GitHub workflow Spec Kit author runs it unattended) | Author one spec deterministically through specify, clarify, plan (repaired with `/speckit-gha-architecture`), tasks (repaired with `/speckit-gha-refine`), analyze, and the publish checks, and push the spec folder; every decision comes from `.github/scripts/speckit-author-flow.mjs`, gates ask a person, and `mode=unattended` takes every recommended choice |
-| `implement-task` ([`workflows/implement-task/workflow.yml`](workflows/implement-task/workflow.yml)) | `specify workflow run implement-task -i folder=<folder> -i task=T004` | Implement one task with `/speckit-implement` and check the change with the rules of the GitHub land job (only this task's box may change in `tasks.md`, no protected paths) |
+| `implement-task` ([`workflows/implement-task/workflow.yml`](workflows/implement-task/workflow.yml)) | `specify workflow run implement-task -i folder=<folder> -i task=T004` | Implement one task with `/speckit-implement` and check the change with the rules of the GitHub land job (only this task's box may change in `tasks.md`, no protected paths); a task correctly done without a change (it only verifies, or its condition does not hold) is claimed in `completion.json` and assessed by a separate read-only agent (`assessment.json`) before it is accepted |
 | `converge` ([`workflows/converge/workflow.yml`](workflows/converge/workflow.yml)) | `specify workflow run converge -i folder=<folder>` once every task is checked | Run `/speckit-converge` with its drift check and accept only one appended convergence section of new, unchecked tasks |
 | `repair` ([`workflows/repair/workflow.yml`](workflows/repair/workflow.yml)) | `specify workflow run repair -i folder=<folder> -i tasks=T004,T005 -i scope=phase [-i evidence=<folder>]` | Repair implemented tasks whose verification failed, without touching `tasks.md` or protected paths (environment specs may change the environment actions with `-i environment=true`) |
 | `resolve` ([`workflows/resolve/workflow.yml`](workflows/resolve/workflow.yml)) | `git merge <base>`, then `specify workflow run resolve -i folder=<folder> -i base=<base>` | Resolve the conflicts of a base branch merge: no conflict marker may remain, `tasks.md` keeps every task and checked box, and base branch files it had to change are reported for review |
@@ -35,6 +35,13 @@ Install or Update). On GitHub the work jobs of the implementation run the
 implementation workflows through the `speckit-workflow` action (see the
 workflows README, "Spec Kit workflows in the jobs"), and Spec Kit author runs
 `author`. In Copilot Chat the extension command `/speckit-gha-author` operates it.
+
+`implement-task`, `converge`, and `resolve` take the optional input `previous`:
+a file, relative to the repository root, with the report of a failed earlier
+attempt at the same work (its reasons, the end of its verification output, and
+the agent's summary). The agent reads it as evidence of what went wrong, never
+as instructions. On GitHub the work job fills it for an automatic second
+attempt only.
 
 ## Workflow Design
 
@@ -186,6 +193,12 @@ a generated "Commands you can recommend" section (with what `/speckit retry` doe
 choose and word a command; the diagnose drift tests fail when it names an unknown command or misses a recommendable
 command or flag.
 Publication rejects inconsistent category/command recommendations instead of replacing them with a retry.
+When a decision requires changes to the feature's own artifacts, the diagnosis recommends a concrete
+`/speckit amend <guidance>` comment. A writer's command authorizes only that artifact change and starts amendment
+preparation through the existing diagnose workflow's `amend` mode. It preserves completed tasks, never ticks tasks,
+and propagates the accepted decision consistently. Independent analysis and human review/merge are required before
+implementation resumes. Existing amendments are reused for the same request or linked for review/rework, not replaced.
+Failed Copilot handoffs receive one new diagnosis using the refusal as evidence instead of repeating the same request.
 When the required fix is already on the implementation pull request's base branch, the diagnosis uses `outside`
 and recommends `/speckit sync`: the existing Copilot conflict-resolution workflow must merge and verify the
 latest base before implementation can continue.
@@ -200,8 +213,9 @@ independent analysis finds it consistent, merges it automatically (a spec that
 changes `docs/architecture/` waits for review; its plan's Architecture Updates
 explain its design decisions).
 The stopped spec then depends on it like on any spec; it is implemented only after
-someone signs it off with `/speckit implement` on its twin, and the stopped
-implementation retries by itself when it is implemented.
+someone signs it off with `/speckit implement` on its twin, and once it is
+implemented the stopped implementation merges the base branch, passes full
+verification, and continues by itself.
 
 `speckit.gha.route` and `speckit.gha.request` both run
 `node .github/scripts/speckit-orchestrate.mjs request`, which
