@@ -29,6 +29,44 @@ internal static class TestAnalystImage
     /// </summary>
     public static async Task<PushedAnalystImage> BuildAndPushAsync(string registryHost, string repositoryPrefix, CancellationToken ct, string mode = "succeed")
     {
+        // The only place that acquires the gate: one image's build and push together.
+        var lease = await ImageBuildGate.Shared.AcquireAsync(ct);
+        try
+        {
+            return await BuildAndPushUngatedAsync(registryHost, repositoryPrefix, ct, mode);
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Returns the image for <paramref name="mode"/> from <paramref name="cache"/>, building and pushing it to the cache's registry
+    /// only when the test class has not needed the same variant and inputs before.
+    /// </summary>
+    public static Task<PushedAnalystImage> GetCachedAsync(AnalystImageCache cache, string repositoryPrefix, CancellationToken ct, string mode = "succeed")
+    {
+        var key = new AnalystImageKey("test-analyst", mode, InputsOf(repositoryPrefix));
+        return cache.GetOrBuildAsync(key, (registryHost, buildCt) => BuildAndPushAsync(registryHost, repositoryPrefix, buildCt, mode), ct);
+    }
+
+    private static string InputsOf(string repositoryPrefix)
+    {
+        var directory = Path.Combine(AppContext.BaseDirectory, "TestAnalyst");
+        var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(System.Text.Encoding.UTF8.GetBytes(repositoryPrefix));
+        foreach (var file in Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+        {
+            hash.AppendData(System.Text.Encoding.UTF8.GetBytes(Path.GetRelativePath(directory, file)));
+            hash.AppendData(File.ReadAllBytes(file));
+        }
+
+        return Convert.ToHexStringLower(hash.GetHashAndReset());
+    }
+
+    private static async Task<PushedAnalystImage> BuildAndPushUngatedAsync(string registryHost, string repositoryPrefix, CancellationToken ct, string mode)
+    {
         var directory = Path.Combine(AppContext.BaseDirectory, "TestAnalyst");
         var capabilityId = CapabilityId;
         string? contextDirectory = null;
