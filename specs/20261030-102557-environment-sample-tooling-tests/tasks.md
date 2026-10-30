@@ -39,7 +39,7 @@
 **Independent Test**: Run the scope and plan rules on fixture change lists and assert covered, uncovered, and scope-reason outcomes.
 
 - [x] T004 [US2] In `.github/actions/environment-verify/verification-scope.mjs`, export `SAMPLE_TOOLING_FILE = /^tools\/(?:samples\.test|samples-lib|upload-samples|download-samples)\.mjs$/` (anchored, case-sensitive) and make the scope reason for such a path read `<path> is a sample tooling file covered by the Sample tooling tests` instead of "is not Markdown"; `tools/*.md` stays covered by the Markdown rule and every other `tools/` path is not matched
-- [ ] T005 [US2] In `.github/actions/environment-verify/verification-plan.mjs`, import `SAMPLE_TOOLING_FILE` and add it to the covered patterns next to `TOOLING_FILE` (line 326) so the four paths are never listed in `uncovered`; add no `tools/` glob and leave protected-path handling untouched
+- [x] T005 [US2] In `.github/actions/environment-verify/verification-plan.mjs`, import `SAMPLE_TOOLING_FILE` and add it to the covered patterns next to `TOOLING_FILE` (line 326) so the four paths are never listed in `uncovered`; add no `tools/` glob and leave protected-path handling untouched
 
 ### Scope and plan tests
 

@@ -13,7 +13,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { TOOLING_FILE, classify } from './verification-scope.mjs';
+import { SAMPLE_TOOLING_FILE, TOOLING_FILE, classify } from './verification-scope.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -324,6 +324,7 @@ export function buildPlan({ root, mode, changedFiles, shard = '' }) {
   const covered = [
     ...STATIC_COVERED,
     TOOLING_FILE,
+    SAMPLE_TOOLING_FILE,
     ...planned.flatMap((component) => component.covers.map((prefix) => new RegExp(`^${escapeRegExp(prefix)}`))),
     ...Object.values(python).flatMap((area) => area.covered.map((projectRoot) => new RegExp(`^${escapeRegExp(projectRoot)}/`))),
   ];
