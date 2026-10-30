@@ -7,7 +7,7 @@ using DotNet.Testcontainers.Images;
 namespace SocAlytics.Platform.EndToEnd.Tests.Support;
 
 /// <summary>A pushed Test Analyst image: the registry repository and its manifest digest (<c>sha256:</c> form).</summary>
-internal sealed record PushedAnalystImage(string Repository, string Digest, string LocalName)
+public sealed record PushedAnalystImage(string Repository, string Digest, string LocalName)
 {
     public string Reference(string registryHost) => $"{registryHost}/{Repository}@{Digest}";
 }

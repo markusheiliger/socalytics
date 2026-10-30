@@ -4,7 +4,7 @@ using Xunit;
 namespace SocAlytics.Platform.EndToEnd.Tests.Support;
 
 /// <summary>The identity of one cached image: the helper, its mode or variant, and the inputs the image is built from.</summary>
-internal readonly record struct AnalystImageKey(string Helper, string Variant, string Inputs);
+public readonly record struct AnalystImageKey(string Helper, string Variant, string Inputs);
 
 /// <summary>
 /// Builds and pushes each image variant once per test class. Concurrent requests for one key share a single build; a failed
