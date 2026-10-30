@@ -12,10 +12,10 @@ internal readonly record struct AnalystImageKey(string Helper, string Variant, s
 /// delegate (the helper's uncached build and push) does. As an xunit class fixture it owns the class's single <c>registry:2</c>,
 /// started on first use, and removes the class's images and disposes the registry when the class ends.
 /// </summary>
-internal sealed class AnalystImageCache : IAsyncLifetime, IAsyncDisposable
+public sealed class AnalystImageCache : IAsyncLifetime, IAsyncDisposable
 {
     /// <summary>The longest one build may run, including the gate wait: every attempt of the build and the push plus the delays between them.</summary>
-    public static readonly TimeSpan BuildTimeLimit =
+    internal static readonly TimeSpan BuildTimeLimit =
         (EngineCallPolicy.BuildLimit + EngineCallPolicy.PushLimit) * EngineCallPolicy.MaxAttempts
         + EngineCallPolicy.RetryDelay * (EngineCallPolicy.MaxAttempts - 1);
 
@@ -35,7 +35,7 @@ internal sealed class AnalystImageCache : IAsyncLifetime, IAsyncDisposable
     {
     }
 
-    public AnalystImageCache(ImageBuildGate gate)
+    internal AnalystImageCache(ImageBuildGate gate)
     {
         _gate = gate;
         _registry = new Lazy<Task<OciRegistryContainerFixture>>(StartRegistryAsync);
@@ -55,7 +55,7 @@ internal sealed class AnalystImageCache : IAsyncLifetime, IAsyncDisposable
     }
 
     /// <summary>Returns the image of <paramref name="key"/> built and pushed to the class's registry by <paramref name="build"/>.</summary>
-    public Task<PushedAnalystImage> GetOrBuildAsync(
+    internal Task<PushedAnalystImage> GetOrBuildAsync(
         AnalystImageKey key,
         Func<string, CancellationToken, Task<PushedAnalystImage>> build,
         CancellationToken cancellationToken) =>
@@ -65,7 +65,7 @@ internal sealed class AnalystImageCache : IAsyncLifetime, IAsyncDisposable
             cancellationToken);
 
     /// <summary>The number of builds started for <paramref name="key"/>, including failed and abandoned ones.</summary>
-    public int BuildCount(AnalystImageKey key)
+    internal int BuildCount(AnalystImageKey key)
     {
         lock (_lock)
         {
@@ -74,7 +74,7 @@ internal sealed class AnalystImageCache : IAsyncLifetime, IAsyncDisposable
     }
 
     /// <summary>Whether an entry (building or ready) currently exists for <paramref name="key"/>.</summary>
-    public bool Contains(AnalystImageKey key)
+    internal bool Contains(AnalystImageKey key)
     {
         lock (_lock)
         {
@@ -86,7 +86,7 @@ internal sealed class AnalystImageCache : IAsyncLifetime, IAsyncDisposable
     /// Returns the image of <paramref name="key"/>, starting <paramref name="build"/> only when no entry exists. The build runs under the
     /// cache's own token, so cancelling <paramref name="cancellationToken"/> only stops this caller's wait, unless it was the last waiter.
     /// </summary>
-    public async Task<PushedAnalystImage> GetOrBuildAsync(
+    internal async Task<PushedAnalystImage> GetOrBuildAsync(
         AnalystImageKey key,
         Func<CancellationToken, Task<PushedAnalystImage>> build,
         CancellationToken cancellationToken)

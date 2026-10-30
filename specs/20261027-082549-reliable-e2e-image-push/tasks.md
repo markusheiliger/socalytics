@@ -105,7 +105,7 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 
 - [ ] T021 [P] [US3] Edit `ReferenceAnalystImageTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
 - [ ] T022 [P] [US3] Edit `ReferenceAnalystEndToEndTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
-- [ ] T023 [P] [US3] Edit `ShotBoundaryImageTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
+- [x] T023 [P] [US3] Edit `ShotBoundaryImageTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
 - [ ] T024 [P] [US3] Edit `ShotBoundaryEndToEndTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
 - [ ] T025 [P] [US3] Edit `DockerRuntimeEndToEndTests.cs` to use the class-scoped `AnalystImageCache` fixture where its tests need the same variant and inputs; acceptance: after the edit each test either takes the cached image or is named in a comment with the reason it keeps its own (for example it calls `RemoveAsync` or force-removes images), including the registries created in the nested helper
 - [ ] T026 [P] [US3] Edit `SegmentMediaEndToEndTests.cs` to use the class-scoped `AnalystImageCache` fixture where its tests need the same variant and inputs; acceptance: after the edit each test either takes the cached image or is named in a comment with the reason it keeps its own (for example it calls `RemoveAsync` or force-removes images)
