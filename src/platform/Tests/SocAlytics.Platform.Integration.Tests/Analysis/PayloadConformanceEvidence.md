@@ -110,3 +110,7 @@ Temporary test-side probe in `StartAsync` of `PayloadConformanceTests.cs` (marke
 - Pending row not due (`state = 'pending'`, `next_attempt_at` 30 days ahead): Failed 1 of 1 after 2 m 32 s (the wait's own limit, `WaitLimit` of 150 s, inside the 180 s hang guard) through the wait's own failure, not the xUnit timeout: `System.TimeoutException : The run's publication state was not complete before the hang guard. Pending rows: id=01a18e37-3792-7a44-b72b-0a3f45d011b9 message_type=analysis.ready-work subject=analysis.jobs.ready.dev-segment-capability state=pending attempt_count=0 failure_category=- next_attempt_at=2026-11-29T19:11:34.9751720Z`. It names id, `message_type`, `subject`, `attempt_count`, `failure_category`, and `next_attempt_at`.
 
 After the probes `git checkout` restored `PayloadConformanceTests.cs`; `git status --short` shows no change to it and no `TEMP-T013` marker remains.
+
+### T014 Shared helpers (FR-005)
+
+No shared helper changed. `git diff --stat 9bd4d0fe HEAD -- Analysis/Support Recordings/Support` (`9bd4d0fe` is the merge base with the default branch) prints nothing, and `git status --short` shows no uncommitted change under either folder. The only test-project files this implementation changed are `Analysis/PayloadConformanceTests.cs` and this file, and T005 changed no file. Therefore no other integration test uses a changed helper, and no further test run is needed for this task.
