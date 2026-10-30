@@ -1252,6 +1252,29 @@ it('sample', () => {
         assert.deepEqual(fixture.record(), ['samples:1']);
       });
 
+      it('belongs to the first shard only', () => {
+        const { root, fixture } = sampleRepository();
+        const second = run(root, { mode: 'finalize', bin: toolBin(), env: { ...fixture.env, SHARD: '2/2' } });
+        assert.equal(second.status, 0, second.log);
+        assert.ok(!checksOf(second).includes(name));
+        assert.equal(fixture.record().length, 0);
+        const first = run(root, { mode: 'finalize', bin: toolBin(), env: { ...fixture.env, SHARD: '1/2' } });
+        assert.equal(first.status, 0, first.log);
+        assert.ok(checksOf(first).includes(name));
+        assert.deepEqual(fixture.record(), ['samples:1']);
+      });
+
+      it('fails the step in the first shard only when the check fails', () => {
+        const { root, fixture } = sampleRepository({ fail: true });
+        const second = run(root, { mode: 'finalize', bin: toolBin(), env: { ...fixture.env, SHARD: '2/2' } });
+        assert.equal(second.status, 0, second.log);
+        assert.equal(fixture.record().length, 0);
+        const first = run(root, { mode: 'finalize', bin: toolBin(), env: { ...fixture.env, SHARD: '1/2' } });
+        assert.equal(first.status, 1);
+        assert.ok(checksOf(first).includes(name));
+        assert.deepEqual(first.log.split('\n').filter((line) => line.startsWith('Sample tooling tests failed')), [failureMessage]);
+      });
+
       it('does not run while the nested-run marker is set or SAMPLE_TOOLING_TESTS is unset', () => {
         const nested = sampleRepository();
         const nestedResult = run(nested.root, { mode: 'task', changed: ['tools/samples.test.mjs'], bin: toolBin(), env: { ...nested.fixture.env, SOCALYTICS_ENVIRONMENT_TESTS_RUNNING: '1' } });

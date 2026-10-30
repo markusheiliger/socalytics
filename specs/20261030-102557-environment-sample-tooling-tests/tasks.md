@@ -57,7 +57,7 @@
 **Independent Test**: Plan a sharded verification in a fixture and assert the budget, the single placement, and the failure aggregation.
 
 - [x] T008 [US3] In `.github/actions/environment-verify/verification-plan.mjs`, raise `MAIN_MINUTES` from 5 to 6 with a comment that it includes the Sample tooling tests, so `packShards` accounts for the check; in `.github/actions/environment-verify/action.yml`, extend the shard log text (line 206) to `also the Python projects, environment action tests, Spec Kit tooling tests, Sample tooling tests, and Markdown check` and the shared-check comment (line 203)
-- [ ] T009 [US3] In `.github/actions/environment-verify/verification-plan.test.mjs`, update the shard-log assertion (line 652) to the new text, keep the budget assertions following `MAIN_MINUTES`, and add cases that the first shard's minutes include the sample tooling budget (`MAIN_MINUTES` is 6) and that the check text appears only in the shard `1/<count>` log; in `.github/actions/environment-verify/analyst-projects.test.mjs`, add a sharded fixture asserting the check runs in shard 1 only and that a failure in the check fails the step status
+- [x] T009 [US3] In `.github/actions/environment-verify/verification-plan.test.mjs`, update the shard-log assertion (line 652) to the new text, keep the budget assertions following `MAIN_MINUTES`, and add cases that the first shard's minutes include the sample tooling budget (`MAIN_MINUTES` is 6) and that the check text appears only in the shard `1/<count>` log; in `.github/actions/environment-verify/analyst-projects.test.mjs`, add a sharded fixture asserting the check runs in shard 1 only and that a failure in the check fails the step status
 
 **Checkpoint**: Sharded runs neither drop nor duplicate the check.
 

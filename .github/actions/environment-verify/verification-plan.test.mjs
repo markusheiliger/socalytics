@@ -540,6 +540,14 @@ describe('shards', () => {
     assert.equal(bins[3].units[0].tests, null);
   });
 
+  it('counts the Sample tooling tests in the first shard\'s minutes', () => {
+    assert.equal(MAIN_MINUTES, 6);
+    assert.deepEqual(packShards([], 3).map((bin) => bin.minutes), [6, 0, 0]);
+    const bins = plan(sharded(), 'finalize', [], '1/4').shards;
+    assert.equal(bins[0].minutes, 6 + bins[0].units.reduce((sum, unit) => sum + unit.minutes, 0));
+    assert.ok(bins.slice(1).every((bin) => bin.minutes === bin.units.reduce((sum, unit) => sum + unit.minutes, 0)));
+  });
+
   it('runs in each shard only its own components and test projects', () => {
     const root = sharded();
     const view = (shard) => plan(root, 'finalize', [], shard).components.filter((item) => item.run).map((item) => [item.root, item.allowedTests]);
@@ -688,7 +696,15 @@ describe('sharded verification', () => {
       'platform|dotnet|restore Platform.slnx', 'platform|dotnet|build Platform.slnx --no-restore',
       'platform|dotnet|test Tests/Architecture.Tests/Architecture.Tests.csproj --no-build', 'markdown',
     ]);
-    assert.match(result.log, /Verification shard 1\/2: src\/platform#default \(3 min\); also the Python projects, environment action tests, Spec Kit tooling tests, and Markdown check/);
+    assert.match(result.log, /Verification shard 1\/2: src\/platform#default \(3 min\); also the Python projects, environment action tests, Spec Kit tooling tests, Sample tooling tests, and Markdown check/);
+  });
+
+  it('names the shared checks, the Sample tooling tests included, only in the log of the first shard', () => {
+    const first = shardRun(twoProjects(), '1/2');
+    const second = shardRun(twoProjects(), '2/2');
+    assert.equal(first.log.split('\n').filter((line) => line.includes('Sample tooling tests')).length, 1);
+    assert.match(first.log, /Verification shard 1\/2: .*; also .*Sample tooling tests/);
+    assert.doesNotMatch(second.log, /Sample tooling tests|also the Python projects/);
   });
 
   it('runs nothing in a shard without work and still passes', () => {
