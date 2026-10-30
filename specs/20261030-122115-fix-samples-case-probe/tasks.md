@@ -16,7 +16,7 @@
 
 **Independent Test**: Run `node --test tools/samples.test.mjs` on Linux; 13 of 13 tests pass and the case-clash assertion runs.
 
-- [ ] T002 [US1] In `tools/samples.test.mjs`, in the test "refuses a missing folder, no videos, empty videos, and paths that differ only in case; never follows links", replace the probe condition `discoverVideos(folder({ 'probe/a.mp4': '1', 'probe/A.mp4': '2' })).videos.length === 2` with a direct file-system check without any call to `discoverVideos` and without `try`/`catch`: create the single file with `const probe = folder({ 'probe/a.mp4': '1' });` (same temporary location as the `clash` folder) and run the assertion `assert.throws(() => discoverVideos(clash), /differ only in case/)` only `if (!existsSync(path.join(probe, 'probe', 'A.mp4')))`; keep that assertion, the `clash` folder creation, and the test title textually unchanged, and reuse the already imported `existsSync`
+- [x] T002 [US1] In `tools/samples.test.mjs`, in the test "refuses a missing folder, no videos, empty videos, and paths that differ only in case; never follows links", replace the probe condition `discoverVideos(folder({ 'probe/a.mp4': '1', 'probe/A.mp4': '2' })).videos.length === 2` with a direct file-system check without any call to `discoverVideos` and without `try`/`catch`: create the single file with `const probe = folder({ 'probe/a.mp4': '1' });` (same temporary location as the `clash` folder) and run the assertion `assert.throws(() => discoverVideos(clash), /differ only in case/)` only `if (!existsSync(path.join(probe, 'probe', 'A.mp4')))`; keep that assertion, the `clash` folder creation, and the test title textually unchanged, and reuse the already imported `existsSync`
 
 ---
 
