@@ -23,6 +23,7 @@ import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment, maintainAmendmentRequest } from './speckit-amend.mjs';
 import { maintainBacklog } from './speckit-backlog.mjs';
+import { maintainReset } from './speckit-reset.mjs';
 import { startDiagnosis } from './speckit-diagnose.mjs';
 import { maintainFixSpec, maintainIndependentSpecs, startFixAuthoring } from './speckit-fix.mjs';
 import { contextFromEnv, decideForPull, implementationAttention, needsRun, reconcileImplementationAttention } from './speckit-spec.mjs';
@@ -336,6 +337,11 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
     }
 
     if (lifecycle.state === 'in-progress') {
+      if (await maintainReset(client, env, { implementation: lifecycle.pull, twin: issue.number, folder })) {
+        inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login,
+          decision: { action: 'resetting' }, active: true, blocked: false, blockers: [] });
+        continue;
+      }
       // The implementation pull request is open, so the twin is at `implementing` (also when a person opened it or
       // set the flag again).
       await markImplementing(client, issue);

@@ -174,6 +174,32 @@ export class GitHubClient {
     await this.request('PATCH', this.repoPath(`/git/refs/heads/${branch}`), { sha, force: false });
   }
 
+  async getGitCommit(sha) {
+    return (await this.request('GET', this.repoPath(`/git/commits/${sha}`))).data;
+  }
+
+  async getRefSha(ref) {
+    const { status, data } = await this.request('GET', this.repoPath(`/git/ref/${ref.replace(/^refs\//, '')}`), undefined, { allow: [404] });
+    return status === 404 ? null : data.object.sha;
+  }
+
+  async resetImplementationRef({ branch, oldHead, newHead, recovery }) {
+    if (!branch.startsWith('speckit/') || !/^refs\/tags\/speckit-reset\/pr-\d+\/\d+$/.test(recovery) ||
+        ![oldHead, newHead].every((sha) => /^[0-9a-f]{40}$/.test(sha))) {
+      throw new Error('Invalid implementation reset references.');
+    }
+    const repository = (await this.request('GET', this.repoPath(''))).data;
+    await this.graphql(
+      `mutation($input: UpdateRefsInput!) {
+        updateRefs(input: $input) { clientMutationId }
+      }`,
+      { input: { repositoryId: repository.node_id, refUpdates: [
+        { name: recovery, beforeOid: '0'.repeat(40), afterOid: oldHead },
+        { name: `refs/heads/${branch}`, beforeOid: oldHead, afterOid: newHead, force: true },
+      ] } },
+    );
+  }
+
   async deleteBranch(branch) {
     await this.request('DELETE', this.repoPath(`/git/refs/heads/${branch}`), undefined, { allow: [404, 422] });
   }
@@ -329,6 +355,7 @@ export class GitHubClient {
       );
       runs.push(...data.workflow_runs);
       if (data.workflow_runs.length < 100) break;
+      if (page === maxPages && maxPages === 10) throw new Error(`Workflow run listing for ${workflowFile} is incomplete.`);
     }
     return runs;
   }

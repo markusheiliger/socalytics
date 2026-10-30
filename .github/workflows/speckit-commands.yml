@@ -1,7 +1,7 @@
 name: Spec Kit commands
 
 # Handles people's input on Spec Kit pull requests:
-# - `/speckit <command>` comments on implementation pull requests: retry, sync, amend, author, help;
+# - `/speckit <command>` comments on implementation pull requests: reset, retry, sync, amend, author, help;
 #   and on spec twin issues (label speckit:spec): implement (the only way to request an implementation), help.
 #   - Feedback on amendment pull requests (speckit-amend/<folder>) and authored spec pull requests
 #     (speckit-spec/<folder>, earlier speckit-fix/<folder>): a comment, or a review with Comment or Request changes,
@@ -30,6 +30,10 @@ on:
         description: Amendment pull request whose feedback to handle (set by the review forwarder)
         required: true
         type: string
+      reset_comment:
+        description: Writer reset comment to reconcile after an interrupted command
+        required: false
+        type: string
 
 # Every run says which pull request or issue it handles: GitHub would otherwise name it after the pull request title
 # alone ("Implement: …", "Amend: …").
@@ -41,10 +45,12 @@ jobs:
   target:
     name: Resolve the command publication target
     if: >-
-      github.event_name == 'issue_comment' &&
+      (github.event_name == 'workflow_dispatch' && inputs.reset_comment != '' &&
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+      (github.event_name == 'issue_comment' &&
       (github.event.issue.pull_request || contains(github.event.issue.labels.*.name, 'speckit:spec')) &&
       github.event.comment.user.type != 'Bot' &&
-      startsWith(github.event.comment.body, '/speckit')
+      startsWith(github.event.comment.body, '/speckit'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -68,8 +74,8 @@ jobs:
         id: target
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_PULL: ${{ github.event.issue.number }}
-          SPECKIT_TARGET: ${{ github.event.issue.pull_request && 'pull' || 'twin' }}
+          SPECKIT_PULL: ${{ github.event.issue.number || inputs.pull }}
+          SPECKIT_TARGET: ${{ (github.event.issue.pull_request || inputs.reset_comment != '') && 'pull' || 'twin' }}
           SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
         run: node .github/scripts/speckit-commands.mjs target
 
@@ -78,10 +84,12 @@ jobs:
     needs: target
     # issue_comment always uses this workflow from the default branch; no job checks out pull request code.
     if: >-
-      github.event_name == 'issue_comment' &&
+      (github.event_name == 'workflow_dispatch' && inputs.reset_comment != '' &&
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+      (github.event_name == 'issue_comment' &&
       (github.event.issue.pull_request || contains(github.event.issue.labels.*.name, 'speckit:spec')) &&
       github.event.comment.user.type != 'Bot' &&
-      startsWith(github.event.comment.body, '/speckit')
+      startsWith(github.event.comment.body, '/speckit'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Atomic with all branch publication jobs; queue rather than replacing pending commands or parallel task landings.
@@ -112,12 +120,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          SPECKIT_PULL: ${{ github.event.issue.number }}
+          SPECKIT_PULL: ${{ github.event.issue.number || inputs.pull }}
+          SPECKIT_RESET_RESUME: ${{ inputs.reset_comment }}
           SPECKIT_COMMENT_ID: ${{ github.event.comment.id }}
           SPECKIT_ACTOR: ${{ github.event.comment.user.login }}
           SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
           SPECKIT_PUBLICATION_PULL: ${{ needs.target.outputs.pull }}
-          SPECKIT_TARGET: ${{ github.event.issue.pull_request && 'pull' || 'twin' }}
+          SPECKIT_TARGET: ${{ (github.event.issue.pull_request || inputs.reset_comment != '') && 'pull' || 'twin' }}
         run: node .github/scripts/speckit-commands.mjs command
 
   feedback:
@@ -127,7 +136,7 @@ jobs:
       github.event.issue.pull_request &&
       github.event.comment.user.type != 'Bot' &&
       !startsWith(github.event.comment.body, '/speckit')) ||
-      (github.event_name == 'workflow_dispatch' &&
+      (github.event_name == 'workflow_dispatch' && inputs.reset_comment == '' &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-latest
     # Waits up to 20 minutes for a running check or rework before starting the rework.

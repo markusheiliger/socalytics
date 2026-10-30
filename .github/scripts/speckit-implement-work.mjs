@@ -8,6 +8,7 @@ import { RUNS_FILE, bindEvidence, gitReader, landCompletion, requirementLabel, t
 import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import { workflowFailure } from './speckit-workflow-job.mjs';
+import { implementationRunCurrent } from './speckit-implement-core.mjs';
 import {
   BOT_LOGIN,
   FAILURE_CLASS_TEXT,
@@ -920,7 +921,8 @@ export function runCombinedEdits({ git, env, log }) {
 // a change that no longer applies, or conflicts with those edits, has to be redone from the new head: that is a
 // requeue, not a failed attempt.
 // The shared job lock makes acceptance atomic with publication; rereads also fence stale work and push retries.
-async function publicationBlocked(client, inputs, syncRequest = null) {
+async function publicationBlocked(client, inputs, env, syncRequest = null) {
+  if (!(await implementationRunCurrent(client, inputs.pull, env))) return true;
   const barrier = syncBarrier(await client.listIssueComments(inputs.pull));
   return Boolean(barrier && (inputs.kind !== 'resolve' || barrier.request !== syncRequest));
 }
@@ -934,7 +936,7 @@ async function pushTask({ client, inputs, git, env, folder, task, message, resul
   let onto = base;
   let combined = [];
   for (let tries = 0; tries < MAX_LAND_TRIES; tries += 1) {
-    if (await publicationBlocked(client, inputs)) return { requeue: ['required synchronization was requested before task publication'] };
+    if (await publicationBlocked(client, inputs, env)) return { requeue: ['required synchronization or reset superseded task publication'] };
     const pushed = git(pushArgs(env, branch));
     if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim(), combined };
     const inspected = inspectRejectedPush({ git, env, branch, onto, pushed });
@@ -998,7 +1000,7 @@ async function completeSupersededProgress(client, parent, head) {
 
 async function push({ client, git, env, inputs, folder, resultDir, report, syncRequest, onto }) {
   const branch = implementationBranch(folder);
-  if (await publicationBlocked(client, inputs, syncRequest)) {
+  if (await publicationBlocked(client, inputs, env, syncRequest)) {
     const requeue = ['required synchronization was requested or replaced before publication'];
     await reportRequeue({ client, inputs, reasons: requeue });
     return { requeue };
@@ -1035,6 +1037,7 @@ async function bestEffortResolution(client, inputs, result) {
 // Lands the result of one task (write token, never runs agent-written code): re-validates the change, commits and
 // pushes it, and reports progress.
 export async function runLand({ client, git, env, inputs, folder, workspace, resultDir, workResult, log }) {
+  if (!await implementationRunCurrent(client, inputs.pull, env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const pendingSync = syncBarrier(await client.listIssueComments(inputs.pull));
   if (pendingSync && inputs.kind !== 'resolve') {
@@ -1189,7 +1192,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   }
 
   pull ??= await client.getPullRequest(inputs.pull);
-  if (await publicationBlocked(client, inputs, barrier?.request)) {
+  if (await publicationBlocked(client, inputs, env, barrier?.request)) {
     const requeue = ['required synchronization was requested or replaced while the landing was prepared'];
     await reportRequeue({ client, inputs, reasons: requeue });
     report.flush();
@@ -1498,6 +1501,7 @@ export async function runLandTasks({ client, git, env, folder, workspace, result
 // head. Otherwise the implementation stops for a person, like a failed phase verification (the next run diagnoses
 // it), and the job fails, so the matrix cancels the tasks after these.
 export async function runCombinedVerified({ client, env, log }) {
+  if (!await implementationRunCurrent(client, Number(env.SPECKIT_PULL), env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const twin = Number(env.SPECKIT_TWIN);
   const pull = Number(env.SPECKIT_PULL);
@@ -1564,6 +1568,7 @@ export async function runCombinedVerified({ client, env, log }) {
 }
 
 export async function runRepairReport({ client, env, log }) {
+  if (!await implementationRunCurrent(client, Number(env.SPECKIT_PULL), env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const twin = Number(env.SPECKIT_TWIN);
   const pull = Number(env.SPECKIT_PULL);
@@ -1817,6 +1822,7 @@ function baseOwnedDiff(git, baseSha, files, baseBranch) {
 // and squash-merges the implementation into its base branch (the pull request's base), or asks for review when
 // automatic merging is off.
 export async function runMergeLand({ client, env, inputs, resultDir, workResult, log }) {
+  if (!await implementationRunCurrent(client, inputs.pull, env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   if (syncBarrier(await client.listIssueComments(inputs.pull))) {
     const reasons = ['required synchronization must merge and pass verification before the implementation can merge'];
@@ -1910,7 +1916,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     ...(pullFiles.length >= MAX_PULL_FILES ? [`it changes ${MAX_PULL_FILES} or more files, more than GitHub lists for a pull request`] : []),
     ...((result.uncovered ?? []).length > 0 ? [`no check covers ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}; extend the environment actions with a standalone environment spec`] : []),
   ];
-  if (await publicationBlocked(client, inputs)) {
+  if (await publicationBlocked(client, inputs, env)) {
     const requeue = ['required synchronization was requested while the merge was prepared'];
     await reportRequeue({ client, inputs, reasons: requeue });
     report.flush();
@@ -1973,7 +1979,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     }
   }
   if (pull.draft) await client.markReadyForReview(pull.node_id);
-  if (await publicationBlocked(client, inputs)) {
+  if (await publicationBlocked(client, inputs, env)) {
     const requeue = ['required synchronization was requested before the pull request merge'];
     await reportRequeue({ client, inputs, reasons: requeue });
     report.flush();
@@ -2064,6 +2070,7 @@ export async function pointPullRequestLinks(client, pull, folder, { baseBranch, 
 // does not create new heads (each would restart the count of merge attempts); after a push the merge check run moves
 // to the new head, which the verification and the merge then use.
 export async function runArchive({ client, git, env, folder, log }) {
+  if (!await implementationRunCurrent(client, Number(env.SPECKIT_PULL), env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const baseBranch = baseBranchFromEnv(env);
   const pullNumber = Number(env.SPECKIT_PULL);
