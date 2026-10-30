@@ -1,7 +1,7 @@
 namespace SocAlytics.Platform.EndToEnd.Tests.Support;
 
 /// <summary>Bounds the builds and pushes that run at the same time and records the highest concurrency it observed.</summary>
-internal sealed class ImageBuildGate
+public sealed class ImageBuildGate
 {
     /// <summary>
     /// Builds and pushes of the whole test assembly run one at a time so the single container engine and registry stay unloaded.
