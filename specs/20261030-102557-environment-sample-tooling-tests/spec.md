@@ -69,7 +69,7 @@ The action's own tests fail when the check, its triggers, its coverage, or its s
 
 **Why this priority**: The coverage rules decide what merges without review, so they must not drift silently.
 
-**Independent Test**: Run the Node tests of the environment actions; the new cases exist and fail when the corresponding rule is removed.
+**Independent Test**: Run the Node tests of the environment actions; the new cases exist and assert each rule (check, triggers, coverage, sharding). That they fail when a rule is removed is manual evidence (quickstart section 5), not a verified outcome.
 
 **Acceptance Scenarios**:
 
@@ -119,7 +119,7 @@ The action's own tests fail when the check, its triggers, its coverage, or its s
 - **SC-002**: 0 other `tools/` paths become covered, and every previously uncovered or protected path keeps its status.
 - **SC-003**: A change of only `tools/samples.test.mjs` and its own spec folder reports no file as not covered by verification, so the required sync of twin #401 is no longer stopped for that reason.
 - **SC-004**: A failing or missing sample tooling test is reported with the check name, reproduce command, and one recommended action in 100% of failures.
-- **SC-005**: All existing environment-action tests pass, apart from the two assertions that name the check order and the shard log text, which are updated to include the Sample tooling tests, and the new tests fail when the check, its triggers, its scope, or its sharding are removed.
+- **SC-005**: All existing environment-action tests pass, apart from the two assertions that name the check order and the shard log text, which are updated to include the Sample tooling tests, and the new tests contain assertions for the check, its triggers, its scope, and its sharding (that they detect the removal of each rule is manual evidence, not verified by the implementation).
 
 ## Assumptions
 
