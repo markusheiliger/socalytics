@@ -204,7 +204,9 @@ inferred from the task's wording and the evidence. A separate read-only agent as
 `environment-verify` runner with its scope, filters, and number of consecutive passing runs) and lists anything else
 (probes, load, manual steps) as unsupported, which keeps the task open; for `not-applicable` it names the condition and
 cites repository lines (path, line range, and an excerpt that must appear there) that show it does not hold. The
-workflow fails when the assessment rejects the claim, changes a file, or leaves an obligation unmet; ambiguity fails
+`dotnet-test` filter is optional: omit it for a whole-project test. The validator also canonicalizes `null`, an empty
+string, or whitespace-only strings to no filter; control characters and over-long or non-string filters remain invalid.
+The workflow fails when the assessment rejects the claim, changes a file, or leaves an obligation unmet; ambiguity fails
 closed. In the work job, the trusted runner (`speckit-completion.mjs verify`, step "Run the task's own verification",
 time budget `SPECKIT_COMPLETION_BUDGET_MINUTES`, default 25) executes the assessed requirements on the unchanged
 branch without reruns, and the environment verification runs only for an assessed `environment-verify` requirement,
