@@ -874,6 +874,12 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     stay bare: the writer must type the force flag manually. Neither variant
     runs automatically from a diagnosis recommendation.
 
+    For protected-path or publication failures, diagnosis must assess reset
+    before recommending privileged publication. It distinguishes the immediate
+    blocker reset removes from remaining, separately authorized scope changes.
+    Trusted base/head evidence and report validation enforce the comparison;
+    missing or stale assessments use the existing bounded reassessment.
+
     What restarts is decided from the pull request's state: the stopped task,
     the convergence, the conflict resolution, or the merge. A failed phase
     verification is not repeated by itself; the next verification, at the

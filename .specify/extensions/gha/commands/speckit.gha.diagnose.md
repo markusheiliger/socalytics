@@ -225,13 +225,31 @@ workflow started you): never ask, and turn every open question into a report que
   active ready spec with a nonempty fully unchecked task list. Active or queued work, active handoffs, and open
   related amendment or authored-spec PRs prevent execution. Publication checks eligibility; the writer's command
   checks it again. A recommendation never authorizes or automatically executes reset, regardless of confidence.
-  Never recommend it for unknown causes, as a fallback for repeated failure, to bypass protected paths, or for a
-  defect still present on the base. It discards branch-only amendments rather than preserving their corrections.
+  Never recommend it for unknown causes, as a fallback for repeated failure, to bypass protected paths, or when
+  the same immediate blocker survives on the base. A staged recovery may remove branch contamination while the
+  original base spec still needs a separately writer-authorized scope correction: prominently distinguish what
+  reset removes now from what remains. Do not promise completion or legalize protected-tooling obligations.
+  Completed implementation tasks do not exclude reset; readiness comes from the actual base's task list.
+  It discards branch-only amendments rather than preserving their corrections.
   If owned active work or amendments are the only obstacles, prose may suggest manually typing the `--force` flag,
   warning that it cancels related workflows, closes amendment PRs, and deletes their exact owned branch. Never add
   that flag to a command field, copy block, or prefilled action: the copyable recommendation remains bare reset, so
   the writer must type the flag deliberately. Force cannot remove authored prerequisite PRs or bypass an external
   handoff that cannot be confirmed stopped. Shared workflows, unrelated branches, and recovery refs are preserved.
+- For protected-path/publication failures, the trusted evidence/context contains `resetRecovery`. When
+  `required` is true, the report must include `resetAssessment`, even when reset is not recommended:
+  `{head, baseSha, decision, reason, removes, remaining, alternatives: {retry, sync, amend, repair}}`.
+  Copy the pinned revisions from the evidence; `decision` is `recommend`, `unsuitable`, `blocked`, or `unknown`;
+  `removes` and `remaining` are arrays of concrete statements, and every alternative explains why it does or
+  does not remove this blocker. Retain each protected-tooling task on the base in `remaining`, naming its task
+  ID or target path. Eligibility is not proof of suitability. Before recommending manual privileged publication
+  or extra permissions, explain why a policy-compliant reset is unsuitable; a remote workflows-permission
+  rejection proves one publication failed, not that raising privileges is the only remedy.
+  Missing reads require `unknown` and an action to obtain the missing evidence, not a clean diff or a permission
+  claim. The publisher recomputes these facts and rejects missing, stale, or contradictory assessments through
+  the existing bounded reassessment path. Other diagnosis modes need no reset assessment.
+  Preflight the report with `check-report <file> --context .speckit-diagnosis/context.json` using the trusted
+  tooling script; preflight context does not replace publication-time checks.
 - Never recommend a command that already failed the same way. When the evidence has a section **A command that already
   failed the same way**, the last `/speckit retry` or `/speckit sync` left the branch unchanged and stopped with the same
   reason as before; recommending it again only repeats the stop (a recommendation of it is moved to the other options at

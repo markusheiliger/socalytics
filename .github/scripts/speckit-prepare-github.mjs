@@ -350,10 +350,16 @@ export class GitHubClient {
     return Buffer.from(data.content, 'base64').toString('utf8');
   }
 
-  async listRepositoryFiles(ref) {
+  async listRepositoryEntries(ref) {
     const { data } = await this.request('GET', this.repoPath(`/git/trees/${encodeURIComponent(ref)}?recursive=1`));
     if (data.truncated) throw new Error(`Repository file listing at ${ref} is truncated.`);
-    return data.tree.filter((entry) => entry.type === 'blob' && entry.mode !== '120000').map((entry) => entry.path);
+    if (!Array.isArray(data.tree)) throw new Error(`Repository tree at ${ref} is missing.`);
+    return data.tree.filter((entry) => entry.type !== 'tree');
+  }
+
+  async listRepositoryFiles(ref) {
+    return (await this.listRepositoryEntries(ref))
+      .filter((entry) => entry.type === 'blob' && entry.mode !== '120000').map((entry) => entry.path);
   }
 
   // Lists runs of one workflow file created at or after `since` (ISO time), newest first.

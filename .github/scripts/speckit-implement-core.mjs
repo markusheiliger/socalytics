@@ -444,12 +444,14 @@ export const isProtectedPath = (file) => !isEnvironmentPath(file) && PROTECTED_P
 // always references, and commands a task runs (`node .github/scripts/…`) are left out, because running a script does
 // not change it.
 const COMMAND_SPAN = /`(?:node|npm|npx|dotnet|uv|python3?|git|gh|docker|pwsh|bash|sh|specify)\s[^`\r\n]*`/g;
-export function protectedTaskPaths(tasksMarkdown) {
+export function protectedTaskPaths(tasksMarkdown, { includeSpecify = false } = {}) {
   const concrete = (file) => /\.[A-Za-z0-9]+$/.test(file) && (file.includes('/') || file.includes('\\'));
   return listTasks(tasksMarkdown)
     .filter((task) => !task.done)
     .map((task) => ({ task: task.id, files: taskNamedFiles(String(task.text).replace(COMMAND_SPAN, ' '), { exists: () => true, isSafe: concrete, max: 1 }) }))
-    .filter((entry) => entry.files.length > 0 && entry.files[0].startsWith('.github/') && isProtectedPath(entry.files[0]));
+    .filter((entry) => entry.files.length > 0 &&
+      (entry.files[0].startsWith('.github/') || (includeSpecify && entry.files[0].startsWith('.specify/'))) &&
+      isProtectedPath(entry.files[0]));
 }
 
 // Reasons why a branch mixes changes to the environment actions with other changes. `branchPaths` are all paths
@@ -1939,7 +1941,7 @@ export const PR_COMMANDS = [
     help: 'discard all branch-only changes and progress, keep a recovery reference, and automatically restart from the current PR base; without force, active work or open child PRs prevent reset',
     recommend: true,
     categories: ['retry', 'outside', 'decision'],
-    whenToRecommend: 'Evidence establishes that discarding branch-only implementation or execution state and starting from the current PR base is preferable to a narrower retry, sync, amendment, or repair. Explain the lost implementation and amendments, retained recovery reference, and eligibility. Recommend only the bare reset command in copyable actions: prose may suggest manually typing the force flag with cleanup warnings, but never prefill it. Never use reset as a fallback for unknown causes or defects it cannot fix. Only a writer may post the command; a recommendation never authorizes or automatically executes it.',
+    whenToRecommend: 'For protected-path/publication failures, explicitly assess reset against retry, sync, amendment, and repair before recommending privileged publication. Completed implementation tasks do not exclude restarting from a ready unchecked base. Evidence must establish which immediate branch-state blocker reset removes; separately name remaining base-spec scope corrections and never claim reset repairs requirements. Explain lost implementation and amendments, the recovery reference, and eligibility. Recommend only bare reset in copyable actions; prose may suggest manually typing the force flag with cleanup warnings, never prefill it. Do not select reset for unknown causes or when the immediate blocker survives it. Only a writer authorizes execution; reset never runs automatically.',
     guidanceScope: 'none; reset accepts only its optional force flag, not guidance, and restarts the normal implementation loop at its first task',
   },
   {

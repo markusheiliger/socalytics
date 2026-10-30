@@ -365,6 +365,19 @@ manually, but it is never prefilled in a recommended command or copy block.
 **Only an explicit writer command executes either variant; diagnosis never auto-continues with reset.** No restore command,
 recovery-ref cleanup, token-permission expansion, or production-readiness claim is provided.
 
+For protected-path or publication failures, diagnosis must explicitly compare reset with retry, sync, amendment,
+and repair before recommending manual privileged publication or additional permissions. Trusted evidence pins the
+actual base and implementation revisions, compares protected paths against that base tip (not just the merge base),
+and records reset blockers and original protected-tooling obligations. The report's `resetAssessment` explains what
+reset removes now and what remains; a staged restart may leave a separately authorized scope correction necessary.
+Completed implementation tasks do not by themselves exclude reset. Missing, stale, or contradictory assessments
+use the existing bounded reassessment, never automatic reset or silent permission advice.
+
+The agent can preflight its report with
+`node .speckit-tooling/.github/scripts/speckit-diagnose.mjs check-report <report.json> --context .speckit-diagnosis/context.json`.
+The publisher recomputes trusted facts rather than trusting this editable context. Unrelated diagnoses and
+amendment/rework reports retain their existing contract.
+
 ### Guidance
 
 `/speckit amend <guidance>` is a writer authorization for the stated change to this feature's artifacts, not
