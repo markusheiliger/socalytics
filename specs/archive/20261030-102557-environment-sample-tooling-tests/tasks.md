@@ -1,6 +1,6 @@
 # Tasks: Sample Tooling Tests in Environment Verification
 
-**Input**: Design documents from `specs/20261030-102557-environment-sample-tooling-tests/`
+**Input**: Design documents from `specs/archive/20261030-102557-environment-sample-tooling-tests/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/sample-tooling-check.md](contracts/sample-tooling-check.md), [quickstart.md](quickstart.md)
 
