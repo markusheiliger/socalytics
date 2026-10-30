@@ -165,3 +165,21 @@ After the probes `git checkout` restored `PayloadConformanceTests.cs`; `git stat
 ### T014 Shared helpers (FR-005)
 
 No shared helper changed. `git diff --stat 9bd4d0fe HEAD -- Analysis/Support Recordings/Support` (`9bd4d0fe` is the merge base with the default branch) prints nothing, and `git status --short` shows no uncommitted change under either folder. The only test-project files this implementation changed are `Analysis/PayloadConformanceTests.cs` and this file, and T005 changed no file. Therefore no other integration test uses a changed helper, and no further test run is needed for this task.
+
+## Scope check (T016)
+
+Inspected with `git diff --stat 9bd4d0fe` and `git diff 9bd4d0fe` (`9bd4d0fe` is the merge base with the default branch `main`, equal to `origin/main`). The diff inspection is recorded here because the trusted runner cannot verify it. Passing results are development evidence only.
+
+`git diff --stat 9bd4d0fe` (before this section was added): 9 files changed, 387 insertions(+), 52 deletions(-):
+
+- `specs/20261025-233727-deterministic-payload-conformance-test/`: `checklists/requirements.md`, `data-model.md`, `plan.md`, `quickstart.md`, `research.md`, `spec.md`, and `tasks.md` (7 files).
+- `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/PayloadConformanceEvidence.md` (167 insertions).
+- `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/PayloadConformanceTests.cs` (202 lines changed).
+
+Scope: every changed file is `PayloadConformanceTests.cs`, `PayloadConformanceEvidence.md`, or a file in the spec folder. No production code and no other file changed, because the evidence (T003 to T005) put the cause in the test's wait and read, so no file besides those was added to the scope and the plan's `## Architecture Updates` (`None`) needs no re-check against `docs/architecture/`.
+
+The three conditions:
+
+- No assertion textually removed or loosened (SC-004, FR-002): the removed lines of `PayloadConformanceTests.cs` (`git diff 9bd4d0fe | grep '^-[^-]'`) are only the old `ReadMessagesAsync` outbox-id read, the `ReadStreamAsync` signature and its own-id filter line, the old `WaitForReadyWorkAsync` loop and its `TimeoutException`, and the two `[Fact]` attribute lines. None of them is an `Assert` call, and no `Assert` line was changed or removed. The own-id filter is not loosened: it is now the run's outbox id set, matched by `OwnOutboxId`, and the test fails when an id of the set is found in neither stream.
+- No fixed `Task.Delay` wait as a success condition, retry, or skip (FR-003): the old `Task.Delay(500, ct)` between reads was removed. The only `Task.Delay` added, `Task.Delay(250, linked.Token)`, only paces the check of the run's database publication state; the loop leaves only when `PublicationCompleteAsync` is true, never on elapsed time. No `Skip`, retry loop, or retry attribute was added.
+- No longer timeout (FR-006): the old wait ran up to 360 iterations of at least 500 ms (at least 180 s). The new wait limit is 150 s (`WaitLimit`) inside a 180 s hang guard (`[Fact(Timeout = HangGuardMilliseconds)]`) that only bounds a stuck run, so neither exceeds the old bound.
