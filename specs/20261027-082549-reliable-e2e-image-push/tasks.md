@@ -96,7 +96,7 @@
 ### Helpers use the gate and the cache
 
 - [x] T018 [P] [US3] Edit `Support/TestAnalystImage.cs`: acquire `ImageBuildGate` in exactly one place, inside the uncached `BuildAndPushAsync`, around the build and the push of one image together (released in `finally`), and expose a cached entry point through `AnalystImageCache`
-- [ ] T019 [P] [US3] Edit `Support/ReferenceAnalystImage.cs`: acquire `ImageBuildGate` in exactly one place, inside the uncached `BuildAndPushAsync`, around the build and the push (released in `finally`), and expose a cached entry point through `AnalystImageCache`
+- [x] T019 [P] [US3] Edit `Support/ReferenceAnalystImage.cs`: acquire `ImageBuildGate` in exactly one place, inside the uncached `BuildAndPushAsync`, around the build and the push (released in `finally`), and expose a cached entry point through `AnalystImageCache`
 - [x] T020 [P] [US3] Edit `Support/ShotBoundaryAnalystImage.cs`: acquire `ImageBuildGate` in exactly one place, inside the uncached `BuildAndPushAsync`, around the build and the push (released in `finally`), and expose a cached entry point through `AnalystImageCache`
 
 ### Call sites of the six classes that build and push

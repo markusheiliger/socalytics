@@ -37,6 +37,8 @@ internal static class ReferenceAnalystImage
     public static async Task<PushedAnalystImage> BuildAndPushAsync(string registryHost, string repositoryPrefix, CancellationToken ct, ReferenceAnalystVariant? variant = null)
     {
         variant ??= Baseline;
+        // The one acquisition of the gate for this helper: the lease covers the build and the push and is released when the method ends.
+        using var gateLease = await ImageBuildGate.Shared.AcquireAsync(ct);
         var repositoryRoot = FindRepositoryRoot();
         var contextDirectory = Path.Combine(Path.GetTempPath(), $"socalytics-e2e-reference-analyst-{Guid.NewGuid():N}");
         Directory.CreateDirectory(contextDirectory);
@@ -77,6 +79,14 @@ internal static class ReferenceAnalystImage
         using var docker = new DockerEngine();
         var digest = await docker.PushAsync(name, tag, ct);
         return new PushedAnalystImage(repository, digest, localName);
+    }
+
+    /// <summary>Returns the image of <paramref name="variant"/> from the class's cache, which builds and pushes it once (under the gate).</summary>
+    public static Task<PushedAnalystImage> GetOrBuildAsync(AnalystImageCache cache, string repositoryPrefix, CancellationToken ct, ReferenceAnalystVariant? variant = null)
+    {
+        variant ??= Baseline;
+        var key = new AnalystImageKey(nameof(ReferenceAnalystImage), variant.CapabilityVersion, variant.DockerfilePath + "|" + variant.ManifestPath);
+        return cache.GetOrBuildAsync(key, (registryHost, buildCt) => BuildAndPushAsync(registryHost, repositoryPrefix, buildCt, variant), ct);
     }
 
     public static Task RemoveAsync(PushedAnalystImage image) => TestAnalystImage.RemoveAsync(image);
