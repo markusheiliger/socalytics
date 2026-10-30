@@ -132,6 +132,8 @@ silently pass.
 - A project locks the non-headless OpenCV package, a GPU ONNX Runtime package, or a package that pulls TensorRT or CUDA
   runtimes: the check fails and names the disallowed package.
 - A wheel is published only as a source distribution for the supported platform: the check fails instead of building it.
+- The smoke check succeeds but ONNX Runtime writes a device-discovery warning to standard error before the evidence
+  line: the check passes; the same warning with a nonzero exit, a timeout, or no complete evidence line still fails.
 - A wheel index is unavailable or a pinned release was withdrawn: the stage fails explicitly; no mutable fallback is used.
 - A transitive dependency of a pinned wheel has no recorded licence: the licence check fails.
 - A licence is not on the allow-list, or the wheel's shipped licence evidence disagrees with the committed licence
@@ -171,7 +173,11 @@ silently pass.
 - **FR-006**: Setup MUST run a synthetic smoke check with only the provisioned tools and libraries that decodes a short
   synthetic clip with the headless OpenCV library, processes its frames with NumPy, and executes a tiny synthetic graph
   with ONNX Runtime CPU. It MUST need no recording, model weights, dataset, credential, service, or further download,
-  MUST bound each command's time and reported output, and MUST delete only its own fixtures.
+  MUST bound each command's time and reported output, and MUST delete only its own fixtures. The check passes only on
+  a zero exit status that printed a complete evidence line (the contract's `Verified synthetic CV smoke check: ...`
+  form) on its own line of standard output; diagnostics before or after that line, on either stream (for example an
+  ONNX Runtime device-discovery warning), MUST NOT fail a successful run, while a nonzero exit, a timeout, missing
+  evidence, and malformed or partial evidence MUST still fail.
 - **FR-007**: A locked verification of a capability project that depends on these libraries MUST resolve them from the
   pinned declaration (the same pinned digests) and MUST fail in the library pin stage that runs before the locked sync,
   naming the library, the locked value, and the pinned value, when the project's lock differs from the pin. The pin
@@ -212,7 +218,8 @@ silently pass.
   assertions that this change explicitly extends.
 - **FR-013**: Automated environment-local evidence MUST exercise: absent, present, deleted, and multiple capability
   projects; all three modes; wheel download, digest, compatibility, and version failures; disallowed-variant and
-  source-distribution rejection; the smoke check passing and failing; licence and bill-of-materials pass and each
+  source-distribution rejection; the smoke check passing (also with diagnostics on either stream around the evidence line) and failing (nonzero
+  exit, timeout, missing, and malformed evidence); licence and bill-of-materials pass and each
   failure kind; the tools-disabled mode; and preservation of the action interface. Evidence MUST use fixtures and
   stubbed external commands and MUST NOT depend on a product project.
 - **FR-014**: The two action folders' environment-local documentation MUST state the pinned libraries, the integrity and
