@@ -736,7 +736,11 @@ export async function runRecord({ client, env, log }) {
   const reset = report?.options.find((option) => option.recommended && parseNextCommand(option.command)?.verb === 'reset');
   if (reset) {
     const eligibility = await resetEligibility(client, { implementation, twin, folder, ignoreRun: env.GITHUB_RUN_ID });
-    if (eligibility.reasons.length) reasons.push(`reset is not eligible: ${eligibility.reasons.join('; ')}`);
+    if (eligibility.reasons.length) {
+      const cleanup = await resetEligibility(client, { implementation, twin, folder, ignoreRun: env.GITHUB_RUN_ID, force: true });
+      if (cleanup.reasons.length) reasons.push(`reset is not eligible: ${cleanup.reasons.join('; ')}`);
+      else reset.why += ` Bare reset currently refuses: ${eligibility.reasons.join('; ')}. If you accept cancelling related work, closing owned amendment PRs, and deleting their branch, manually type the --force flag after the copied command. It is intentionally not prefilled; cleanup failures stop the reset and may leave partial cleanup.`;
+    }
   }
   const failedRecoveries = failedCopilotRecoveries(comments, implementation.head.sha);
   for (const option of report?.options ?? []) {

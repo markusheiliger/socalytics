@@ -867,7 +867,11 @@ every stop is a spec problem, so the next step starts with a diagnosis:
 
     `/speckit reset` is a destructive, writer-authorized restart from the current
     PR base with a retained recovery reference. It discards branch-only amendments
-    and implementation progress, refuses active work or open child PRs, and never
+    and implementation progress. Bare reset refuses active work or open child PRs.
+    The optional `--force` flag cancels confirmed related work and closes/deletes
+    owned amendments before the locked reset; authored prerequisites and
+    unconfirmed external handoffs still block it. Diagnosis copyable commands
+    stay bare: the writer must type the force flag manually. Neither variant
     runs automatically from a diagnosis recommendation.
 
     What restarts is decided from the pull request's state: the stopped task,

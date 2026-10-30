@@ -303,7 +303,7 @@ diagnosis evidence file are generated from it, and a test fails when this table 
 
 | Command | Where | What it does | Flags |
 | --- | --- | --- | --- |
-| `/speckit reset` | implementation pull request | discard all branch-only changes and progress, keep a recovery reference, and restart from the current PR base; writer authorization is required and active work or open child PRs prevent reset | none |
+| `/speckit reset [--force]` | implementation pull request | discard all branch-only changes and progress, keep a recovery reference, and automatically restart from the current PR base; without force, active work or open child PRs prevent reset | `--force`: cancel and confirm related work stopped, close owned amendment PRs, and delete their exact amendment branch before resetting; authored prerequisite PRs and unconfirmed external handoffs still prevent reset |
 | `/speckit retry [--force] [guidance]` | implementation pull request | restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt's prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given | `--force`: restart even after 2 restarts in a row that left the branch unchanged |
 | `/speckit sync [guidance]` | implementation pull request | require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved | none |
 | `/speckit amend <guidance>` | implementation pull request | authorize the stated spec-only change and prepare an amendment for independent analysis and human review; implementation resumes only after the amendment is merged; completed tasks are preserved and no task is ticked | none |
@@ -325,10 +325,23 @@ guidance (`RENAMED_COMMANDS` in `speckit-commands.mjs`).
 ### Destructive restart
 
 `/speckit reset` starts the same implementation pull request over from its **current PR base**. The writer's bare
-command is authorization: there are no flags, guidance, or extra confirmation. It discards every branch-only change,
+command is authorization: guidance and extra confirmation are not supported. It discards every branch-only change,
 including amendments, checked tasks, and convergence additions. The base must already contain the active spec,
 plan, a nonempty fully unchecked task list, and checked checklists. Related open amendment or authored-spec pull
 requests, active handoffs, and queued or active work prevent reset; nothing is cancelled automatically.
+
+The optional `--force` flag authorizes trusted cleanup **before** the publication lock: cancel queued/running
+work attributable specifically to the implementation and its amendments, confirm it stopped, close owned open
+amendment PRs without merging, and delete the exact owned amendment branch under an expected-head lease. This also
+removes that branch when left behind by a closed PR or without an open PR. The force workflow excludes itself and
+never cancels shared/global schedulers or unrelated work. It never deletes the implementation, base, authored-spec
+branches, or recovery refs. Open authored prerequisite-spec PRs and external handoffs that cannot be confirmed stopped
+remain hard refusals. An incomplete listing, timeout, permission refusal, changed branch head, or failed cleanup
+stops the reset and reports partial cleanup; completed cancellations and closures are not rolled back.
+
+Preparation records a durable fence so old work cannot publish and amendment callbacks cannot reopen or resume it.
+The branch replacement still takes the existing publication lock. A trusted completion boundary excludes late
+cancellation reports from the new generation, and interrupted preparation is reconciled from its recorded steps.
 
 The trusted command job retains the old head indefinitely at `refs/tags/speckit-reset/pr-<pull>/<comment-id>` and
 atomically replaces the implementation ref under an exact-head lease. The new head is a unique empty start commit
@@ -347,7 +360,9 @@ remains preferable when it solves the cause without discarding implementation.
 
 Diagnoses may recommend `/speckit reset` for evidence-backed `retry`, `outside`, or `decision` findings, identifying
 what it discards and why that is appropriate. They recheck eligibility and warn about recovery and the actual base.
-**Only an explicit writer command executes it; diagnosis never auto-continues with reset.** No restore command,
+Copyable diagnosis actions remain **only the bare reset command**. Prose may suggest typing the `--force` flag
+manually, but it is never prefilled in a recommended command or copy block.
+**Only an explicit writer command executes either variant; diagnosis never auto-continues with reset.** No restore command,
 recovery-ref cleanup, token-permission expansion, or production-readiness claim is provided.
 
 ### Guidance

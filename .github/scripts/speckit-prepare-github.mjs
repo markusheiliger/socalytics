@@ -204,6 +204,18 @@ export class GitHubClient {
     await this.request('DELETE', this.repoPath(`/git/refs/heads/${branch}`), undefined, { allow: [404, 422] });
   }
 
+  async deleteAmendmentBranch(branch, head) {
+    if (!/^speckit-amend\/[^/]+$/.test(branch) || !/^[0-9a-f]{40}$/.test(head)) {
+      throw new Error('Invalid leased amendment branch deletion.');
+    }
+    const repository = (await this.request('GET', this.repoPath(''))).data;
+    await this.graphql('mutation($input: UpdateRefsInput!) { updateRefs(input: $input) { clientMutationId } }',
+      { input: { repositoryId: repository.node_id, refUpdates: [
+        { name: `refs/heads/${branch}`, beforeOid: head, afterOid: '0'.repeat(40) },
+      ] } });
+    if (await this.getBranchSha(branch) !== null) throw new Error(`Amendment branch ${branch} still exists after deletion.`);
+  }
+
   async aheadBy(base, head) {
     return (await this.request('GET', this.repoPath(`/compare/${base}...${head}`))).data.ahead_by;
   }
@@ -369,6 +381,11 @@ export class GitHubClient {
       allow: [404],
     });
     return status === 404 ? null : data;
+  }
+
+  async cancelWorkflowRun(runId) {
+    if (!Number.isSafeInteger(Number(runId)) || Number(runId) <= 0) throw new Error('Invalid workflow run ID.');
+    await this.request('POST', this.repoPath(`/actions/runs/${runId}/cancel`), undefined, { allow: [409] });
   }
 
   async listRunJobs(runId) {
