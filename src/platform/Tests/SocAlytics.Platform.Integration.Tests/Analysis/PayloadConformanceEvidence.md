@@ -65,3 +65,22 @@ Read-only inspection; no test or production file changed by this task.
 #### T005 result
 
 Shared state is ruled out as a cause of wrong assertions and not evidenced as a failure cause (no isolation added); the publisher and readiness publishing are ruled out as causes (no production change); no ready-work or run-state row of a run has a null `run_id`.
+
+### T010 Repeated runs of the fixed class
+
+Fixed class, `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~PayloadConformanceTests"`, Docker available, 4 cores. Passing results are development evidence only.
+
+- Alone: 30 consecutive runs, 30 passed (2 of 2 tests each), 0 failed, 0 skipped; test duration 7 s (8 runs) or 8 s (22 runs).
+- Under CPU load (one busy-loop process per core, 4 processes): 10 consecutive runs, 10 passed, 0 failed, 0 skipped; test duration 12-17 s; wall clock 26-32 s per run. The load processes were stopped afterward.
+- Hang guard: `HangGuardMilliseconds` stays 180 000 ms (180 s). The maximum duration observed on the fixed class is 17 s (loaded), so ten times is 170 s and the value is still at least ten times the maximum; no adjustment. It is a hang guard only.
+
+#### Test order
+
+Separate invocations with `--filter "FullyQualifiedName~PayloadConformanceTests.<test>"`, each run in a new process after the other:
+
+- `CompletionBodiesAreValidatedAndStaleOnesAreRejectedByAcceptance` alone, then `PublishedMessagesConformToTheirSchemasAndCarryScopeIdentity` alone: Passed 1 of 1 and Passed 1 of 1 (8 s each).
+- `PublishedMessagesConformToTheirSchemasAndCarryScopeIdentity` alone, then `CompletionBodiesAreValidatedAndStaleOnesAreRejectedByAcceptance` alone: Passed 1 of 1 and Passed 1 of 1 (8 s each).
+
+#### Failure mid-test followed by the other test
+
+A temporary edit made `PublishedMessagesConformToTheirSchemasAndCarryScopeIdentity` throw `InvalidOperationException` right after the wait (an unconditional `throw` is a compile error in this project, so it was guarded by `messages.Count > 0`). The class run reported Failed 1, Passed 1 of 2: the edited test failed with `temporary mid-test failure` and `CompletionBodiesAreValidatedAndStaleOnesAreRejectedByAcceptance` still passed. The edit was reverted and `git status` / `git diff` show no change to `PayloadConformanceTests.cs`.
