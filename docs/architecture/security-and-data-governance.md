@@ -268,7 +268,7 @@ agent catalog registration, approval, retirement, and enablement changes
 development evidence),
 agent evidence tool refusals, scope-loss denials, and evidence-media grants to
 the agent workload (identifiers and digests only, never links or fact payloads;
-decided, not yet implemented),
+development evidence),
 agent consultation requests (created, replayed, and refused) and their
 resolutions (identifiers and reason codes only, never questions, decision
 support, responses, or notes; decided, not yet implemented),

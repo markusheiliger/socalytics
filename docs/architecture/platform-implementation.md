@@ -20,6 +20,66 @@ External OpenID Connect sign-in with Club Admin linking exists as development
 evidence against a test provider. The
 Web UI's installable PWA shell and service worker exist as development evidence.
 
+## Local Development And Debugging
+
+Visual Studio Code is the primary development IDE. The adopted development
+contract is that, on a prepared Windows development machine, opening the
+repository root with the default branch selected and pressing F5 starts the
+full currently executable application in debug mode. This must not depend on
+the active editor file, selecting individual projects, starting components
+manually, or manually attaching debuggers.
+
+**Implementation status:** the complete F5 experience is not yet implemented
+or verified. The existing Aspire AppHost composes the platform dependencies,
+API, Web UI, and simulated agent workload; the Analyst Manager currently runs
+separately. The requirements below guide a later Spec Kit implementation and
+must not be read as existing launch instructions.
+
+### Full-Stack Debug Contract
+
+- Aspire remains the single local composition entry point. F5 must start the
+  Web UI, API and its workers, one-off Migrator, PostgreSQL, S3-compatible
+  object storage, NATS, mail catcher, simulated agent workload, and an isolated
+  development Analyst Manager, respecting readiness and migration ordering.
+- Debuggers must cover the backend services, including the simulated agent
+  workload, the Manager, and the Web UI browser. The Migrator must also support
+  debugging. Starting processes or opening only the Aspire dashboard does not
+  satisfy the contract.
+- Documented prerequisites include the pinned SDKs and tools, required VS Code
+  extensions, running Docker Desktop with Linux containers, and development
+  HTTPS trust. F5 must not silently install system software or alter certificate
+  trust.
+- F5 must prepare locked project dependencies when missing or changed and build
+  in Debug, reusing unchanged dependencies and incremental build outputs on
+  subsequent launches. Missing prerequisites, failed preparation, occupied
+  ports, and failed required resources must produce actionable diagnostics,
+  not a success-shaped partial startup.
+- The default development profile uses simulated agents and the simulated
+  Analyst runtime. It must not require production credentials, real Analyst
+  images or model downloads, or services that are not yet implemented.
+- The development Manager must be isolated from an installed Manager, retain
+  normal one-time pairing and approval, and reuse its registration on later
+  launches. See the [development Manager requirements](analyst-manager.md#local-development-instance).
+- Ordinary stop/restart must preserve development data and registration and
+  clean up session-owned processes without disturbing unrelated applications,
+  deleting volumes, or clearing credentials.
+
+### Continuing Default-Branch Requirement
+
+Once implemented, full-stack F5 debugging must remain working on the default
+branch as the application evolves. Each new executable component must join
+the local debug composition or have an explicit architectural exclusion;
+unimplemented planned components are not part of the current executable stack.
+Windows is the initial acceptance platform, not evidence of equivalent
+macOS or Linux support.
+
+Acceptance requires automated startup regression evidence and manual Windows
+evidence that backend, Manager, and browser breakpoints work, normal Manager
+pairing enables simulated work, and repeated stop/F5 launches preserve
+registration. Startup checks alone do not prove debugger attachment. Neither
+this adopted contract nor later local debug evidence establishes production
+readiness.
+
 ## Source And Runtime Baseline
 
 SocAlytics uses one `src` root with these first-level ownership areas:
@@ -586,8 +646,9 @@ The Web UI's direct Specialist Agent triage conversations exist as development
 evidence. The agent catalog registry, pinning at submission, and the
 attempt-scoped artifact read exist as development evidence (see below), as does
 the Web UI's catalog administration for Club Admins; prompt and profile
-rendering, MCP tools, model execution, and the Web UI's Coach Agent and
-consultation workflows remain future implementation work.
+rendering, the MCP server, model execution, and the Web UI's Coach Agent and
+consultation workflows remain future implementation work. The platform's
+agent evidence tool operations exist as development evidence (see below).
 
 The first slice is implemented as development evidence: an `AgentOrchestration`
 folder in each platform layer stores conversations, participants, invocations,
@@ -619,7 +680,7 @@ area (implemented as development evidence; see
 [Client Applications → Web UI](client-applications.md#web-ui)). See
 [Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance).
 
-The MCP-facing application tools are decided and not yet implemented: a `Tools`
+The MCP-facing application tools are implemented as development evidence: a `Tools`
 folder inside the Agent Orchestration functional area of each layer maps the
 `/api/v1/agent-tools` route group, binds each call to the workload's current
 attempt and the invocation's pinned tool policy, re-evaluates the initiating

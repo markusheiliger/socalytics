@@ -149,6 +149,8 @@ public sealed class StampDependenciesFixture(ImageBuildFixture images) : IAsyncL
             ["Analysis__Evidence__ResolutionsPerMinute"] = "60",
             ["Analysis__Evidence__MaxDuration"] = "00:10:00",
             ["Analysis__Evidence__MaxContext"] = "00:00:10",
+            ["AgentOrchestration__Tools__MaxCallsPerAttempt"] = "50",
+            ["AgentOrchestration__Tools__MaxClipResolutionsPerAttempt"] = "10",
             ["Stamp__Id"] = "image-evidence-stamp",
             ["Stamp__PublicBaseUri"] = "https://socalytics.example.org",
             ["Registry__Pairing__VerificationBaseUri"] = "https://socalytics.example.org",

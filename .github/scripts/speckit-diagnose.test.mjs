@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { pendingFeedback, renderFeedback } from './speckit-amend.mjs';
+import { checkAmendment, pendingFeedback, renderFeedback, requestAmendment, settleClosedAmendment } from './speckit-amend.mjs';
 import { ATTENTION_LABEL, AUTO_CONTINUE_MARKER, IMPLEMENT_WORKFLOW_FILE, RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER, parseGuidance, renderRetryComment, syncBarrier, unchangedRestarts, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker, renderSyncComment, repeatedFailure, isTwinRunOf } from './speckit-implement-core.mjs';
-import { copilotRequestOf } from './speckit-implement-core.mjs';
+import { copilotRequestOf, COPILOT_HANDOFF_MARKER, maintainCopilotHandoff, renderCopilotRequest, RECOVERY_FAILURE_MARKER, failedRecoveryRoutes, reassessRecovery, recoveryReassessment } from './speckit-implement-core.mjs';
 import { implementsTasks } from './speckit-diagnose.mjs';
 import { CATEGORIES, CATEGORY_COMMANDS, MAX_RECOMMENDED_COMMAND, MAX_STOP_SUBJECT, categoryCommands, checkReportFile, commandPatterns, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
@@ -27,6 +27,102 @@ const REPORT = {
   ],
   questions: [{ question: 'Keep the counter write?', choices: ['Yes', 'No'] }],
 };
+
+test('a #377-style decision prominently recommends a concrete reviewed amend command, never auto-continues it', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-amend-decision-'));
+  try {
+    const github = diagnosisRepo({ amendment: false });
+    const report = { ...REPORT, category: 'decision', artifacts: [], summary: 'SC-002 requires unsupported temporary mutation evidence; the writer must authorize manual evidence.',
+      options: [{ title: 'Authorize a reviewed artifact amendment for #9', why: 'The trusted runner cannot replay mutation probes. A retry or a Copilot task-list prohibition cannot change the artifacts.', command: '/speckit amend Make SC-002 manual local evidence outside automated completion; preserve its expected behavior and all completed tasks, remove the unchecked probe obligation, and update dependencies consistently. Do not claim manual probes passed.', recommended: true }] };
+    const output = path.join(dir, 'agent_output.json');
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report: JSON.stringify(report) }] }));
+    const result = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success' }), log: silent });
+    assert.equal(result.report.category, 'decision');
+    assert.equal(result.continued, null);
+    assert.equal(github.repo.runs.length, 0);
+    const comment = github.comments.find((item) => item.number === 9).body;
+    assert.match(comment, /\*\*Recommended next step\*\*: Authorize a reviewed artifact amendment for #9/);
+    assert.match(comment, /\/speckit amend Make SC-002 manual local evidence/);
+    assert.match(comment, /human review and merge/);
+    assert.doesNotMatch(comment, /@copilot|Do not edit or tick tasks/);
+    assert.match(validateReport({ ...report, options: [{ ...report.options[0], command: '/speckit amend' }] }).reasons.join(), /concrete amendment guidance/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('authorized preparation creates a reviewed amendment and preserves completed tasks through revisions', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-authorized-amend-'));
+  try {
+    const github = diagnosisRepo({ amendment: false });
+    await github.addLabels(9, ['help wanted']);
+    github.commentAuthor = 'dev';
+    const source = await github.createComment(9, '/speckit amend Make SC-002 manual and remove its unchecked obligation.');
+    github.commentAuthor = undefined;
+    await requestAmendment(github, env(), { implementation: await github.getPullRequest(9), twin: 5, folder: 'f', actor: 'dev', number: 9, commentId: source.id, guidance: 'Make SC-002 manual and remove its unchecked obligation.' });
+    const modeEnv = env({ SPECKIT_MODE: 'amend', SPECKIT_AUTHORIZATION: String(source.id), SPECKIT_EVIDENCE_DIR: dir });
+    await runEvidence({ client: github, env: modeEnv, log: silent });
+    assert.match(readFileSync(path.join(dir, 'evidence.md'), 'utf8'), /Writer-authorized artifact amendment[\s\S]*Preserve completed tasks verbatim/);
+    const template = diagnosisRepo().repo;
+    github.repo.branches['speckit-amend/f'] = 'sha-amend';
+    github.repo.commits['sha-amend'] = template.commits['sha-amend'];
+    github.repo.pulls.push(template.pulls.find((pull) => pull.number === 11));
+    github.repo.pullFiles[11] = ['specs/f/tasks.md', 'specs/f/spec.md'];
+    github.setFile('sha-amend', 'specs/f/tasks.md', '## P\n- [x] T001 Done\n');
+    const output = path.join(dir, 'agent_output.json');
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report: JSON.stringify({ summary: 'Moved SC-002 to manual evidence without claiming it was run.', artifacts: [{ file: 'specs/f/tasks.md', reason: 'Remove unchecked probe obligation.' }], responses: [] }) }] }));
+    const result = await runRecord({ client: github, env: { ...modeEnv, GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success', SPECKIT_CREATED_PULL: '11', SPECKIT_CHECK_RUN: String(github.repo.checkRuns[0].id) }, log: silent });
+    assert.equal(result.outcome, 'amendment');
+    const created = github.comments.find((item) => item.body.startsWith('<!-- speckit-amend:request-state ') && item.body.includes('"state":"created"'));
+    assert.match(created.body, /"amendment":11[\s\S]*\*\*Amendment #11 prepared for #9\*\*/);
+    assert.ok(github.comments.filter((item) => item.body.startsWith('<!-- speckit-amend:request-state ')).every((item) => item.body.replace(/<!--[\s\S]*?-->/g, '').trim()));
+    assert.equal(github.repo.runs.at(-1).workflow, 'speckit-analyze.lock.yml');
+    assert.equal(github.repo.merges.length, 0);
+    assert.equal(github.comments.some((item) => item.body.startsWith('<!-- speckit-implement:retry -->')), false);
+    const context = { folder: 'f', amendment: await github.getPullRequest(11), implementation: await github.getPullRequest(9) };
+    assert.deepEqual((await checkAmendment(github, context)).reasons, []);
+    for (const changed of ['## P\n- [ ] T001 Done\n', '## P\n- [x] T001 Reworded\n', '## P\n', '## P\n- [x] T001 Done\n- [x] T002 Next\n']) {
+      github.setFile('sha-amend', 'specs/f/tasks.md', changed);
+      assert.ok((await checkAmendment(github, context)).reasons.length > 0, changed);
+    }
+    github.setFile('sha-amend', 'specs/f/tasks.md', '## P\n- [x] T001 Done\n');
+    github.closePull(11, { merged: true });
+    assert.equal((await settleClosedAmendment(github, env(), { ...context, amendment: await github.getPullRequest(11) })).outcome, 'merged');
+    assert.ok(github.comments.some((item) => item.body.startsWith('<!-- speckit-implement:retry -->')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a refused Copilot handoff re-diagnoses once with evidence and rejects the same failed recovery', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-handoff-rediagnosis-'));
+  try {
+    const github = diagnosisRepo({ amendment: false });
+    const prompt = 'Change the spec artifacts so SC-002 becomes manual evidence; remove the open probe item and update checkpoint and dependency notes.';
+    github.commentAuthor = 'dev';
+    await github.createComment(9, renderCopilotRequest(prompt));
+    github.commentAuthor = undefined;
+    await github.createComment(9, COPILOT_HANDOFF_MARKER);
+    github.commentAuthor = 'Copilot';
+    await github.createComment(9, 'I cannot remove the obligation while the request forbids editing tasks.md. I made no changes.');
+    github.commentAuthor = undefined;
+    const options = async () => ({ pull: await github.getPullRequest(9), comments: await github.listIssueComments(9), active: false, continues: false, blocked: false,
+      rediagnose: ({ previous, guidance }) => startDiagnosis(github, env(), { twin: 5, pull: 9, folder: 'f', head: 'sha-impl', previous, guidance, auto: true, preserveAmendment: true }) });
+    assert.equal(await maintainCopilotHandoff(github, await options()), 'finished');
+    assert.equal(github.repo.runs.length, 1);
+    assert.equal(await maintainCopilotHandoff(github, await options()), null);
+    assert.equal(github.repo.runs.length, 1);
+    await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir }), log: silent });
+    assert.match(readFileSync(path.join(dir, 'evidence.md'), 'utf8'), /Failed Copilot recoveries on this unchanged revision[\s\S]*remove the open probe item/);
+    const output = path.join(dir, 'agent_output.json');
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report: JSON.stringify({ ...REPORT, category: 'decision', artifacts: [], options: [{ title: 'Repeat', why: 'Try again', copilot: prompt, recommended: true }] }) }] }));
+    const result = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success' }), log: silent });
+    assert.equal(result.report, null);
+    assert.match(result.reasons.join(), /already failed without a push/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('starts a diagnosis with a linked check and dispatch, and leaves a failed dispatch retryable', async () => {
   const github = diagnosisRepo();
@@ -243,7 +339,7 @@ test('withholds a report that failed threat detection, and closes an amendment o
 });
 
 test('records an unusable or missing report', async () => {
-  const github = diagnosisRepo();
+  const github = diagnosisRepo({ amendment: false });
   const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-impl', status: 'in_progress', external_id: CHECK_DIAGNOSING });
   await runRecord({ client: github, env: env({ SPECKIT_CHECK_RUN: String(check.id) }), log: silent });
   assert.match(github.comments.find((comment) => comment.number === 9).body, /did not produce a usable report\*\*: the agent did not report/);
@@ -253,7 +349,7 @@ test('records an unusable or missing report', async () => {
   const comment = renderDiagnosisComment({ report: validateReport(REPORT).report, round: 2 });
   assert.match(comment, /\*\*Diagnosis \(round 2\)\*\*/);
   assert.match(comment, /_No amendment pull request was created\._/);
-  assert.match(comment, /\*\*Recommended next step\*\*: Wait for another diagnosis to create the amendment\./, 'without an amendment pull request, another diagnosis must create it');
+  assert.match(comment, /\*\*Recommended next step\*\*: Review the recovery blocker and provide the missing evidence\./);
   assert.doesNotMatch(comment, /\/speckit diagnose/);
   assert.match(comment, /_Parts of the report were adjusted: the recommended option "Review and merge the amendment" does not fit the category `artifacts`/);
   const outside = renderDiagnosisComment({
@@ -262,7 +358,7 @@ test('records an unusable or missing report', async () => {
       category: 'outside',
       options: [
         { title: 'Retry on a less loaded runner. Unlikely to succeed.', why: 'Timing only.', command: '/speckit retry Keep going', recommended: false },
-        { title: 'Fix the flaky test outside this spec.', why: 'The test belongs to another feature.', command: '/speckit author Make the flaky test robust', recommended: true },
+        { title: 'Fix the flaky test outside this spec.', why: 'The test belongs to another feature.', target: 'feature', command: '/speckit author Make the flaky test robust', recommended: true },
       ],
     }).report,
     baseBranch: 'main',
@@ -307,16 +403,16 @@ test('a retry diagnosis recommends a retry with guidance, also when the agent wr
 test('the recommended command always fits the category', () => {
   const base = { ...REPORT, options: [], questions: [] };
   const recommendation = (report) => recommendNextSteps(validateReport(report).report).options.find((option) => option.recommended);
-  assert.match(recommendation({ ...base, category: 'retry' }).command, /^\/speckit retry The diagnosis found: The design leaves open/);
-  assert.match(recommendation({ ...base, category: 'outside' }).command, /^\/speckit author The design leaves open how the counter write is issued\. UserManager/);
-  assert.equal(recommendation({ ...base, category: 'unknown' }).kind, 'wait');
-  assert.equal(recommendation({ ...base, category: 'decision', questions: [{ question: 'Keep the counter write?', choices: ['Yes, keep it.', 'No'] }, { question: 'Split?', choices: ['No'] }] }).command, '/speckit retry 1. Yes, keep it. 2. No.');
+  for (const category of ['retry', 'outside', 'unknown', 'decision']) {
+    assert.equal(recommendation({ ...base, category }).kind, 'external');
+    assert.equal(recommendation({ ...base, category }).command, undefined, 'no invented command when no supported route was established');
+  }
   const agentRetry = { title: 'Retry and keep the helper', why: 'The agent dropped the helper.', command: '/speckit retry Keep the helper in UserManager', recommended: true };
   assert.equal(recommendation({ ...base, category: 'retry', options: [agentRetry] }).command, '/speckit retry Keep the helper in UserManager', 'a fitting agent recommendation keeps its guidance');
-  const promoted = recommendation({ ...base, category: 'outside', options: [{ ...agentRetry, recommended: true }, { title: 'Fix the test on main', why: 'It is flaky.', command: '/speckit author Use a longer SessionLifetime', recommended: false }] });
+  const promoted = recommendation({ ...base, category: 'outside', options: [{ ...agentRetry, recommended: true }, { title: 'Fix the test on main', why: 'It is flaky.', target: 'feature', command: '/speckit author Use a longer SessionLifetime', recommended: false }] });
   assert.equal(promoted.command, '/speckit author Use a longer SessionLifetime', 'a fitting option of the agent is preferred over the default');
 
-  const decision = renderDiagnosisComment({ report: validateReport({ ...base, category: 'decision', questions: [{ question: 'Keep the counter write?', choices: ['Yes', 'No'] }] }).report });
+  const decision = renderDiagnosisComment({ report: validateReport({ ...base, category: 'decision', options: [{ title: 'Answer the question', why: 'The answer supplies the missing decision without changing artifacts.', command: '/speckit retry 1. Yes.', recommended: true }], questions: [{ question: 'Keep the counter write?', choices: ['Yes', 'No'] }] }).report });
   assert.match(decision, /\*\*Questions\*\* \(the recommended next step answers them with the first, recommended choice of each; change the answers before posting if you decide otherwise\)/);
   assert.match(decision, /```text\n\/speckit retry 1\. Yes\.\n```/);
 });
@@ -368,7 +464,7 @@ test('PR #123: publication rejects retry classification with a sync recommendati
       category: 'retry',
       artifacts: [],
       summary: 'Restore fails with NU1902; the dependency fix is already on the base branch.',
-      options: [{ title: 'Merge the fixed base', why: 'The implementation lacks the dependency pin.', command: '/speckit sync', recommended: true }],
+      options: [{ title: 'Merge the fixed base', why: 'The implementation lacks the dependency pin.', target: 'base', fixedBy: '1111111111111111111111111111111111111111', command: '/speckit sync', recommended: true }],
     };
     const github = diagnosisRepo({ amendment: false });
     const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-impl', status: 'in_progress', external_id: CHECK_DIAGNOSING });
@@ -376,7 +472,7 @@ test('PR #123: publication rejects retry classification with a sync recommendati
     const rejected = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_CHECK_RUN: String(check.id) }), log: silent });
     assert.equal(rejected.report, null);
     assert.match(rejected.reasons.join(), /does not fit the category `retry`/);
-    assert.match(github.comments.at(-1).body, /did not produce a usable report/);
+    assert.match(github.comments.find((item) => item.body.startsWith(DIAGNOSIS_COMMENT_MARKER)).body, /did not produce a usable report/);
     assert.doesNotMatch(github.comments.at(-1).body, /\/speckit retry The diagnosis found/);
     assert.equal(github.repo.checkRuns.find((item) => item.id === check.id).conclusion, 'failure');
 
@@ -387,7 +483,7 @@ test('PR #123: publication rejects retry classification with a sync recommendati
     const diagnosis = github.comments.filter((comment) => comment.body.startsWith(DIAGNOSIS_COMMENT_MARKER)).at(-1);
     assert.match(diagnosis.body, /```text\n\/speckit sync\n```/);
     assert.doesNotMatch(diagnosis.body, /\/speckit retry The diagnosis found/);
-    assert.equal(accepted.continued, 'sync');
+    assert.equal(accepted.continued, 'sync', 'the fix commit was verified on the base');
 
     report.options = [];
     writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report }] }));
@@ -548,14 +644,14 @@ test('a command that already failed the same way on the unchanged branch is not 
   const repeated = repeatedFailure(comments, 'h1');
   const steps = recommendNextSteps(report, { repeated });
   assert.deepEqual(steps.notes, [], 'the report stays usable');
-  assert.match(steps.adjusted[0], /`\/speckit sync` already stopped the same way on the unchanged branch/);
+  assert.match(steps.adjusted[0], /`\/speckit sync` already stopped the same way or was refused on the unchanged branch/);
   const pick = steps.options.find((option) => option.recommended);
-  assert.match(pick.command, /^\/speckit author /);
+  assert.equal(pick.kind, 'external', 'a failed sync does not establish that authoring a spec is supported');
   assert.ok(steps.options.some((option) => option.command === '/speckit sync Verify the merge' && !option.recommended), 'still listed under the other options');
   const retryReport = validateReport({ ...REPORT, category: 'retry', artifacts: [], questions: [], options: [{ title: 'Retry', why: 'x', command: '/speckit retry', recommended: true }] }).report;
-  assert.equal(recommendNextSteps(retryReport, { repeated }).options.find((option) => option.recommended).command, '/speckit retry', 'another command is not affected');
+  assert.equal(recommendNextSteps(retryReport, { repeated }).options.find((option) => option.recommended).kind, 'external', 'switching verbs does not remove the same cause');
   const comment = renderDiagnosisComment({ report, repeated });
-  assert.match(comment, /\*\*Recommended next step\*\*[\s\S]*\/speckit author/);
+  assert.match(comment, /\*\*Recommended next step\*\*: Review the recovery blocker/);
   assert.match(comment, /_Parts of the report were adjusted: the recommended `\/speckit sync` already stopped the same way/);
 });
 const RETRY_REPORT = {
@@ -565,13 +661,13 @@ const RETRY_REPORT = {
   summary: 'The package feed timed out while restoring.',
   artifacts: [],
   questions: [],
-  options: [{ title: 'Retry the task', why: 'The feed outage has ended.', command: '/speckit retry Restore again; the feed timed out', recommended: true }],
+  options: [{ title: 'Retry the task', why: 'The feed outage has ended.', basis: 'transient', command: '/speckit retry Restore again; the feed timed out', recommended: true }],
 };
 const SYNC_REPORT = {
   ...RETRY_REPORT,
   category: 'outside',
   summary: 'The dependency pin is already fixed on main.',
-  options: [{ title: 'Merge the fixed base', why: 'The fix is on main.', command: '/speckit sync', recommended: true }],
+  options: [{ title: 'Merge the fixed base', why: 'The fix is on main.', target: 'base', fixedBy: '1111111111111111111111111111111111111111', command: '/speckit sync', recommended: true }],
 };
 
 // Records one diagnosis report on #9 and returns the result.
@@ -587,6 +683,76 @@ async function recordReport(github, report, extraEnv = {}) {
 }
 const attention = (github) => (github.repo.pulls.find((pull) => pull.number === 9).labels ?? []).some((label) => label.name === ATTENTION_LABEL);
 const implementRuns = (github) => github.repo.runs.filter((run) => run.workflow === IMPLEMENT_WORKFLOW_FILE).length;
+
+test('#344: a refused author route is reassessed once and ends with the concrete tooling action, never retry', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const pull = await github.getPullRequest(9);
+  const failure = `<!-- ${RECOVERY_FAILURE_MARKER} ${JSON.stringify({ head: pull.head.sha, route: 'author', reason: 'Repair tooling under .github cannot be implemented by a feature spec.' })} -->\nNo spec was created.`;
+  github.commentAuthor = 'dev';
+  await github.createComment(9, failure);
+  github.commentAuthor = undefined;
+  assert.equal(recoveryReassessment(await github.listIssueComments(9), pull.head.sha), undefined);
+  await github.createComment(9, failure);
+  const retryDiagnosis = ({ previous, guidance }) => startDiagnosis(github, env(), { twin: 5, pull: 9, folder: 'f', head: pull.head.sha, previous, guidance, auto: true, preserveAmendment: true });
+  assert.equal((await reassessRecovery(github, { pull, comments: await github.listIssueComments(9), rediagnose: retryDiagnosis })).started, true);
+  assert.match(github.repo.runs.at(-1).inputs.guidance, /author: Repair tooling[\s\S]*single reassessment/);
+  assert.equal((await reassessRecovery(github, { pull, comments: await github.listIssueComments(9), rediagnose: retryDiagnosis })).started, false);
+  const runs = github.repo.runs.length;
+  const action = { title: 'Fix repair-scope reconciliation on main for #9', why: 'Prove reverted workflow paths equal the trusted base while retaining the original tests. After that fix is published, synchronize #9.', kind: 'external', target: 'tooling', recommended: true };
+  const report = { ...REPORT, category: 'outside', artifacts: [], questions: [], options: [action] };
+  assert.equal((await recordReport(github, report)).report.category, 'outside');
+  assert.equal(github.repo.runs.length, runs);
+  assert.equal(attention(github), true);
+  const comment = github.comments.at(-1).body;
+  assert.match(comment, /\*\*Recommended next step\*\*: Fix repair-scope reconciliation on main for #9/);
+  assert.doesNotMatch(comment, /```text\n\/speckit (retry|sync|author)/);
+  const refused = recommendNextSteps(validateReport({ ...report, options: [{ title: 'Author again', why: 'Same tooling cause.', command: '/speckit author Fix tooling', target: 'tooling', recommended: true }] }).report,
+    { failed: [{ route: 'author', reason: 'Protected tooling.' }] });
+  assert.equal(refused.options.find((item) => item.recommended).kind, 'external');
+  await recordReport(github, { ...report, options: [] });
+  await recordReport(github, { ...report, category: 'unknown', options: [] });
+  assert.equal(github.repo.runs.length, runs, 'unusable/unknown reports cannot start a second reassessment');
+  assert.doesNotMatch(github.comments.at(-1).body, /Wait for the diagnosis/);
+  assert.equal(attention(github), true);
+});
+
+test('reassessment dispatch failure is visible, durable and not dispatched again on scheduler redelivery', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const pull = await github.getPullRequest(9);
+  let dispatches = 0;
+  const rediagnose = async () => { dispatches += 1; return { started: false, error: 'Actions permission denied' }; };
+  await reassessRecovery(github, { pull, comments: [], rediagnose });
+  assert.equal(attention(github), true);
+  assert.equal(recoveryReassessment(await github.listIssueComments(9), pull.head.sha).state, 'failed');
+  assert.match(github.comments.at(-1).body, /Action required on #9[\s\S]*Actions permission denied[\s\S]*no automatic retry is queued/);
+  await reassessRecovery(github, { pull, comments: await github.listIssueComments(9), rediagnose });
+  assert.equal(dispatches, 1);
+});
+
+test('automatic continuation requires evidence and rejects a claimed base fix not present on the base', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  github.aheadBy = async (base, head) => {
+    assert.equal(base, 'main');
+    assert.equal(head, SYNC_REPORT.options[0].fixedBy);
+    return 1;
+  };
+  const result = await recordReport(github, SYNC_REPORT);
+  assert.equal(result.report, null);
+  assert.match(result.reasons.join('; '), /claimed fix is not on the implementation base branch/);
+  assert.equal(implementRuns(github), 0);
+  for (const comparison of [undefined, null, NaN, -1]) {
+    const invalid = diagnosisRepo({ amendment: false });
+    invalid.aheadBy = async () => comparison;
+    const absent = await recordReport(invalid, SYNC_REPORT);
+    assert.equal(absent.report, null);
+    assert.match(absent.reasons.join('; '), /did not provide valid ancestry evidence/);
+    assert.equal(implementRuns(invalid), 0);
+  }
+  const missing = await recordReport(diagnosisRepo({ amendment: false }), { ...RETRY_REPORT, evidence: [] });
+  assert.equal(missing.continued, null);
+  assert.equal(missing.report, null);
+  assert.match(validateReport({ ...SYNC_REPORT, options: [{ ...SYNC_REPORT.options[0], kind: 'external' }] }).reasons.join('; '), /external prerequisite/);
+});
 
 test('a transient retry diagnosis continues automatically with the recommended retry', async () => {
   for (const confidence of ['medium', 'high']) {
@@ -616,6 +782,47 @@ test('an outside diagnosis that recommends sync continues automatically with the
   assert.ok(syncBarrier(github.comments), 'the barrier sees the request');
   assert.equal(implementRuns(github), 1);
   assert.equal(attention(github), false);
+});
+
+test('a repeated sync requires a verified fix newer than the failed synchronization base', async () => {
+  for (const newer of [false, true]) {
+    const github = diagnosisRepo({ amendment: false });
+    const stop = '**Implementation needs attention** @dev: required synchronization has files not covered by verification';
+    await github.createComment(9, stop);
+    await github.createComment(9, renderSyncComment('Required synchronization', '', { head: 'sha-impl', base: 'old-base' }));
+    await github.createComment(9, stop);
+    const compared = [];
+    github.aheadBy = async (base, head) => {
+      compared.push([base, head]);
+      return base === 'old-base' && newer ? 1 : 0;
+    };
+    const result = await recordReport(github, SYNC_REPORT);
+    assert.ok(compared.some(([base, head]) => base === 'main' && head === SYNC_REPORT.options[0].fixedBy));
+    assert.ok(compared.some(([base, head]) => base === 'old-base' && head === SYNC_REPORT.options[0].fixedBy));
+    assert.equal(result.continued, newer ? 'sync' : null);
+    assert.equal(implementRuns(github), newer ? 1 : 0);
+    assert.equal(attention(github), !newer);
+  }
+});
+
+test('corrective retry metadata alone is not progress; guidance must change the implementation approach', () => {
+  const repeated = { verb: 'retry', reason: 'The write still races.', guidance: 'Use one statement' };
+  for (const guidance of ['', 'Use one statement', 'Wait for the transaction to commit before the assertion']) {
+    const report = validateReport({ ...RETRY_REPORT, options: [{ ...RETRY_REPORT.options[0], basis: 'corrective', target: 'implementation', command: `/speckit retry ${guidance}`.trim() }] }).report;
+    const option = recommendNextSteps(report, { repeated }).options.find((item) => item.recommended);
+    assert.equal(Boolean(option.command), guidance.startsWith('Wait'));
+  }
+});
+
+test('failed recovery routes are scoped to both the implementation head and pending repair', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  await github.createComment(9, `<!-- ${RECOVERY_FAILURE_MARKER} {"head":"sha-impl","route":"author","reason":"Old cause."} -->`);
+  assert.equal(failedRecoveryRoutes(await github.listIssueComments(9), 'sha-impl').length, 1);
+  await github.createComment(9, renderRepairMarker({ id: 'phase:new', state: 'pending', scope: 'phase', head: 'sha-impl', at: github.tick() }));
+  assert.equal(failedRecoveryRoutes(await github.listIssueComments(9), 'sha-impl').length, 0);
+  await github.createComment(9, `<!-- ${RECOVERY_FAILURE_MARKER} {"head":"sha-impl","repair":"phase:new","route":"author","reason":"Current cause."} -->`);
+  assert.equal(failedRecoveryRoutes(await github.listIssueComments(9), 'sha-impl').length, 1);
+  assert.equal(failedRecoveryRoutes(await github.listIssueComments(9), 'other-head').length, 0);
 });
 
 test('other diagnoses wait for a person', async () => {
@@ -696,7 +903,7 @@ test('a change only a push can make is recommended as a ready-to-post @copilot p
   const retry = validateReport({ ...REPORT, category: 'retry', artifacts: [], questions: [], options: [copilotOption()] }).report;
   const moved = recommendNextSteps(retry);
   assert.match(moved.notes.join('; '), /does not fit the category `retry`/);
-  assert.match(moved.options.find((option) => option.recommended).command, /^\/speckit retry/);
+  assert.equal(moved.options.find((option) => option.recommended).kind, 'external');
 
   // A command that already failed the same way is replaced by the Copilot prompt rather than a new spec.
   const repeated = { verb: 'retry', reason: 'T001 did not succeed in 2 attempts' };

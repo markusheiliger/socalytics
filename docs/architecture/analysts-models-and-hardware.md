@@ -433,8 +433,11 @@ the platform confirms the media's attested digest and size and the manifest
 checksum; it never reads media bytes, never stores or logs links, re-evaluates
 team authorization on every request, rate-limits resolutions per member, and
 records each resolution that issues links as an artifact-authorization audit
-event without the links. This is the API side of `get_video_clip()`; the MCP
-tool remains future work. Production link lifetimes, rate limits, content
+event without the links. This is the API side of `get_video_clip()` for
+members; the agent workload reaches the same resolution through the
+`agentToolGetVideoClip` operation, which is bound to its attempt and pinned
+tool policy and returns the links to the caller only. The MCP tool remains
+future work. Production link lifetimes, rate limits, content
 delivery, and the production storage origin remain unresolved.
 
 ---

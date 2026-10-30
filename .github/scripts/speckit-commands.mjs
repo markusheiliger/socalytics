@@ -4,11 +4,15 @@ import { pathToFileURL } from 'node:url';
 import { IMPLEMENT_STAGE, IMPLEMENTING_STAGE, TWIN_LABEL, deriveStage, hasLabel, implementBlockers, isImplementRequested, parseTwinFolder, specDir, stageLabel, stageLabelChange } from './speckit-prepare-core.mjs';
 import { canWrite, readSpecFolder, renderImplementRequested, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { startFixAuthoring } from './speckit-fix.mjs';
+import { requestAmendment } from './speckit-amend.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   ATTENTION_LABEL,
+  BLOCKED_LABEL,
   BOT_LOGIN,
   COMMAND_SCOPES,
+  COPILOT_HANDOFF_MARKER,
+  COPILOT_HANDOFF_MS,
   DIAGNOSIS_COMMENT_MARKER,
   MAX_UNCHANGED_RESTARTS,
   ORCHESTRATE_WORKFLOW_FILE,
@@ -23,12 +27,14 @@ import {
   describeCommandEffect,
   folderOfBranch,
   implementationBranch,
+  isCopilotRequest,
   latestStopReason,
   neutralizeMarkers,
   parseCommandArguments,
   renderRetryComment,
   renderSyncComment,
   setAttention,
+  supersedeActionRequired,
   specTitleOfPull,
   unresolvedRepair,
   unchangedRestarts,
@@ -142,6 +148,7 @@ export async function retryImplementation(client, env, { implementation, twin, f
   }
   await client.createComment(implementation.number, `${prefix}${renderRetryComment(`${text}${suffix}`, guidance, state)}`);
   await setAttention(client, implementation.number, false);
+  await supersedeActionRequired(client, implementation.number);
   try {
     await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
   } catch {
@@ -160,6 +167,7 @@ export async function requestSync(client, env, { implementation, twin }, { lead,
     await restartState(client, implementation),
   )}`);
   await setAttention(client, implementation.number, false);
+  await supersedeActionRequired(client, implementation.number);
   try {
     await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
   } catch {
@@ -234,7 +242,7 @@ export async function runCommand({ client, env, log, now = Date.now, rootDir = e
     return { exitCode: 0, handled: true, command: command.name, rejected: 'publication target changed' };
   }
   const handler = HANDLERS[command.name];
-  const result = await handler({ client, env, actor, number, flags: command.flags, guidance: command.guidance.slice(0, 4000), now, ...target });
+  const result = await handler({ client, env, actor, number, commentId, flags: command.flags, guidance: command.guidance.slice(0, 4000), now, ...target });
   log(`/speckit ${command.name} by @${actor}: ${result.outcome}`);
   return { exitCode: 0, handled: true, command: command.name, ...result };
 }
@@ -265,7 +273,9 @@ export async function restartState(client, implementation) {
 // Refuses a restart while the implementation is stopped and the last MAX_UNCHANGED_RESTARTS restarts left its branch
 // where it is: another one would most likely stop the same way.
 async function refuseUnchangedRestart(client, { name, number, implementation, folder, state }) {
-  const stopped = (implementation.labels ?? []).some((label) => (label?.name ?? label) === ATTENTION_LABEL);
+  const labels = (implementation.labels ?? []).map((label) => label?.name ?? label);
+  // A blocked implementation that only waits for a blocker to be requested is not stopped.
+  const stopped = labels.includes(ATTENTION_LABEL) && !labels.includes(BLOCKED_LABEL);
   if (!stopped) return false;
   const comments = await client.listIssueComments(implementation.number);
   const restarts = unchangedRestarts(comments, state.head);
@@ -320,6 +330,11 @@ async function handleAuthor({ client, env, actor, number, guidance, now, impleme
 }
 
 const HANDLERS = {
+  amend: async ({ client, env, ...target }) => {
+    const result = await requestAmendment(client, env, target);
+    if (result.rejected) await reply(client, target.number, `**\`/speckit amend\` was not run**: ${result.rejected}.\n\n**Recommended next step**: ${result.rejected.includes('already') ? 'Review or rework the existing amendment request' : 'Review the current implementation state and post `/speckit amend <guidance>` with the concrete artifact change'}.`);
+    return result;
+  },
   retry: handleRetry,
   sync: handleSync,
   author: handleAuthor,
@@ -443,11 +458,51 @@ function runDocs(args, { file = new URL('../workflows/README.md', import.meta.ur
   return 1;
 }
 
+// Spec Kit commands, job "Hand a stopped implementation over to Copilot": a writer's comment that starts with
+// `@copilot` on an implementation pull request that waits for a person (`help wanted`, not blocked) hands it to
+// GitHub Copilot's cloud agent. The pull request stops asking for help, and a comment says that Copilot's push
+// continues the implementation by itself; the scheduler asks for help again when Copilot ends without a push
+// (maintainCopilotHandoff).
+export async function runCopilotHandoff({ client, env, log }) {
+  const number = Number(env.SPECKIT_PULL);
+  const actor = String(env.SPECKIT_ACTOR ?? '');
+  if (!Number.isInteger(number) || number <= 0 || !isCopilotRequest(env.SPECKIT_COMMENT_BODY)) {
+    log('Not a request to Copilot.');
+    return { exitCode: 0, handled: false };
+  }
+  if (actor === BOT_LOGIN || !canWrite(await client.getPermission(actor))) {
+    log(`@${actor} has no write access; ignored.`);
+    return { exitCode: 0, handled: false };
+  }
+  const pull = await client.getPullRequest(number);
+  const folder = folderOfBranch(pull.head?.ref);
+  if (pull.state !== 'open' || !folder || pull.head.ref !== implementationBranch(folder) || pull.head?.repo?.full_name !== env.GITHUB_REPOSITORY) {
+    log('Not an open Spec Kit implementation pull request.');
+    return { exitCode: 0, handled: false };
+  }
+  const labels = (pull.labels ?? []).map((label) => label?.name ?? label);
+  if (!labels.includes(ATTENTION_LABEL) || labels.includes(BLOCKED_LABEL)) {
+    log('The implementation does not wait for a person; nothing to hand over.');
+    return { exitCode: 0, handled: false };
+  }
+  await reply(client, number, [
+    COPILOT_HANDOFF_MARKER,
+    `**Copilot is working on it**: @${actor} asked GitHub Copilot's cloud agent to change \`${implementationBranch(folder)}\`, so this pull request no longer asks for help. Nothing is needed now: Copilot's push continues the implementation by itself with a fresh attempt count.`,
+    '',
+    `If Copilot finishes without pushing, or has not pushed within ${COPILOT_HANDOFF_MS / 60000} minutes, the scheduler asks for help here again.`,
+  ]);
+  await setAttention(client, number, false);
+  await supersedeActionRequired(client, number);
+  log(`Handed #${number} over to Copilot for @${actor}.`);
+  return { exitCode: 0, handled: true };
+}
+
 export async function main(argv, { env = process.env, log = console.log, client, docsFile } = {}) {
   const [command, ...args] = argv;
   if (command === 'docs') return runDocs(args, { file: docsFile, log });
-  if (!['command', 'target'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target | docs [--write]> (command and target take their inputs from SPECKIT_* environment variables)');
+  if (!['command', 'target', 'copilot-handoff'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target | copilot-handoff | docs [--write]> (command, target, and copilot-handoff take their inputs from SPECKIT_* environment variables)');
   const github = client ?? createGitHubClient(env);
+  if (command === 'copilot-handoff') return (await runCopilotHandoff({ client: github, env, log })).exitCode;
   if (command === 'target') {
     const pull = await runCommandTarget({ client: github, env });
     if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `pull=${pull}\n`);

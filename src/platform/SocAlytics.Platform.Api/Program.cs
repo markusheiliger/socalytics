@@ -56,10 +56,12 @@ builder.Services.AddOpenApi("v1", options =>
 	});
 	options.AddDocumentTransformer<OpenApiSecuritySchemesTransformer>();
 	options.AddSchemaTransformer(AgentCatalogDocumentSchemas.TransformAsync);
+	options.AddSchemaTransformer(AgentLineageSchemas.TransformAsync);
 });
 
 builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
 	.AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(SessionAuthenticationHandler.SchemeName, null);
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, AgentToolAuthorizationResultHandler>();
 builder.Services.AddAuthorizationBuilder()
 	.AddPolicy(AuthorizationPolicyNames.ActiveMember, policy => policy
 		.AddAuthenticationSchemes(SessionAuthenticationHandler.SchemeName)
@@ -100,6 +102,7 @@ app.MapRegistryEndpoints();
 app.MapAgentConversationEndpoints();
 app.MapAgentCatalogEndpoints();
 app.MapAgentWorkloadEndpoints();
+app.MapAgentToolApi();
 
 app.Run();
 

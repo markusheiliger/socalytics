@@ -137,6 +137,65 @@ export const LEGACY_FIX_TITLE_PREFIX = 'Fix spec: ';
 // Architecture changes of a spec pull request may only come from the spec's design (docs/architecture/**).
 export const ARCHITECTURE_PREFIX = 'docs/architecture/';
 export const DIAGNOSIS_COMMENT_MARKER = '<!-- speckit-implement:diagnosis -->';
+export const RECOVERY_FAILURE_MARKER = 'speckit-implement:recovery-failed';
+export const REASSESSMENT_MARKER = 'speckit-implement:reassessment';
+
+export function failedRecoveryRoutes(comments, head) {
+  const repair = unresolvedRepair(comments)?.id ?? null;
+  return trustedMarker(comments, RECOVERY_FAILURE_MARKER).filter((item) => item.head === head && (item.repair ?? null) === repair);
+}
+
+export function recoveryReassessment(comments, head) {
+  const repair = unresolvedRepair(comments)?.id ?? null;
+  return trustedMarker(comments, REASSESSMENT_MARKER).find((item) => item.head === head && item.repair === repair);
+}
+
+export async function reassessRecovery(client, { pull, comments, rediagnose, guidance = '' }) {
+  const existing = recoveryReassessment(comments, pull.head.sha);
+  if (existing) return { started: false, error: 'The one reassessment for this unchanged blocker was already requested. Review its evidence and resolve the remaining blocker; do not repeat an ineffective command.' };
+  const data = { head: pull.head.sha, repair: unresolvedRepair(comments)?.id ?? null };
+  const render = (state, detail) => `<!-- ${REASSESSMENT_MARKER} ${JSON.stringify({ ...data, state })} -->\n${detail}`;
+  const claim = await client.createComment(pull.number, render('claimed', '**Recovery reassessment requested**: one diagnosis will use the failed approaches as evidence. Do not retry the unchanged work.'));
+  const failures = failedRecoveryRoutes(comments, pull.head.sha);
+  let result;
+  try {
+    result = await rediagnose({
+      previous: comments.filter((item) => item.user?.login === BOT_LOGIN && String(item.body).startsWith(DIAGNOSIS_COMMENT_MARKER)).at(-1)?.id ?? '',
+      guidance: `${guidance}\nFailed recovery routes: ${failures.map((item) => `${item.route}: ${item.reason}${item.guidance ? ` (requested: ${clip(item.guidance, 1200)})` : ''}`).join('; ')}\nThis is the single reassessment of this unchanged blocker. Recommend a supported remedy or the precise external action/missing evidence, never a generic retry or a refused route.`,
+    });
+  } catch (error) {
+    result = { started: false, error: error.message };
+  }
+  if (!result.started) {
+    await client.updateComment(claim.id, render('failed', `**Action required on #${pull.number}**: recovery reassessment could not start: ${neutralizeMarkers(result.error)}. Resolve that dispatch or existing-amendment blocker before continuing; no automatic retry is queued.`));
+    await setAttention(client, pull.number, true);
+  }
+  return result;
+}
+export const AMEND_REQUEST_MARKER = 'speckit-amend:request';
+export const AMEND_REQUEST_STATE_MARKER = 'speckit-amend:request-state';
+export const AMEND_AUTHORIZATION_MARKER = 'speckit-amend:authorization';
+
+export function trustedMarker(comments, marker) {
+  const prefix = `<!-- ${marker} `;
+  return comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(prefix))
+    .map((comment) => {
+      try {
+        const line = comment.body.split(/\r?\n/, 1)[0];
+        if (!line.endsWith(' -->')) return null;
+        return { ...JSON.parse(line.slice(prefix.length, -4)), markerComment: comment };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+}
+
+export function pendingAmendmentRequest(comments) {
+  const request = trustedMarker(comments, AMEND_REQUEST_MARKER).at(-1);
+  if (!request) return null;
+  const state = trustedMarker(comments, AMEND_REQUEST_STATE_MARKER).filter((item) => item.request === request.comment).at(-1);
+  return state && ['created', 'failed', 'stale'].includes(state.state) ? null : { ...request, state };
+}
 
 export function diagnosisRunsUrl(env) {
   const server = String(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '');
@@ -161,11 +220,13 @@ export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 // GitHub's default label for "Extra attention is needed": an implementation, amendment, or prerequisite spec pull
 // request carries it while it waits for a person (stopped, a diagnosis or a prerequisite spec outcome to decide on, or
 // ready for review) and loses it once a person's action puts automation back to work or closes the pull request. It is
-// only added together with a comment that recommends what to do, never while a diagnosis runs, and never on a blocked
-// pull request.
+// only added together with a comment that recommends what to do, never while a diagnosis runs, and on a blocked pull
+// request only while a blocker is not requested for implementation (setBlocked; its Blocked comment recommends
+// `/speckit implement` on that blocker).
 export const ATTENTION_LABEL = 'help wanted';
 // An implementation that waits for a prerequisite (an open blocked-by dependency of its twin, or a prerequisite spec
-// that is still being reviewed) carries BLOCKED_LABEL instead of ATTENTION_LABEL. It is only added together with a
+// that is still being reviewed) carries BLOCKED_LABEL, and ATTENTION_LABEL only while a blocker waits for its
+// `/speckit implement` request. It is only added together with a
 // comment that says what it waits for and how it is unblocked (setBlocked), and lifted by maintainDependencyBlock.
 export const BLOCKED_LABEL = 'blocked';
 // The implementations whose merge unblocks the most others (Spec Kit orchestrate, maintainRoadblocks): not blocked
@@ -296,6 +357,21 @@ export const ENVIRONMENT_PREFIXES = ['.github/actions/environment-setup/', '.git
 export const isEnvironmentPath = (file) => ENVIRONMENT_PREFIXES.some((prefix) => file.startsWith(prefix));
 export const isProtectedPath = (file) => !isEnvironmentPath(file) && PROTECTED_PREFIXES.some((prefix) => file.startsWith(prefix));
 
+// Open tasks whose target is a file an implementation may never change: [{ task, files }]. Such a task can never land,
+// so a spec that has one cannot be implemented by the automation (repository tooling is changed directly on the default
+// branch instead). A Spec Kit task names the file it changes first ("In `X`, add …"); only that target counts, and only
+// under .github/ outside the two environment actions: later mentions, spec folders, and .specify/ paths are almost
+// always references, and commands a task runs (`node .github/scripts/…`) are left out, because running a script does
+// not change it.
+const COMMAND_SPAN = /`(?:node|npm|npx|dotnet|uv|python3?|git|gh|docker|pwsh|bash|sh|specify)\s[^`\r\n]*`/g;
+export function protectedTaskPaths(tasksMarkdown) {
+  const concrete = (file) => /\.[A-Za-z0-9]+$/.test(file) && (file.includes('/') || file.includes('\\'));
+  return listTasks(tasksMarkdown)
+    .filter((task) => !task.done)
+    .map((task) => ({ task: task.id, files: taskNamedFiles(String(task.text).replace(COMMAND_SPAN, ' '), { exists: () => true, isSafe: concrete, max: 1 }) }))
+    .filter((entry) => entry.files.length > 0 && entry.files[0].startsWith('.github/') && isProtectedPath(entry.files[0]));
+}
+
 // Reasons why a branch mixes changes to the environment actions with other changes. `branchPaths` are all paths
 // the implementation branch changes compared to its base branch.
 export function environmentExclusivityReasons({ folder, branchPaths }) {
@@ -319,6 +395,31 @@ export function implementationBranch(folder) {
 // (on its branch, right before the merge).
 export function tasksPathOf(folder, { archived = false } = {}) {
   return `${specDir(folder, { archived })}/tasks.md`;
+}
+
+// Files named in task text, in first-mention order, limited to existing safe repository-relative paths.
+export function taskNamedFiles(text, { exists, isSafe, max = Number.POSITIVE_INFINITY } = {}) {
+  if (typeof exists !== 'function' || typeof isSafe !== 'function') throw new TypeError('exists and isSafe must be functions');
+  const limit = Number.isFinite(Number(max)) ? Math.max(0, Math.floor(Number(max))) : Number.POSITIVE_INFINITY;
+  if (limit === 0) return [];
+  const files = [];
+  const seen = new Set();
+  const add = (value, backticked = false) => {
+    const file = String(value).replace(/^[([{<"'`]+/, '').replace(/[)\]}>,"';:!?.]+$/, '');
+    if (!file || (!backticked && !(/[\\/]/.test(file) || /\.[A-Za-z0-9][A-Za-z0-9_-]*$/.test(file)))) return;
+    if (seen.has(file) || !isSafe(file) || !exists(file)) return;
+    seen.add(file);
+    files.push(file);
+  };
+  for (const match of String(text ?? '').matchAll(/`([^`\r\n]+)`|([^\s`]+)/g)) {
+    if (match[1] !== undefined) {
+      for (const token of match[1].match(/\S+/g) ?? []) add(token, true);
+    } else {
+      add(match[2]);
+    }
+    if (files.length >= limit) break;
+  }
+  return files;
 }
 
 // Reads tasks.md of a spec at a ref, wherever the spec folder is; null when it is in neither place.
@@ -503,7 +604,7 @@ const stopReason = (body) => String(body ?? '').match(STOP_PATTERN)?.[1].replace
 // The comment command that already failed the same way: the latest `/speckit retry` or `/speckit sync` recorded the
 // implementation branch head `head` (so nothing changed since), and the stop after it gave the same reason as the stop
 // before it. Recommending that command again would only repeat the failure. Returns { verb, reason } or null.
-export function repeatedFailure(comments, head) {
+export function repeatedFailure(comments, head, { includeState = false } = {}) {
   const ordered = [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
@@ -519,7 +620,8 @@ export function repeatedFailure(comments, head) {
   if (!state?.head || state.head !== head) return null;
   const before = ordered.slice(0, restartAt).map((comment) => stopReason(comment.body)).filter(Boolean).at(-1);
   const after = ordered.slice(restartAt + 1).map((comment) => stopReason(comment.body)).filter(Boolean)[0];
-  return before && after && before === after ? { verb: verbOf(ordered[restartAt].body), reason: after } : null;
+  return before && after && before === after ? { verb: verbOf(ordered[restartAt].body), reason: after,
+    ...(includeState ? { base: state.base ?? null, guidance: parseGuidance(ordered[restartAt].body) } : {}) } : null;
 }
 
 // The reason of the latest stop for a person, or null.
@@ -731,13 +833,17 @@ export function parseMaxActiveSpecs(value) {
   return Number.isInteger(number) && number > 0 ? number : DEFAULT_MAX_ACTIVE_SPECS;
 }
 
-// Checks `taskId` in a tasks.md; null when the task is missing or already checked.
-export function tickTask(tasksMarkdown, taskId) {
+// Checks `taskId` in a tasks.md; null when the task is missing or already checked. An optional note is appended to the
+// task line, so a task ticked without this spec's own change says where its work came from (a tick alone would claim
+// this spec implemented it).
+export function tickTask(tasksMarkdown, taskId, note = '') {
   const lines = String(tasksMarkdown ?? '').split('\n');
   const matchOf = (line) => line.replace(/\r$/, '').match(TASK_PATTERN);
   const index = lines.findIndex((line) => matchOf(line)?.[2] === taskId);
   if (index < 0 || matchOf(lines[index])[1] !== ' ') return null;
-  lines[index] = lines[index].replace('[ ]', '[x]');
+  const ticked = lines[index].replace('[ ]', '[x]');
+  const cr = ticked.endsWith('\r') ? '\r' : '';
+  lines[index] = note ? `${ticked.replace(/\r$/, '').trimEnd()} — ${String(note).replace(/[\r\n]+/g, ' ').trim()}${cr}` : ticked;
   return lines.join('\n');
 }
 
@@ -781,30 +887,169 @@ export function isTwinRunOf(workflowFile, title, twin) {
   return [`${workflow} spec #${twin}`, `${workflow} · spec #${twin}`, `[${workflow}] spec #${twin}`, `${workflow} #${twin}`].some((name) => text === name || text.startsWith(`${name} `));
 }
 
+// Historical marker retained so existing reminders keep their identity.
+export const ACTION_REQUIRED_MARKER = 'speckit-implement:escalation';
+export const ACTION_REQUIRED_SUPERSEDED_MARKER = '<!-- speckit-implement:reminder-superseded -->';
+
+export function acceptedImplementationAction(comments, after) {
+  const amendments = trustedMarker(comments, AMEND_REQUEST_MARKER);
+  const authors = parseFixEvents(comments).filter((event) => event.event === 'requested' && event.link !== false);
+  return comments.find((comment) => comment.user?.login === BOT_LOGIN && Date.parse(comment.created_at) > Date.parse(after) &&
+    ([...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER, COPILOT_HANDOFF_MARKER].some((marker) => startsWithMarker(comment.body, marker)) ||
+      amendments.some((request) => request.markerComment.id === comment.id) ||
+      authors.some((request) => request.commentId === comment.id))) ?? null;
+}
+
+export async function supersedeActionRequired(client, number, { successor = null, warn = console.warn } = {}) {
+  let updated = 0;
+  try {
+    const comments = await client.listIssueComments(number);
+    const reminders = trustedMarker(comments, ACTION_REQUIRED_MARKER)
+      .filter((item) => !item.markerComment.body.includes(ACTION_REQUIRED_SUPERSEDED_MARKER));
+    if (!reminders.length) return { updated };
+    const pull = await client.getPullRequest(number);
+    const child = successor?.state === 'open' && successor.base?.ref === pull.head?.ref &&
+      successor.head?.ref === amendmentBranch(folderOfBranch(pull.head?.ref)) ? successor : null;
+    let pushedAt;
+    for (const reminder of reminders) {
+      const diagnosis = comments.find((comment) => String(comment.id) === String(reminder.key) &&
+        comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, DIAGNOSIS_COMMENT_MARKER));
+      const boundary = diagnosis?.created_at ?? reminder.markerComment.created_at;
+      const accepted = acceptedImplementationAction(comments, boundary);
+      if (!accepted && !child && pull.state === 'open' && pushedAt === undefined) {
+        pushedAt = latestHumanCommit(await client.listPullRequestCommits(number)) ?? null;
+      }
+      if (!accepted && !child && pull.state === 'open' && !(pushedAt && Date.parse(pushedAt) > Date.parse(boundary))) continue;
+      const link = accepted?.html_url ?? (accepted ? `#issuecomment-${accepted.id}` : pull.html_url ?? `#${number}`);
+      const reason = accepted
+        ? `The action requested by this reminder was already accepted in [this workflow handoff](${link}).`
+        : child ? `This request was transferred to amendment #${child.number}.`
+        : pull.state !== 'open'
+          ? `This implementation was ${pull.merged_at ? 'merged' : 'closed'}.`
+          : `A later push resumed [this implementation](${link}).`;
+      const request = accepted && trustedMarker(comments, AMEND_REQUEST_MARKER).find((item) => item.markerComment.id === accepted.id);
+      const amendment = child?.number ?? (request && trustedMarker(comments, AMEND_REQUEST_STATE_MARKER)
+        .filter((item) => item.request === request.comment && item.state === 'created').at(-1)?.amendment);
+      await client.updateComment(reminder.markerComment.id, [
+        reminder.markerComment.body.split(/\r?\n/, 1)[0],
+        ACTION_REQUIRED_SUPERSEDED_MARKER,
+        `**Superseded**: ${reason} This reminder is not an outstanding request; do not repeat its command.`,
+        ...(amendment ? ['', `The change is tracked in amendment #${amendment}. Its current workflow status, not this historical reminder, determines the next step.`] : []),
+      ].join('\n'));
+      updated += 1;
+    }
+    return { updated };
+  } catch (error) {
+    warn(`Warning: could not supersede action-required reminders on #${number}: ${error.message}`);
+    return { updated, failed: true };
+  }
+}
+
 // Adds (`needed`) or removes ATTENTION_LABEL on a pull request; only an open pull request that is not blocked gets it.
 // The label is a convenience, so a failure never stops the workflow.
-export async function setAttention(client, number, needed) {
+export async function setAttention(client, number, needed, { warn = console.warn } = {}) {
   try {
     const pull = await client.getPullRequest(number);
     const names = (pull.labels ?? []).map((label) => label?.name ?? label);
     const has = names.includes(ATTENTION_LABEL);
+    if (pull.state !== 'open') needed = false;
     if (needed && !has && pull.state === 'open' && !names.includes(BLOCKED_LABEL)) await client.addLabels(number, [ATTENTION_LABEL]);
     if (!needed && has) await client.removeLabel(number, ATTENTION_LABEL);
-  } catch {
-    // The label only signals the state; comments and check runs carry it.
+    return true;
+  } catch (error) {
+    warn(`Warning: could not reconcile \`${ATTENTION_LABEL}\` on #${number}: ${error.message}`);
+    return false;
   }
+}
+
+// A writer's `@copilot` request on a stopped implementation hands it to GitHub Copilot's cloud agent: the pull request
+// stops asking for help (the handoff comment says why), and Copilot's push continues the implementation like any push
+// that is not by github-actions[bot]. When Copilot replies without having pushed, or has not pushed within
+// COPILOT_HANDOFF_MS, the scheduler asks for help again (maintainCopilotHandoff), so a stop never goes unnoticed.
+export const COPILOT_HANDOFF_MARKER = '<!-- speckit-implement:copilot-handoff -->';
+export const COPILOT_HANDOFF_ENDED_MARKER = 'speckit-implement:copilot-handoff-ended';
+export const COPILOT_HANDOFF_MS = 60 * 60 * 1000;
+// The REST login of GitHub Copilot's cloud agent on comments and commits.
+export const COPILOT_LOGIN = 'Copilot';
+export const normalizeRecovery = (value) => String(value ?? '').replace(/\r\n/g, '\n').trim().replace(/\s+/g, ' ').toLowerCase();
+
+export function failedCopilotRecoveries(comments, head) {
+  return trustedMarker(comments, COPILOT_HANDOFF_ENDED_MARKER).filter((item) => item.head === head && item.request);
+}
+
+// Whether a comment asks Copilot's cloud agent for a change: it starts with the mention, like the requests diagnoses
+// recommend (renderCopilotRequest). A mention later in the text ("thanks @copilot") is not a handoff.
+export function isCopilotRequest(body) {
+  return /^\s*@copilot\b/i.test(String(body ?? ''));
+}
+
+// The latest handoff to Copilot that still decides whether the pull request asks for help, and its state: `working`
+// (Copilot may still push), `finished` (Copilot replied after the handoff without a push), or `expired` (no push within
+// COPILOT_HANDOFF_MS). A push that is not by github-actions[bot] (`pushedAt`), a restart or sync after the handoff, or
+// an ended marker for it closes the handoff (null).
+export function pendingCopilotHandoff(comments, { pushedAt = null, now = Date.now() } = {}) {
+  const handoff = [...comments]
+    .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, COPILOT_HANDOFF_MARKER))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  if (!handoff) return null;
+  const at = Date.parse(handoff.created_at);
+  const after = (comment) => Date.parse(comment.created_at) > at;
+  if (pushedAt && Date.parse(pushedAt) > at) return null;
+  if (comments.some((comment) => comment.user?.login === BOT_LOGIN && after(comment) &&
+    [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => startsWithMarker(comment.body, marker)))) return null;
+  if (trustedMarker(comments, COPILOT_HANDOFF_ENDED_MARKER).some((item) => item.handoff === handoff.id)) return null;
+  const reply = comments.find((comment) => comment.user?.login === COPILOT_LOGIN && after(comment)) ?? null;
+  if (reply) return { handoff, state: 'finished', reply };
+  return { handoff, state: now - at >= COPILOT_HANDOFF_MS ? 'expired' : 'working', reply: null };
+}
+
+// Spec Kit orchestrate, for every implementation in progress: asks for help again when a handoff to Copilot ended
+// without a push, unless the chain is running, will be continued (`continues`), or the implementation is blocked.
+export async function maintainCopilotHandoff(client, { pull, comments, pushedAt, active, continues, blocked, now = Date.now(), rediagnose = null }) {
+  if (active || continues || blocked) return null;
+  const pending = pendingCopilotHandoff(comments, { pushedAt, now });
+  if (!pending || pending.state === 'working') return null;
+  const link = (comment) => comment.html_url ?? `#issuecomment-${comment.id}`;
+  const branch = `\`${pull.head?.ref ?? 'the implementation branch'}\``;
+  const what = pending.state === 'finished'
+    ? `**Copilot finished without pushing** to ${branch}, so the implementation is still stopped and needs a person again. [Copilot's reply](${link(pending.reply)}) says what it did instead.`
+    : `**Copilot has not pushed** to ${branch} within ${COPILOT_HANDOFF_MS / 60000} minutes of the [request](${link(pending.handoff)}), so the implementation is still stopped and needs a person again. Check that Copilot's cloud agent is enabled for this repository and whether its session failed.`;
+  const request = comments.filter((comment) => comment.user?.login !== BOT_LOGIN && isCopilotRequest(comment.body) &&
+    Date.parse(comment.created_at) <= Date.parse(pending.handoff.created_at)).at(-1);
+  const next = rediagnose
+    ? '**Recommended next step**: Wait for a new diagnosis using the failed request and refusal or timeout as evidence; do not repeat the failed recommendation. No action is needed while diagnosis runs.'
+    : '**Recommended next step**: Review the failed handoff and its refusal or timeout before choosing a different recovery; do not repeat the failed recommendation.';
+  await client.createComment(pull.number, [
+    `<!-- ${COPILOT_HANDOFF_ENDED_MARKER} ${JSON.stringify({ handoff: pending.handoff.id, head: pull.head?.sha, request: request?.body ?? null })} -->`,
+    what,
+    '',
+    next,
+  ].join('\n'));
+  if (rediagnose) {
+    const result = await reassessRecovery(client, { pull, comments: await client.listIssueComments(pull.number), rediagnose,
+      guidance: `The Copilot handoff ${pending.handoff.id} ${pending.state} without a push. Reassess the failed recommendation using the request and reply; do not recommend it again on this unchanged head. A timeout alone does not establish an artifact defect.` });
+    if (!result.started) {
+      await setAttention(client, pull.number, true);
+      await client.createComment(pull.number, `**Re-diagnosis could not start** for #${pull.number}: ${neutralizeMarkers(result.error)}.\n\n**Recommended next step**: Address this dispatch or existing-amendment blocker before continuing #${pull.number}; do not repeat the failed Copilot request.`);
+    }
+  } else await setAttention(client, pull.number, true);
+  return pending.state;
 }
 
 // Adds or removes BLOCKED_LABEL on an implementation pull request. Blocking needs `explain` ({ key, lines }): unless a
 // workflow comment already carries the marker of `key` (the comment that caused the block usually does), a comment with
-// `lines` says what the implementation waits for and how it is unblocked. A blocked pull request loses ATTENTION_LABEL:
-// the person's part is described there. Removing it is silent; the comment that lifts the block explains it.
+// `lines` says what the implementation waits for and how it is unblocked. A blocked pull request carries ATTENTION_LABEL
+// exactly while a blocker is not requested for implementation (`key.unrequested`, whose explanation recommends
+// `/speckit implement` on it): nothing else can start that blocker. Once every blocker is requested, or the block is
+// lifted, the label goes; the comment that lifts the block explains it, and a lifted block that still needs a person adds
+// the label again with its own recommendation.
 export async function setBlocked(client, number, blocked, { explain = null } = {}) {
   if (blocked && !explain?.key) throw new Error('setBlocked needs an explanation to block a pull request');
   try {
     const pull = await client.getPullRequest(number);
     const names = (pull.labels ?? []).map((label) => label?.name ?? label);
     const has = names.includes(BLOCKED_LABEL);
+    const attention = names.includes(ATTENTION_LABEL);
     if (blocked && pull.state === 'open') {
       if (!blockExplained(await client.listIssueComments(number), explain.key)) {
         await client.createComment(number, [renderBlockedMarker(explain.key), ...explain.lines].join('\n'));
@@ -813,9 +1058,14 @@ export async function setBlocked(client, number, blocked, { explain = null } = {
         await client.ensureLabel({ name: BLOCKED_LABEL, color: 'd93f0b', description: 'Implementation is on hold waiting for a prerequisite' });
         await client.addLabels(number, [BLOCKED_LABEL]);
       }
-      if (names.includes(ATTENTION_LABEL)) await client.removeLabel(number, ATTENTION_LABEL);
+      const unrequested = Array.isArray(explain.key.unrequested) && explain.key.unrequested.length > 0;
+      if (unrequested && !attention) await client.addLabels(number, [ATTENTION_LABEL]);
+      if (!unrequested && attention) await client.removeLabel(number, ATTENTION_LABEL);
     }
-    if ((!blocked || pull.state !== 'open') && has) await client.removeLabel(number, BLOCKED_LABEL);
+    if ((!blocked || pull.state !== 'open') && has) {
+      await client.removeLabel(number, BLOCKED_LABEL);
+      if (attention) await client.removeLabel(number, ATTENTION_LABEL);
+    }
   } catch {
     // The label only signals the state; comments and check runs carry it.
   }
@@ -1323,8 +1573,9 @@ export function appendPullRequestTasks(body, tasks, heading) {
 }
 
 // Reasons why the agent's change for `taskId` cannot be accepted. `before` and `after` are the contents of
-// specs/<folder>/tasks.md; `changedPaths` are all changed repository paths.
-export function validateTaskChange({ folder, archived = false, taskId, before, after, changedPaths }) {
+// specs/<folder>/tasks.md; `changedPaths` are all changed repository paths. `note` is the provenance note the land job
+// itself appends when it ticks a task without a change (tickTask); an agent's change never carries one.
+export function validateTaskChange({ folder, archived = false, taskId, before, after, changedPaths, note = '' }) {
   const reasons = [];
   const tasksPath = tasksPathOf(folder, { archived });
   const protectedPaths = changedPaths.filter((file) => file !== tasksPath && isProtectedPath(file));
@@ -1338,8 +1589,9 @@ export function validateTaskChange({ folder, archived = false, taskId, before, a
   const ticked = (index) => {
     const was = beforeLines[index].match(TASK_PATTERN);
     const now = afterLines[index].match(TASK_PATTERN);
+    const expected = note ? tickTask(beforeLines[index], taskId, note) : beforeLines[index].replace(/\[ \]/, '[x]');
     return was && now && was[2] === taskId && now[2] === taskId && was[1] === ' ' && now[1] !== ' '
-      && beforeLines[index].replace(/\[ \]/, '[x]') === afterLines[index].replace(/\[[xX]\]/, '[x]');
+      && expected !== null && expected.replace(/\[[xX]\]/, '[x]') === afterLines[index].replace(/\[[xX]\]/, '[x]');
   };
   // An unchanged tasks.md is expected: the land job checks the task after verification (runLand).
   if (differing === null || differing.length > 1 || (differing.length === 1 && !ticked(differing[0]))) {
@@ -1449,6 +1701,17 @@ export const PR_COMMANDS = [
     guidanceScope: 'the conflict resolution when the merge conflicts, otherwise the first prompted work after the clean merge (it is kept until that work succeeds)',
   },
   {
+    name: 'amend',
+    usage: '/speckit amend <guidance>',
+    scope: 'pr',
+    flags: {},
+    help: 'authorize the stated spec-only change and prepare an amendment for independent analysis and human review; implementation resumes only after the amendment is merged; completed tasks are preserved and no task is ticked',
+    recommend: true,
+    categories: ['decision'],
+    whenToRecommend: 'A person must authorize a requirement or scope change that must be propagated through this feature\'s spec artifacts and unchecked tasks. Recommend concrete guidance, not a retry or a Copilot implementation handoff.',
+    guidanceScope: 'the authorized amendment of this feature\'s artifacts, not implementation; it is reviewed and merged before implementation resumes',
+  },
+  {
     name: 'author',
     usage: '/speckit author [guidance]',
     scope: 'pr',
@@ -1544,6 +1807,8 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
     return `Does not merge ${base}; ${argument ? 'runs a repair agent with the guidance, then reverifies' : 'reverifies without running a repair agent'} the pending ${continuation.repair.scope} verification. The original failed scope must pass before normal planning continues; if this repair attempt fails, the implementation stops for a person again. With guidance, a successful no-change repair also reaches reverification without an empty commit.${flag}`;
   }
   switch (parsed.verb) {
+    case 'amend':
+      return 'A writer authorizes only the stated artifact change. The workflow prepares a spec-only amendment, checks it independently, and asks for human review and merge. It preserves completed tasks, never ticks tasks, and keeps implementation stopped until the amendment is merged. Existing repair scope and attempt limits are unchanged.';
     case 'sync':
       return `Requires merging ${base} into the implementation branch and successful full verification before any work continues (Copilot resolves conflicts). A pending repair retains its original scope and attempt limit; full verification can clear it only when the original failed scope is covered and passes. ${guidance}`;
     case 'retry':
@@ -1806,9 +2071,9 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
       };
     } else {
       recommended = {
-        title: 'Retry what stopped',
-        why: 'The diagnosis did not identify another action that can be requested from this pull request.',
-        command: '/speckit retry',
+        title: 'Review the recovery blocker and provide the missing evidence',
+        why: 'No supported recovery was established. Use the failure or refusal above to identify the required external fix or missing information; repeating the unchanged work is not a remedy.',
+        kind: 'external',
       };
     }
   }
@@ -1823,13 +2088,6 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
   // Commands the recommendation or an option already suggests are not repeated.
   const used = new Set([recommended, ...others].map((option) => parseNextCommand(option.command)?.verb).filter(Boolean));
   const generic = [];
-  if (!used.has('retry')) {
-    generic.push({
-      title: 'Retry what stopped',
-      why: 'If the failure looks transient (runner, network, timeout, a flaky test) and nothing needs to change.',
-      command: '/speckit retry',
-    });
-  }
   generic.push({
     title: 'Push a fix yourself, or close the pull request',
     why: 'If you know the fix, or the spec should not be implemented as it is.',
