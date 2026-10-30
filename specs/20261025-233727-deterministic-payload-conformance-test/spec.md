@@ -27,7 +27,7 @@ Suspected causes, to be confirmed or ruled out by evidence before any is fixed:
 
 - **Premature read**: the wait returns as soon as the first ready-work message is visible, although a run publishes several messages (several ready-work messages and run-state events) at different moments. The assertions can then see an incomplete set, for example no segment-scoped job yet.
 - **Wait on elapsed time**: the wait polls with real delays while it advances the fake clock, so what it waits for is a guess about elapsed time and not an observable condition.
-- **Staggered stream reads**: the outbox id snapshot is taken once per read, and the two streams are read one after the other, so a message of the run can be published between the snapshot and a stream read, or after the first stream was read, and be missed or counted in one stream only.
+- **Staggered stream reads**: the outbox id snapshot is taken once per read, and the two streams are read one after the other, so a message of the run could be published between the snapshot and a stream read, or after the first stream was read, and be missed or counted in one stream only. This is a suspected cause that the implementation evaluates (T004); because the read filters by the fixed id snapshot, [research.md](research.md) records it as ruled out as a demonstrated cause.
 - **Shared state**: the `NatsFaultInjection` collection and the NATS streams are shared with other tests, so messages or stream state of another test, or fault injection left over from one, can reach this test.
 - **Covered production code**: publication ordering or batching in the outbox publisher, or readiness publishing the messages of a run in more than one step, behaves differently under load.
 
