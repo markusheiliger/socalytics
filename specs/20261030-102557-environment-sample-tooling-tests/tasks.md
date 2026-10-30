@@ -15,7 +15,7 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Run the existing action tests as a baseline with `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test .github/actions/environment-verify/verification-scope.test.mjs .github/actions/environment-verify/verification-plan.test.mjs .github/actions/environment-verify/analyst-projects.test.mjs` and `node --test tools/samples.test.mjs`, and confirm they pass before any change (no file changes)
+- [x] T001 Run the existing action tests as a baseline with `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test .github/actions/environment-verify/verification-scope.test.mjs .github/actions/environment-verify/verification-plan.test.mjs .github/actions/environment-verify/analyst-projects.test.mjs` and `node --test tools/samples.test.mjs`, and confirm they pass before any change (no file changes)
 
 ---
 
