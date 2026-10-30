@@ -277,6 +277,18 @@ export function syncSkippedShas(comments) {
     .map((comment) => String(comment.body ?? '').match(SYNC_SKIPPED_PATTERN)?.[1])
     .filter(Boolean));
 }
+// Marks that the upkeep merge of a blocked implementation (Spec Kit orchestrate, refreshBlocked) did not merge the base
+// branch at a commit (it conflicts, or GitHub refused it), so the scheduler does not try that commit again. Separate from
+// SYNC_SKIPPED_PATTERN: the merges before a phase, the convergence, and the merge still try it with conflict resolution.
+const REFRESH_SKIPPED_PATTERN = /<!-- speckit-implement:refresh-skipped ([0-9a-f]{7,40}) -->/;
+export const renderRefreshSkippedMarker = (sha) => `<!-- speckit-implement:refresh-skipped ${sha} -->`;
+
+export function refreshSkippedShas(comments) {
+  return new Set((comments ?? [])
+    .filter((comment) => comment.user?.login === BOT_LOGIN)
+    .map((comment) => String(comment.body ?? '').match(REFRESH_SKIPPED_PATTERN)?.[1])
+    .filter(Boolean));
+}
 // Marks that a conflict resolution changed files that only the base branch owns, to fix a clash of the merged result.
 // The land job writes it from the files it found while replaying the resolution; the final merge then waits for a
 // person's review (baseOwnedChanges). Base64 JSON, so file names cannot end the comment.

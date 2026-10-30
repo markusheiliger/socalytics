@@ -6,10 +6,11 @@ import test from 'node:test';
 
 import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { renderImplementRequested, runSync } from './speckit-prepare.mjs';
-import { UsageError, main, maintainFlakyTests, parseFlakyThreshold, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
+import { UsageError, main, maintainFlakyTests, parseBlockedRefresh, parseFlakyThreshold, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
 import { decideForPull, phaseNotStarted, reconcileImplementationAttention, runContinue, runDecide, runSync as runSyncBase, runVerifyReport } from './speckit-spec.mjs';
-import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, SYNC_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderFlakyLines, renderFlakySpecMarker, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, BOT_LOGIN, latestHumanCommit, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, SYNC_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderFlakyLines, renderFlakySpecMarker, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, diagnosisRepo, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
+import { doneByPush } from './speckit-implement-work.mjs';
 import { ACTION_REQUIRED_SUPERSEDED_MARKER, CHECK_DIAGNOSED, CHECK_DIAGNOSING, COPILOT_HANDOFF_MARKER, DIAGNOSIS_STALE_MS, FIX_CHECK_NAME, RECOVERY_FAILURE_MARKER, renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, supersedeActionRequired, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -776,6 +777,138 @@ test('a block lifted in the middle of a phase merges the base branch before the 
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  }
+});
+
+// A blocked implementation of twin "a" in the middle of its work, its queued progress check run on the head.
+async function blockedWithTasks() {
+  const blocked = await blockedByHand();
+  const { github } = blocked;
+  github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', ' '));
+  await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: github.repo.branches['speckit/a'], status: 'queued', external_id: CHECK_PROGRESS, output: { title: '1 of 2 tasks done', summary: 'progress' } });
+  await orchestrate(github, blocked.root);
+  assert.ok(blocked.pull.labels.some((label) => label.name === BLOCKED_LABEL));
+  return blocked;
+}
+
+test('SPECKIT_BLOCKED_REFRESH is off unless it is a positive whole number', () => {
+  for (const value of [undefined, '', '0', '-1', '2.5', 'x']) assert.equal(parseBlockedRefresh(value), 0, String(value));
+  assert.equal(parseBlockedRefresh(' 20 '), 20);
+});
+
+test('a blocked implementation far enough behind its base branch gets an upkeep merge without comments, labels, or a run', async () => {
+  const { root, github, pull } = await blockedWithTasks();
+  try {
+    await orchestrate(github, root);
+    assert.ok(pull.labels.some((label) => label.name === BLOCKED_LABEL));
+    const head = github.repo.branches['speckit/a'];
+    for (let index = 0; index < 3; index += 1) advanceRepairBase(github);
+    const off = await orchestrate(github, root);
+    assert.equal(github.repo.branches['speckit/a'], head, 'off by default');
+    assert.doesNotMatch(off.text, /brought up to date/);
+    await orchestrate(github, root, { SPECKIT_BLOCKED_REFRESH: '4' });
+    assert.equal(github.repo.branches['speckit/a'], head, 'no merge below the threshold');
+
+    const comments = github.comments.length;
+    const runs = chainRuns(github).length;
+    const labels = pull.labels.map((label) => label.name).sort();
+    const merged = await orchestrate(github, root, { SPECKIT_BLOCKED_REFRESH: '3' });
+    const refreshed = github.repo.branches['speckit/a'];
+    assert.notEqual(refreshed, head);
+    assert.equal(await github.aheadBy('speckit/a', 'main'), 0, 'the base branch is merged');
+    assert.deepEqual(github.repo.commits[refreshed].parents, [head, github.repo.branches.main]);
+    assert.match(merged.text, new RegExp(`### Blocked implementations brought up to date\\n\\n- Merged \`main\` \\(3 commits ahead\\) into blocked #\\d+ \\(pull request #${pull.number}\\)\\.`));
+    assert.equal(github.comments.length, comments, 'no comment');
+    assert.equal(chainRuns(github).length, runs, 'no run of the chain, no agent, and no verification');
+    assert.deepEqual(pull.labels.map((label) => label.name).sort(), labels, 'no label change');
+    const checks = await github.listCheckRuns(refreshed, CHECK_RUN_NAME);
+    assert.deepEqual(checks.map((check) => [check.status, check.external_id]), [['queued', CHECK_PROGRESS]], 'the progress check run follows the head');
+    await orchestrate(github, root, { SPECKIT_BLOCKED_REFRESH: '3' });
+    assert.equal(github.repo.branches['speckit/a'], refreshed, 'an up-to-date branch is left alone');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a conflicting upkeep merge of a blocked implementation is reported once per base commit and merges nothing', async () => {
+  for (const failure of ['conflict', 'refused']) {
+    const { root, github, pull } = await blockedWithTasks();
+    try {
+      await orchestrate(github, root);
+      const head = github.repo.branches['speckit/a'];
+      advanceRepairBase(github);
+      if (failure === 'conflict') github.mergeBranchOutcome = 'conflict';
+      else github.mergeBranchError = 'Resource not accessible';
+      const env = { SPECKIT_BLOCKED_REFRESH: '1' };
+      const labels = pull.labels.map((label) => label.name).sort();
+      const report = await orchestrate(github, root, env);
+      const notes = () => github.comments.filter((comment) => comment.number === pull.number && comment.body.includes('speckit-implement:refresh-skipped'));
+      assert.equal(notes().length, 1);
+      assert.match(notes()[0].body, new RegExp(`^<!-- speckit-implement:refresh-skipped ${github.repo.branches.main} -->\\n\\*\\*\`main\` was not merged while blocked\\*\\*`));
+      assert.match(notes()[0].body, failure === 'conflict' ? /conflicts/ : /was refused \(Resource not accessible\)/);
+      assert.match(notes()[0].body, /No action is needed: once the block is lifted/);
+      assert.match(report.text, /Did not merge `main` into blocked/);
+      assert.equal(github.repo.branches['speckit/a'], head);
+      assert.deepEqual(pull.labels.map((label) => label.name).sort(), labels, 'no label change');
+      await orchestrate(github, root, env);
+      assert.equal(notes().length, 1, 'the same base commit is not tried again');
+      advanceRepairBase(github);
+      await orchestrate(github, root, env);
+      assert.equal(notes().length, 2, 'a new base commit is tried once');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('the upkeep merge leaves stopped, active, repairing, and synchronizing blocked implementations alone', async () => {
+  const cases = {
+    stopped: async (github) => limitCheck(github, github.repo.branches['speckit/a']),
+    active: async (github) => { chainRuns(github).at(-1).status = 'in_progress'; },
+    synchronizing: async (github, pull) => github.createComment(pull.number, renderSyncComment('Sync required')),
+    repairing: async (github, pull) => github.createComment(pull.number, `${renderRepairMarker({ id: 'phase:1:x', state: 'pending', scope: 'phase', tasks: ['T001'], head: github.repo.branches['speckit/a'], at: github.tick() })}\npending`),
+  };
+  for (const [name, hold] of Object.entries(cases)) {
+    const { root, github, pull } = await blockedWithTasks();
+    try {
+      await orchestrate(github, root);
+      await hold(github, pull);
+      const head = github.repo.branches['speckit/a'];
+      for (let index = 0; index < 3; index += 1) advanceRepairBase(github);
+      await orchestrate(github, root, { SPECKIT_BLOCKED_REFRESH: '1' });
+      assert.equal(github.repo.branches['speckit/a'], head, name);
+      assert.equal(github.comments.some((comment) => comment.body.includes('speckit-implement:refresh-skipped')), false, name);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('after an upkeep merge, lifting the block still requires the synchronization, and the merge is not a person\'s push', async () => {
+  const { root, github, twin, pull } = await blockedWithTasks();
+  try {
+    await orchestrate(github, root);
+    advanceRepairBase(github);
+    await orchestrate(github, root, { SPECKIT_BLOCKED_REFRESH: '1' });
+    const refreshed = github.repo.branches['speckit/a'];
+    assert.equal(await github.aheadBy('speckit/a', 'main'), 0);
+    // GitHub's merge API commits as the workflow token's identity.
+    const merge = { sha: refreshed, author: { login: BOT_LOGIN }, committer: { login: 'web-flow' }, commit: { committer: { date: github.tick() } } };
+    assert.equal(latestHumanCommit([merge]), undefined, 'an upkeep merge never counts as a person\'s push');
+    github.repo.pullCommits = { [pull.number]: [merge] };
+    assert.equal(await doneByPush(github, { pull: pull.number, task: 'T001' }), false, 'nor lands a task without a change');
+    const decision = await decideForPull(github, { twin: twin.number, folder: 'a', pullNumber: pull.number, now: github.clock });
+    assert.equal(decision.pushedAt, undefined, 'and opens no attempt window');
+
+    advanceRepairBase(github);
+    Object.assign(github.find(77), { state: 'closed', state_reason: 'completed' });
+    await orchestrate(github, root, { SPECKIT_BLOCKED_REFRESH: '1' });
+    assert.equal(pull.labels.some((label) => label.name === BLOCKED_LABEL), false);
+    assert.ok(syncBarrier(github.comments.filter((comment) => comment.number === pull.number)));
+    assert.equal(github.repo.branches['speckit/a'], refreshed, 'an unblocked implementation gets no upkeep merge');
+    assert.equal((await decide(github, root, twin, {}, runSyncBase)).outputs.result, 'required', 'the base is merged and verified by the required synchronization');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
