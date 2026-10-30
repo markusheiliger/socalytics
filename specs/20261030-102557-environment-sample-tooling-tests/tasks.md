@@ -76,7 +76,7 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T012 Update the documentation to the implemented state: re-read `docs/architecture/` for `environment-verify`, `verification`, and `tools/` statements and confirm none became false (the plan expects `None`), and confirm `.github/actions/environment-verify/README.md` is the only documentation that describes the check; make no `docs/architecture/` edit unless a statement became false
+- [ ] T012 Update the documentation to the implemented state, only if needed: re-read `docs/architecture/` for `environment-verify`, verification coverage, and `tools/` statements, and only if a statement about `environment-verify`, verification coverage, or the `tools/` sample tooling became false through this feature, correct that statement; the plan expects `None`, so otherwise this task changes nothing and its completion is claimed as not applicable
 - [ ] T013 Run `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test .github/actions/environment-verify/*.test.mjs`, `node --test tools/samples.test.mjs`, `node --test .github/scripts/speckit-*.test.mjs`, and `node .github/scripts/check-markdown.mjs --files .github/actions/environment-verify/README.md`; then run the quickstart plan check for `tools/samples.test.mjs` plus a spec-folder file and confirm `"uncovered": []`, and confirm `git status` shows changes only below `.github/actions/environment-verify/` and this spec folder (no change to `environment-setup`, `.github/scripts/`, workflows, or `tools/`)
 
 ---
