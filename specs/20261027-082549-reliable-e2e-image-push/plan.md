@@ -51,7 +51,7 @@ No NEEDS CLARIFICATION remain; the values in [research.md](research.md) are deve
 
 | Principle / constraint | Result |
 | --- | --- |
-| I. Architecture is the design authority | Pass. No design decision of `docs/architecture/` changes; no architecture statement is changed (see Architecture Updates); T027 only verifies that the two end-to-end evidence statements remain true. |
+| I. Architecture is the design authority | Pass. No design decision of `docs/architecture/` changes; no architecture statement is changed (see Architecture Updates); T027 corrects one of the two end-to-end evidence statements only if the change made it false, which the plan does not expect. |
 | II. Source-area ownership | Pass. Everything lives in `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests` (platform area); no new `src/` child. The README is the project's first documentation artifact. |
 | III. API-first control plane | Not affected (no API, contract, or video path). |
 | IV. Evidence over claims | Pass. Unit tests without Docker plus one full Docker-backed run and the Images tests; stability evidence over repeated runs is recorded manually and is not presented as production readiness. |
