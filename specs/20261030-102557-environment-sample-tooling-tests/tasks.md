@@ -67,10 +67,10 @@
 
 **Goal**: The README documents the check, and the action's tests assert each rule.
 
-**Independent Test**: Read the README section; check that the tests contain assertions for the pattern, the budget, and the check block, and that the action's test suite passes (T011).
+**Independent Test**: Read the README section; check that the tests contain assertions for the pattern, the budget, and the check block, that the action's test suite passes, and that the targeted tests fail for each corresponding rule-removal mutation (T011).
 
 - [x] T010 [US4] In `.github/actions/environment-verify/README.md`, add a section "Sample tooling tests" after "Spec Kit tooling tests" documenting the check name, the command `node --test tools/samples.test.mjs`, the trigger (exactly the four files changed or deleted, always in finalize mode, never otherwise), the nested-run marker, the first-shard-only placement and its budget, the three failure messages, and the covered scope (exactly the four files, no broader `tools/` glob); update the check-order sentence (line 194), the `checks` description, the scope reason mention (line 71), and the covered-paths list (line 202) to include the four files and state that every other `tools/` path stays uncovered
-- [ ] T011 [US4] Verification only: run `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test .github/actions/environment-verify/*.test.mjs` and confirm that every test passes, including the cases for the check, its triggers, its scope, and its sharding; no file changes and no mutation run (completion claimed as verified)
+- [ ] T011 [US4] Verify the regression tests: run `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test .github/actions/environment-verify/*.test.mjs` and confirm every test passes. Then, in three separate temporary copies of `.github/actions/environment-verify`, remove the `upload-samples` alternative from the `applies` pattern in `action.yml` and confirm `verification-plan.test.mjs`'s “matches the same paths with SAMPLE_TOOLING_FILE and the applies pattern of action.yml” test fails; remove the `upload-samples` alternative from `SAMPLE_TOOLING_FILE` in `verification-scope.mjs` and confirm its “covers each of the four sample tooling files” test fails; and reduce `MAIN_MINUTES` to 5 in `verification-plan.mjs` and confirm the “counts the Sample tooling tests in the first shard's minutes” test fails. Keep all mutations outside the repository and leave its files unchanged.
 
 ---
 
@@ -83,7 +83,7 @@
 
 ## Dependencies & Execution Order
 
-- Phase 1 (T001) first. User Story 1 (T002, T003) next: the check must run before any path is counted covered (FR-005). User Story 2 (T004 to T007) follows; T005 needs T004's export, and T007 needs T002 and T005. User Story 3 (T008, T009) after User Story 2 because both edit `verification-plan.mjs` and its test. User Story 4 (T010, T011) after the code tasks; T011 only verifies, without a file change, that the action's tests pass. Polish (T012, T013) last.
+- Phase 1 (T001) first. User Story 1 (T002, T003) next: the check must run before any path is counted covered (FR-005). User Story 2 (T004 to T007) follows; T005 needs T004's export, and T007 needs T002 and T005. User Story 3 (T008, T009) after User Story 2 because both edit `verification-plan.mjs` and its test. User Story 4 (T010, T011) after the code tasks; T011 verifies the action's tests and their detection of rule removals on temporary copies without changing repository files. Polish (T012, T013) last.
 - Tasks are sequential because they share `action.yml`, `verification-plan.mjs`, and the test files; except the group "Scope and plan tests" (T006, T007), which runs in parallel: T006 changes only `verification-scope.test.mjs` and T007 only `verification-plan.test.mjs` (it reads `action.yml` without changing it).
 
 ## Implementation Strategy
