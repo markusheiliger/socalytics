@@ -28,11 +28,11 @@ import {
   folderOfBranch,
   implementationBranch,
   isCopilotRequest,
-  latestStopReason,
   neutralizeMarkers,
   parseCommandArguments,
   renderRetryComment,
-  renderSyncComment,
+  requestSync,
+  restartState,
   setAttention,
   supersedeActionRequired,
   specTitleOfPull,
@@ -156,26 +156,11 @@ export async function retryImplementation(client, env, { implementation, twin, f
   }
 }
 
-// Requests the required synchronization like `/speckit sync`: the sync comment persists the request, which merges the
-// pull request base and passes full verification before any work continues. `lead` says who requested it; `prefix`
-// and `suffix` as for retryImplementation.
-export async function requestSync(client, env, { implementation, twin }, { lead, guidance = '', prefix = '', suffix = '' }) {
-  const reach = guidance ? ` ${describeGuidanceReach('sync', { lastStop: latestStopReason(await client.listIssueComments(implementation.number)) })}` : '';
-  await client.createComment(implementation.number, `${prefix}${renderSyncComment(
-    `${lead}; merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.${reach}${suffix}`,
-    guidance,
-    await restartState(client, implementation),
-  )}`);
-  await setAttention(client, implementation.number, false);
-  await supersedeActionRequired(client, implementation.number);
-  try {
-    await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
-  } catch {
-    // The durable request survives a failed dispatch or replacement by another pending run.
-  }
-}
-
 export const RETRY_EFFECT = 'what stopped restarts with a fresh attempt count while preserving the current phase base.';
+
+// The required synchronization (`/speckit sync`) and the restart state live in core, so the scheduler posts the same
+// request when it lifts a block (maintainDependencyBlock).
+export { requestSync, restartState };
 
 // Command router (issue_comment): validates the author and the command, reacts, and performs the command. Comments
 // by bots never get here; the workflow filters them. SPECKIT_TARGET `twin` marks a comment on a spec twin issue; every
@@ -260,14 +245,6 @@ async function handleSync({ client, env, actor, number, guidance, implementation
   await requestSync(client, env, { implementation, twin }, { lead: `Required synchronization requested by @${actor}`, guidance });
   if (number !== implementation.number) await reply(client, number, `Synchronization requested; progress is reported on #${implementation.number}.`);
   return { outcome: 'sync requested' };
-}
-
-export async function restartState(client, implementation) {
-  let base = null;
-  try {
-    base = await client.getBranchSha(baseBranchOf(implementation));
-  } catch {}
-  return { head: implementation.head.sha, base };
 }
 
 // Refuses a restart while the implementation is stopped and the last MAX_UNCHANGED_RESTARTS restarts left its branch

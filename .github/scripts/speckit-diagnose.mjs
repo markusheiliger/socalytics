@@ -43,6 +43,7 @@ import {
   nextTaskGroup,
   failedCopilotRecoveries,
   failedRecoveryRoutes,
+  failedSynchronization,
   recoveryReassessment,
   reassessRecovery,
   normalizeRecovery,
@@ -251,6 +252,10 @@ export async function runEvidence({ client, env, log }) {
     sections.push('## Guidance from the person who started this diagnosis', '', env.SPECKIT_GUIDANCE?.trim() ? env.SPECKIT_GUIDANCE.trim() : '_None._', '');
     // The live command reference: what each command does on this pull request, generated from PR_COMMANDS.
     sections.push(renderCommandReference({ baseBranch, repair: unresolvedRepair(comments) }));
+    const failedSync = failedSynchronization(comments, pull.head.sha);
+    if (failedSync) sections.push('## Earlier required synchronization failed', '',
+      `The required \`/speckit sync\` requested at ${failedSync.at}${failedSync.url ? ` (${failedSync.url})` : ''} stopped without moving this branch: ${neutralizeMarkers(failedSync.reason)}`,
+      'State this failed sync prominently in the diagnosis, outside collapsed evidence. Explain why another sync would or would not help. A permission cause is a hypothesis unless the remote rejection proves it. If a trusted-tooling fix can unblock it, provide a self-contained Copilot Chat prompt targeting the default branch, not a PR-comment handoff.', '');
     const repeated = repeatedFailure(comments, pull.head.sha);
     if (repeated) {
       sections.push(
@@ -379,7 +384,7 @@ export function validateReport(raw, { requireCategory = true } = {}) {
   if (requireCategory && !normalized.category) reasons.push(`the category must be one of ${CATEGORIES.join(', ')}`);
   if (!normalized.summary) reasons.push('the summary is missing');
   for (const option of normalized.options) {
-    if (option.kind === 'external' && (option.command || option.copilot)) {
+    if (option.kind === 'external' && (option.command || (option.copilot && option.target !== 'tooling'))) {
       reasons.push(`option "${option.title}" is an external prerequisite and must not attach an immediately runnable command`);
     }
     if (!option.command) continue;
@@ -398,7 +403,10 @@ export function validateReport(raw, { requireCategory = true } = {}) {
   for (const option of normalized.options) {
     if (!option.copilot) continue;
     const prompt = option.copilot.replace(/^@copilot\b[\s,:]*/i, '').trim();
-    if (option.command) {
+    if (option.target === 'tooling' && (normalized.category !== 'outside' || option.kind !== 'external')) {
+      reasons.push(`option "${option.title}" needs category outside and kind external for a default-branch tooling prompt`);
+      option.copilot = null;
+    } else if (option.command) {
       reasons.push(`option "${option.title}" has both a command and a Copilot prompt; the command is kept`);
       option.copilot = null;
     } else if (!prompt || prompt.length > MAX_COPILOT_PROMPT || prompt.includes('```') || prompt.match(PLACEHOLDER_PATTERN)) {
@@ -593,7 +601,8 @@ export function recommendNextSteps(report, { amendment = null, repeated = null, 
       !(parseNextCommand(option.command)?.verb === 'author' && !['feature', 'environment'].includes(option.target)) &&
       !(parseNextCommand(option.command)?.verb === 'sync' && (option.target !== 'base' || !/^[0-9a-f]{40}$/.test(option.fixedBy ?? ''))) &&
       !(parseNextCommand(option.command)?.verb === 'retry' && report.evidence.length === 0))
-    || (Boolean(option.copilot) && COPILOT_CATEGORIES.includes(report.category));
+    || (Boolean(option.copilot) && (COPILOT_CATEGORIES.includes(report.category) ||
+      (report.category === 'outside' && option.kind === 'external' && option.target === 'tooling')));
   const agentPick = options.find((option) => option.recommended) ?? null;
   if (agentPick && fits(agentPick)) return { options, notes, adjusted };
   if (agentPick) {
@@ -619,9 +628,12 @@ export function recommendNextSteps(report, { amendment = null, repeated = null, 
   return { options: [{ ...fallback, recommended: true }, ...options], notes, adjusted };
 }
 
-export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null, baseBranch = null, continuation = null, diagnosisUrl = null, repeated = null, failed = [], exhausted = false, baseFixReady = false }) {
+export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null, baseBranch = null, defaultBranch = null, implementationPull = null, continuation = null, diagnosisUrl = null, repeated = null, failedSync = null, failed = [], exhausted = false, baseFixReady = false }) {
   const lines = [DIAGNOSIS_COMMENT_MARKER];
-  const context = { behindBase, baseBranch, continuation, diagnosed: true, diagnosisUrl };
+  const context = { behindBase, baseBranch, defaultBranch, implementationPull, continuation, diagnosed: true, diagnosisUrl };
+  if (failedSync) lines.push('', `**Earlier \`/speckit sync\` failed**: the request ${failedSync.url ? `[at ${neutralizeMarkers(failedSync.at)}](${failedSync.url})` : `at ${neutralizeMarkers(failedSync.at)}`} stopped without moving the implementation branch: ${neutralizeMarkers(failedSync.reason)}`, '',
+    baseFixReady ? 'A new relevant fix on the base branch has been verified since that failed synchronization.'
+      : 'Another sync uses the same automation and credentials. Without a relevant fix or changed prerequisite, repeating it is not a remedy.', '');
   if (!report) {
     lines.push(
       `**Diagnosis${round > 1 ? ` (round ${round})` : ''} did not produce a usable report**: ${reasons.map(neutralizeMarkers).join('; ') || 'no report'}.`,
@@ -755,6 +767,9 @@ export async function runRecord({ client, env, log }) {
     runUrl,
     amendment,
     repeated,
+    failedSync: failedSynchronization(comments, implementation.head.sha),
+    defaultBranch: defaultBranchOf(env),
+    implementationPull: pullNumber,
     failed,
     exhausted,
     baseFixReady,

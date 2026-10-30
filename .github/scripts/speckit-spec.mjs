@@ -38,6 +38,10 @@ import {
   pendingAmendmentRequest,
   pendingCopilotHandoff,
   acceptedImplementationAction,
+  attemptEvidence,
+  autoContinuedStop,
+  FAILURE_CLASS_TEXT,
+  retryState,
   trustedMarker,
   recoveryReassessment,
   ACTION_REQUIRED_MARKER,
@@ -125,9 +129,11 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   const done = markerTimes(comments, DONE_COMMENT_MARKER).length > 0;
   const windowStart = [pull.created_at, ...restartedAt, ...(pushedAt ? [pushedAt] : [])].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   const latestRestart = [...restartedAt].sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
-  let decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestRestart, now });
+  // After an automatic continuation, the item that stopped the implementation gets no second attempt for the same failure.
+  const stopped = autoContinuedStop(comments, attempts, windowStart);
+  let decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestRestart, now, stopped });
   const prerequisiteDecision = comments.some((comment) => comment.user?.login === BOT_LOGIN &&
-    startsWithMarker(comment.body, UNBLOCKED_MARKER) && !comment.body.includes(RETRY_COMMENT_MARKER) &&
+    startsWithMarker(comment.body, UNBLOCKED_MARKER) && !liftRestarts(comment.body) &&
     Date.parse(comment.created_at) >= Date.parse(windowStart));
   if (prerequisiteDecision && decision.action !== 'diagnosing') {
     decision = { action: 'failed', diagnosis: { state: 'reported', count: 0 } };
@@ -220,16 +226,20 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
           ...state,
         };
       }
-      const count = list.filter((attempt) => attempt.outcome === 'failure').length;
-      if (count >= MAX_TASK_ATTEMPTS || list.length >= MAX_TASK_ATTEMPTS * 2) {
-        return { action: 'limit', kind: 'resolve', attempts: list.length, requiredSync: barrier, ...state };
+      const retry = retryState(list, { kind: 'resolve', stopped: since === Date.parse(windowStart) ? stopped : null });
+      if (retry.exceeded) {
+        return {
+          action: 'limit', kind: 'resolve', attempts: list.length, ...(retry.failureClass ? { failureClass: retry.failureClass } : {}),
+          ...(retry.sameAsStop ? { sameAsStop: true } : {}), requiredSync: barrier, ...state,
+        };
       }
       if (list.some((attempt) => attempt.outcome === 'attention')) {
         return { action: 'failed', requiredSync: barrier, diagnosis: { state: 'reported', count: 0 }, ...state };
       }
       return {
         action: 'tasks', kind: 'resolve', requiredSync: barrier, repair,
-        order: [[{ task: null, attempt: list.length + 1 }]],
+        order: [[{ task: null, attempt: list.length + 1, ...(retry.previous ? { previous: retry.previous } : {}) }]],
+        ...(retry.wait ? { wait: true } : {}),
         ...state,
       };
     }
@@ -239,6 +249,12 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
     return { action: 'failed', diagnosis: { state: 'stale', check: latestCheckRun(checks), count }, ...state };
   }
   return { ...decision, ...state };
+}
+
+// Whether the comment that lifted a block also restarted the implementation: the required synchronization of a lifted
+// block (maintainDependencyBlock), or the retry of earlier tooling. Without it the lift stopped for a person.
+function liftRestarts(body) {
+  return [RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER].some((marker) => String(body ?? '').includes(marker));
 }
 
 // Whether a decision needs a run of the chain: work to do, a stop to report, or a diagnosis to start.
@@ -285,7 +301,7 @@ export async function implementationAttention(client, decision, { blocked = fals
     }
   }
   if (!recommendation) recommendation = [...comments].reverse().find((comment) => comment.user?.login === BOT_LOGIN &&
-    startsWithMarker(comment.body, UNBLOCKED_MARKER) && !comment.body.includes(RETRY_COMMENT_MARKER) &&
+    startsWithMarker(comment.body, UNBLOCKED_MARKER) && !liftRestarts(comment.body) &&
     !acceptedImplementationAction(comments, comment.created_at)) ?? null;
   if (needed) {
     const handoff = pendingCopilotHandoff(comments, { pushedAt: decision.pushedAt, now });
@@ -363,6 +379,15 @@ async function startMerge(client, { pull, attempt }) {
   return (await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: pull.head.sha, ...fields })).id;
 }
 
+// Why a stop at the attempt limit came now: the class of the failure that stopped it (FAILURE_CLASSES), and whether it
+// repeated the failure that stopped the implementation before the diagnosis continued it automatically.
+export function limitReason(decision) {
+  if (!decision.failureClass) return '';
+  if (decision.sameAsStop) return `; it failed the same way as before the automatic continuation (${FAILURE_CLASS_TEXT[decision.failureClass]}), so it stops for the diagnosis without a second attempt`;
+  if (decision.failureClass === 'repeat') return `; ${FAILURE_CLASS_TEXT.repeat}`;
+  return `; the last failure: ${FAILURE_CLASS_TEXT[decision.failureClass]}`;
+}
+
 async function stopAtLimit(client, env, { pull, folder, requester }, decision) {
   const label = kindLabel(decision);
   await client.createCheckRun({
@@ -374,7 +399,7 @@ async function stopAtLimit(client, env, { pull, folder, requester }, decision) {
     output: { title: `${label} reached the attempt limit`, summary: `The implementation stopped at ${label} after ${decision.attempts} attempts.` },
   });
   await client.createComment(pull.number, [
-    `**Implementation needs attention**${requester ? ` @${requester}` : ''}: ${label} did not succeed in ${decision.attempts} attempts (at most ${MAX_TASK_ATTEMPTS} failed attempts are allowed).`,
+    `**Implementation needs attention**${requester ? ` @${requester}` : ''}: ${label} did not succeed in ${decision.attempts} attempt${decision.attempts === 1 ? '' : 's'} (at most ${MAX_TASK_ATTEMPTS} failed attempts are allowed)${limitReason(decision)}.`,
     '',
     'See the comments above for the reasons.',
     '',
@@ -417,7 +442,8 @@ function readSpecInputs(env) {
 }
 
 // The work items of each entry of a decision's task order (decideNext, action "tasks"), the input `entry` of Spec Kit
-// implement work: the task, attempt, guidance, and task summary, and for a conflict resolution that completes a
+// implement work: the task, attempt, guidance, task summary, the previous failure's report (`evidence`, attempt 2
+// only), and for a conflict resolution that completes a
 // /speckit sync request `required_sync` and `sync_repair`; the agents' prompts live in the gha Spec Kit workflows the
 // work jobs run. Guidance from a retry
 // applies to the stopped task, convergence, or conflict resolution, which is always the first entry. Every task is
@@ -429,12 +455,15 @@ function prepareOrder(decision) {
   );
   const texts = new Map(listTasks(decision.tasksMarkdown).map((task) => [task.id, task.text]));
   return decision.order.map((entry, index) => ({
-    include: entry.map(({ task, attempt }) => {
+    include: entry.map(({ task, attempt, previous }) => {
       const activeGuidance = index === 0 ? guidance : '';
+      // The second attempt gets the report of the failed first one as evidence (attemptEvidence).
+      const evidence = attempt > 1 && previous ? attemptEvidence(decision.comments ?? [], previous) : '';
       return {
         task: task ?? '',
         attempt,
         guidance: activeGuidance,
+        ...(evidence ? { evidence } : {}),
         ...(decision.requiredSync ? { required_sync: decision.requiredSync.request } : {}),
         ...(decision.requiredSync && decision.repair ? { sync_repair: decision.repair } : {}),
         summary: task ? neutralizeMarkers(summarizeTask(texts.get(task) ?? '')).slice(0, 300) : '',
@@ -577,7 +606,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   const orphaned = await closeOrphanedAttempts(client, listed);
   if (orphaned > 0) report.line(`Recorded ${orphaned} attempt(s) of an earlier run that ended without reporting as failed.`);
   // An open dependency of the twin, also one a person added while the chain runs, ends the chain before its next work;
-  // the scheduler retries the implementation once the prerequisites are implemented (maintainDependencyBlock).
+  // the scheduler requests the required synchronization once the prerequisites are implemented (maintainDependencyBlock).
   const prerequisites = await openPrerequisites(client, twin);
   if (prerequisites.length > 0) {
     await setBlocked(client, pullNumber, true, { explain: await explainDependencyBlock(client, prerequisites) });
@@ -622,7 +651,8 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   if (decision.action === 'merge') {
     const checkRun = await startMerge(client, { pull, attempt: decision.attempt });
     report.line(`Merging into \`${common.base_branch}\`, attempt ${decision.attempt}.`);
-    return finish('merge', { ...common, attempt: String(decision.attempt), check_run: String(checkRun) });
+    if (decision.wait) report.line(`It starts after a short wait, because the last attempt failed before its work ran.`);
+    return finish('merge', { ...common, attempt: String(decision.attempt), check_run: String(checkRun), wait: String(Boolean(decision.wait)) });
   }
   if (decision.action === 'repair') {
     // A retried repair continues on its current base.
@@ -690,6 +720,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   const subject = renderRunSubject(decision, { summaries: taskSummaries(decision.tasksMarkdown) });
   reportOrder(report, decision.kind, order);
   if (decision.kind === 'task' && decision.completesPhase) report.line(`- Then ${phaseSubject(decision.phase)} is verified in the next run.`);
+  if (decision.wait) report.line('- It starts after a short wait, because a last attempt failed before its agent ran.');
   return finish('group', {
     ...common,
     kind: WORK_VERBS[decision.kind],
@@ -699,6 +730,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     entries: JSON.stringify(entries),
     phase: decision.phase ?? '',
     job_name: subject,
+    wait: String(Boolean(decision.wait)),
   });
 }
 
@@ -744,6 +776,14 @@ export async function runSync({ client, env, log, now = Date.now }) {
   const listed = await client.getPullRequest(pullNumber);
   if (!folder || listed.state !== 'open' || listed.head?.ref !== implementationBranch(folder)) {
     report.line('Nothing to merge: no open implementation pull request.');
+    return finish('none');
+  }
+  // A blocked implementation is never merged here: the decide step ends the chain before its next work, and only the
+  // scheduler's upkeep merge (refreshBlocked) may bring it closer to its base branch while it waits. Once the block is
+  // lifted the prerequisites are closed, so the required synchronization of the lift merges here as usual.
+  const prerequisites = await openPrerequisites(client, twin);
+  if (prerequisites.length > 0) {
+    report.line(`Nothing to merge: the implementation is blocked by ${prerequisites.map((blocker) => `#${blocker.number}`).join(', ')}.`);
     return finish('none');
   }
   const decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env) });

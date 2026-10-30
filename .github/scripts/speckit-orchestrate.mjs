@@ -34,8 +34,19 @@ import {
   ROADBLOCK_LABEL,
   ROADBLOCK_MARKER,
   BRANCH_PREFIX,
+  CHECK_CONFLICT,
+  CHECK_DIAGNOSED,
+  CHECK_DIAGNOSING,
+  CHECK_DONE,
+  CHECK_LIMIT,
+  CHECK_MERGE,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
+  CHECK_SYNC_CONFLICT,
+  refreshSkippedShas,
+  renderRefreshSkippedMarker,
+  syncBarrier,
+  unresolvedRepair,
   DIAGNOSIS_COMMENT_MARKER,
   ACTION_REQUIRED_MARKER,
   acceptedImplementationAction,
@@ -463,8 +474,8 @@ async function maintainBlock(client, env, { implementation, twin, rootDir = null
 }
 
 // Every open implementation pull request labelled BLOCKED_LABEL that the twin loop did not handle (for example because
-// its twin is inconsistent) is maintained as well, so an implemented prerequisite always lifts the block and retries
-// it. Returns the number of actions taken.
+// its twin is inconsistent) is maintained as well, so an implemented prerequisite always lifts the block and requests the
+// required synchronization. Returns the number of actions taken.
 async function sweepBlocked(client, env, { handled, now, notes, rootDir = null }) {
   let actions = 0;
   let pulls;
@@ -561,6 +572,90 @@ async function chainActive(client, twin, since) {
   return false;
 }
 
+// Upkeep merge of blocked implementations (SPECKIT_BLOCKED_REFRESH): the number of commits the base branch must be ahead
+// of a blocked implementation branch before the scheduler merges it through GitHub's merge API, so the gap does not keep
+// growing while the implementation waits. `0`, unset, or anything else than a positive whole number turns it off.
+export function parseBlockedRefresh(value) {
+  const number = Number(String(value ?? '').trim());
+  return Number.isInteger(number) && number > 0 ? number : 0;
+}
+
+// Check runs whose state lives on the head commit and would be lost if an upkeep merge moved the head: a stop, its
+// diagnosis, a conflict, the merge, or the end of the implementation.
+const REFRESH_HOLDING_CHECKS = [CHECK_LIMIT, CHECK_DIAGNOSING, CHECK_DIAGNOSED, CHECK_CONFLICT, CHECK_SYNC_CONFLICT, CHECK_MERGE, CHECK_DONE];
+
+// Why a blocked implementation must not get an upkeep merge, or null when it may.
+function refreshHeld(twin) {
+  const decision = twin.decision ?? {};
+  if (twin.active) return 'a run of its chain is active';
+  if (decision.requiredSync || syncBarrier(decision.comments ?? [])) return 'a required synchronization is pending';
+  if (decision.repair || unresolvedRepair(decision.comments ?? [])) return 'a repair is pending';
+  if (!['tasks', 'merge'].includes(decision.action)) return `it is ${decision.action === 'diagnosing' ? 'being diagnosed' : 'stopped'}`;
+  const checks = decision.checks ?? [];
+  if (checks.some((check) => REFRESH_HOLDING_CHECKS.includes(check.external_id))) return 'its head carries a stop, a conflict, or the merge';
+  if (checks.some((check) => check.status !== 'completed' && check.external_id !== CHECK_PROGRESS)) return 'an attempt is running on its head';
+  return null;
+}
+
+// Merges the base branch into blocked implementations that are at least SPECKIT_BLOCKED_REFRESH commits behind it,
+// through GitHub's merge API (no agent, no verification, no attempt, and no label change), so a later conflict
+// resolution has less to do. An implementation that is stopped, active, repairing, or waits for a required
+// synchronization is left alone, because its state lives on its head. A conflict or a refused merge merges nothing and
+// is recorded once per base commit with a hidden marker, so the same base is never tried again; the conflict is then
+// resolved by the required synchronization once the block is lifted (maintainDependencyBlock). The merge commit is the
+// workflow's, so it is never taken for a person's push. Returns the report lines.
+export async function refreshBlocked(client, env, inProgress) {
+  const threshold = parseBlockedRefresh(env.SPECKIT_BLOCKED_REFRESH);
+  if (threshold === 0) return [];
+  const lines = [];
+  for (const twin of inProgress.filter((candidate) => candidate.blocked)) {
+    if (refreshHeld(twin)) continue;
+    const pull = twin.decision.pull;
+    const base = baseBranchOf(pull);
+    const branch = implementationBranch(twin.folder);
+    try {
+      const behind = await client.aheadBy(branch, base);
+      if (behind < threshold) continue;
+      const baseSha = await client.getBranchSha(base);
+      if (refreshSkippedShas(twin.decision.comments).has(baseSha)) continue;
+      let outcome;
+      let reason = '';
+      try {
+        outcome = await client.mergeBranch(branch, base, `Merge ${base} into ${branch} while blocked`);
+      } catch (error) {
+        outcome = 'refused';
+        reason = error.message;
+      }
+      if (outcome === 'merged') {
+        // The queued progress check run of the old head keeps showing the implementation's state on the new head.
+        const progress = (twin.decision.checks ?? []).find((check) => check.status === 'queued' && check.external_id === CHECK_PROGRESS);
+        if (progress) {
+          try {
+            const head = await client.getBranchSha(branch);
+            await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'queued', external_id: CHECK_PROGRESS, output: progress.output ?? { title: 'Blocked', summary: 'The implementation waits for its prerequisites.' } });
+          } catch {
+            // The progress check run is a convenience.
+          }
+        }
+        lines.push(`- Merged \`${base}\` (${behind} commits ahead) into blocked #${twin.number} (pull request #${twin.pull}).`);
+      } else if (outcome === 'up-to-date') {
+        continue;
+      } else {
+        await client.createComment(twin.pull, [
+          renderRefreshSkippedMarker(baseSha),
+          `**\`${base}\` was not merged while blocked**: the merge of \`${base}\` at \`${baseSha.slice(0, 7)}\` into \`${branch}\` ${outcome === 'conflict' ? 'conflicts (GitHub does not report which files)' : `was refused (${neutralizeMarkers(reason)})`}, so nothing was merged.`,
+          '',
+          'No action is needed: once the block is lifted, the implementation merges the base branch with conflict resolution and passes full verification before it continues. This commit is not tried again.',
+        ].join('\n'));
+        lines.push(`- Did not merge \`${base}\` into blocked #${twin.number} (pull request #${twin.pull}): ${outcome === 'conflict' ? 'it conflicts' : 'GitHub refused the merge'}; recorded for \`${baseSha.slice(0, 7)}\`.`);
+      }
+    } catch (error) {
+      lines.push(`- Warning: could not bring blocked #${twin.number} (pull request #${twin.pull}) up to date: ${error.message}`);
+    }
+  }
+  return lines;
+}
+
 // Scheduler: selects flagged twins, starts new implementations while fewer than SPECKIT_MAX_ACTIVE_SPECS are active,
 // and restarts the implementation chain of a twin in progress when no run of it is active although there is something
 // to do (the chain broke, a person pushed, or a merged amendment or a command asked to continue). Each implementation
@@ -573,7 +668,8 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
   report.line();
   let actions = selection.amendmentActions ?? 0;
   const maxActive = parseMaxActiveSpecs(env.SPECKIT_MAX_ACTIVE_SPECS);
-  // A blocked implementation is not continued: it waits for its prerequisites and retries once they are implemented. It
+  // A blocked implementation is not continued: it waits for its prerequisites (at most with an upkeep merge of its base
+  // branch, refreshBlocked) and synchronizes with its base branch once they are implemented. It
   // still holds its slot, so the scheduler starts the prerequisites that unblock it (they start even at the limit)
   // instead of new specs that would most likely run into the same problems.
   const continues = (twin) => !twin.active && !twin.blocked && needsRun(twin.decision, env);
@@ -615,6 +711,13 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     report.line('### Awaiting human action');
     report.line();
     for (const line of actionRequired) report.line(line);
+  }
+  const refreshed = await refreshBlocked(client, env, selection.inProgress);
+  if (refreshed.length > 0) {
+    report.line();
+    report.line('### Blocked implementations brought up to date');
+    report.line();
+    for (const line of refreshed) report.line(line);
   }
   const roadblocks = await maintainRoadblocks(client, env, selection.inProgress);
   if (roadblocks.length > 0) {

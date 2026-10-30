@@ -266,7 +266,7 @@ test('renders the chain run name, attempt markers, and prompts', () => {
     comment(renderAttemptMarker({ kind: 'converge', attempt: 1, outcome: 'success' }), undefined, '2026-10-06T10:00:00Z'),
     comment(renderAttemptMarker({ kind: 'repair', attempt: 1, outcome: 'failure' }), undefined, '2026-10-06T10:30:00Z'),
     comment(marker, 'mallory'),
-    comment('<!-- speckit-implement:attempt {"kind":"merge","outcome":"failure"} -->'),
+    comment('<!-- speckit-implement:attempt {"kind":"deploy","outcome":"failure"} -->'),
     comment('<!-- speckit-implement:attempt {"step":"task","task":"T001","attempt":1,"outcome":"success"} -->', undefined, '2026-10-06T09:00:00Z'),
     comment('<!-- speckit-implement:attempt {broken -->'),
   ]), [
@@ -299,11 +299,11 @@ test('decides the next tasks of an implementation from the attempt ledger', () =
 
   assert.deepEqual(decide({ done: true }), { action: 'done' });
   assert.deepEqual(decide({}), order([{ task: 'T002', attempt: 1 }]));
-  assert.deepEqual(decide({ attempts: [attempt('T001'), attempt('T002')] }), order([{ task: 'T002', attempt: 2 }]));
+  assert.deepEqual(decide({ attempts: [attempt('T001'), attempt('T002')] }), order([{ task: 'T002', attempt: 2, previous: attempt('T002') }]));
   assert.deepEqual(decide({ attempts: [attempt('T002', 'failure', '2026-10-06T09:00:00Z')] }), order([{ task: 'T002', attempt: 1 }]), 'attempts before the window do not count');
-  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002', 'requeue')] }), order([{ task: 'T002', attempt: 4 }]), 'a redo is no failure');
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002', 'requeue')] }), order([{ task: 'T002', attempt: 4, previous: attempt('T002') }]), 'a redo is no failure');
   assert.deepEqual(decide({ tasksMarkdown: TASKS.replace('- [ ] T002', '- [x] T002') }), group('sequential', true, [{ task: 'T003', attempt: 1 }]), 'a sequential group runs one task per entry');
-  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 2, stale: [] });
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 2, failureClass: 'agent', stale: [] });
   const noOps = Array.from({ length: 4 }, () => attempt('T002', 'requeue'));
   assert.deepEqual(decide({ attempts: noOps }), { action: 'limit', kind: 'task', task: 'T002', attempts: 4, stale: [] }, 'endless redos stop too');
   assert.deepEqual(decide({ checks: [{ id: 1, external_id: CHECK_DONE, conclusion: 'success' }] }), { action: 'done' });
@@ -590,8 +590,8 @@ test('decides parallel [P] tasks and their limit', () => {
   const members = [{ task: 'T002', attempt: 1 }, { task: 'T003', attempt: 1 }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }];
   assert.deepEqual(decide({}), order(members), 'consecutive [P] tasks form one parallel group; T006 follows in the next run');
   const afterLand = PARALLEL_TASKS.replace('- [ ] T002', '- [x] T002');
-  assert.deepEqual(decide({ tasksMarkdown: afterLand, attempts: [attempt('T002', 'success'), attempt('T003')] }).order[0], [{ task: 'T003', attempt: 2 }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }], 'landed siblings leave the group');
-  assert.deepEqual(decide({ attempts: [attempt('T003'), attempt('T003'), attempt('T003')] }), { action: 'limit', kind: 'task', task: 'T003', attempts: 3, stale: [] }, 'a member at its limit stops the group');
+  assert.deepEqual(decide({ tasksMarkdown: afterLand, attempts: [attempt('T002', 'success'), attempt('T003')] }).order[0], [{ task: 'T003', attempt: 2, previous: attempt('T003') }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }], 'landed siblings leave the group');
+  assert.deepEqual(decide({ attempts: [attempt('T003'), attempt('T003'), attempt('T003')] }), { action: 'limit', kind: 'task', task: 'T003', attempts: 3, failureClass: 'agent', stale: [] }, 'a member at its limit stops the group');
 });
 
 test('decides convergence, conflict resolution, and merging after the last task', () => {
@@ -605,20 +605,20 @@ test('decides convergence, conflict resolution, and merging after the last task'
   const landed = attempt('T001', 'success', at(11));
   // The finished phase was verified after its last task; without that the phase verification comes first.
   const phaseVerified = { kind: 'verify', task: null, attempt: 1, outcome: 'success', at: at(11), phase: null };
-  const single = (name, number) => ({ action: 'tasks', kind: name, order: [[{ task: null, attempt: number }]], stale: [] });
+  const single = (name, number, previous) => ({ action: 'tasks', kind: name, order: [[{ task: null, attempt: number, ...(previous ? { previous } : {}) }]], stale: [] });
 
   assert.equal(decide({ attempts: [landed] }).action, 'verify', 'the phase is verified before the convergence');
 
   assert.deepEqual(decide({ attempts: [landed, phaseVerified] }), single('converge', 1));
   assert.deepEqual(decide({ attempts: [kind('converge', 10), landed, phaseVerified] }), single('converge', 1), 'a convergence older than the last task does not count');
-  assert.deepEqual(decide({ attempts: [landed, phaseVerified, kind('converge', 12, 'failure'), kind('converge', 13, 'failure'), kind('converge', 14, 'failure')] }), { action: 'limit', kind: 'converge', attempts: 3, stale: [] });
+  assert.deepEqual(decide({ attempts: [landed, phaseVerified, kind('converge', 12, 'failure'), kind('converge', 13, 'failure'), kind('converge', 14, 'failure')] }), { action: 'limit', kind: 'converge', attempts: 3, failureClass: 'agent', stale: [] });
 
   const converged = [landed, phaseVerified, kind('converge', 12)];
   assert.deepEqual(decide({ attempts: converged }), { action: 'merge', kind: 'merge', attempt: 1, stale: [] });
   const merges = [check(1, CHECK_MERGE, { conclusion: 'failure' }), check(2, CHECK_MERGE, { conclusion: 'neutral' })];
   assert.deepEqual(decide({ attempts: converged, checks: merges }), { action: 'merge', kind: 'merge', attempt: 3, stale: [] });
   const failedMerges = [1, 2, 3].map((id) => check(id, CHECK_MERGE, { conclusion: 'failure' }));
-  assert.deepEqual(decide({ attempts: converged, checks: failedMerges }), { action: 'limit', kind: 'merge', attempts: 3, stale: [] });
+  assert.deepEqual(decide({ attempts: converged, checks: failedMerges }), { action: 'limit', kind: 'merge', attempts: 3, failureClass: 'agent', stale: [] });
   assert.deepEqual(decide({ attempts: converged, checks: failedMerges, windowStart: at(13) }), { action: 'merge', kind: 'merge', attempt: 1, stale: [] }, 'a person pushing starts a new window');
 
   assert.deepEqual(decide({ attempts: converged, checks: [check(1, CHECK_MERGE, { status: 'in_progress', started_at: at(19) })] }), { action: 'wait' });
@@ -627,7 +627,7 @@ test('decides convergence, conflict resolution, and merging after the last task'
 
   const conflict = check(5, CHECK_CONFLICT);
   assert.deepEqual(decide({ attempts: converged, checks: [check(4, CHECK_MERGE), conflict] }), single('resolve', 1));
-  assert.deepEqual(decide({ attempts: [...converged, kind('resolve', 13, 'failure')], checks: [conflict] }), single('resolve', 2), 'a failed resolve keeps the conflict state');
+  assert.deepEqual(decide({ attempts: [...converged, kind('resolve', 13, 'failure')], checks: [conflict] }), single('resolve', 2, kind('resolve', 13, 'failure')), 'a failed resolve keeps the conflict state');
   assert.equal(decide({ attempts: [...converged, kind('resolve', 13)], checks: [conflict] }).action, 'merge', 'successful no-op sync resolves an old conflict on the same head');
   assert.deepEqual(decide({ attempts: converged, checks: [conflict, check(7, CHECK_MERGE)] }), { action: 'merge', kind: 'merge', attempt: 2, stale: [] });
   const earlierResolves = [kind('resolve', 11, 'failure'), kind('resolve', 11, 'failure'), kind('resolve', 11)];
@@ -644,11 +644,11 @@ test('resolves conflicts with the base branch before a phase, best effort', () =
   const open = '- [x] T001 a\n- [ ] T002 b\n';
   const syncConflict = { id: 1, external_id: CHECK_SYNC_CONFLICT, status: 'completed', conclusion: 'neutral', started_at: at(12) };
   const decide = (fields) => decideNext({ tasksMarkdown: open, windowStart, now, checks: [syncConflict], ...fields });
-  const resolveNext = (number) => ({ action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: number }]], stale: [] });
+  const resolveNext = (number, previous) => ({ action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: number, ...(previous ? { previous } : {}) }]], stale: [] });
   const phaseVerified = { kind: 'verify', task: null, attempt: 1, outcome: 'success', at: at(11), phase: null };
 
   assert.deepEqual(decide({}), resolveNext(1), 'the conflict is resolved before the phase');
-  assert.deepEqual(decide({ attempts: [resolve(11, 'failure'), resolve(13, 'failure')] }), resolveNext(2), 'only attempts at this conflict count');
+  assert.deepEqual(decide({ attempts: [resolve(11, 'failure'), resolve(13, 'failure')] }), resolveNext(2, resolve(13, 'failure')), 'only attempts at this conflict count');
   const phase = decideNext({ tasksMarkdown: open, windowStart, now });
   assert.deepEqual(decide({ attempts: [resolve(13, 'success')] }), phase, 'successful no-op sync does not revive a best-effort conflict on the same head');
   assert.deepEqual(decide({ attempts: [resolve(13, 'failure'), resolve(14, 'failure')] }), { ...phase, syncGivenUp: syncConflict }, `after ${MAX_SYNC_RESOLVE_ATTEMPTS} failed attempts the phase continues on the current base`);
@@ -825,8 +825,9 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
     assert.equal(needsOf(text, 'continue'), '[decide, report]', action);
   }
   // Spec Kit implement prepare: merge the base branch (after checking the spec issue), then decide; every output of
-  // decide reaches the calling workflow.
-  assert.deepEqual(jobsOf(prepare), ['sync', 'decide']);
+  // decide reaches the calling workflow; an attempt after an infrastructure failure starts after the pause.
+  assert.deepEqual(jobsOf(prepare), ['sync', 'decide', 'pause']);
+  assert.match(job(prepare, 'pause'), /needs: decide\n\s+if: \$\{\{ !cancelled\(\) && needs\.decide\.outputs\.wait == 'true' \}\}[\s\S]*SPECKIT_RETRY_WAIT: \$\{\{ vars\.SPECKIT_RETRY_WAIT \|\| '300' \}\}[\s\S]*sleep "\$seconds"/);
   assert.match(prepare, /^ {2}workflow_call:\n/m);
   assert.match(job(prepare, 'sync'), /name: Merge the base branch\n\s+if: github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)[\s\S]*run: node \.github\/scripts\/speckit-spec\.mjs sync/);
   assert.match(job(prepare, 'decide'), /needs: sync\n[\s\S]*if: \$\{\{ !cancelled\(\) && github\.ref == [\s\S]*SPECKIT_WORKFLOW: \$\{\{ inputs\.workflow \}\}[\s\S]*speckit-spec\.mjs decide/);
@@ -848,7 +849,7 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   const inputs = unit.slice(unit.indexOf('    inputs:\n'), unit.indexOf('    outputs:\n'));
   assert.deepEqual([...inputs.matchAll(/^ {6}([a-z_]+):\n/gm)].map((match) => match[1]), ['issue', 'pull', 'folder', 'base', 'kind', 'order', 'entry']);
   assert.deepEqual([...new Set([...unit.matchAll(/fromJSON\(inputs\.entry\)\.([a-z_]+)/g)].map((match) => match[1]))].sort(),
-    ['attempt', 'defer_progress', 'guidance', 'index', 'repair', 'required_sync', 'sync_repair', 'task']);
+    ['attempt', 'defer_progress', 'evidence', 'guidance', 'index', 'repair', 'required_sync', 'sync_repair', 'task']);
   assert.match(unit, /mode: \$\{\{ inputs\.kind == 'resolve' && 'finalize' \|\| steps\.package\.outputs\.verify_mode \|\| 'task' \}\}/, 'the verification mode follows the kind, or the assessed environment-verify requirement');
   // A task completed without a change: the trusted runner executes the assessed requirements before the verdict, in
   // the read-only work job, without a token.
@@ -1102,4 +1103,111 @@ test('the scheduler asks for help again when a handoff to Copilot ended without 
   assert.equal(await maintainCopilotHandoff(quiet, { pull: quietPull, comments: await quiet.listIssueComments(9), now: Date.parse(fresh.created_at) + COPILOT_HANDOFF_MS }), 'expired');
   assert.match(quiet.comments.at(-1).body, /\*\*Copilot has not pushed\*\* to `speckit\/f` within 60 minutes[\s\S]*\*\*Recommended next step\*\*: Review the failed handoff/);
   assert.deepEqual(quietPull.labels.map((label) => label.name), [HELP]);
+});
+import { AUTO_CONTINUE_MARKER as AUTO, BOT_LOGIN as BOT, RETRY_COMMENT_MARKER as RETRY, FAILURE_CLASS_TEXT, attemptEvidence, autoContinuedStop, failureClassOf, parseAttempts as ledgerOf, renderAttemptMarker as markerOf, retryState } from './speckit-implement-core.mjs';
+
+test('records the class of a failed attempt; a marker without one counts as an agent failure', () => {
+  const body = (fields) => `Report\n\n${markerOf(fields)}`;
+  const comments = [
+    { user: { login: BOT }, created_at: '2026-10-06T11:00:00Z', body: body({ kind: 'task', task: 'T002', attempt: 1, outcome: 'failure', failureClass: 'repeat' }) },
+    { user: { login: BOT }, created_at: '2026-10-06T11:10:00Z', body: body({ kind: 'task', task: 'T002', attempt: 2, outcome: 'failure' }) },
+    { user: { login: BOT }, created_at: '2026-10-06T11:20:00Z', body: body({ kind: 'merge', attempt: 1, outcome: 'failure', failureClass: 'infrastructure' }) },
+    { user: { login: BOT }, created_at: '2026-10-06T11:30:00Z', body: '<!-- speckit-implement:attempt {"kind":"task","task":"T003","attempt":1,"outcome":"failure","class":"bogus"} -->' },
+  ];
+  const ledger = ledgerOf(comments);
+  assert.deepEqual(ledger.map((item) => item.class ?? null), ['repeat', null, 'infrastructure', null]);
+  assert.deepEqual(ledger.map(failureClassOf), ['repeat', 'agent', 'infrastructure', 'agent']);
+  assert.doesNotMatch(markerOf({ kind: 'task', task: 'T002', attempt: 1, outcome: 'failure', failureClass: 'unknown' }), /"class"/);
+  assert.deepEqual(Object.keys(FAILURE_CLASS_TEXT).sort(), ['agent', 'infrastructure', 'repeat']);
+});
+
+test('decides a second attempt from the class of the first failure', () => {
+  const failed = (failureClass, at = '2026-10-06T11:00:00Z') => ({ kind: 'task', task: 'T002', attempt: 1, outcome: 'failure', at, ...(failureClass ? { class: failureClass } : {}) });
+  assert.deepEqual(retryState([failed('repeat')], { kind: 'task', task: 'T002' }), { failures: 1, total: 1, exceeded: true, failureClass: 'repeat', sameAsStop: false, previous: failed('repeat'), wait: false }, 'certain to repeat: stops at once');
+  assert.deepEqual(retryState([failed('infrastructure')], { kind: 'task', task: 'T002' }), { failures: 1, total: 1, exceeded: false, failureClass: 'infrastructure', sameAsStop: false, previous: failed('infrastructure'), wait: true }, 'infrastructure: once more after a wait');
+  assert.equal(retryState([failed('agent')], { kind: 'task', task: 'T002' }).exceeded, false, 'agent: the second attempt');
+  assert.equal(retryState([failed('agent')], { kind: 'task', task: 'T002' }).wait, false);
+  assert.equal(retryState([failed(null)], { kind: 'task', task: 'T002' }).failureClass, 'agent', 'an old marker without a class');
+  assert.equal(retryState([failed('infrastructure'), failed('infrastructure', '2026-10-06T11:30:00Z')], { kind: 'task', task: 'T002' }).exceeded, true, 'the limit still holds');
+  const requeued = [failed('infrastructure'), { ...failed(null), outcome: 'requeue' }];
+  assert.equal(retryState(requeued, { kind: 'task', task: 'T002' }).wait, false, 'a redo after the failure does not wait again');
+
+  const stopped = { kind: 'task', task: 'T002', class: 'agent', at: '2026-10-06T10:30:00Z' };
+  assert.equal(retryState([failed('agent')], { kind: 'task', task: 'T002', stopped }).exceeded, true, 'an automatic continuation that fails the same way stops');
+  assert.equal(retryState([failed('agent')], { kind: 'task', task: 'T002', stopped }).sameAsStop, true);
+  assert.equal(retryState([failed('infrastructure')], { kind: 'task', task: 'T002', stopped }).exceeded, false, 'another class keeps the second attempt');
+  assert.equal(retryState([failed('agent')], { kind: 'task', task: 'T003', stopped }).exceeded, false, 'another item keeps the second attempt');
+});
+
+test('applies the classes to tasks, convergence, conflict resolution, and merges', () => {
+  const windowStart = '2026-10-06T10:00:00Z';
+  const now = Date.parse('2026-10-06T20:00:00Z');
+  const at = (hour) => `2026-10-06T${String(hour).padStart(2, '0')}:00:00Z`;
+  const failed = (kind, task, hour, failureClass) => ({ kind, task, attempt: 1, outcome: 'failure', at: at(hour), ...(failureClass ? { class: failureClass } : {}) });
+  const decide = (fields) => decideNext({ tasksMarkdown: TASKS, windowStart, now, ...fields });
+
+  assert.deepEqual(decide({ attempts: [failed('task', 'T002', 11, 'repeat')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 1, failureClass: 'repeat', stale: [] });
+  const waiting = decide({ attempts: [failed('task', 'T002', 11, 'infrastructure')] });
+  assert.equal(waiting.wait, true);
+  assert.deepEqual(waiting.order, [[{ task: 'T002', attempt: 2, previous: failed('task', 'T002', 11, 'infrastructure') }]]);
+  const retried = decide({ attempts: [failed('task', 'T002', 11, 'agent')] });
+  assert.equal(retried.wait, undefined);
+  assert.equal(retried.order[0][0].previous.class, 'agent', 'the second attempt names the failure it follows');
+  assert.equal(decide({ attempts: [failed('task', 'T002', 11)] }).action, 'tasks', 'an old marker keeps the second attempt');
+  const stopped = { kind: 'task', task: 'T002', class: 'agent', at: at(10) };
+  assert.deepEqual(decide({ attempts: [failed('task', 'T002', 11, 'agent')], stopped }), { action: 'limit', kind: 'task', task: 'T002', attempts: 1, failureClass: 'agent', sameAsStop: true, stale: [] });
+
+  const done = '- [x] T001 a\n';
+  const landed = { kind: 'task', task: 'T001', attempt: 1, outcome: 'success', at: at(11) };
+  const phaseVerified = { kind: 'verify', task: null, attempt: 1, outcome: 'success', at: at(11), phase: null };
+  const closing = (fields) => decideNext({ tasksMarkdown: done, windowStart, now, ...fields });
+  assert.equal(closing({ attempts: [landed, phaseVerified, failed('converge', null, 12, 'repeat')] }).action, 'limit', 'a convergence outside its scope stops at once');
+  assert.equal(closing({ attempts: [landed, phaseVerified, failed('converge', null, 12, 'infrastructure')] }).wait, true);
+
+  const converged = [landed, phaseVerified, { kind: 'converge', task: null, attempt: 1, outcome: 'success', at: at(12) }];
+  const check = (id, external_id, hour, fields = {}) => ({ id, external_id, status: 'completed', conclusion: 'failure', started_at: at(hour), ...fields });
+  const conflict = check(5, CHECK_CONFLICT, 13, { conclusion: 'neutral' });
+  assert.equal(closing({ attempts: [...converged, failed('resolve', null, 14, 'repeat')], checks: [conflict] }).action, 'limit', 'a conflict that needs a person stops at once');
+
+  const merge = check(6, CHECK_MERGE, 13);
+  assert.deepEqual(closing({ attempts: [...converged, failed('merge', null, 14, 'repeat')], checks: [merge] }), { action: 'limit', kind: 'merge', attempts: 1, failureClass: 'repeat', stale: [] });
+  assert.deepEqual(closing({ attempts: [...converged, failed('merge', null, 14, 'infrastructure')], checks: [merge] }), { action: 'merge', kind: 'merge', attempt: 2, stale: [], wait: true });
+  assert.deepEqual(closing({ attempts: converged, checks: [merge] }), { action: 'merge', kind: 'merge', attempt: 2, stale: [] }, 'a merge without a class marker, or whose branch moved, stays retryable');
+  const second = check(7, CHECK_MERGE, 15);
+  assert.equal(closing({ attempts: [...converged, failed('merge', null, 14, 'infrastructure')], checks: [merge, second] }).action, 'limit', 'a marker only classifies its own merge');
+
+  const open = '- [x] T001 a\n- [ ] T002 b\n';
+  const syncConflict = check(1, CHECK_SYNC_CONFLICT, 12, { conclusion: 'neutral' });
+  const sync = (attempts) => decideNext({ tasksMarkdown: open, windowStart, now, checks: [syncConflict], attempts });
+  assert.equal(sync([failed('resolve', null, 13, 'repeat')]).syncGivenUp, syncConflict, 'a best-effort base merge that needs a person is given up at once');
+  assert.equal(sync([failed('resolve', null, 13, 'infrastructure')]).wait, true);
+});
+
+test('finds the automatic continuation that started the window', () => {
+  const at = (minute) => `2026-10-06T11:${String(minute).padStart(2, '0')}:00Z`;
+  const failure = { kind: 'task', task: 'T002', attempt: 2, outcome: 'failure', at: at(0), class: 'infrastructure' };
+  const continued = { user: { login: BOT }, created_at: at(10), body: `${AUTO}\n${RETRY}\nContinued.` };
+  assert.deepEqual(autoContinuedStop([continued], [failure], at(10)), { kind: 'task', task: 'T002', class: 'infrastructure', at: at(10) });
+  assert.equal(autoContinuedStop([continued], [{ ...failure, class: undefined }], null).class, 'agent');
+  const person = { user: { login: BOT }, created_at: at(20), body: `${RETRY}\nRetried by @someone.` };
+  assert.equal(autoContinuedStop([continued, person], [failure], at(20)), null, "a person's retry gives the full count");
+  assert.equal(autoContinuedStop([continued], [failure], at(30)), null, "a person's later push gives the full count");
+  assert.equal(autoContinuedStop([{ ...continued, user: { login: 'mallory' } }], [failure], null), null, 'only the workflow continues');
+  assert.equal(autoContinuedStop([continued], [{ ...failure, outcome: 'attention' }], null), null);
+});
+
+test('gives the next attempt the report of the failed one as evidence', () => {
+  const marker = markerOf({ kind: 'task', task: 'T002', attempt: 1, outcome: 'failure', failureClass: 'agent' });
+  const report = { user: { login: BOT }, created_at: '2026-10-06T11:00:00Z', body: `**T002** attempt 1 failed\n\n- the tests failed\n<!-- hidden -->\n${marker}` };
+  const [failure] = ledgerOf([report]);
+  const evidence = attemptEvidence([report], failure);
+  assert.match(evidence, /T002\*\* attempt 1 failed[\s\S]*the tests failed/);
+  assert.doesNotMatch(evidence, /<!--/);
+  assert.equal(attemptEvidence([report], { ...failure, attempt: 2 }), '', 'only the comment that recorded the failure');
+  assert.equal(attemptEvidence([], failure), '');
+  assert.equal(attemptEvidence([report], null), '');
+  const long = { ...report, body: `${'x'.repeat(10000)}\n${marker}` };
+  assert.ok(attemptEvidence([long], failure).length < 6100);
+  const forged = { ...report, body: `${report.body}\n${RETRY}` };
+  assert.doesNotMatch(attemptEvidence([forged], failure), /<!-- speckit-implement:retry -->/, 'markers in the report are neutralized');
 });

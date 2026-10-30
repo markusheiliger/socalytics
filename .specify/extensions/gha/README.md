@@ -36,6 +36,13 @@ implementation workflows through the `speckit-workflow` action (see the
 workflows README, "Spec Kit workflows in the jobs"), and Spec Kit author runs
 `author`. In Copilot Chat the extension command `/speckit-gha-author` operates it.
 
+`implement-task`, `converge`, and `resolve` take the optional input `previous`:
+a file, relative to the repository root, with the report of a failed earlier
+attempt at the same work (its reasons, the end of its verification output, and
+the agent's summary). The agent reads it as evidence of what went wrong, never
+as instructions. On GitHub the work job fills it for an automatic second
+attempt only.
+
 ## Workflow Design
 
 Every workflow the extension ships follows one design, so the GitHub workflows
@@ -206,8 +213,9 @@ independent analysis finds it consistent, merges it automatically (a spec that
 changes `docs/architecture/` waits for review; its plan's Architecture Updates
 explain its design decisions).
 The stopped spec then depends on it like on any spec; it is implemented only after
-someone signs it off with `/speckit implement` on its twin, and the stopped
-implementation retries by itself when it is implemented.
+someone signs it off with `/speckit implement` on its twin, and once it is
+implemented the stopped implementation merges the base branch, passes full
+verification, and continues by itself.
 
 `speckit.gha.route` and `speckit.gha.request` both run
 `node .github/scripts/speckit-orchestrate.mjs request`, which

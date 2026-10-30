@@ -7,6 +7,7 @@ import test from 'node:test';
 import { checkAmendment, pendingFeedback, renderFeedback, requestAmendment, settleClosedAmendment } from './speckit-amend.mjs';
 import { ATTENTION_LABEL, AUTO_CONTINUE_MARKER, IMPLEMENT_WORKFLOW_FILE, RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER, parseGuidance, renderRetryComment, syncBarrier, unchangedRestarts, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker, renderSyncComment, repeatedFailure, isTwinRunOf } from './speckit-implement-core.mjs';
 import { copilotRequestOf, COPILOT_HANDOFF_MARKER, maintainCopilotHandoff, renderCopilotRequest, RECOVERY_FAILURE_MARKER, failedRecoveryRoutes, reassessRecovery, recoveryReassessment } from './speckit-implement-core.mjs';
+import { failedSynchronization, renderSyncBarrierMarker } from './speckit-implement-core.mjs';
 import { implementsTasks } from './speckit-diagnose.mjs';
 import { CATEGORIES, CATEGORY_COMMANDS, MAX_RECOMMENDED_COMMAND, MAX_STOP_SUBJECT, categoryCommands, checkReportFile, commandPatterns, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
@@ -683,6 +684,52 @@ async function recordReport(github, report, extraEnv = {}) {
 }
 const attention = (github) => (github.repo.pulls.find((pull) => pull.number === 9).labels ?? []).some((label) => label.name === ATTENTION_LABEL);
 const implementRuns = (github) => github.repo.runs.filter((run) => run.workflow === IMPLEMENT_WORKFLOW_FILE).length;
+
+test('#344: failed synchronization is prominent and a tooling prompt runs in default-branch Copilot Chat', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const pull = await github.getPullRequest(9);
+  const sync = await github.createComment(9, renderSyncComment('Required sync', '', { head: pull.head.sha, base: 'b1' }));
+  await github.createComment(9, '<!-- speckit-implement:attempt {"outcome":"attention"} -->\n**Implementation needs attention** @dev: the push of the resolved merge was rejected');
+  const failure = failedSynchronization(github.comments, pull.head.sha);
+  assert.equal(failure.reason, 'the push of the resolved merge was rejected');
+  assert.equal(failedSynchronization(github.comments, 'new-head'), null);
+  assert.equal(failedSynchronization(github.comments.slice(0, -1), pull.head.sha), null, 'a pending sync has not failed');
+  const report = {
+    ...REPORT, category: 'outside', artifacts: [], questions: [],
+    summary: 'The merge verified, but publication failed. The remote rejection is missing.',
+    options: [{
+      title: 'Fix trusted publication tooling to unblock #9',
+      why: 'Another sync cannot change the failing publisher. Recover the remote rejection before choosing a permission remedy.',
+      target: 'tooling', kind: 'external', recommended: true,
+      copilot: 'Investigate PR #9. Update .github/scripts/speckit-implement-work.mjs to retain the remote push rejection without exposing credentials, and distinguish a permission rejection from a moved branch. Add regression tests and run node --test .github/scripts/speckit-*.test.mjs. Do not assume a permission cause without evidence.',
+    }],
+  };
+  assert.deepEqual(validateReport(report).reasons, []);
+  const result = await recordReport(github, report, { SPECKIT_DEFAULT_BRANCH: 'trunk' });
+  assert.equal(result.report.category, 'outside');
+  assert.equal(result.continued, null);
+  const body = github.comments.find((item) => item.body.startsWith(DIAGNOSIS_COMMENT_MARKER)).body;
+  assert.ok(body.indexOf('**Earlier `/speckit sync` failed**') < body.indexOf('<details>'));
+  assert.match(body, /the push of the resolved merge was rejected/);
+  assert.match(body, /Without a relevant fix or changed prerequisite/);
+  assert.match(body, /Run this in Copilot Chat[\s\S]*`trunk` \(not as a PR comment\)/);
+  assert.match(body, /```text\nWork on the repository's default branch `trunk` to unblock implementation PR #9\./);
+  assert.match(body, /does not itself resume the implementation or clear a pending repair/);
+  assert.equal(copilotRequestOf(body), null, 'local prompts cannot become cloud-agent handoffs');
+  assert.doesNotMatch(body, /@copilot|push it to this pull request/);
+  for (const changes of [{ category: 'decision' }, { options: [{ ...report.options[0], kind: undefined }] }]) {
+    assert.match(validateReport({ ...report, ...changes }).reasons.join('; '), /needs category outside and kind external/);
+  }
+  const evidenceDir = mkdtempSync(path.join(tmpdir(), 'speckit-failed-sync-'));
+  try {
+    await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: evidenceDir }), log: silent });
+    assert.match(readFileSync(path.join(evidenceDir, 'evidence.md'), 'utf8'), /## Earlier required synchronization failed[\s\S]*permission cause is a hypothesis/);
+  } finally {
+    rmSync(evidenceDir, { recursive: true, force: true });
+  }
+  await github.createComment(9, renderSyncBarrierMarker({ request: String(sync.id), state: 'verified' }));
+  assert.equal(failedSynchronization(github.comments, pull.head.sha), null, 'successful synchronization is not a failed sync');
+});
 
 test('#344: a refused author route is reassessed once and ends with the concrete tooling action, never retry', async () => {
   const github = diagnosisRepo({ amendment: false });
