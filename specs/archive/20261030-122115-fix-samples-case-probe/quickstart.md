@@ -1,5 +1,7 @@
 # Quickstart: Validate the Case-Probe Fix
 
+Everything below is manual evidence; no task of this spec runs or claims it as verified.
+
 Prerequisite: Node.js 24 on `PATH`. No Docker, network, or install step is needed. Run from the repository root.
 
 ## 1. The tooling test passes on a case-sensitive file system (Linux)
