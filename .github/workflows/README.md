@@ -209,7 +209,9 @@ the job `sync` ("Merge the base branch"), which merges the base branch into the 
 GitHub API when it is ahead and the next work is a phase that has not started (none of its tasks is ticked yet), the
 convergence, or the merge (repository variable `SPECKIT_SYNC_BASE`, default `true`). Retries (`/speckit retry`),
 merged amendments, and continuations of a started phase keep its base; a lifted block instead requests the required
-synchronization of `/speckit sync`, also in the middle of a phase. On a conflict the
+synchronization of `/speckit sync`, also in the middle of a phase. The job never merges into an implementation whose
+twin still has open prerequisites; only the optional upkeep merge of a blocked implementation
+(`SPECKIT_BLOCKED_REFRESH`, see [Pull requests that need attention](#pull-requests-that-need-attention)) does. On a conflict the
 decide job of the same run starts the conflict resolution the merge uses (Copilot CLI edits the conflicted files and,
 to fix clashes without a textual conflict such as two migrations with the same number, the implementation branch's
 own files and new files; never protected paths or the environment actions; the full verification runs), and

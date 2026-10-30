@@ -912,6 +912,26 @@ test('after an upkeep merge, lifting the block still requires the synchronizatio
   }
 });
 
+test('the prepare job never merges the base branch into a blocked implementation', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+    advanceRepairBase(github);
+    github.issues.push({ number: 77, id: 77000, node_id: 'I_77', state: 'open', state_reason: null, title: 'Other', body: '', labels: [] });
+    github.edges.push([twin.number, 77]);
+    const head = github.repo.branches['speckit/a'];
+    const blocked = await decide(github, root, twin, {}, runSyncBase);
+    assert.equal(blocked.outputs.result, 'none', 'not even before an unstarted phase');
+    assert.match(blocked.text, /Nothing to merge: the implementation is blocked by #77\./);
+    assert.equal(github.repo.branches['speckit/a'], head);
+    Object.assign(github.find(77), { state: 'closed', state_reason: 'completed' });
+    assert.equal((await decide(github, root, twin, {}, runSyncBase)).outputs.result, 'merged', 'without open prerequisites it merges as before');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a blocker closed as not planned lifts the block and asks for a person instead of retrying', async () => {
   const { root, github, pull } = await blockedByHand();
   try {
