@@ -75,6 +75,99 @@ public sealed class PushDigestTests
     }
 
     [Fact]
+    public async Task Disagreeing_record_and_status_line_fail_in_either_order()
+    {
+        var status = $$"""{"status":"1.0.0: digest: {{OtherDigest}} size: 1234"}""";
+        var lookups = new Lookups { Registry = Digest, Engine = Digest };
+
+        foreach (var body in new[] { Body(status, ProgressRecord), Body(ProgressRecord, status) })
+        {
+            var result = await DetermineAsync(body, lookups);
+
+            result.Succeeded.ShouldBeFalse();
+            result.Digest.ShouldBeNull();
+            result.FailureMessage!.ShouldContain("conflicting manifest digests");
+        }
+
+        lookups.Calls.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("v1.2")]
+    [InlineData("1.0.0-rc.1")]
+    [InlineData("v1_2-rc_3")]
+    public async Task Tags_with_dots_dashes_and_underscores_are_matched(string tag)
+    {
+        var status = $$"""{"status":"{{tag}}: digest: {{Digest}} size: 1234"}""";
+        var lookups = new Lookups();
+
+        var result = await PushDigest.DetermineAsync(Body(Progress, status), Repository, tag, lookups.LookUpRegistryAsync, lookups.LookUpEngineAsync, CancellationToken.None);
+
+        result.Succeeded.ShouldBeTrue();
+        result.Digest.ShouldBe(Digest);
+        result.Source.ShouldBe(DigestSource.StatusLine);
+        lookups.Calls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task The_last_of_several_status_lines_wins()
+    {
+        var earlier = $$"""{"status":"1.0.0: digest: {{OtherDigest}} size: 1234"}""";
+        var lookups = new Lookups();
+
+        var result = await DetermineAsync(Body(earlier, Progress, StatusLine), lookups);
+
+        result.Succeeded.ShouldBeTrue();
+        result.Digest.ShouldBe(Digest);
+        result.Source.ShouldBe(DigestSource.StatusLine);
+        lookups.Calls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task The_last_of_several_progress_records_wins()
+    {
+        var earlier = $$$"""{"aux":{"Tag":"1.0.0","Digest":"{{{OtherDigest}}}","Size":1234}}""";
+        var lookups = new Lookups();
+
+        var result = await DetermineAsync(Body(earlier, Progress, ProgressRecord), lookups);
+
+        result.Succeeded.ShouldBeTrue();
+        result.Digest.ShouldBe(Digest);
+        result.Source.ShouldBe(DigestSource.ProgressRecord);
+        lookups.Calls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Non_string_status_values_are_ignored()
+    {
+        var lookups = new Lookups();
+
+        var result = await DetermineAsync(Body("""{"status":42}""", """{"status":null}""", """{"status":{"a":1}}""", StatusLine), lookups);
+
+        result.Succeeded.ShouldBeTrue();
+        result.Digest.ShouldBe(Digest);
+        result.Source.ShouldBe(DigestSource.StatusLine);
+
+        var onlyNonString = await DetermineAsync(Body("""{"status":42}"""), new Lookups());
+
+        onlyNonString.Succeeded.ShouldBeFalse();
+        onlyNonString.FailureMessage!.ShouldContain("StatusLine: absent");
+    }
+
+    [Fact]
+    public async Task Progress_record_with_a_null_digest_yields_no_digest()
+    {
+        var lookups = new Lookups();
+
+        var result = await DetermineAsync(Body("""{"aux":{"Digest":null}}"""), lookups);
+
+        result.Succeeded.ShouldBeFalse();
+        result.Digest.ShouldBeNull();
+        result.FailureMessage!.ShouldContain("ProgressRecord: absent");
+        result.FailureMessage!.ShouldContain("The push did not report a manifest digest");
+    }
+
+    [Fact]
     public async Task Registry_digest_is_used_when_the_response_carries_none()
     {
         var lookups = new Lookups { Registry = Digest };
