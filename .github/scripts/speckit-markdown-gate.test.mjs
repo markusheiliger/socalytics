@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -40,6 +40,10 @@ test('checks only the changed Markdown under specs/ and docs/architecture/, writ
         assert.equal(ref, 'sha-head');
         return `# ${file}\n`;
       },
+      async listRepositoryFiles(ref) {
+        assert.equal(ref, 'sha-head');
+        return ['specs/f/spec.md', 'docs/architecture/a.md'];
+      },
     };
     let listed = null;
     const run = (cwd, listFile) => {
@@ -58,6 +62,109 @@ test('checks only the changed Markdown under specs/ and docs/architecture/, writ
     assert.match(unparsed[0], /fails for the changed Markdown files: Markdown diagnostics requires/);
     const none = { async listPullRequestFiles() { return [{ filename: 'src/x.cs', status: 'added' }]; } };
     assert.deepEqual(await markdownGate(none, { pull: { number: 12, head: { sha: 'sha-head' } }, root, run: () => assert.fail('nothing to check') }), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('#420: unchanged archived spec Markdown comes from the pinned amendment head, never its tooling', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'speckit-gate-archive-'));
+  const folder = 'specs/archive/20261023-085421-cv-inference-environment';
+  const changed = `${folder}/tasks.md`;
+  const contents = new Map([
+    [changed, '# Tasks\n\n[Plan](plan.md), [Data](data-model.md), [Quickstart](quickstart.md)\n'],
+    [`${folder}/plan.md`, '# Plan from the amendment head\n'],
+    [`${folder}/data-model.md`, '# Data model\n'],
+    [`${folder}/quickstart.md`, '# Quickstart\n'],
+    [`${folder}/contracts/environment-interface.md`, '# Environment interface\n'],
+    [`${folder}/.markdownlint-cli2.cjs`, 'throw new Error("untrusted configuration");'],
+    [`${folder}/check.mjs`, 'throw new Error("untrusted code");'],
+    ['.markdownlint-cli2.cjs', 'throw new Error("untrusted root configuration");'],
+    ['specs/../outside.md', '# Unsafe path\n'],
+    ['specs/..\\outside.md', '# Unsafe Windows path\n'],
+  ]);
+  try {
+    writeFileSync(path.join(root, '.markdownlint-cli2.cjs'), 'trusted configuration');
+    const fetched = [];
+    const client = {
+      async listPullRequestFiles() { return [{ filename: changed, status: 'modified' }]; },
+      async listRepositoryFiles(ref) {
+        assert.equal(ref, 'sha-head');
+        return [...contents.keys()];
+      },
+      async getFileContent(file, ref) {
+        assert.equal(ref, 'sha-head');
+        fetched.push(file);
+        assert.ok(file.endsWith('.md'));
+        return contents.get(file);
+      },
+    };
+    const reasons = await markdownGate(client, {
+      pull: { number: 420, head: { sha: 'sha-head', ref: 'moving-branch' } },
+      root,
+      run(cwd, listFile) {
+        assert.deepEqual(readFileSync(listFile, 'utf8').trim().split('\n'), [changed]);
+        for (const file of ['plan.md', 'data-model.md', 'quickstart.md', 'contracts/environment-interface.md']) {
+          assert.equal(readFileSync(path.join(cwd, folder, file), 'utf8'), contents.get(`${folder}/${file}`));
+        }
+        assert.equal(readFileSync(path.join(cwd, '.markdownlint-cli2.cjs'), 'utf8'), 'trusted configuration');
+        assert.equal(existsSync(path.join(cwd, folder, '.markdownlint-cli2.cjs')), false);
+        assert.equal(existsSync(path.join(cwd, folder, 'check.mjs')), false);
+        assert.equal(existsSync(path.join(cwd, 'outside.md')), false);
+        return { status: 0 };
+      },
+    });
+    assert.deepEqual(reasons, []);
+    assert.equal(fetched.length, 5);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a linked document removed on the PR head cannot pass using a stale trusted-checkout copy', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'speckit-gate-removed-'));
+  try {
+    mkdirSync(path.join(root, 'specs/f'), { recursive: true });
+    writeFileSync(path.join(root, 'specs/f/plan.md'), '# Stale plan\n');
+    const client = {
+      async listPullRequestFiles() { return [{ filename: 'specs/f/tasks.md', status: 'modified' }]; },
+      async listRepositoryFiles() { return ['specs/f/tasks.md']; },
+      async getFileContent() { return '# Tasks\n\n[Plan](plan.md)\n'; },
+    };
+    const reasons = await markdownGate(client, {
+      pull: { number: 12, head: { sha: 'sha-head' } },
+      root,
+      run(cwd) {
+        return existsSync(path.join(cwd, 'specs/f/plan.md'))
+          ? { status: 0 }
+          : { status: 1, stdout: 'FILE: specs/f/tasks.md\n[✖] plan.md → Status: 400\n' };
+      },
+    });
+
+    assert.match(reasons[0], /specs\/f\/tasks\.md: broken link plan\.md/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('missing snapshot content and repository listing failures cannot become passing Markdown checks', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'speckit-gate-missing-'));
+  try {
+    const client = {
+      async listPullRequestFiles() { return [{ filename: 'specs/f/tasks.md', status: 'modified' }]; },
+      async listRepositoryFiles() { return ['specs/f/tasks.md', 'specs/f/plan.md']; },
+      async getFileContent(file) { return file.endsWith('/plan.md') ? null : '# Tasks\n'; },
+    };
+    const options = { pull: { number: 12, head: { sha: 'sha-head' } }, root, run: () => assert.fail('incomplete context must not be checked') };
+    await assert.rejects(() => markdownGate(client, options), /context file specs\/f\/plan\.md could not be read at sha-head/);
+    await assert.rejects(() => markdownGate({
+      ...client,
+      async listRepositoryFiles() { return []; },
+    }, options), /Changed Markdown file specs\/f\/tasks\.md is missing from sha-head/);
+    await assert.rejects(() => markdownGate({
+      ...client,
+      async listRepositoryFiles() { throw new Error('listing unavailable'); },
+    }, options), /listing unavailable/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

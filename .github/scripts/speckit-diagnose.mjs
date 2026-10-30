@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import { specDir } from './speckit-prepare-core.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
+import { resetEligibility } from './speckit-reset.mjs';
 import { AmendUsageError, beginAmendment, checkAmendment, decodeTracked, findAmendment, finishAmendmentRequest, pendingFeedback, presentAmendment, readAmendmentAuthorization, reportSpecPullFailure, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
 import { RETRY_EFFECT, requestSync, restartState, retryImplementation } from './speckit-commands.mjs';
 import {
@@ -36,6 +37,8 @@ import {
   implementationBranch,
   isImplementRunOf,
   isTwinRunOf,
+  isProtectedPath,
+  protectedTaskPaths,
   latestHumanCommit,
   latestCheckRun,
   neutralizeMarkers,
@@ -56,6 +59,8 @@ import {
   repeatedFailure,
   setAttention,
   unresolvedRepair,
+  implementationComments,
+  implementationRunCurrent,
 } from './speckit-implement-core.mjs';
 
 export { checkAmendment, findAmendment };
@@ -90,6 +95,80 @@ const clip = (text, max) => {
 };
 
 export class DiagnoseUsageError extends Error {}
+
+const RECOVERY_FAILURE = /workflows[^\n]{0,40}permission|(?:push|publication|publish)[^\n]{0,100}(?:reject|refus|fail)|(?:reject|refus)[^\n]{0,100}(?:push|publication|workflow)|(?:changed|conflicts? in|resolution changed) protected (?:paths|files)/i;
+
+export async function collectResetRecovery(client, { implementation, twin, folder, checks, comments, ignoreRun = null }) {
+  const signals = [
+    ...checks.filter((check) => check.conclusion === 'failure').slice(-5).map((check) => `${check.output?.title ?? ''}\n${check.output?.summary ?? ''}`),
+    ...comments.filter((comment) => comment.user?.login === BOT_LOGIN &&
+      !String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).slice(-10).map((comment) => comment.body ?? ''),
+  ].filter((text) => RECOVERY_FAILURE.test(text));
+  if (!signals.length) return { required: false };
+  const facts = { required: true, head: implementation.head.sha, base: baseBranchOf(implementation),
+    baseSha: null, protectedPaths: [], baseProtectedTasks: [], bareBlockers: [], forceBlockers: [], errors: [] };
+  try {
+    facts.baseSha = await client.getBranchSha(facts.base);
+    if (!facts.baseSha) throw new Error(`The actual base branch ${facts.base} is unavailable.`);
+    const [baseEntries, headEntries] = await Promise.all([
+      client.listRepositoryEntries(facts.baseSha), client.listRepositoryEntries(facts.head),
+    ]);
+    if ([...baseEntries, ...headEntries].some((item) => typeof item.path !== 'string' ||
+        typeof item.sha !== 'string' || typeof item.mode !== 'string' || typeof item.type !== 'string')) {
+      throw new Error('The pinned repository entries lack complete object metadata.');
+    }
+    const own = [`specs/${folder}/`, `specs/archive/${folder}/`];
+    const entries = (items) => new Map(items.filter((item) => isProtectedPath(item.path) &&
+      !own.some((prefix) => item.path.startsWith(prefix))).map((item) => [item.path, `${item.type}:${item.mode}:${item.sha}`]));
+    const base = entries(baseEntries);
+    const head = entries(headEntries);
+    facts.protectedPaths = [...new Set([...base.keys(), ...head.keys()])]
+      .filter((file) => base.get(file) !== head.get(file)).sort();
+    const bare = await resetEligibility(client, { implementation, twin, folder, ignoreRun });
+    const force = bare.reasons.length ? await resetEligibility(client, { implementation, twin, folder, ignoreRun, force: true }) : bare;
+    if (bare.baseSha !== facts.baseSha || force.baseSha !== facts.baseSha) throw new Error('The base moved while recovery facts were collected.');
+    facts.bareBlockers = bare.reasons;
+    facts.forceBlockers = force.reasons;
+    facts.baseProtectedTasks = protectedTaskPaths(bare.tasksMarkdown ?? '', { includeSpecify: true });
+    const current = await client.getPullRequest(implementation.number);
+    if (current.head.sha !== facts.head || baseBranchOf(current) !== facts.base ||
+        await client.getBranchSha(facts.base) !== facts.baseSha) throw new Error('The implementation head or base moved while recovery facts were collected.');
+  } catch (error) {
+    facts.errors.push(`Reset recovery evidence is unavailable: ${error.message}`);
+  }
+  return facts;
+}
+
+export function validateResetAssessment(report, facts) {
+  if (!facts?.required) return [];
+  const assessment = report?.resetAssessment;
+  const reasons = [];
+  if (!assessment || !['recommend', 'unsuitable', 'blocked', 'unknown'].includes(assessment.decision) ||
+      !assessment.reason || !Array.isArray(assessment.removes) || !Array.isArray(assessment.remaining) ||
+      !['retry', 'sync', 'amend', 'repair'].every((route) => assessment.alternatives?.[route])) {
+    return ['Protected-path/publication failures require resetAssessment with a decision, reason, removes, remaining, and explicit retry/sync/amend/repair comparisons.'];
+  }
+  if (assessment.head !== facts.head || assessment.baseSha !== facts.baseSha) reasons.push('The reset assessment does not match the current pinned implementation and base revisions.');
+  const reset = report.options.some((option) => option.recommended && option.command === '/speckit reset');
+  if (reset !== (assessment.decision === 'recommend')) reasons.push('The reset assessment decision contradicts the recommended action.');
+  if (facts.errors.length && assessment.decision !== 'unknown') reasons.push('Unavailable recovery evidence requires an unknown reset assessment, not an eligibility or permission claim.');
+  if (assessment.decision === 'recommend') {
+    if (!assessment.removes.length) reasons.push('A staged reset recommendation must identify the immediate blocker it removes.');
+    if (facts.forceBlockers.length) reasons.push(`Reset has hard blockers: ${facts.forceBlockers.join('; ')}`);
+    for (const task of facts.baseProtectedTasks) {
+      if (!assessment.remaining.some((item) => item.includes(task.task) || task.files.some((file) => item.includes(file)))) {
+        reasons.push(`The reset assessment must retain the base spec's protected-tooling obligation ${task.task} as remaining work requiring a separate authorized correction.`);
+      }
+    }
+  }
+  if (assessment.decision === 'blocked' && !facts.forceBlockers.length && !facts.errors.length) reasons.push('The reset assessment claims hard blockers absent from the trusted recovery evidence.');
+  const action = report.options.find((option) => option.recommended);
+  if (facts.errors.length && action?.kind !== 'external') reasons.push('Unavailable recovery evidence requires obtaining the missing evidence, not an automatic continuation.');
+  if (assessment.decision === 'unknown' && action && /permission|credentials|privileg|workflow.?write|manual.{0,30}(?:push|publication)|(?:merge|push).{0,80}token/i.test(`${action.title} ${action.why}`)) {
+    reasons.push('Missing recovery evidence cannot justify privileged publication or additional permissions; identify the missing evidence instead.');
+  }
+  return reasons;
+}
 
 // Longest stop description in a diagnose run name.
 export const MAX_STOP_SUBJECT = 120;
@@ -213,7 +292,10 @@ export async function runEvidence({ client, env, log }) {
   const { tasksMarkdown, archived } = await readSpecTasks(client, folder, pull.head.sha);
   const next = nextTaskGroup(tasksMarkdown, 1)[0] ?? null;
   const checks = [...await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME)].sort((a, b) => a.id - b.id);
-  const comments = await client.listIssueComments(pullNumber);
+  const comments = implementationComments(await client.listIssueComments(pullNumber));
+  const resetRecovery = mode === 'diagnose'
+    ? await collectResetRecovery(client, { implementation: pull, twin, folder, checks, comments, ignoreRun: env.GITHUB_RUN_ID })
+    : null;
   const previousId = Number(env.SPECKIT_PREVIOUS);
   const previous = Number.isInteger(previousId) && previousId > 0 ? comments.find((comment) => comment.id === previousId) : null;
   let behind = null;
@@ -235,6 +317,9 @@ export async function runEvidence({ client, env, log }) {
     `- Next unchecked task: ${next ? `${next.id} ${next.text}` : 'none (all tasks are checked)'}`,
     '',
   ];
+  if (resetRecovery?.required) sections.push('## Required reset recovery assessment', '',
+    'Compare reset with retry, sync, amendment, and repair before recommending manual publication or additional permissions. Completed implementation tasks do not exclude a restart from the actual base. Eligibility is not proof of suitability. A staged reset may remove the current blocker while leaving separately authorized scope corrections; name those remaining obligations prominently.',
+    '', 'Trusted recovery facts (read failures are not clean results):', '', '```json', JSON.stringify(resetRecovery, null, 2), '```', '');
   if (authorized) {
     sections.push('## Writer-authorized artifact amendment', '',
       `Writer @${authorized.actor} authorized request ${authorized.comment} at ${authorized.head}.`,
@@ -337,6 +422,7 @@ export async function runEvidence({ client, env, log }) {
     specDir: specDir(folder, { archived }),
     head: pull.head.sha,
     nextTask: next?.id ?? null,
+    ...(resetRecovery ? { resetRecovery } : {}),
     ...(authorized ? { authorization: authorized } : {}),
     previousDiagnosis: previous ? true : false,
   }, null, 2)}\n`);
@@ -346,7 +432,7 @@ export async function runEvidence({ client, env, log }) {
 
 // Validates and normalizes the agent's report; the agent's text is untrusted, so every field is checked and clipped.
 // A rework (`fix`, `revise`) reports a summary and responses to the feedback, but no category.
-export function validateReport(raw, { requireCategory = true } = {}) {
+export function validateReport(raw, { requireCategory = true, resetRecovery = null } = {}) {
   const reasons = [];
   let report = raw;
   if (typeof raw === 'string') {
@@ -380,6 +466,17 @@ export function validateReport(raw, { requireCategory = true } = {}) {
       .map((item) => ({ feedback: text(item?.feedback, 400), response: text(item?.response, 1500) }))
       .filter((item) => item.response)
       .slice(0, 20),
+    ...(report.resetAssessment && typeof report.resetAssessment === 'object' ? {
+      resetAssessment: {
+        head: text(report.resetAssessment.head, 100),
+        baseSha: report.resetAssessment.baseSha == null ? null : text(report.resetAssessment.baseSha, 100),
+        decision: text(report.resetAssessment.decision, 30),
+        reason: text(report.resetAssessment.reason, 2000),
+        removes: Array.isArray(report.resetAssessment.removes) ? report.resetAssessment.removes.map((item) => text(item, 1000)).filter(Boolean).slice(0, 20) : null,
+        remaining: Array.isArray(report.resetAssessment.remaining) ? report.resetAssessment.remaining.map((item) => text(item, 1000)).filter(Boolean).slice(0, 20) : null,
+        alternatives: Object.fromEntries(['retry', 'sync', 'amend', 'repair'].map((route) => [route, text(report.resetAssessment.alternatives?.[route], 1000)])),
+      },
+    } : {}),
   };
   if (requireCategory && !normalized.category) reasons.push(`the category must be one of ${CATEGORIES.join(', ')}`);
   if (!normalized.summary) reasons.push('the summary is missing');
@@ -396,6 +493,12 @@ export function validateReport(raw, { requireCategory = true } = {}) {
       option.command = command;
       if (parseNextCommand(command)?.verb === 'amend' && !parseNextCommand(command).guidance.trim()) {
         reasons.push(`option "${option.title}" needs concrete amendment guidance`);
+        option.command = null;
+      }
+      if (parseNextCommand(command)?.verb === 'reset' &&
+          (command !== '/speckit reset' || option.target !== 'implementation' || normalized.evidence.length === 0 ||
+           !['retry', 'outside', 'decision'].includes(normalized.category) || !option.why)) {
+        reasons.push(`option "${option.title}" needs an evidence-backed, argument-free reset targeting the implementation in a supported category`);
         option.command = null;
       }
     }
@@ -429,6 +532,7 @@ export function validateReport(raw, { requireCategory = true } = {}) {
     recommended ||= option.recommended;
   }
   normalized.options.sort((a, b) => Number(b.recommended) - Number(a.recommended));
+  reasons.push(...validateResetAssessment(normalized, resetRecovery));
   return { reasons, report: normalized };
 }
 
@@ -653,6 +757,13 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
     safe(report.summary),
   );
   if (report.cause) lines.push('', '**Cause**', '', safe(report.cause));
+  if (report.resetAssessment) {
+    const assessment = report.resetAssessment;
+    lines.push('', '**Reset recovery assessment**', '', `${safe(assessment.decision)}: ${safe(assessment.reason)}`,
+      ...(assessment.removes ?? []).map((item) => `- Removes now: ${safe(item)}`),
+      ...(assessment.remaining ?? []).map((item) => `- Remains after reset: ${safe(item)}`),
+      ...Object.entries(assessment.alternatives).map(([route, why]) => `- ${route}: ${safe(why)}`));
+  }
   if (report.evidence.length > 0) {
     lines.push('', '<details><summary>Evidence</summary>', '', ...report.evidence.map((item) => `- ${safe(item)}`), '', '</details>');
   }
@@ -679,6 +790,9 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
   }
   const pending = amendment ? { number: amendment.number, title: amendment.title ?? null, html_url: amendment.html_url ?? null, status: 'being checked for consistency first' } : null;
   const shown = options.map((option) => ({ ...option, title: safe(option.title), why: safe(option.why ?? ''), command: option.command ? safe(option.command) : null, copilot: option.copilot ? safe(option.copilot) : null }));
+  if (shown.some((option) => option.recommended && option.command === '/speckit reset')) {
+    lines.push('', `**Destructive restart${implementationPull ? ` of #${implementationPull}` : ''}**: only a writer posting \`/speckit reset\` authorizes it. All branch-only implementation, amendments, and task progress are discarded; the old head is retained in a recovery reference. The restart uses the spec on ${baseBranch ? `\`${baseBranch}\`` : 'the PR base'}, not branch-only amendments. No reset runs automatically, and eligibility is checked again when the command executes.`);
+  }
   lines.push('', ...renderNextSteps({ ...context, options: shown, amendment: pending }));
   const adjusted = [...reasons, ...notes, ...repeatNotes];
   if (adjusted.length > 0) lines.push('', `_Parts of the report were adjusted: ${adjusted.map(safe).join('; ')}._`);
@@ -708,6 +822,7 @@ function reworkOutcome(env) {
 // the consistency check. A rework (`fix`, `revise`) reports on the amendment pull request and checks it again.
 export async function runRecord({ client, env, log }) {
   const inputs = inputsFrom(env);
+  if (!await implementationRunCurrent(client, inputs.pull, env)) return { exitCode: 0, outcome: 'superseded' };
   if (inputs.mode === 'amend') return recordAuthorizedAmendment({ client, env, log, inputs });
   if (inputs.mode !== 'diagnose') return recordRework({ client, env, log, inputs });
   const { pull: pullNumber, folder, twin } = inputs;
@@ -718,8 +833,21 @@ export async function runRecord({ client, env, log }) {
     ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
     : reports.length > 0 ? validateReport(reports.at(-1)) : { reasons: ['the agent did not report'], report: null };
   const amendment = report?.category && reasons.length === 0 ? await createdAmendment(client, env, folder, reasons) : null;
-  const comments = await client.listIssueComments(pullNumber);
+  const comments = implementationComments(await client.listIssueComments(pullNumber));
   const implementation = await client.getPullRequest(pullNumber);
+  const resetRecovery = await collectResetRecovery(client, { implementation, twin, folder,
+    checks: await client.listCheckRuns(implementation.head.sha, CHECK_RUN_NAME), comments, ignoreRun: env.GITHUB_RUN_ID });
+  if (report) reasons.push(...validateResetAssessment(report, resetRecovery));
+  if (report?.resetAssessment && !resetRecovery.required) reasons.push('The targeted publication stop changed; obtain fresh recovery evidence before publishing this reset assessment.');
+  const reset = report?.options.find((option) => option.recommended && parseNextCommand(option.command)?.verb === 'reset');
+  if (reset) {
+    const eligibility = await resetEligibility(client, { implementation, twin, folder, ignoreRun: env.GITHUB_RUN_ID });
+    if (eligibility.reasons.length) {
+      const cleanup = await resetEligibility(client, { implementation, twin, folder, ignoreRun: env.GITHUB_RUN_ID, force: true });
+      if (cleanup.reasons.length) reasons.push(`reset is not eligible: ${cleanup.reasons.join('; ')}`);
+      else reset.why += ` Bare reset currently refuses: ${eligibility.reasons.join('; ')}. If you accept cancelling related work, closing owned amendment PRs, and deleting their branch, manually type the --force flag after the copied command. It is intentionally not prefilled; cleanup failures stop the reset and may leave partial cleanup.`;
+    }
+  }
   const failedRecoveries = failedCopilotRecoveries(comments, implementation.head.sha);
   for (const option of report?.options ?? []) {
     if (option.copilot && failedRecoveries.some((item) => normalizeRecovery(item.request) === normalizeRecovery(`@copilot ${option.copilot}`) ||
@@ -833,6 +961,7 @@ export function autoContinueCommand(report, { amendment = null, repeated = null,
 // request (a `/speckit` comment by a person, or a push by a person): it continues once per person's action, so a
 // failure that keeps coming back stops for a person.
 export async function continuedSincePerson(client, pull, comments) {
+  comments = implementationComments(comments);
   const person = (comment) => comment.user?.login && comment.user.login !== BOT_LOGIN && !String(comment.user.login).endsWith('[bot]') && comment.user.type !== 'Bot';
   const commands = comments.filter((comment) => person(comment) && /^\s*\/speckit\b/.test(String(comment.body ?? ''))).map((comment) => Date.parse(comment.created_at));
   const pushed = Date.parse(latestHumanCommit(await client.listPullRequestCommits(pull)) ?? '') || 0;
@@ -843,6 +972,7 @@ export async function continuedSincePerson(client, pull, comments) {
 // Continues the implementation like the person's command would (speckit-commands.mjs), with a comment that starts with
 // AUTO_CONTINUE_MARKER.
 async function autoContinue(client, env, { twin, pull, folder, command }) {
+  if (!['retry', 'sync'].includes(command.verb)) throw new Error('Only retry and sync may continue automatically.');
   const implementation = await client.getPullRequest(pull);
   const guidance = neutralizeMarkers(command.guidance).slice(0, MAX_WRITER_GUIDANCE);
   const options = {
@@ -986,7 +1116,12 @@ export async function recordRework({ client, env, log, inputs, outcome }) {
 
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command, file] = argv;
-  if (command === 'check-report') return checkReportFile(file, log);
+  if (command === 'check-report') {
+    if (argv.length > 2 && (argv.length !== 4 || argv[2] !== '--context')) throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs check-report <report.json> [--context <context.json>]');
+    const contextFile = argv[3] ?? (existsSync('.speckit-diagnosis/context.json') ? '.speckit-diagnosis/context.json' : null);
+    const context = contextFile ? JSON.parse(readFileSync(contextFile, 'utf8')) : null;
+    return checkReportFile(file, log, context?.resetRecovery);
+  }
   if (command === 'commands') {
     log(renderCommandReference());
     return 0;
@@ -999,9 +1134,9 @@ export async function main(argv, { env = process.env, log = console.log, client 
 
 // The agent's self-check before it reports: prints what validation changes and the comment a person would see. Exits
 // with 1 while anything had to be adjusted, so the agent can fix its report first.
-export function checkReportFile(file, log = console.log) {
+export function checkReportFile(file, log = console.log, resetRecovery = null) {
   if (!file || !existsSync(file)) throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs check-report <report.json>');
-  const { reasons, report } = validateReport(readFileSync(file, 'utf8'));
+  const { reasons, report } = validateReport(readFileSync(file, 'utf8'), { resetRecovery });
   const notes = report?.category ? recommendNextSteps(report).notes : [];
   if (report?.category && report.category !== 'artifacts' &&
       !report.options.some((option) => option.recommended && (option.command || option.copilot || option.kind === 'external'))) {

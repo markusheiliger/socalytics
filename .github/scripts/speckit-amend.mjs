@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 import { canWrite, resolveImplementRequester } from './speckit-prepare.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
+import { resetState, implementationRunCurrent } from './speckit-implement-core.mjs';
 import {
   ARCHITECTURE_PREFIX,
   AMEND_REQUEST_MARKER,
@@ -322,7 +323,17 @@ function runLink(env) {
 // Starts the independent consistency analysis of the amendment's current head. `mode` is `loop` (findings lead to
 // correction rounds) or `check` (after a person's push: report only). After a correction round, `previous` holds the
 // round's tracked findings and `stalls` the rounds without progress so far.
+async function resetFencesAmendment(client, env, context) {
+  if (!context.implementation || context.reason) return false;
+  const state = resetState(await client.listIssueComments(context.implementation.number));
+  return Boolean(state.pending ||
+    state.records.some((record) => record.force && record.cleanup?.amendments?.some((item) => item.number === context.amendment?.number)) ||
+    (state.completed && Date.parse(context.amendment?.created_at) <= Date.parse(state.completed.at)) ||
+    !(await implementationRunCurrent(client, context.implementation.number, env)));
+}
+
 export async function startAnalysis(client, env, context, { round, mode = 'loop', stalls = 0, previous = [] }) {
+  if (await resetFencesAmendment(client, env, context)) return { outcome: 'superseded' };
   const { amendment, folder, implementation, twin, kind = 'amend' } = context;
   const current = await client.getPullRequest(amendment.number);
   const check = await client.createCheckRun({
@@ -377,6 +388,7 @@ export async function startAnalysis(client, env, context, { round, mode = 'loop'
 // request goes back to draft until it is presented again. Amendments are reworked by Spec Kit diagnose, prerequisite
 // specs authored by `/speckit author` by Spec Kit author.
 export async function startRework(client, env, context, { mode, round = 0, guidance = '', feedback = null, stalls = 0, findings = [], progress = null }) {
+  if (await resetFencesAmendment(client, env, context)) return { outcome: 'superseded' };
   const { amendment, folder, implementation, twin, kind = 'amend' } = context;
   const noun = kind === 'fix' ? 'spec' : 'amendment';
   const current = await client.getPullRequest(amendment.number);
@@ -653,6 +665,7 @@ function renderFindings(findings, rules = [], { ids = false } = {}) {
 // Hands the amendment or prerequisite spec to its owner (ownerOf): ready for review when it is consistent (a draft
 // otherwise), assigned, review requested, status in the description, and a note on the implementation.
 export async function presentAmendment(client, env, context, { consistent, analysis = null, rules = [], problem = null, since = null, corrected = false, held = null }) {
+  if (await resetFencesAmendment(client, env, context)) return { outcome: 'superseded' };
   const { amendment, folder, implementation, kind = 'amend' } = context;
   const current = await client.getPullRequest(amendment.number);
   const requester = await ownerOf(client, context);
@@ -734,6 +747,7 @@ export async function runRecordAnalysis({ client, env, log, markdownRun = undefi
     }
   };
   const context = await resolveAmendment(client, env, number);
+  if (await resetFencesAmendment(client, env, context)) return { exitCode: 0, outcome: 'superseded' };
   if (context.reason || context.amendment.state !== 'open') {
     await complete('neutral', 'The amendment is no longer open', context.reason ?? 'Nothing to check.');
     log(`Amendment #${number} is no longer open.`);
@@ -858,6 +872,7 @@ export async function runFeedback({ client, env, log, now = Date.now, sleep = de
   }
   const started = now();
   for (;;) {
+    if (await resetFencesAmendment(client, env, context)) return { exitCode: 0, outcome: 'superseded' };
     const amendment = await client.getPullRequest(number);
     if (amendment.state !== 'open') return { exitCode: 0, outcome: 'ignored' };
     const pending = await pendingFeedback(client, amendment);
@@ -885,6 +900,9 @@ export async function runFeedback({ client, env, log, now = Date.now, sleep = de
 // (rebase merges keep their author), so the merge itself does not start a new attempt window.
 export async function settleClosedAmendment(client, env, { amendment, folder, implementation, actor = null, dispatch = true }) {
   if (amendment.state === 'open') return { outcome: 'open' };
+  const resets = resetState(await client.listIssueComments(implementation.number));
+  if (resets.pending || resets.records.some((operation) => operation.force &&
+      operation.cleanup?.amendments?.some((item) => item.number === amendment.number))) return { outcome: 'superseded' };
   await setAttention(client, amendment.number, false);
   const marker = renderClosedMarker(amendment.number);
   const comments = await client.listIssueComments(implementation.number);
@@ -948,6 +966,8 @@ export async function runClosed({ client, env, log }) {
   if (!folder) return { exitCode: 0, outcome: 'ignored' };
   const implementation = (await client.listPullRequestsForHead(implementationBranch(folder))).find((pull) => pull.state === 'open');
   if (!implementation) return { exitCode: 0, outcome: 'no implementation' };
+  const reset = resetState(await client.listIssueComments(implementation.number));
+  if (reset.pending || (reset.completed && Date.parse(amendment.created_at) <= Date.parse(reset.completed.at))) return { exitCode: 0, outcome: 'superseded' };
   const result = await settleClosedAmendment(client, env, { amendment, folder, implementation, actor: env.SPECKIT_ACTOR || null });
   log(`Amendment #${number}: ${result.outcome}.`);
   return { exitCode: 0, outcome: result.outcome };
@@ -971,6 +991,8 @@ export async function maintainAmendment(client, env, { folder, implementation, t
   const pulls = await client.listPullRequestsForHead(amendmentBranch(folder));
   const latest = pulls.find((pull) => pull.state === 'open') ?? pulls[0];
   if (!latest) return { outcome: 'none' };
+  const reset = resetState(await client.listIssueComments(implementation.number));
+  if (reset.pending || (reset.completed && Date.parse(latest.created_at) <= Date.parse(reset.completed.at))) return { outcome: 'superseded' };
   if (latest.state !== 'open') {
     const amendment = await client.getPullRequest(latest.number);
     const settled = await settleClosedAmendment(client, env, { amendment, folder, implementation, actor: amendment.merged_by?.login ?? null, dispatch: false });

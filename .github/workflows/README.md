@@ -303,6 +303,7 @@ diagnosis evidence file are generated from it, and a test fails when this table 
 
 | Command | Where | What it does | Flags |
 | --- | --- | --- | --- |
+| `/speckit reset [--force]` | implementation pull request | discard all branch-only changes and progress, keep a recovery reference, and automatically restart from the current PR base; without force, active work or open child PRs prevent reset | `--force`: cancel and confirm related work stopped, close owned amendment PRs, and delete their exact amendment branch before resetting; authored prerequisite PRs and unconfirmed external handoffs still prevent reset |
 | `/speckit retry [--force] [guidance]` | implementation pull request | restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt's prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given | `--force`: restart even after 2 restarts in a row that left the branch unchanged |
 | `/speckit sync [guidance]` | implementation pull request | require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved | none |
 | `/speckit amend <guidance>` | implementation pull request | authorize the stated spec-only change and prepare an amendment for independent analysis and human review; implementation resumes only after the amendment is merged; completed tasks are preserved and no task is ticked | none |
@@ -320,6 +321,62 @@ bare `--` ends the flags (put it before guidance that itself starts with `--`), 
 refuses the command instead of becoming guidance. An unknown command is answered with the help; a renamed one
 (`specify` and `fix`, now `author`) is not run either, and the answer gives the command to post instead, with its
 guidance (`RENAMED_COMMANDS` in `speckit-commands.mjs`).
+
+### Destructive restart
+
+`/speckit reset` starts the same implementation pull request over from its **current PR base**. The writer's bare
+command is authorization: guidance and extra confirmation are not supported. It discards every branch-only change,
+including amendments, checked tasks, and convergence additions. The base must already contain the active spec,
+plan, a nonempty fully unchecked task list, and checked checklists. Related open amendment or authored-spec pull
+requests, active handoffs, and queued or active work prevent reset; nothing is cancelled automatically.
+
+The optional `--force` flag authorizes trusted cleanup **before** the publication lock: cancel queued/running
+work attributable specifically to the implementation and its amendments, confirm it stopped, close owned open
+amendment PRs without merging, and delete the exact owned amendment branch under an expected-head lease. This also
+removes that branch when left behind by a closed PR or without an open PR. The force workflow excludes itself and
+never cancels shared/global schedulers or unrelated work. It never deletes the implementation, base, authored-spec
+branches, or recovery refs. Open authored prerequisite-spec PRs and external handoffs that cannot be confirmed stopped
+remain hard refusals. An incomplete listing, timeout, permission refusal, changed branch head, or failed cleanup
+stops the reset and reports partial cleanup; completed cancellations and closures are not rolled back.
+
+Preparation records a durable fence so old work cannot publish and amendment callbacks cannot reopen or resume it.
+The branch replacement still takes the existing publication lock. A trusted completion boundary excludes late
+cancellation reports from the new generation, and interrupted preparation is reconciled from its recorded steps.
+
+The trusted command job retains the old head indefinitely at `refs/tags/speckit-reset/pr-<pull>/<comment-id>` and
+atomically replaces the implementation ref under an exact-head lease. The new head is a unique empty start commit
+with exactly the pinned base's tree and that base commit as its only parent. It keeps the PR, twin, accepted
+implementation request, and native dependencies. Historical comments and checks remain audit records, not current
+progress: attempts, repairs, sync barriers, guidance, and child settlements start in a new reset generation. Old runs
+cannot publish or continue into it. Interrupted operations are reconciled from their trusted reset record.
+
+The normal loop is explicitly requested at its first task. If reset completes but that dispatch fails or is
+interrupted, the scheduler automatically retries the recorded continuation through the trusted command workflow,
+without another writer command or another branch reset, even when diagnosis auto-continuation is disabled.
+Ordinary phase-start base synchronization is unchanged,
+including its configured best-effort behavior; reset adds no new sync policy. It does not fix a defective base spec,
+grant tooling-edit permission, or promise that a legacy spec will finish. Narrower retry, sync, amendment, or repair
+remains preferable when it solves the cause without discarding implementation.
+
+Diagnoses may recommend `/speckit reset` for evidence-backed `retry`, `outside`, or `decision` findings, identifying
+what it discards and why that is appropriate. They recheck eligibility and warn about recovery and the actual base.
+Copyable diagnosis actions remain **only the bare reset command**. Prose may suggest typing the `--force` flag
+manually, but it is never prefilled in a recommended command or copy block.
+**Only an explicit writer command executes either variant; diagnosis never auto-continues with reset.** No restore command,
+recovery-ref cleanup, token-permission expansion, or production-readiness claim is provided.
+
+For protected-path or publication failures, diagnosis must explicitly compare reset with retry, sync, amendment,
+and repair before recommending manual privileged publication or additional permissions. Trusted evidence pins the
+actual base and implementation revisions, compares protected paths against that base tip (not just the merge base),
+and records reset blockers and original protected-tooling obligations. The report's `resetAssessment` explains what
+reset removes now and what remains; a staged restart may leave a separately authorized scope correction necessary.
+Completed implementation tasks do not by themselves exclude reset. Missing, stale, or contradictory assessments
+use the existing bounded reassessment, never automatic reset or silent permission advice.
+
+The agent can preflight its report with
+`node .speckit-tooling/.github/scripts/speckit-diagnose.mjs check-report <report.json> --context .speckit-diagnosis/context.json`.
+The publisher recomputes trusted facts rather than trusting this editable context. Unrelated diagnoses and
+amendment/rework reports retain their existing contract.
 
 ### Guidance
 
@@ -391,7 +448,10 @@ the spec branch: the earliest artifact the findings or feedback name chooses the
 **Design decisions** comment comes from the `## Architecture Updates` section of the spec's plan. Once the
 analysis finds it consistent and its changed Markdown passes the Markdown check (the record job runs
 `check-markdown.mjs` on it, and every problem is a finding for the correction rounds; amendments get the same
-check), the pull request is merged automatically; it waits for review when it changes
+check). The check loads the owning spec folders' Markdown (or architecture Markdown) from the pinned pull request
+head, including unchanged linked artifacts and removing stale Markdown absent from that head. Only changed files
+are checked; tooling and configuration still come from the trusted default-branch checkout. Once consistent,
+the pull request is merged automatically; it waits for review when it changes
 `docs/architecture/` (a **Design decisions** comment explains why) or when a person pushed to it. On the default
 branch it is an ordinary spec with its own twin, and the stopped spec's twin is blocked by it like by any dependency.
 Once it is ready (`tasked`, checklists checked), the scheduler requests its implementation automatically on behalf of

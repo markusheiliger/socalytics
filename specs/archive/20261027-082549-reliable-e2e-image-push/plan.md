@@ -2,7 +2,7 @@
 
 **Branch**: `20261027-082549-reliable-e2e-image-push` | **Date**: 2026-10-27 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261027-082549-reliable-e2e-image-push/spec.md`
+**Input**: Feature specification from `/specs/archive/20261027-082549-reliable-e2e-image-push/spec.md`
 
 ## Summary
 
@@ -20,8 +20,8 @@ unit tests, and documentation:
    cache** that builds and pushes one variant once per test class, with failures reported to every waiting test.
 4. The three build-and-push helpers (`TestAnalystImage`, `ReferenceAnalystImage`, `ShotBoundaryAnalystImage`) use these;
    a README of the project records the evidenced cause, the digest sources in order, the limits, the retry rule, the
-   bound, the reuse rule, and the run commands. The cause is established with evidence first (research.md
-   `## Evidence`, FR-001), and the fix has to hold under either suspected cause.
+   bound, the reuse rule, and the run commands. The cause is established with evidence (research.md
+   `## Evidence` and the README's `## Cause`, FR-001), and the fix has to hold under either suspected cause. The README is created after the digest fix (T001 after T007), because a README change makes the task verification run all Docker-backed tests of the project, which fail until the fix landed. For the same reason the setup, the foundation, and User Story 1 form one phase in `tasks.md`: the phase verification runs that whole project and passes only after the digest fix (T007).
 
 ## Technical Context
 
@@ -51,7 +51,7 @@ No NEEDS CLARIFICATION remain; the values in [research.md](research.md) are deve
 
 | Principle / constraint | Result |
 | --- | --- |
-| I. Architecture is the design authority | Pass. No design decision of `docs/architecture/` changes; no architecture statement is changed (see Architecture Updates); T027 only verifies that the two end-to-end evidence statements remain true. |
+| I. Architecture is the design authority | Pass. No design decision of `docs/architecture/` changes; no architecture statement is changed (see Architecture Updates); T027 corrects one of the two end-to-end evidence statements only if the change made it false, which the plan does not expect. |
 | II. Source-area ownership | Pass. Everything lives in `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests` (platform area); no new `src/` child. The README is the project's first documentation artifact. |
 | III. API-first control plane | Not affected (no API, contract, or video path). |
 | IV. Evidence over claims | Pass. Unit tests without Docker plus one full Docker-backed run and the Images tests; stability evidence over repeated runs is recorded manually and is not presented as production readiness. |
@@ -66,8 +66,8 @@ shared test project is `Integration.Tests` (not edited; its fixture is only used
 None. The feature changes only the end-to-end test support code, its unit tests, and the project's documentation; no
 component, technology, topology, protocol, contract, or term of the architecture changes. `docs/architecture/` mentions
 the Docker-backed end-to-end tests only as evidence of what they cover
-([platform-implementation.md](../../docs/architecture/platform-implementation.md), the Docker-backed end-to-end test
-bullet of the evidence list, and [analysts-models-and-hardware.md](../../docs/architecture/analysts-models-and-hardware.md),
+([platform-implementation.md](../../../docs/architecture/platform-implementation.md), the Docker-backed end-to-end test
+bullet of the evidence list, and [analysts-models-and-hardware.md](../../../docs/architecture/analysts-models-and-hardware.md),
 the sentence that the Docker-backed end-to-end tests register the development Analyst images); neither says how a test
 image is pushed, which digest sources, limits, retries, or bounds apply, and no statement about planned, future, or
 unimplemented work is made true or false by this change, so no architecture task is required. The push and build
@@ -78,9 +78,9 @@ behavior is documented in the end-to-end project's README (FR-012).
 ### Documentation (this feature)
 
 ```text
-specs/20261027-082549-reliable-e2e-image-push/
+specs/archive/20261027-082549-reliable-e2e-image-push/
 ├── plan.md              # This file
-├── research.md          # Phase 0 (decisions, Evidence section to be completed by implementation)
+├── research.md          # Phase 0 (decisions, Evidence section; the rest of the cause goes to the end-to-end README)
 ├── data-model.md        # Phase 1 (support types, states, rules)
 ├── quickstart.md        # Phase 1 (validation scenarios)
 ├── checklists/

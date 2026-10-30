@@ -421,6 +421,11 @@ deferred.
   dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests
   ```
 
+  Its [README](Tests/SocAlytics.Platform.EndToEnd.Tests/README.md) records how
+  the tests build and push the development Analyst images, the limits and retry
+  rule of the image push, and the run commands (development values, not
+  deployment support or production readiness).
+
 - The API hosts the outbox publisher, retention, Job Monitor,
   recordings-finalized consumer, and reconciliation workers. The switch
   `Analysis:Workers:Enabled` (default `true`) turns them off; tests may disable

@@ -6,7 +6,6 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Shouldly;
 using SocAlytics.Platform.EndToEnd.Tests.Support;
-using SocAlytics.Platform.Integration.Tests.Registry.Support;
 using Xunit;
 
 namespace SocAlytics.Platform.EndToEnd.Tests;
@@ -16,7 +15,7 @@ namespace SocAlytics.Platform.EndToEnd.Tests;
 /// (FR-009, FR-011, FR-013; SC-004).
 /// </summary>
 [Collection("EndToEnd")]
-public sealed class ReferenceAnalystImageTests
+public sealed class ReferenceAnalystImageTests(AnalystImageCache images) : IClassFixture<AnalystImageCache>
 {
     private const string Prefix = "analysts/";
     private const string UnknownUser = "54321:54321";
@@ -29,7 +28,7 @@ public sealed class ReferenceAnalystImageTests
     public Task The_registry_accepts_the_payload_validated_image_and_it_runs_under_the_Manager_restrictions() =>
         VerifyAsync(ReferenceAnalystImage.PayloadValidated);
 
-    private static async Task VerifyAsync(ReferenceAnalystVariant variant)
+    private async Task VerifyAsync(ReferenceAnalystVariant variant)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         var ct = cts.Token;
@@ -37,41 +36,27 @@ public sealed class ReferenceAnalystImageTests
         var manifestBytes = await File.ReadAllBytesAsync(Path.Combine(ReferenceAnalystImage.FindRepositoryRoot(), variant.ManifestPath), ct);
         var manifest = JsonNode.Parse(manifestBytes)!;
 
-        var registry = new OciRegistryContainerFixture();
-        await registry.InitializeAsync();
-        PushedAnalystImage? image = null;
-        try
+        var started = await EndToEndHarness.StartAsync(ct, new Dictionary<string, string?>
         {
-            var started = await EndToEndHarness.StartAsync(ct, new Dictionary<string, string?>
-            {
-                ["Registry:Images:RegistryHost"] = registry.RegistryHost,
-                ["Registry:Images:RepositoryPrefix"] = Prefix,
-                ["Registry:Images:UseHttp"] = "true",
-            });
-            if (started is null)
-            {
-                Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
-                return;
-            }
-
-            await using var harness = started;
-            image = await ReferenceAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct, variant);
-
-            await AssertRegisteredAsync(harness, image.Reference(registry.RegistryHost), image.Digest, manifest, variant.CapabilityVersion, ct);
-
-            using var docker = new DockerEngine();
-            await AssertImageAsync(docker, image.LocalName, manifest, manifestBytes, ct);
-            await AssertRestrictedRunAsync(image.LocalName, ct);
-        }
-        finally
+            ["Registry:Images:RegistryHost"] = await images.GetRegistryHostAsync(ct),
+            ["Registry:Images:RepositoryPrefix"] = Prefix,
+            ["Registry:Images:UseHttp"] = "true",
+        });
+        if (started is null)
         {
-            if (image is not null)
-            {
-                await ReferenceAnalystImage.RemoveAsync(image);
-            }
-
-            await registry.DisposeAsync();
+            Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
+            return;
         }
+
+        await using var harness = started;
+        // The class's cache builds and pushes each variant once and removes the images and the registry when the class ends.
+        var image = await ReferenceAnalystImage.GetOrBuildAsync(images, Prefix, ct, variant);
+
+        await AssertRegisteredAsync(harness, image.Reference(await images.GetRegistryHostAsync(ct)), image.Digest, manifest, variant.CapabilityVersion, ct);
+
+        using var docker = new DockerEngine();
+        await AssertImageAsync(docker, image.LocalName, manifest, manifestBytes, ct);
+        await AssertRestrictedRunAsync(image.LocalName, ct);
     }
 
     private static async Task AssertRegisteredAsync(EndToEndHarness harness, string reference, string digest, JsonNode manifest, string version, CancellationToken ct)
