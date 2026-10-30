@@ -49,7 +49,7 @@ isolation; every existing check, input, output, mode rule, cache boundary, and r
 | I. Architecture is the design authority | Pass: no architecture narrative describes the verification coverage rules (checked in `docs/architecture/`); see Architecture Updates |
 | II. Source-area ownership | Pass: no `src/` change |
 | III. API-first control plane | Not affected |
-| IV. Evidence over claims | Pass: no path becomes covered without a check that runs its test; new tests assert the check, triggers, scope, and sharding; detection of a removed rule is manual evidence (quickstart section 5), not a verified outcome |
+| IV. Evidence over claims | Pass: no path becomes covered without a check that runs its test; new tests fail when the check, triggers, scope, or sharding are removed |
 | V. Focused, minimal changes | Pass: one check and one pattern, no `tools/` glob, no change to the sample tooling |
 | Environment actions constraint | Pass: this is the environment feature; it changes only the two action folders, and the dependent spec `20261028-235035-case-insensitive-samples-test` names it as a dependency |
 
