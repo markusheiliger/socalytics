@@ -71,7 +71,7 @@
 
 - [ ] T011 [P] [US2] Edit `Support/TestAnalystImage.cs`: run the image build and the push under `EngineCallPolicy` (`BuildLimit`, `PushLimit`, the test's cancellation token) and use the reworked `DockerEngine`. If T001 recorded that the Testcontainers build client applies a default shorter than `BuildLimit`, configure or run the build so that `BuildLimit` and the test's token are what end it, or document the limitation in the README (T028)
 - [ ] T012 [P] [US2] Edit `Support/ReferenceAnalystImage.cs`: run the image build and the push under `EngineCallPolicy` (`BuildLimit`, `PushLimit`, the test's cancellation token). If T001 recorded that the Testcontainers build client applies a default shorter than `BuildLimit`, configure or run the build so that `BuildLimit` and the test's token are what end it, or document the limitation in the README (T028)
-- [ ] T013 [P] [US2] Edit `Support/ShotBoundaryAnalystImage.cs`: run the image build and the push under `EngineCallPolicy` (`BuildLimit`, `PushLimit`, the test's cancellation token). If T001 recorded that the Testcontainers build client applies a default shorter than `BuildLimit`, configure or run the build so that `BuildLimit` and the test's token are what end it, or document the limitation in the README (T028)
+- [x] T013 [P] [US2] Edit `Support/ShotBoundaryAnalystImage.cs`: run the image build and the push under `EngineCallPolicy` (`BuildLimit`, `PushLimit`, the test's cancellation token). If T001 recorded that the Testcontainers build client applies a default shorter than `BuildLimit`, configure or run the build so that `BuildLimit` and the test's token are what end it, or document the limitation in the README (T028)
 
 **Checkpoint**: User Stories 1 and 2 work and are testable without Docker.
 

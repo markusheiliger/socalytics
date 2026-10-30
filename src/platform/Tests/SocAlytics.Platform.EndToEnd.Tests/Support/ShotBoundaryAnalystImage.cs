@@ -52,7 +52,17 @@ internal static class ShotBoundaryAnalystImage
                 .WithName(new DockerImage(localName))
                 .WithDeleteIfExists(false)
                 .Build();
-            await image.CreateAsync(ct);
+            // The Testcontainers build client has no request timeout of its own, so BuildLimit and the test's token end the build.
+            await EngineCallPolicy.ExecuteAsync(
+                $"Building the shot-boundary Analyst image {localName}",
+                nameof(EngineCallPolicy.BuildLimit),
+                EngineCallPolicy.BuildLimit,
+                async buildToken =>
+                {
+                    await image.CreateAsync(buildToken);
+                    return true;
+                },
+                ct);
         }
         finally
         {
