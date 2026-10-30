@@ -463,8 +463,8 @@ async function maintainBlock(client, env, { implementation, twin, rootDir = null
 }
 
 // Every open implementation pull request labelled BLOCKED_LABEL that the twin loop did not handle (for example because
-// its twin is inconsistent) is maintained as well, so an implemented prerequisite always lifts the block and retries
-// it. Returns the number of actions taken.
+// its twin is inconsistent) is maintained as well, so an implemented prerequisite always lifts the block and requests the
+// required synchronization. Returns the number of actions taken.
 async function sweepBlocked(client, env, { handled, now, notes, rootDir = null }) {
   let actions = 0;
   let pulls;

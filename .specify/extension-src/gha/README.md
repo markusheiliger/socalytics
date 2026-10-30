@@ -206,8 +206,9 @@ independent analysis finds it consistent, merges it automatically (a spec that
 changes `docs/architecture/` waits for review; its plan's Architecture Updates
 explain its design decisions).
 The stopped spec then depends on it like on any spec; it is implemented only after
-someone signs it off with `/speckit implement` on its twin, and the stopped
-implementation retries by itself when it is implemented.
+someone signs it off with `/speckit implement` on its twin, and once it is
+implemented the stopped implementation merges the base branch, passes full
+verification, and continues by itself.
 
 `speckit.gha.route` and `speckit.gha.request` both run
 `node .github/scripts/speckit-orchestrate.mjs request`, which
