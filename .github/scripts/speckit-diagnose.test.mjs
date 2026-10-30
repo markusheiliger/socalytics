@@ -8,7 +8,8 @@ import { checkAmendment, pendingFeedback, renderFeedback, requestAmendment, sett
 import { ATTENTION_LABEL, AUTO_CONTINUE_MARKER, IMPLEMENT_WORKFLOW_FILE, RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER, parseGuidance, renderRetryComment, syncBarrier, unchangedRestarts, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker, renderSyncComment, repeatedFailure, isTwinRunOf } from './speckit-implement-core.mjs';
 import { copilotRequestOf, COPILOT_HANDOFF_MARKER, maintainCopilotHandoff, renderCopilotRequest, RECOVERY_FAILURE_MARKER, failedRecoveryRoutes, reassessRecovery, recoveryReassessment } from './speckit-implement-core.mjs';
 import { failedSynchronization, renderSyncBarrierMarker } from './speckit-implement-core.mjs';
-import { implementsTasks } from './speckit-diagnose.mjs';
+import { collectResetRecovery, implementsTasks } from './speckit-diagnose.mjs';
+import { renderSpecLine } from './speckit-prepare-core.mjs';
 import { CATEGORIES, CATEGORY_COMMANDS, MAX_RECOMMENDED_COMMAND, MAX_STOP_SUBJECT, categoryCommands, checkReportFile, commandPatterns, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -28,6 +29,142 @@ const REPORT = {
   ],
   questions: [{ question: 'Keep the counter write?', choices: ['Yes', 'No'] }],
 };
+
+function resetAssessment(facts, decision = 'recommend') {
+  return { head: facts.head, baseSha: facts.baseSha, decision,
+    reason: decision === 'recommend' ? 'Discarding the divergent tooling removes the current publication blocker without granting permissions.' : 'Reset is not established as a safe remedy for this stop.',
+    removes: decision === 'recommend' ? ['Branch-only protected tooling and implementation progress.'] : [],
+    remaining: facts.baseProtectedTasks.map((task) => `${task.task}: separately authorize correction of ${task.files.join(', ')}; reset does not implement or legalize it.`),
+    alternatives: { retry: 'Repeats unchanged publication.', sync: 'Repeats the refused merge.',
+      amend: 'Cannot discard already landed protected tooling.', repair: 'Cannot change protected tooling.' } };
+}
+
+async function recoveryFixture() {
+  const github = diagnosisRepo({ amendment: false });
+  github.find(5).body = renderSpecLine({ serverUrl: 'https://github.com', repository: 'octo/repo', branch: 'main' }, 'f');
+  for (const [file, text] of Object.entries({ 'spec.md': '# F', 'plan.md': '# Plan',
+    'tasks.md': '- [ ] T001 Change `.github/scripts/check.mjs`\n- [ ] T002 Change `.specify/extension-src/gha/README.md`',
+    'checklists/requirements.md': '- [x] Ready' })) github.setFile('sha-main', `specs/f/${file}`, text);
+  github.setFile('sha-impl', 'specs/f/tasks.md', '- [x] T001 Done\n- [x] T002 Done');
+  github.setFile('sha-main', '.github/workflows/README.md', 'trusted base');
+  github.setFile('sha-impl', '.github/workflows/README.md', 'branch contamination');
+  await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-impl', status: 'completed', conclusion: 'failure',
+    output: { title: 'Publication failed', summary: 'refusing to allow a GitHub App to create or update workflow without workflows permission' } });
+  return github;
+}
+
+async function recoveryFacts(github) {
+  return collectResetRecovery(github, { implementation: await github.getPullRequest(9), twin: 5, folder: 'f',
+    checks: await github.listCheckRuns('sha-impl', CHECK_RUN_NAME), comments: github.comments });
+}
+
+test('#344 recovery assessment permits an honest staged reset despite completed implementation tasks', async () => {
+  const github = await recoveryFixture();
+  const facts = await recoveryFacts(github);
+  assert.equal(facts.required, true);
+  assert.deepEqual(facts.errors, []);
+  assert.deepEqual(facts.forceBlockers, []);
+  assert.deepEqual(facts.protectedPaths, ['.github/workflows/README.md']);
+  assert.deepEqual(facts.baseProtectedTasks.map((task) => task.task), ['T001', 'T002']);
+  const report = { ...REPORT, category: 'outside', artifacts: [], questions: [],
+    options: [{ title: 'Restart #9 from main', why: 'Remove branch contamination, retaining scope correction as separate work.', command: '/speckit reset', target: 'implementation', recommended: true }],
+    resetAssessment: resetAssessment(facts) };
+  assert.deepEqual(validateReport(report, { resetRecovery: facts }).reasons, []);
+  const recorded = await recordReport(github, report);
+  assert.equal(recorded.report.options[0].command, '/speckit reset');
+  assert.equal(recorded.continued, null);
+  assert.equal(github.repo.runs.length, 0, 'reset never runs automatically');
+  const body = github.comments.find((item) => item.body.startsWith(DIAGNOSIS_COMMENT_MARKER)).body;
+  assert.ok(body.indexOf('**Reset recovery assessment**') < body.indexOf('<details>'));
+  assert.match(body, /Remains after reset: T001/);
+  assert.match(body, /Remains after reset: T002/);
+  for (const changes of [{ resetAssessment: undefined }, { resetAssessment: { ...report.resetAssessment, remaining: [] } },
+    { resetAssessment: { ...report.resetAssessment, head: 'old-head' } }]) {
+    assert.ok(validateReport({ ...report, ...changes }, { resetRecovery: facts }).reasons.length);
+  }
+});
+
+test('permission-only publication advice without reset assessment is rejected through bounded reassessment', async () => {
+  const github = await recoveryFixture();
+  const report = { ...REPORT, category: 'outside', artifacts: [], questions: [],
+    options: [{ title: 'Grant workflows permission', why: 'Publish the merge with extra credentials.', target: 'external', kind: 'external', recommended: true }] };
+  const facts = await recoveryFacts(github);
+  assert.match(validateReport(report, { resetRecovery: facts }).reasons.join(), /require resetAssessment/);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const recorded = await recordReport(github, report);
+    assert.equal(recorded.report, null);
+  }
+  assert.equal(github.repo.runs.filter((run) => run.workflow === 'speckit-diagnose.lock.yml').length, 1, 'one reassessment, not an infinite loop');
+  assert.ok(recoveryReassessment(github.comments, 'sha-impl'));
+});
+
+test('reset comparison uses actual pinned trees, including deletion and mode changes, not merge-base paths', async () => {
+  const github = await recoveryFixture();
+  github.setFile('sha-impl', '.github/workflows/README.md', 'trusted base');
+  github.setFile('sha-main', '.github/deleted.mjs', 'old');
+  github.setFile('sha-impl', '.github/added.mjs', 'new');
+  github.setFile('sha-main', '.github/mode.sh', 'same');
+  github.setFile('sha-impl', '.github/mode.sh', 'same');
+  const entries = github.listRepositoryEntries.bind(github);
+  github.listRepositoryEntries = async (ref) => (await entries(ref)).map((item) => ({
+    ...item, mode: ref === 'sha-impl' && item.path === '.github/mode.sh' ? '100755' : item.mode,
+  }));
+  const facts = await recoveryFacts(github);
+  assert.deepEqual(facts.protectedPaths, ['.github/added.mjs', '.github/deleted.mjs', '.github/mode.sh']);
+  const report = { ...REPORT, category: 'outside', options: [{ title: 'Obtain missing publication evidence', why: 'The current failure may survive a clean restart.', target: 'external', kind: 'external', recommended: true }],
+    resetAssessment: resetAssessment(facts, 'unsuitable') };
+  assert.deepEqual(validateReport(report, { resetRecovery: facts }).reasons, [], 'eligible reset is not automatically preferred');
+});
+
+test('unavailable tree evidence, changed revisions, and hard blockers cannot authorize reset', async () => {
+  const github = await recoveryFixture();
+  github.listRepositoryEntries = async () => { throw new Error('truncated'); };
+  const facts = await recoveryFacts(github);
+  assert.match(facts.errors.join(), /truncated/);
+  const report = { ...REPORT, category: 'outside',
+    options: [{ title: 'Grant permission', why: 'Use privileged publication.', kind: 'external', target: 'external', recommended: true }],
+    resetAssessment: resetAssessment(facts, 'unknown') };
+  assert.match(validateReport(report, { resetRecovery: facts }).reasons.join(), /Missing recovery evidence/);
+  report.options = [{ title: 'Obtain the complete tree', why: 'Recover unavailable evidence before choosing a remedy.', kind: 'external', target: 'external', recommended: true }];
+  assert.deepEqual(validateReport(report, { resetRecovery: facts }).reasons, []);
+  report.resetAssessment = resetAssessment(facts);
+  report.options = [{ title: 'Reset', why: 'Reset the branch', command: '/speckit reset', target: 'implementation', recommended: true }];
+  assert.match(validateReport(report, { resetRecovery: facts }).reasons.join(), /unavailable|Unavailable/);
+  const hard = { ...facts, errors: [], forceBlockers: ['an active external handoff cannot be confirmed stopped'] };
+  assert.match(validateReport(report, { resetRecovery: hard }).reasons.join(), /hard blockers/);
+  const moved = await recoveryFixture();
+  const get = moved.getPullRequest.bind(moved);
+  moved.getPullRequest = async (number) => ({ ...await get(number), head: { ...(await get(number)).head, sha: 'moved-head' } });
+  const movedFacts = await collectResetRecovery(moved, { implementation: { ...await get(9) }, twin: 5, folder: 'f',
+    checks: await moved.listCheckRuns('sha-impl', CHECK_RUN_NAME), comments: [] });
+  assert.match(movedFacts.errors.join(), /moved/);
+});
+
+test('context-aware preflight and publication reject missing assessments and obsolete base revisions', async () => {
+  const github = await recoveryFixture();
+  const facts = await recoveryFacts(github);
+  const report = { ...REPORT, category: 'outside', artifacts: [], questions: [],
+    options: [{ title: 'Restart #9', why: 'Remove branch contamination.', command: '/speckit reset', target: 'implementation', recommended: true }] };
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-reset-assessment-'));
+  try {
+    const file = path.join(dir, 'report.json');
+    const context = path.join(dir, 'context.json');
+    writeFileSync(file, JSON.stringify(report));
+    writeFileSync(context, JSON.stringify({ resetRecovery: facts }));
+    assert.equal(await main(['check-report', file, '--context', context], { log: silent }), 1);
+    report.resetAssessment = resetAssessment(facts);
+    writeFileSync(file, JSON.stringify(report));
+    assert.equal(await main(['check-report', file, '--context', context], { log: silent }), 0);
+    github.repo.branches.main = 'new-base';
+    const result = await recordReport(github, report);
+    assert.equal(result.report, null, 'publication recomputes facts instead of trusting preflight context');
+    const body = github.comments.find((item) => item.body.startsWith(DIAGNOSIS_COMMENT_MARKER)).body;
+    assert.match(body, /current pinned implementation and base revisions/);
+    assert.equal(github.repo.branches['speckit/f'], 'sha-impl');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('a #377-style decision prominently recommends a concrete reviewed amend command, never auto-continues it', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'speckit-amend-decision-'));
@@ -188,7 +325,9 @@ test('collects evidence: checks, comments, failed run logs, branch state, and no
     assert.deepEqual([context.implementationBranch, context.amendmentBranch, context.nextTask], ['speckit/f', 'speckit-amend/f', 'T002']);
     // The live command reference: every recommendable command with what it does on this pull request.
     assert.match(evidence, new RegExp(`## ${COMMAND_REFERENCE_TITLE}\\n`));
-    for (const command of PR_COMMANDS.filter((item) => item.recommend)) assert.ok(evidence.includes(`### \`${command.usage}\``), command.name);
+    for (const command of PR_COMMANDS.filter((item) => item.recommend)) assert.ok(evidence.includes(`### \`${command.name === 'reset' ? '/speckit reset' : command.usage}\``), command.name);
+    assert.doesNotMatch(evidence, /### `\/speckit reset \[--force\]/);
+    assert.match(evidence, /manually typing the force flag/);
     assert.doesNotMatch(evidence, /### `\/speckit help/);
     assert.match(evidence, /No repair is pending on this pull request\./);
     assert.match(evidence, /Does not merge `main`: the implementation continues with what stopped/);
@@ -697,6 +836,7 @@ test('#344: failed synchronization is prominent and a tooling prompt runs in def
   const report = {
     ...REPORT, category: 'outside', artifacts: [], questions: [],
     summary: 'The merge verified, but publication failed. The remote rejection is missing.',
+    resetAssessment: resetAssessment(await recoveryFacts(github), 'blocked'),
     options: [{
       title: 'Fix trusted publication tooling to unblock #9',
       why: 'Another sync cannot change the failing publisher. Recover the remote rejection before choosing a permission remedy.',

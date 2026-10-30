@@ -6,6 +6,7 @@ export const START_COMMENT_MARKER = '<!-- speckit-implement:start -->';
 export const RETRY_COMMENT_MARKER = '<!-- speckit-implement:retry -->';
 export const SYNC_COMMENT_MARKER = '<!-- speckit-implement:sync -->';
 export const RESET_MARKER = '<!-- speckit-implement:reset ';
+export const RESET_BOUNDARY_MARKER = '<!-- speckit-implement:reset-boundary ';
 const RESET_PATTERN = /^<!-- speckit-implement:reset (\{[^\n]*\}) -->/;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 
@@ -22,11 +23,28 @@ export function resetState(comments) {
     if (!value || !['pending', 'completed', 'failed'].includes(value.state) ||
         !Number.isSafeInteger(value.source) || value.source <= 0 ||
         !SHA_PATTERN.test(value.oldHead ?? '') || !SHA_PATTERN.test(value.baseSha ?? '') ||
-        !value.base || !value.branch || !value.recovery ||
+        typeof value.base !== 'string' || !value.base ||
+        typeof value.branch !== 'string' || !value.branch ||
+        typeof value.recovery !== 'string' || !value.recovery ||
+        (value.force != null && typeof value.force !== 'boolean') ||
         (value.newHead != null && !SHA_PATTERN.test(value.newHead))) {
       throw new Error('The trusted reset record is invalid; inspect it before continuing.');
     }
-    records.push({ ...value, comment: comment.id, at: comment.created_at });
+    if (value.force && (typeof value.repository !== 'string' || !value.repository || !value.branch.startsWith(BRANCH_PREFIX) ||
+        typeof value.actor !== 'string' || !value.actor ||
+        !Array.isArray(value.cleanup?.cancellations) || !Array.isArray(value.cleanup.closed) ||
+        !Array.isArray(value.cleanup.amendments) ||
+        ![...value.cleanup.cancellations, ...value.cleanup.closed].every((id) => Number.isSafeInteger(id) && id > 0) ||
+        !value.cleanup.amendments.every((item) => Number.isSafeInteger(item?.number) && item.number > 0 && SHA_PATTERN.test(item.head ?? '')) ||
+        value.cleanup.branch?.name !== `speckit-amend/${value.branch.slice(BRANCH_PREFIX.length)}` ||
+        (value.cleanup.branch.head !== null && !SHA_PATTERN.test(value.cleanup.branch.head ?? '')) ||
+        (value.prepared != null && typeof value.prepared !== 'boolean'))) {
+      throw new Error('The trusted force reset cleanup record is invalid; inspect it before continuing.');
+    }
+    const boundary = value.boundary == null ? null : comments.find((item) => item.id === value.boundary &&
+      item.user?.login === BOT_LOGIN && item.body === `${RESET_BOUNDARY_MARKER}${JSON.stringify({ source: value.source })} -->`);
+    if (value.boundary != null && !boundary) throw new Error('The trusted reset completion boundary is missing or invalid.');
+    records.push({ ...value, comment: comment.id, at: boundary?.created_at ?? comment.created_at });
   }
   const completed = records.filter((record) => record.state === 'completed').at(-1) ?? null;
   const latest = records.at(-1);
@@ -36,7 +54,7 @@ export function resetState(comments) {
 export function implementationComments(comments) {
   const { completed } = resetState(comments);
   if (!completed) return comments;
-  const boundary = comments.findIndex((comment) => comment.id === completed.comment);
+  const boundary = comments.findIndex((comment) => comment.id === (completed.boundary ?? completed.comment));
   return comments.slice(boundary + 1);
 }
 
@@ -426,12 +444,14 @@ export const isProtectedPath = (file) => !isEnvironmentPath(file) && PROTECTED_P
 // always references, and commands a task runs (`node .github/scripts/…`) are left out, because running a script does
 // not change it.
 const COMMAND_SPAN = /`(?:node|npm|npx|dotnet|uv|python3?|git|gh|docker|pwsh|bash|sh|specify)\s[^`\r\n]*`/g;
-export function protectedTaskPaths(tasksMarkdown) {
+export function protectedTaskPaths(tasksMarkdown, { includeSpecify = false } = {}) {
   const concrete = (file) => /\.[A-Za-z0-9]+$/.test(file) && (file.includes('/') || file.includes('\\'));
   return listTasks(tasksMarkdown)
     .filter((task) => !task.done)
     .map((task) => ({ task: task.id, files: taskNamedFiles(String(task.text).replace(COMMAND_SPAN, ' '), { exists: () => true, isSafe: concrete, max: 1 }) }))
-    .filter((entry) => entry.files.length > 0 && entry.files[0].startsWith('.github/') && isProtectedPath(entry.files[0]));
+    .filter((entry) => entry.files.length > 0 &&
+      (entry.files[0].startsWith('.github/') || (includeSpecify && entry.files[0].startsWith('.specify/'))) &&
+      isProtectedPath(entry.files[0]));
 }
 
 // Reasons why a branch mixes changes to the environment actions with other changes. `branchPaths` are all paths
@@ -1915,14 +1935,14 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
 export const PR_COMMANDS = [
   {
     name: 'reset',
-    usage: '/speckit reset',
+    usage: '/speckit reset [--force]',
     scope: 'pr',
-    flags: {},
-    help: 'discard all branch-only changes and progress, keep a recovery reference, and restart from the current PR base; writer authorization is required and active work or open child PRs prevent reset',
+    flags: { [RESTART_FORCE_FLAG]: 'cancel and confirm related work stopped, close owned amendment PRs, and delete their exact amendment branch before resetting; authored prerequisite PRs and unconfirmed external handoffs still prevent reset' },
+    help: 'discard all branch-only changes and progress, keep a recovery reference, and automatically restart from the current PR base; without force, active work or open child PRs prevent reset',
     recommend: true,
     categories: ['retry', 'outside', 'decision'],
-    whenToRecommend: 'Evidence establishes that discarding branch-only implementation or execution state and starting from the current PR base is preferable to a narrower retry, sync, amendment, or repair. Explain the lost implementation and amendments, retained recovery reference, and eligibility. Never use reset as a fallback for unknown causes or defects it cannot fix. Only a writer may post the command; a recommendation never authorizes or automatically executes it.',
-    guidanceScope: 'none; reset accepts no arguments and restarts the normal implementation loop at its first task',
+    whenToRecommend: 'For protected-path/publication failures, explicitly assess reset against retry, sync, amendment, and repair before recommending privileged publication. Completed implementation tasks do not exclude restarting from a ready unchecked base. Evidence must establish which immediate branch-state blocker reset removes; separately name remaining base-spec scope corrections and never claim reset repairs requirements. Explain lost implementation and amendments, the recovery reference, and eligibility. Recommend only bare reset in copyable actions; prose may suggest manually typing the force flag with cleanup warnings, never prefill it. Do not select reset for unknown causes or when the immediate blocker survives it. Only a writer authorizes execution; reset never runs automatically.',
+    guidanceScope: 'none; reset accepts only its optional force flag, not guidance, and restarts the normal implementation loop at its first task',
   },
   {
     name: 'retry',
@@ -2054,7 +2074,7 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
   }
   switch (parsed.verb) {
     case 'reset':
-      return `Only a writer's explicit \`/speckit reset\` comment authorizes execution. Discards all branch-only changes, including amendments and task progress, preserves the old head in a recovery reference, and restarts from the current PR base ${base} with a fresh empty start commit. Active work, open child PRs, or an ineligible base spec prevent reset. It does not repair requirements or grant permission to edit protected tooling.`;
+      return `Only a writer's explicit reset command authorizes execution. Discards all branch-only changes, including amendments and task progress, preserves the old head in a recovery reference, and automatically restarts from the current PR base ${base} with a fresh empty start commit. ${parsed.flags.includes(RESTART_FORCE_FLAG) ? 'Force preparation cancels and confirms related work stopped, closes owned amendment PRs, and conditionally deletes their exact branch before the locked reset. Shared workflows, unrelated branches, and recovery refs are untouched. Open authored prerequisite PRs and unconfirmed external handoffs still prevent reset; cleanup failures stop it and report partial effects.' : 'Active work, open child PRs, or an ineligible base spec prevent reset.'} It does not repair requirements or grant permission to edit protected tooling.`;
     case 'amend':
       return 'A writer authorizes only the stated artifact change. The workflow prepares a spec-only amendment, checks it independently, and asks for human review and merge. It preserves completed tasks, never ticks tasks, and keeps implementation stopped until the amendment is merged. Existing repair scope and attempt limits are unchanged.';
     case 'sync':
@@ -2089,7 +2109,7 @@ export function renderCommandReference({ baseBranch = null, repair = null, comma
   for (const command of commands.filter((item) => item.recommend)) {
     const flags = Object.entries(command.flags ?? {});
     lines.push(
-      `### \`${command.usage}\``,
+      `### \`${command.name === 'reset' ? '/speckit reset' : command.usage}\``,
       '',
       `- Fits the categories: ${command.categories.map((category) => `\`${category}\``).join(', ')}`,
       `- When: ${command.whenToRecommend}`,

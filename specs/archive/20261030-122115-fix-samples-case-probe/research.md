@@ -28,3 +28,7 @@ No `NEEDS CLARIFICATION` remains in the Technical Context.
 - **Decision**: Keep `assert.throws(() => discoverVideos(clash), /differ only in case/)` and the clash folder creation as they are; change only the probe condition.
 - **Rationale**: FR-002 and FR-005 forbid weakening or rewording; a minimal diff makes the review in User Story 3 trivial.
 - **Alternatives considered**: Splitting the case-clash check into its own test: changes the test count (SC-001 expects 13) and is beyond the requested change.
+
+## Manual Evidence
+
+The Linux run of `node --test tools/samples.test.mjs`, the scratch check that disabling the case-only refusal makes exactly the case-clash test fail, the scope check, and the macOS or Windows branch are manual evidence described in [quickstart.md](quickstart.md). No task of this spec verifies or claims them.
