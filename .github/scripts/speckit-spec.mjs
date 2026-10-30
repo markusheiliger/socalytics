@@ -127,7 +127,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   const latestRestart = [...restartedAt].sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
   let decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestRestart, now });
   const prerequisiteDecision = comments.some((comment) => comment.user?.login === BOT_LOGIN &&
-    startsWithMarker(comment.body, UNBLOCKED_MARKER) && !comment.body.includes(RETRY_COMMENT_MARKER) &&
+    startsWithMarker(comment.body, UNBLOCKED_MARKER) && !liftRestarts(comment.body) &&
     Date.parse(comment.created_at) >= Date.parse(windowStart));
   if (prerequisiteDecision && decision.action !== 'diagnosing') {
     decision = { action: 'failed', diagnosis: { state: 'reported', count: 0 } };
@@ -241,6 +241,12 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   return { ...decision, ...state };
 }
 
+// Whether the comment that lifted a block also restarted the implementation: the required synchronization of a lifted
+// block (maintainDependencyBlock), or the retry of earlier tooling. Without it the lift stopped for a person.
+function liftRestarts(body) {
+  return [RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER].some((marker) => String(body ?? '').includes(marker));
+}
+
 // Whether a decision needs a run of the chain: work to do, a stop to report, or a diagnosis to start.
 export function needsRun(decision, env) {
   if (['tasks', 'verify', 'repair', 'merge', 'limit'].includes(decision.action)) return true;
@@ -285,7 +291,7 @@ export async function implementationAttention(client, decision, { blocked = fals
     }
   }
   if (!recommendation) recommendation = [...comments].reverse().find((comment) => comment.user?.login === BOT_LOGIN &&
-    startsWithMarker(comment.body, UNBLOCKED_MARKER) && !comment.body.includes(RETRY_COMMENT_MARKER) &&
+    startsWithMarker(comment.body, UNBLOCKED_MARKER) && !liftRestarts(comment.body) &&
     !acceptedImplementationAction(comments, comment.created_at)) ?? null;
   if (needed) {
     const handoff = pendingCopilotHandoff(comments, { pushedAt: decision.pushedAt, now });
@@ -577,7 +583,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   const orphaned = await closeOrphanedAttempts(client, listed);
   if (orphaned > 0) report.line(`Recorded ${orphaned} attempt(s) of an earlier run that ended without reporting as failed.`);
   // An open dependency of the twin, also one a person added while the chain runs, ends the chain before its next work;
-  // the scheduler retries the implementation once the prerequisites are implemented (maintainDependencyBlock).
+  // the scheduler requests the required synchronization once the prerequisites are implemented (maintainDependencyBlock).
   const prerequisites = await openPrerequisites(client, twin);
   if (prerequisites.length > 0) {
     await setBlocked(client, pullNumber, true, { explain: await explainDependencyBlock(client, prerequisites) });
@@ -744,6 +750,14 @@ export async function runSync({ client, env, log, now = Date.now }) {
   const listed = await client.getPullRequest(pullNumber);
   if (!folder || listed.state !== 'open' || listed.head?.ref !== implementationBranch(folder)) {
     report.line('Nothing to merge: no open implementation pull request.');
+    return finish('none');
+  }
+  // A blocked implementation is never merged here: the decide step ends the chain before its next work, and only the
+  // scheduler's upkeep merge (refreshBlocked) may bring it closer to its base branch while it waits. Once the block is
+  // lifted the prerequisites are closed, so the required synchronization of the lift merges here as usual.
+  const prerequisites = await openPrerequisites(client, twin);
+  if (prerequisites.length > 0) {
+    report.line(`Nothing to merge: the implementation is blocked by ${prerequisites.map((blocker) => `#${blocker.number}`).join(', ')}.`);
     return finish('none');
   }
   const decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env) });

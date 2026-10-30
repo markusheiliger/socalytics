@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 import { renderSpecLine } from './speckit-prepare-core.mjs';
 import { presentAmendment, resolveAmendment, runFeedback, runPushed, runRecordAnalysis, startRework } from './speckit-amend.mjs';
-import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, RETRY_COMMENT_MARKER, maintainDependencyBlock, parseFixEvents, renderFixEvent, setAttention, setBlocked } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, SYNC_COMMENT_MARKER, maintainDependencyBlock, parseFixEvents, renderFixEvent, setAttention, setBlocked, syncBarrier } from './speckit-implement-core.mjs';
 import { authoredFor, checkFixSpec, main as fixMain, designDecisionsFromPlan, fixBlock, fixStamp, isAutomationCommit, linkPrerequisite, maintainFixSpec, maintainIndependentSpecs, parseAuthorReport, parseDesignDecisions, readResult, reworkOutcome, reworkStage, runDecide, runEvidence, runInputs, runLand, runPackage, runRecord, settleClosedFix, startFixAuthoring, syncDesignDecisions, validateDecision } from './speckit-fix.mjs';
 import { defaultGit, runSelect } from './speckit-orchestrate.mjs';
 import { diagnosisRepo, makeRepo, silent } from './speckit-test-helpers.mjs';
@@ -277,9 +277,11 @@ test('after the merge, the stopped spec depends on the new twin, which waits for
   assert.equal((await dependency()).outcome, 'retried');
   assert.equal(blocked(), false, 'implementing the new spec removes the hold');
   const retried = github.comments.filter((item) => item.number === 9).at(-1);
-  assert.ok(retried.body.startsWith(RETRY_COMMENT_MARKER), 'the retry preserves the current phase base');
-  assert.match(retried.body, /<!-- speckit-implement:unblocked -->\n\*\*The block is lifted\*\*: prerequisite #30 is implemented/);
-  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-group.yml', { issue: '5', pull: '9', title: 'F', subject: 'P · T002 Next' }]);
+  assert.ok(retried.body.startsWith(SYNC_COMMENT_MARKER), 'a lifted block requests the required synchronization with the base branch');
+  assert.match(retried.body, /<!-- speckit-implement:unblocked -->\n\*\*The block is lifted\*\*: prerequisite #30 is implemented; the implementation merges `main`, passes full verification, and then continues with a fresh attempt count\./);
+  assert.ok(syncBarrier(github.comments.filter((item) => item.number === 9)), 'the request is a durable sync barrier');
+  assert.equal(github.repo.runs.at(-1).inputs.pull, '9');
+  assert.equal(github.repo.runs.at(-1).inputs.issue, '5');
   assert.equal((await dependency()).outcome, 'none', 'retried once');
   assert.equal((await maintain()).outcome, 'linked');
   assert.deepEqual(parseFixEvents(github.comments.filter((item) => item.number === 9)).map((event) => event.event), ['requested', 'created', 'merged', 'linked']);

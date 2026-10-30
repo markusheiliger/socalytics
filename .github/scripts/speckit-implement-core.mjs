@@ -277,6 +277,18 @@ export function syncSkippedShas(comments) {
     .map((comment) => String(comment.body ?? '').match(SYNC_SKIPPED_PATTERN)?.[1])
     .filter(Boolean));
 }
+// Marks that the upkeep merge of a blocked implementation (Spec Kit orchestrate, refreshBlocked) did not merge the base
+// branch at a commit (it conflicts, or GitHub refused it), so the scheduler does not try that commit again. Separate from
+// SYNC_SKIPPED_PATTERN: the merges before a phase, the convergence, and the merge still try it with conflict resolution.
+const REFRESH_SKIPPED_PATTERN = /<!-- speckit-implement:refresh-skipped ([0-9a-f]{7,40}) -->/;
+export const renderRefreshSkippedMarker = (sha) => `<!-- speckit-implement:refresh-skipped ${sha} -->`;
+
+export function refreshSkippedShas(comments) {
+  return new Set((comments ?? [])
+    .filter((comment) => comment.user?.login === BOT_LOGIN)
+    .map((comment) => String(comment.body ?? '').match(REFRESH_SKIPPED_PATTERN)?.[1])
+    .filter(Boolean));
+}
 // Marks that a conflict resolution changed files that only the base branch owns, to fix a clash of the merged result.
 // The land job writes it from the files it found while replaying the resolution; the final merge then waits for a
 // person's review (baseOwnedChanges). Base64 JSON, so file names cannot end the comment.
@@ -578,7 +590,7 @@ const renderRestartState = ({ head, base = null }) => `<!-- speckit-implement:re
 
 // The latest restarts by a person, newest first, as long as each recorded `head` as the implementation branch head:
 // the restarts since which the branch has not changed. A workflow restart without a recorded state (a merged
-// amendment, an implemented prerequisite) ends the run of unchanged restarts.
+// amendment) ends the run of unchanged restarts; sync requests (also of a lifted block) are not counted.
 export function unchangedRestarts(comments, head) {
   const restarts = [];
   const ordered = [...comments]
@@ -1156,8 +1168,9 @@ export async function openPrerequisites(client, twin) {
 
 // Scheduler side, for an open implementation pull request of `twin`: blocks it while its twin has open blocked-by
 // dependencies, whoever added them. Once none is open (and `hold`, a prerequisite spec still under review, is false), a
-// block that is not lifted yet is lifted once (UNBLOCKED_MARKER): the implementation retries with a fresh attempt count
-// on its current phase base, or, when a prerequisite was closed without being implemented, asks for a person.
+// block that is not lifted yet is lifted once (UNBLOCKED_MARKER): the implementation requests the required
+// synchronization (it merges the base branch, which now carries its prerequisites, passes full verification, and
+// continues with a fresh attempt count), or, when a prerequisite was closed without being implemented, asks for a person.
 export async function maintainDependencyBlock(client, env, { implementation, twin, hold = false }, { report = () => {} } = {}) {
   const blockers = await client.listBlockedBy(twin);
   const open = blockers.filter((blocker) => blocker.state === 'open');
@@ -1194,24 +1207,59 @@ export async function maintainDependencyBlock(client, env, { implementation, twi
     report(`- A prerequisite of #${pull.number} was not implemented (${list(notImplemented)} closed); it needs a person.`);
     return { outcome: 'stopped', blocked: false, blockers: [] };
   }
+  // The base branch now carries what the implementation waited for, so it is merged and fully verified before any work
+  // continues (the required synchronization of `/speckit sync`), also in the middle of a phase.
+  const base = baseBranchOf(pull);
   const lead = [
     UNBLOCKED_MARKER,
     implemented.length > 0
-      ? `**The block is lifted**: prerequisite ${list(implemented)} ${implemented.length === 1 ? 'is' : 'are'} implemented. The implementation retries with a fresh attempt count on its current phase base.`
-      : '**The block is lifted**: the spec twin has no open prerequisites anymore. The implementation retries with a fresh attempt count on its current phase base.',
+      ? `**The block is lifted**: prerequisite ${list(implemented)} ${implemented.length === 1 ? 'is' : 'are'} implemented`
+      : '**The block is lifted**: the spec twin has no open prerequisites anymore',
   ].join('\n');
   const guidance = implemented.length > 0
     ? `This implementation waited for the spec twin(s) ${list(implemented)}, which are now implemented on the base branch. Continue as planned; do not work around what they provide in this spec.`
     : '';
-  await client.createComment(pull.number, renderRetryComment(lead, guidance));
-  await setBlocked(client, pull.number, false);
-  try {
-    await dispatchImplementation(client, env, { twin, pull: pull.number, title: specTitleOfPull(pull) });
-  } catch {
-    // The retry comment persists the request; the next scheduler run continues the implementation.
-  }
-  report(`- The prerequisites of #${pull.number} are implemented${implemented.length > 0 ? ` (${list(implemented)})` : ''}; lifted its block and retried it.`);
+  await requestSync(client, env, { implementation: pull, twin }, {
+    lead,
+    effect: `the implementation merges \`${base}\`, passes full verification, and then continues with a fresh attempt count. Pending repair scope and attempt limits are unchanged.`,
+    guidance,
+    unblock: true,
+  });
+  report(`- The prerequisites of #${pull.number} are implemented${implemented.length > 0 ? ` (${list(implemented)})` : ''}; lifted its block and requested the required synchronization with \`${base}\`.`);
   return { outcome: 'retried', blocked: false, blockers: [] };
+}
+
+// The implementation branch head and the base branch head at a restart (renderRestartState).
+export async function restartState(client, implementation) {
+  let base = null;
+  try {
+    base = await client.getBranchSha(baseBranchOf(implementation));
+  } catch {}
+  return { head: implementation.head.sha, base };
+}
+
+// Requests the required synchronization (`/speckit sync`, a diagnosis, or a lifted block): the sync comment persists the
+// request, which merges the pull request base and passes full verification before any work continues. `lead` says who
+// or what requested it and `effect` what happens (the default describes the command); `prefix` leads the comment (the
+// diagnosis' AUTO_CONTINUE_MARKER) and `suffix` ends its first paragraph. `unblock` removes BLOCKED_LABEL once the
+// request is recorded, so a lifted block is never lost.
+export async function requestSync(client, env, { implementation, twin }, { lead, effect = null, guidance = '', prefix = '', suffix = '', unblock = false }) {
+  const reach = guidance ? ` ${describeGuidanceReach('sync', { lastStop: latestStopReason(await client.listIssueComments(implementation.number)) })}` : '';
+  const what = effect ?? `merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.`;
+  await client.createComment(implementation.number, `${prefix}${renderSyncComment(
+    `${lead}; ${what}${reach}${suffix}`,
+    guidance,
+    await restartState(client, implementation),
+  )}`);
+  if (unblock) await setBlocked(client, implementation.number, false);
+  await setAttention(client, implementation.number, false);
+  await supersedeActionRequired(client, implementation.number);
+  try {
+    await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
+  } catch {
+    // The durable request survives a failed dispatch or replacement by another pending run; the next scheduler run
+    // continues the implementation.
+  }
 }
 
 // Implementation pull requests stay draft until the verified result is either merged immediately or deliberately

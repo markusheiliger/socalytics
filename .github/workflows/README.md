@@ -92,7 +92,7 @@ They become ready only after final verification, immediately before an automatic
 | Workflow | File | Triggered by | Does |
 | --- | --- | --- | --- |
 | Spec Kit prepare | [speckit-prepare.yml](speckit-prepare.yml) | Push to `specs/**`, stage label changes (restored when a person made them), manual | Keeps one twin issue per spec folder, infers dependencies between new twins, validates implement requests; a dispatched, applying run then dispatches `Spec Kit orchestrate`. |
-| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; blocked implementations keep their slots; requested twins that block running implementations start regardless and first, the one that unblocks the most waiting implementations, also through chains of blocked ones, first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Works the blocked queue down (see [Blocked target](#blocked-target)). Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
+| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; blocked implementations keep their slots; requested twins that block running implementations start regardless and first, the one that unblocks the most waiting implementations, also through chains of blocked ones, first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, optionally keeps them close to their base branch (`SPECKIT_BLOCKED_REFRESH`, off by default), and lifts the block once they are implemented, requesting the required synchronization with the base branch before the implementation continues. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Works the blocked queue down (see [Blocked target](#blocked-target)). Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
 | Spec Kit implement decide | [speckit-implement-decide.yml](speckit-implement-decide.yml) | Orchestrate, commands, the chain | The run without work: when the next work is none (a stop at an attempt limit, a failure, a running merge, a finished implementation) or cannot be told, it decides and acts on it (reports the stop, starts the diagnosis, marks the implementation done); work it finds after all is handed over to the workflow of its kind. |
 | Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Orchestrate, commands, the chain | A sequential group (consecutive tasks without `[P]`, one at a time), a parallel group (consecutive `[P]` tasks under one heading, at most 5 at once, verified together only when a landing merged a sibling's edits to the same files), or the convergence or a conflict resolution as a group of one; then starts the next run. |
 | Spec Kit implement verify | [speckit-implement-verify.yml](speckit-implement-verify.yml) | The chain | The full verification of a finished phase in a run of its own, in up to four shards side by side that a planning job names after their work (combined into the artifact `speckit-phase-verification`); a failure stops with a pending repair. |
@@ -208,7 +208,10 @@ The comment commands that restart, synchronize, or fix a stopped implementation 
 the job `sync` ("Merge the base branch"), which merges the base branch into the implementation branch through the
 GitHub API when it is ahead and the next work is a phase that has not started (none of its tasks is ticked yet), the
 convergence, or the merge (repository variable `SPECKIT_SYNC_BASE`, default `true`). Retries (`/speckit retry`),
-merged amendments, retries after implemented blockers, and continuations of a started phase keep its base. On a conflict the
+merged amendments, and continuations of a started phase keep its base; a lifted block instead requests the required
+synchronization of `/speckit sync`, also in the middle of a phase. The job never merges into an implementation whose
+twin still has open prerequisites; only the optional upkeep merge of a blocked implementation
+(`SPECKIT_BLOCKED_REFRESH`, see [Pull requests that need attention](#pull-requests-that-need-attention)) does. On a conflict the
 decide job of the same run starts the conflict resolution the merge uses (Copilot CLI edits the conflicted files and,
 to fix clashes without a textual conflict such as two migrations with the same number, the implementation branch's
 own files and new files; never protected paths or the environment actions; the full verification runs), and
@@ -365,7 +368,8 @@ check), the pull request is merged automatically; it waits for review when it ch
 branch it is an ordinary spec with its own twin, and the stopped spec's twin is blocked by it like by any dependency.
 Once it is ready (`tasked`, checklists checked), the scheduler requests its implementation automatically on behalf of
 the person who posted `/speckit author`, because it exists only to unblock the stopped implementation. The
-stopped implementation is blocked until it is implemented and then retries by itself (see
+stopped implementation is blocked until it is implemented and then merges the base branch, passes full verification,
+and continues by itself (see
 [Pull requests that need attention](#pull-requests-that-need-attention)). When the fix is already on the base branch,
 use `sync` instead.
 
@@ -599,9 +603,22 @@ Once every blocker is requested (the explanation posted again then says that not
 and only `blocked` stays. The scheduler does not continue a blocked implementation's chain, and a running chain stops
 before its next unit (no retry, no diagnosis) while it waits. The `blocked` label (and a `help wanted` that came with it)
 is removed when the last blocker is
-implemented (the retry comment says the block is lifted and the implementation continues with a fresh attempt count),
+implemented (the comment that lifts the block requests the required synchronization of `/speckit sync`: the
+implementation merges the base branch, which now carries its prerequisites, passes full verification, and then continues
+with a fresh attempt count, also in the middle of a phase; a pending repair keeps its scope and attempt limits),
 when a blocker or the authored spec pull request is closed without being implemented (that comment lists the next
 steps with `help wanted`), or when the implementation pull request closes.
+
+While it waits, a blocked implementation can optionally be kept close to its base branch: with the repository variable
+`SPECKIT_BLOCKED_REFRESH` set to a positive number of commits (default `0`, which turns it off), every scheduler run
+merges the base branch into each blocked implementation that is at least that many commits behind, through GitHub's
+merge API (`refreshBlocked`). The upkeep merge runs no agent and no verification, records no attempt, posts no comment,
+and changes no label; it only adds a line to the scheduler's summary. It never touches an implementation that is
+stopped, being diagnosed, active, repairing, or waiting for a required synchronization, because their state lives on
+the head commit. A conflict or a refused merge merges nothing: one comment per base commit (marker
+`speckit-implement:refresh-skipped`) says so, the same base commit is not tried again, and the required synchronization
+after the block is lifted resolves the conflict. The merge commit is the workflow's, so it never counts as a person's
+push and opens no attempt window. Start with a high value.
 
 The custom label `roadblock` (`ROADBLOCK_LABEL`) marks the implementations to process first: those that are not
 blocked themselves and that the most other implementations wait for, directly or through a chain of blocked
