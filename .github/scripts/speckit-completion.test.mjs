@@ -113,6 +113,47 @@ test('canonicalRequirement accepts only runnable requirements in a canonical for
   for (const [value, reason] of refused) assert.match(canonicalRequirement(value, readers).reasons.join('\n'), reason);
 });
 
+test('whole-project dotnet assessments omit absent filters and execute without --filter', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-completion-'));
+  try {
+    for (const optional of [{}, { filter: undefined }, { filter: null }, { filter: '' }, { filter: '   ' }]) {
+      const input = { runner: 'dotnet-test', project: 'src/Tests/Tests.csproj', runs: 2, ...optional };
+      const requirement = { runner: 'dotnet-test', project: 'src/Tests/Tests.csproj', runs: 2 };
+      assert.deepEqual(canonicalRequirement(input, readers), { requirement });
+      const checked = accepted(verified([input]), 'verified');
+      assert.deepEqual(checked.reasons, []);
+      assert.deepEqual(checked.assessment.requirements, [requirement]);
+      const calls = [];
+      const record = runVerification({
+        workspace: dir, resultDir: dir, requirements: checked.assessment.requirements, head: HEAD, env: {},
+        exec: (command, args) => {
+          calls.push([command, ...args]);
+          return { status: 0, output: '', timedOut: false };
+        },
+      });
+      assert.equal(record.status, 'passed');
+      assert.deepEqual(calls, [
+        ['dotnet', 'test', 'src/Tests/Tests.csproj'],
+        ['dotnet', 'test', 'src/Tests/Tests.csproj', '--no-build'],
+      ]);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dotnet filter normalization preserves valid filters and rejects invalid raw values', () => {
+  const requirement = { runner: 'dotnet-test', project: 'src/Tests/Tests.csproj' };
+  for (const filter of [' FullyQualifiedName~Evidence ', 'x'.repeat(1000)]) {
+    assert.deepEqual(canonicalRequirement({ ...requirement, filter }, readers),
+      { requirement: { ...requirement, filter, runs: 1 } });
+  }
+  for (const filter of [false, 0, {}, [], '\n', '\r\n', '\t', ' \t ', '\0', 'a\x1fb', '\x7f', 'x'.repeat(1001), ' '.repeat(1001)]) {
+    assert.deepEqual(canonicalRequirement({ ...requirement, filter }, readers),
+      { reasons: ['dotnet-test requirement filter must be a single line'] });
+  }
+});
+
 test('validateAssessment accepts a source-bound not-applicable decision and binds its evidence', () => {
   const checked = accepted(notApplicable(), 'not-applicable');
   assert.deepEqual([checked.reasons, checked.rejected], [[], []]);
