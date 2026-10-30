@@ -261,6 +261,12 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
         }
     }
 
+    // Evidenced cause (PayloadConformanceEvidence.md, T002 to T005): the old wait returned on the first visible ready-work
+    // message or gave up after a fixed number of fake-clock advances, so the outcome depended on elapsed time and publication
+    // order (premature read, T003); the failure itself did not reproduce in 40 runs. Ruled out: staggered stream reads
+    // (T004), leftover stream or consumer state from other tests (T005, messages are filtered by outbox id), and the
+    // outbox publisher or readiness publishing in production code (T005). This wait therefore observes the run's
+    // publication state in the database and reads both streams once, against one outbox id set, after it is complete.
     private async Task<List<(string Subject, JsonElement Payload)>> WaitForReadyWorkAsync(FinalizationSetup s, CancellationToken ct)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
