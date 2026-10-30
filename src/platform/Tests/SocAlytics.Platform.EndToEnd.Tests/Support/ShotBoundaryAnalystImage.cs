@@ -33,6 +33,8 @@ internal static class ShotBoundaryAnalystImage
     /// </summary>
     public static async Task<PushedAnalystImage> BuildAndPushAsync(string registryHost, string repositoryPrefix, CancellationToken ct)
     {
+        // The one place of this helper that takes the gate: the build and the push of the image run together under it.
+        using var lease = await ImageBuildGate.Shared.AcquireAsync(ct);
         var repositoryRoot = FindRepositoryRoot();
         var contextDirectory = Path.Combine(Path.GetTempPath(), $"socalytics-e2e-shot-boundary-analyst-{Guid.NewGuid():N}");
         Directory.CreateDirectory(contextDirectory);
@@ -75,6 +77,17 @@ internal static class ShotBoundaryAnalystImage
         var digest = await docker.PushAsync(name, tag, ct);
         return new PushedAnalystImage(repository, digest, localName);
     }
+
+    /// <summary>The cache key of the image built for <paramref name="repositoryPrefix"/>.</summary>
+    public static AnalystImageKey CacheKey(string repositoryPrefix) =>
+        new(nameof(ShotBoundaryAnalystImage), "default", repositoryPrefix);
+
+    /// <summary>Returns the image from the class's <paramref name="cache"/>, building and pushing it once to the cache's registry.</summary>
+    public static Task<PushedAnalystImage> GetCachedAsync(AnalystImageCache cache, string repositoryPrefix, CancellationToken ct) =>
+        cache.GetOrBuildAsync(
+            CacheKey(repositoryPrefix),
+            (registryHost, buildToken) => BuildAndPushAsync(registryHost, repositoryPrefix, buildToken),
+            ct);
 
     public static Task RemoveAsync(PushedAnalystImage image) => TestAnalystImage.RemoveAsync(image);
 
