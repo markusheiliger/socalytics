@@ -27,4 +27,9 @@ Temporary test-side edit of `StartAsync` in `PayloadConformanceTests.cs` (revert
 
 ### T004 Staggered reads
 
+Temporary test-side edit of `ReadMessagesAsync` in `PayloadConformanceTests.cs` (reverted completely with `git checkout`; `git status` shows no change to the file): after the outbox id snapshot and before each of the two stream reads (`SOCALYTICS_ANALYSIS_JOBS`, then `SOCALYTICS_EVENTS`), 20 fake-clock advances of 3 s with a 250 ms delay let the publisher run, and each call logged the snapshot size and the number of messages read. Command: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~PayloadConformanceTests"`.
+
+- Result: Passed 2, Failed 0 (47 s). Each test's first read returned snapshot=1, read=1, ready=0, events=0; its later read returned snapshot=3, read=3, ready=1, events=1.
+- Interpretation: messages published between the snapshot and a stream read are not missed or split, because every outbox id of the snapshot was found in a stream and the read is filtered by that fixed id set. Rows created after the snapshot are simply absent from it, so a read is a consistent view of the snapshot only. The old test is therefore not shown to split messages through staggered reads; the staggered reads are ruled out as a demonstrated cause. The set the old read takes is only as complete as the moment of the snapshot, which is the premature-read cause of T003, and is why T007 reads both streams against one set taken after the run's publication state is complete.
+
 ### T005 Shared state and production code
