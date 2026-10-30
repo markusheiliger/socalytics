@@ -19,6 +19,12 @@ Unchanged class, `dotnet test src/platform/Tests/SocAlytics.Platform.Integration
 
 ### T003 Premature read
 
+Temporary test-side edit of `StartAsync` in `PayloadConformanceTests.cs` (reverted completely; `git status` shows no change to the file): after finalization a background task repeatedly set `next_attempt_at` to the fake clock plus two hours on the pending `analysis.ready-work` outbox rows (`socalytics.outbox_messages`, no publisher change), so those rows were not due. Command: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter "FullyQualifiedName~PayloadConformanceTests.PublishedMessagesConform"`.
+
+- Variant 1, all ready-work rows except the first by `created_at, id` delayed: Passed 1 (6 s). The wait returned once one ready-work message existed, so it accepts whatever is published at that moment as the complete set; the delayed rows were never read or asserted on.
+- Variant 2, only rows whose payload `executionScope` is `segment` delayed: Failed 1 (3 m 8 s) with `System.TimeoutException : No ready-work message was published.` at `WaitForReadyWorkAsync` (line 151). The wait has no condition on the publication state of the run: it succeeds when any ready-work message happens to be visible and otherwise gives up after 360 iterations of fake-clock advances and 500 ms delays, so the outcome depends on the elapsed time and on publication order. The `jobs.ShouldContain(... "segment")` assertion was not reached.
+- Result: the premature read and the wait on elapsed time are demonstrated as test-side causes; the wait returns on the first ready-work message, not on a complete set of the run's messages.
+
 ### T004 Staggered reads
 
 ### T005 Shared state and production code
