@@ -56,30 +56,69 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
         return setup;
     }
 
-    private async Task<List<(string Subject, JsonElement Payload)>> ReadMessagesAsync(FinalizationSetup s, CancellationToken ct)
+    // The outbox ids of the run's message set, taken once after the publication state of the run is complete.
+    private static async Task<HashSet<string>> RunMessageIdsAsync(FinalizationSetup s, CancellationToken ct)
     {
-        var own = new HashSet<string>();
-        await using (var c = new NpgsqlConnection(s.Db.MigratorConnectionString))
+        var ids = new HashSet<string>();
+        await using var c = new NpgsqlConnection(s.Db.MigratorConnectionString);
+        await c.OpenAsync(ct);
+        await using (var runCmd = new NpgsqlCommand("SELECT id FROM socalytics.analysis_runs LIMIT 1", c))
         {
-            await c.OpenAsync(ct);
-            await using var cmd = new NpgsqlCommand("SELECT id FROM socalytics.outbox_messages", c);
+            if (await runCmd.ExecuteScalarAsync(ct) is not Guid run)
+            {
+                throw new InvalidOperationException("The run does not exist.");
+            }
+
+            await using var cmd = new NpgsqlCommand($"SELECT id FROM socalytics.outbox_messages WHERE {MessageSetFilter}", c);
+            cmd.Parameters.AddWithValue("run", run);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                own.Add(reader.GetGuid(0).ToString());
+                ids.Add(reader.GetGuid(0).ToString());
             }
         }
 
+        return ids;
+    }
+
+    private async Task<List<(string Subject, JsonElement Payload)>> ReadMessagesAsync(FinalizationSetup s, CancellationToken ct)
+    {
+        var own = await RunMessageIdsAsync(s, ct);
+        var found = new HashSet<string>();
         var all = new List<(string, JsonElement)>();
         foreach (var name in new[] { "SOCALYTICS_ANALYSIS_JOBS", "SOCALYTICS_EVENTS" })
         {
-            all.AddRange(await ReadStreamAsync(name, own, ct));
+            all.AddRange(await ReadStreamAsync(name, own, ct, found));
+        }
+
+        var missing = own.Except(found).Order().ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Outbox ids of the run's message set found in neither stream SOCALYTICS_ANALYSIS_JOBS nor SOCALYTICS_EVENTS: " + string.Join(", ", missing));
         }
 
         return all;
     }
 
-    private async Task<List<(string Subject, JsonElement Payload)>> ReadStreamAsync(string name, HashSet<string> own, CancellationToken ct)
+    // A message belongs to the set when its Nats-Msg-Id is an outbox id, optionally followed by ".r<round>" (published more than once).
+    private static string? OwnOutboxId(string msgId, HashSet<string> own)
+    {
+        if (own.Contains(msgId))
+        {
+            return msgId;
+        }
+
+        var cut = msgId.LastIndexOf(".r", StringComparison.Ordinal);
+        if (cut > 0 && msgId.Length > cut + 2 && msgId[(cut + 2)..].All(char.IsAsciiDigit) && own.Contains(msgId[..cut]))
+        {
+            return msgId[..cut];
+        }
+
+        return null;
+    }
+
+    private async Task<List<(string Subject, JsonElement Payload)>> ReadStreamAsync(string name, HashSet<string> own, CancellationToken ct, HashSet<string> found)
     {
         await using var connection = new NatsConnection(NatsOpts.Default with { Url = nats.ConnectionString });
         var stream = await new NatsJSContext(connection).GetStreamAsync(name, cancellationToken: ct);
@@ -92,11 +131,13 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
                 var raw = await stream.GetAsync(new StreamMsgGetRequest { Seq = seq }, ct);
                 var text = string.IsNullOrEmpty(raw.Message.Hdrs) ? "" : Encoding.UTF8.GetString(Convert.FromBase64String(raw.Message.Hdrs));
                 var line = text.Split("\r\n").FirstOrDefault(l => l.StartsWith("Nats-Msg-Id:", StringComparison.OrdinalIgnoreCase));
-                if (line is null || !own.Contains(line["Nats-Msg-Id:".Length..].Trim()))
+                var outboxId = line is null ? null : OwnOutboxId(line["Nats-Msg-Id:".Length..].Trim(), own);
+                if (outboxId is null)
                 {
                     continue;
                 }
 
+                found.Add(outboxId);
                 result.Add((raw.Message.Subject, JsonDocument.Parse(raw.Message.Data.ToArray()).RootElement.Clone()));
             }
             catch (NatsJSApiException)
