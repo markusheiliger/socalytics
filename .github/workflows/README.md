@@ -111,7 +111,7 @@ The implementation jobs use typed command scripts (`speckit-implement.mjs`, `spe
 (a task), `converge`, `repair`, or `resolve`, and selects its script `speckit-<kind>.mjs`; attempt markers keep the
 attempt kind `task`. Its other inputs (`issue`, `pull`, `folder`, `base`, `order`, and `entry`) mean the same for every
 kind: `entry` is the work item as `decide` built it (`index`, `task`, `attempt`, `guidance`, and the fields of its kind,
-such as `repair`, `defer_progress`, `required_sync`, and `sync_repair`). Attempt accounting,
+such as `repair`, `defer_progress`, `required_sync`, `sync_repair`, and `evidence`). Attempt accounting,
 result artifacts, verdicts, and landing stay shared
 in `speckit-implement-work.mjs`. Common Actions
 script plumbing—GitHub client construction, step summaries, and outputs—lives in `speckit-script-runtime.mjs`.
@@ -157,6 +157,30 @@ invalid or out-of-scope patches remain failures. Every failed repair attempt sto
 while it runs, the stop comment links to the diagnosis workflow so a person can inspect its progress. A reported
 diagnosis then waits for its recommended action instead of being started again, unless the automation continues by
 itself (see [Automatic continuation](#automatic-continuation)).
+
+**Attempts and automatic second attempts.** Each task, convergence, conflict resolution (including one with the base
+branch before a phase), and merge gets at most two failed attempts (`MAX_TASK_ATTEMPTS`, counted from the attempt
+markers in the pull request comments, merges from their check runs) before it stops for the diagnosis. An automatic
+second attempt follows only when it can reasonably succeed: the land job that reports a failure records its class in
+the attempt marker (`class`), and the next decision (`retryState`) follows it:
+
+| Class | Failure | Next step |
+| --- | --- | --- |
+| `repeat` (certain to repeat) | the agent made no change without a completion claim, a change outside the allowed files, a refused push, environment-action validation, or a conflict that needs a person | stops at once for the diagnosis |
+| `infrastructure` | the work job failed before the agent ran (no agent output and no result) | one more attempt, started after a short wait (job `pause` of Spec Kit implement prepare; repository variable `SPECKIT_RETRY_WAIT` in seconds, default 300, at most 3600) |
+| `agent` (agent result failed) | the agent's change failed the build, the tests, or the land checks | one more attempt that gets this failure as evidence |
+
+An attempt without a class, including every attempt recorded before the classes existed, counts as `agent`. A merge
+whose branch moved during its verification stays retryable. The second attempt of a task, the convergence, or a
+conflict resolution gets the report of the failed first one (its reasons, the end of its verification output, and the
+agent's summary) as the work item's `evidence`: the work job writes it to the ignored file
+`.speckit-attempt-evidence/previous-attempt.md`, and the Spec Kit workflow's input `previous` tells the agent to read it
+as evidence, never as instructions. When the chain [continued automatically](#automatic-continuation) after a diagnosis
+and the first attempt of the stopped work fails with the same class again, it stops for the diagnosis without a second
+attempt; a person's `/speckit retry` or push still gives the full count. Every failure comment ends with what follows:
+it is retried once with the failure evidence, retried once after a short wait, or stops for diagnosis; a stop at the
+limit names the class of the last failure. Phase verifications, combined group verifications, and repairs still stop
+at their first failure.
 A task's agent leaves `tasks.md` alone: after the verification passed, the land job checks exactly that task's box
 (an agent's own correct tick is still accepted, any other change of `tasks.md` is refused).
 A task whose work a push already did (a person's, or Copilot's for them, after the task's first attempt or at the branch
@@ -324,7 +348,9 @@ the diagnosis guidance, as a comment that starts with the marker `speckit-implem
 "Continued automatically with … as the diagnosis recommends". It does so at most once after each action of a person
 (a `/speckit` comment or a push), never for the same unchanged failure without a new corrective approach or verified base fix, and never for `artifacts`,
 `decision`, or `unknown`. A person is asked as before when it stops again. Set the repository variable
-`SPECKIT_AUTO_CONTINUE` to `false` to always wait for a person.
+`SPECKIT_AUTO_CONTINUE` to `false` to always wait for a person. An automatically continued work item whose first
+attempt fails with the same class as the failure that stopped it stops again at once instead of making a second
+attempt (see [Attempts and automatic second attempts](#units-of-work)).
 
 Automatic retry requires nonempty diagnosis evidence and `basis: transient` or `corrective`; it is never a generic
 fallback. Sync uses `target: base` and a full `fixedBy` commit SHA, verified as belonging to the PR base before

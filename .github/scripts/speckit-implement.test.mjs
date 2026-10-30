@@ -11,6 +11,8 @@ import { archiveSpec, defaultGit as archiveGit } from './speckit-archive.mjs';
 import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, baseOwnedChanges, pointSpecLinks, renderBaseOwnedMarker, renderGuidanceMarker, renderRepairMarker, renderSyncComment, syncBarrier, taskNamedFiles, unresolvedRepair } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
+  classifyFailure,
+  failureOutlook,
   combinedGroupEdits,
   defaultGit,
   lastAgentMessage,
@@ -35,6 +37,7 @@ import { main as mergeMain } from './speckit-merge.mjs';
 import { main as repairMain, repairVerificationScope } from './speckit-repair.mjs';
 import { main as resolveMain } from './speckit-resolve.mjs';
 import { FakeGitHub, silent } from './speckit-test-helpers.mjs';
+import { workflowFailure } from './speckit-workflow-job.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
 const TASKS = '# Tasks\n\n## Phase 1\n\n- [ ] T001 Create docs/x.md\n- [ ] T002 Create docs/y.md\n';
@@ -764,19 +767,33 @@ test('repair fallback: finalize dispatches real product verification commands wi
 
 test('task: package rejects missing ticks, protected paths, and agent failures; verdict records failed verification', async () => {
   const cases = [
-    { name: 'wrong tick', agent: (r) => { agentDoesT001(r.work, { tick: false }); write(r.work, 'specs/f/tasks.md', TASKS.replace('- [ ] T002', '- [x] T002')); }, reason: /may only change by checking T001/, verify: false },
-    { name: 'protected path', agent: (r) => agentDoesT001(r.work, { extra: { '.github/workflows/evil.yml': 'x' } }), reason: /changed protected paths: \.github\/workflows\/evil\.yml/, verify: false },
-    { name: 'timeout', agent: (r) => agentDoesT001(r.work), agentExit: '124', reason: /did not finish within 60 minutes/, verify: false },
-    { name: 'no agent', agentExit: null, reason: /the agent did not run/, verify: false },
-    { name: 'failed check', agent: (r) => agentDoesT001(r.work), check: { outcome: 'failure', checks: 'platform build and tests,Markdown check' }, reason: /^Markdown check failed$/, verify: true },
-    { name: 'crashed verification', agent: (r) => agentDoesT001(r.work), check: { outcome: 'failure', checks: '' }, reason: /the verification did not succeed \(failure\)/, verify: true },
+    { name: 'wrong tick', agent: (r) => { agentDoesT001(r.work, { tick: false }); write(r.work, 'specs/f/tasks.md', TASKS.replace('- [ ] T002', '- [x] T002')); }, reason: /may only change by checking T001/, verify: false, failureClass: 'repeat' },
+    { name: 'protected path', agent: (r) => agentDoesT001(r.work, { extra: { '.github/workflows/evil.yml': 'x' } }), reason: /changed protected paths: \.github\/workflows\/evil\.yml/, verify: false, failureClass: 'repeat' },
+    { name: 'timeout', agent: (r) => agentDoesT001(r.work), agentExit: '124', reason: /did not finish within 60 minutes/, verify: false, failureClass: 'agent' },
+    { name: 'no agent', agentExit: null, reason: /the agent did not run/, verify: false, failureClass: 'infrastructure' },
+    { name: 'failed check', agent: (r) => agentDoesT001(r.work), check: { outcome: 'failure', checks: 'platform build and tests,Markdown check' }, reason: /^Markdown check failed$/, verify: true, failureClass: 'agent' },
+    { name: 'crashed verification', agent: (r) => agentDoesT001(r.work), check: { outcome: 'failure', checks: '' }, reason: /the verification did not succeed \(failure\)/, verify: true, failureClass: 'agent' },
+    { name: 'no change on a moved head', agent: () => {}, reason: /^$/, landReason: /ran on a different head/, verify: true, failureClass: 'agent' },
   ];
   for (const testCase of cases) {
-    await withRepos({}, (repos) => {
+    await withRepos({}, async (repos) => {
       const { packaged, result } = work(repos, { agent: testCase.agent, agentExit: testCase.agentExit === undefined ? '0' : testCase.agentExit, verify: testCase.check });
       assert.equal(packaged.verify, testCase.verify, testCase.name);
       assert.equal(result.verified, false, testCase.name);
       assert.match(result.reasons.join(), testCase.reason, testCase.name);
+      // The land job records the class of the failure, and the comment says what follows from it.
+      const github = fakeGitHub();
+      const landed = await land(repos, github);
+      assert.notEqual(landed.exitCode, 0, testCase.name);
+      const report = github.comments.at(-1).body;
+      if (testCase.landReason) assert.match(report, testCase.landReason, testCase.name);
+      assert.match(report, new RegExp(`"outcome":"failure","class":"${testCase.failureClass}"`), testCase.name);
+      assert.match(report, {
+        repeat: /It stops for diagnosis: the failure is certain to repeat, so it was not retried\./,
+        infrastructure: /It is retried once after a short wait, because the work job failed before the agent ran\./,
+        agent: /It is retried once with the failure evidence: the next attempt gets this report\./,
+      }[testCase.failureClass], testCase.name);
+      assert.doesNotMatch(report, /retried until the attempt limit/, testCase.name);
     });
   }
 });
@@ -2393,3 +2410,43 @@ test('archive: references to specs that the base branch archived meanwhile are p
   assert.equal(remoteShow(repos, 'speckit/f:docs/uses-g.md'), 'See [g](../specs/archive/g/spec.md) and specs/archive/g/contracts/api.yaml.\n');
   assert.match(github.comments.at(-1).body, /`docs\/uses-g\.md`/);
 }));
+test('task: classifies a failure as certain to repeat, infrastructure, or a failed agent result', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-class-'));
+  try {
+    for (const [status, error] of [['failed', 'the Spec Kit workflow `implement-task` did not start: boom'], ['failed', 'the Spec Kit workflow `implement-task` left no run state']]) {
+      writeFileSync(path.join(dir, 'workflow.json'), JSON.stringify({ workflow: 'implement-task', status, step: null, error }));
+      assert.equal(classifyFailure([workflowFailure(dir)]), 'infrastructure', error);
+    }
+    writeFileSync(path.join(dir, 'workflow.json'), JSON.stringify({ workflow: 'implement-task', status: 'failed', step: 'implement', error: 'the agent failed' }));
+    assert.equal(classifyFailure([workflowFailure(dir)]), 'agent', 'a failure of the agent step');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.equal(classifyFailure(['the agent did not run']), 'infrastructure');
+  assert.equal(classifyFailure(['Markdown check failed'], { workFinished: false, agentOutput: false }), 'infrastructure', 'no result and no agent output');
+  assert.equal(classifyFailure(['the push to `speckit/f` was rejected (stale info) and the branch could not be read (fatal)']), 'infrastructure');
+  assert.equal(classifyFailure(['the push to `speckit/f` was rejected: protected branch']), 'repeat');
+  assert.equal(classifyFailure(['changed protected paths: .github/x.yml']), 'repeat');
+  assert.equal(classifyFailure(['conflicts in protected paths need a person: .github/x.yml']), 'repeat');
+  assert.equal(classifyFailure(['the resolution changed protected files: .specify/x']), 'repeat');
+  assert.equal(classifyFailure(['merging main failed: fatal: refusing']), 'repeat');
+  assert.equal(classifyFailure(['platform build and tests failed'], { noChange: true }), 'repeat', 'no change without a completion claim');
+  assert.equal(classifyFailure(['platform build and tests failed']), 'agent');
+  assert.equal(classifyFailure(['the agent did not finish within 60 minutes']), 'agent');
+});
+
+test('task: the failure comment says what follows: evidence, a wait, or the diagnosis', () => {
+  const bot = 'github-actions[bot]';
+  const failed = (attempt, at, failureClass) => ({ user: { login: bot }, created_at: at, body: `<!-- speckit-implement:attempt ${JSON.stringify({ kind: 'task', task: 'T001', attempt, outcome: 'failure', ...(failureClass ? { class: failureClass } : {}) })} -->\nfailed` });
+  const inputs = (attempt) => ({ kind: 'task', task: 'T001', attempt: String(attempt) });
+  const now = Date.parse('2026-10-06T12:00:00Z');
+  assert.equal(failureOutlook({ inputs: inputs(1), failureClass: 'agent', now }), 'evidence');
+  assert.equal(failureOutlook({ inputs: inputs(1), failureClass: 'infrastructure', now }), 'wait');
+  assert.equal(failureOutlook({ inputs: inputs(1), failureClass: 'repeat', now }), 'repeat');
+  assert.equal(failureOutlook({ comments: [failed(1, '2026-10-06T11:00:00Z')], inputs: inputs(2), failureClass: 'agent', now }), 'limit', 'an old marker without a class counts');
+  const continued = { user: { login: bot }, created_at: '2026-10-06T11:30:00Z', body: '<!-- speckit-implement:auto-continue -->\n<!-- speckit-implement:retry -->\nContinued.' };
+  assert.equal(failureOutlook({ comments: [failed(2, '2026-10-06T11:00:00Z', 'agent'), continued], inputs: inputs(1), failureClass: 'agent', now }), 'same', 'an automatic continuation that fails the same way stops');
+  assert.equal(failureOutlook({ comments: [failed(2, '2026-10-06T11:00:00Z', 'agent'), continued], inputs: inputs(1), failureClass: 'infrastructure', now }), 'wait');
+  const person = { user: { login: bot }, created_at: '2026-10-06T11:40:00Z', body: '<!-- speckit-implement:retry -->\nRetried by @dev.' };
+  assert.equal(failureOutlook({ comments: [failed(2, '2026-10-06T11:00:00Z', 'agent'), continued, person], inputs: inputs(1), failureClass: 'agent', now }), 'evidence', "a person's retry gives the full count");
+});

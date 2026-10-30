@@ -1287,11 +1287,38 @@ export async function dispatchImplementation(client, env, { twin, pull, title, s
   await client.dispatchWorkflow(workflow, defaultBranchOf(env), { issue: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}), ...(next ? { subject: next } : {}) });
 }
 
-// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, repair, converge, resolve, or verify
-// (the verification of a finished phase, named by `phase`). `outcome` is success, failure, requeue (redone from a
-// newer head; not a failure), or attention (a person is needed).
-export function renderAttemptMarker({ kind, task = null, attempt, outcome, phase = undefined }) {
-  return `<!-- speckit-implement:attempt ${JSON.stringify({ kind, task: task || null, attempt: Number(attempt), outcome, ...(phase !== undefined ? { phase } : {}) })} -->`;
+// The classes of a failed attempt, recorded in its attempt marker by the land job that reported it, which decide whether
+// an automatic second attempt can help (retryState):
+// - `repeat`: certain to fail the same way again (the agent made no change without a completion claim, a change outside
+//   the allowed files, a refused push, environment-action validation, a conflict that needs a person): stops at once
+//   for the diagnosis;
+// - `infrastructure`: the work job failed before the agent ran (no agent output and no result): one more attempt after
+//   a short wait (job `pause` of speckit-implement-prepare.yml, repository variable SPECKIT_RETRY_WAIT, default 300 s);
+// - `agent`: the agent's change failed the build, the tests, or the land checks: one more attempt that gets this
+//   failure as evidence. A failure without a class (every marker written before the classes existed) counts as `agent`.
+export const FAILURE_CLASSES = ['repeat', 'infrastructure', 'agent'];
+export const failureClassOf = (attempt) => (FAILURE_CLASSES.includes(attempt?.class) ? attempt.class : 'agent');
+
+// How a failure class is named in a stop.
+export const FAILURE_CLASS_TEXT = {
+  repeat: 'the failure is certain to repeat, so it was not retried',
+  infrastructure: 'the work job failed before the agent ran',
+  agent: 'the agent\'s change failed the build, the tests, or the land checks',
+};
+
+// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, repair, converge, resolve, verify
+// (the verification of a finished phase, named by `phase`), or merge (only failures; merges are counted by their check
+// runs). `outcome` is success, failure, requeue (redone from a newer head; not a failure), or attention (a person is
+// needed). A failure carries its class (FAILURE_CLASSES).
+export function renderAttemptMarker({ kind, task = null, attempt, outcome, phase = undefined, failureClass = undefined }) {
+  return `<!-- speckit-implement:attempt ${JSON.stringify({
+    kind,
+    task: task || null,
+    attempt: Number(attempt),
+    outcome,
+    ...(phase !== undefined ? { phase } : {}),
+    ...(FAILURE_CLASSES.includes(failureClass) ? { class: failureClass } : {}),
+  })} -->`;
 }
 
 // The attempt ledger of a pull request: the outcomes the workflow reported, oldest first. Only comments by the
@@ -1305,13 +1332,72 @@ export function parseAttempts(comments) {
     try {
       const value = JSON.parse(match[1]);
       const kind = value.kind ?? value.step;
-      if (!['task', 'repair', 'converge', 'resolve', 'verify'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
-      attempts.push({ kind, task: value.task ?? null, attempt: Number(value.attempt) || 0, outcome: value.outcome, at: comment.created_at, ...(kind === 'verify' ? { phase: value.phase ?? null } : {}) });
+      if (!['task', 'repair', 'converge', 'resolve', 'verify', 'merge'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
+      attempts.push({
+        kind,
+        task: value.task ?? null,
+        attempt: Number(value.attempt) || 0,
+        outcome: value.outcome,
+        at: comment.created_at,
+        ...(kind === 'verify' ? { phase: value.phase ?? null } : {}),
+        ...(FAILURE_CLASSES.includes(value.class) ? { class: value.class } : {}),
+      });
     } catch {
       // A malformed marker is ignored.
     }
   }
   return attempts.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
+// Whether one work item gets another automatic attempt, from its attempts in the current window (oldest first):
+// `exceeded` after MAX_TASK_ATTEMPTS failures or MAX_TASK_ATTEMPTS * 2 attempts of any outcome, at once after a failure
+// of class `repeat`, and at once when the window started with an automatic continuation (autoContinuedStop) of this
+// item and its first failure has the class of the failure that stopped it. `failureClass` is the class of its latest
+// failure, `previous` that failure (whose report is the evidence of the next attempt), and `wait` tells that the next
+// attempt follows an infrastructure failure and starts after a short wait.
+export function retryState(list, { kind = null, task = null, stopped = null, limit = MAX_TASK_ATTEMPTS } = {}) {
+  const failures = list.filter((attempt) => attempt.outcome === 'failure');
+  const previous = failures.at(-1) ?? null;
+  const failureClass = previous ? failureClassOf(previous) : null;
+  const sameAsStop = Boolean(stopped && failures.length > 0 && stopped.kind === kind && (stopped.task ?? null) === (task ?? null) &&
+    failureClassOf(failures[0]) === stopped.class);
+  const exceeded = failures.length >= limit || list.length >= limit * 2 || failureClass === 'repeat' || sameAsStop;
+  return {
+    failures: failures.length,
+    total: list.length,
+    exceeded,
+    failureClass,
+    sameAsStop,
+    previous,
+    wait: !exceeded && list.at(-1)?.outcome === 'failure' && failureClass === 'infrastructure',
+  };
+}
+
+// The failed work item that stopped the implementation when the current attempt window starts with an automatic
+// continuation of the diagnosis (AUTO_CONTINUE_MARKER): its kind, task, failure class, and the continuation's time
+// (`at`). Null otherwise, also after a person's retry, sync, or push, which give the full attempt count.
+export function autoContinuedStop(comments, attempts, windowStart) {
+  const restart = comments
+    .filter((comment) => comment.user?.login === BOT_LOGIN && [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => startsWithMarker(comment.body, marker)))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  if (!restart || !String(restart.body ?? '').startsWith(AUTO_CONTINUE_MARKER)) return null;
+  if (windowStart && Date.parse(restart.created_at) < Date.parse(windowStart)) return null;
+  const last = attempts.filter((attempt) => Date.parse(attempt.at) < Date.parse(restart.created_at)).at(-1);
+  if (last?.outcome !== 'failure') return null;
+  return { kind: last.kind, task: last.task ?? null, class: failureClassOf(last), at: restart.created_at };
+}
+
+// The report of a failed attempt (the comment that recorded it: its reasons, the end of its verification output, and
+// the agent's summary) as evidence for the next attempt, without markers and cut to MAX_ATTEMPT_EVIDENCE characters;
+// empty when the comment is gone.
+export const MAX_ATTEMPT_EVIDENCE = 6000;
+export function attemptEvidence(comments, failure) {
+  if (!failure) return '';
+  const comment = comments.find((item) => item.created_at === failure.at && parseAttempts([item]).some((recorded) =>
+    recorded.kind === failure.kind && recorded.task === failure.task && recorded.attempt === failure.attempt && recorded.outcome === 'failure'));
+  if (!comment) return '';
+  const text = neutralizeMarkers(String(comment.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim());
+  return text.length > MAX_ATTEMPT_EVIDENCE ? `${text.slice(0, MAX_ATTEMPT_EVIDENCE)}\n… (cut off)` : text;
 }
 
 // External ID of the check run that shows one attempt: speckit:attempt:<kind>:<task>:<attempt>.
@@ -1361,9 +1447,13 @@ const checkTime = (check) => Date.parse(check.started_at ?? check.created_at ?? 
 // landed after its last successful verification (verifyNeeded) → the next group of tasks (planGroup) → converge (until a successful convergence is newer than the last successful task) → merge, or resolve after a merge
 // (or merging the base branch before it) found conflicts on this head. Only failures
 // count against the attempt limit; all outcomes (including redos from a newer head) are capped separately so no-op
-// attempts cannot loop forever. A stop that needs a person (attempt limit, attention, or a diagnosis that runs or waits
+// attempts cannot loop forever. The class of a failure decides whether a second attempt follows (retryState): never
+// after a failure that is certain to repeat, after a short wait (`wait`) after an infrastructure failure, and never
+// when `stopped` (autoContinuedStop) shows that the window started with an automatic continuation after the same item
+// failed with the same class. Each entry of a retried item carries its `previous` failure, whose report is the evidence
+// of the next attempt. A stop that needs a person (attempt limit, attention, or a diagnosis that runs or waits
 // for a decision) holds everything until a person pushes or retries.
-export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowStart, done = false, resumedAt = null, now = Date.now(), maxEntries = MAX_MATRIX_JOBS_PER_RUN }) {
+export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowStart, done = false, resumedAt = null, now = Date.now(), maxEntries = MAX_MATRIX_JOBS_PER_RUN, stopped = null }) {
   const mergeChecks = checks.filter((check) => check.external_id === CHECK_MERGE);
   const stale = mergeChecks.filter((check) => check.status !== 'completed' && now - checkTime(check) >= MERGE_STALE_MS);
   if (mergeChecks.some((check) => check.status !== 'completed' && !stale.includes(check))) return { action: 'wait' };
@@ -1392,19 +1482,25 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
     return { failures: list.filter((attempt) => attempt.outcome === 'failure').length, total: list.length };
   };
   const exceeded = ({ failures, total }) => failures >= MAX_TASK_ATTEMPTS || total >= MAX_TASK_ATTEMPTS * 2;
+  // The retry state of one work item (retryState), and what a stop or its next attempt carries.
+  const stateOf = (kind, task, match, limit = MAX_TASK_ATTEMPTS) => retryState(inWindow.filter(match), { kind, task, stopped, limit });
+  const limitOf = (state) => ({ attempts: state.total, ...(state.failureClass ? { failureClass: state.failureClass } : {}), ...(state.sameAsStop ? { sameAsStop: true } : {}) });
+  const entryOf = (task, state) => ({ task, attempt: state.total + 1, ...(state.previous ? { previous: state.previous } : {}) });
+  const waitOf = (states) => (states.some((state) => state.wait) ? { wait: true } : {});
 
   // An already-current required sync can succeed without moving the head, leaving old conflict checks on it.
   const unresolved = (check) => !attempts.some((attempt) => attempt.kind === 'resolve' && attempt.outcome === 'success' && Date.parse(attempt.at) > checkTime(check));
   // Merging the base branch before a phase or the convergence conflicted on this head: resolve first, best effort.
-  // After MAX_SYNC_RESOLVE_ATTEMPTS failed attempts, or one that needs a person, the work continues on its base.
+  // After MAX_SYNC_RESOLVE_ATTEMPTS failed attempts, a failure that is certain to repeat, or one that needs a person,
+  // the work continues on its base.
   let syncGivenUp = null;
   const syncConflict = latestCheckRun(checks.filter((check) => check.external_id === CHECK_SYNC_CONFLICT && unresolved(check)));
   if (syncConflict) {
     const list = inWindow.filter((attempt) => attempt.kind === 'resolve' && Date.parse(attempt.at) >= checkTime(syncConflict));
-    const failures = list.filter((attempt) => attempt.outcome === 'failure').length;
+    const state = retryState(list, { kind: 'resolve', stopped, limit: MAX_SYNC_RESOLVE_ATTEMPTS });
     const handedOver = list.some((attempt) => attempt.outcome === 'attention');
-    if (!handedOver && failures < MAX_SYNC_RESOLVE_ATTEMPTS && list.length < MAX_SYNC_RESOLVE_ATTEMPTS * 2) {
-      return { action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: list.length + 1 }]], stale };
+    if (!handedOver && !state.exceeded) {
+      return { action: 'tasks', kind: 'resolve', sync: true, order: [[entryOf(null, state)]], stale, ...waitOf([state]) };
     }
     syncGivenUp = syncConflict;
   }
@@ -1417,12 +1513,12 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   }
   const group = planGroup(tasksMarkdown, { maxTasks: maxEntries });
   if (group) {
-    const ofTask = (id) => tally((attempt) => attempt.kind === 'task' && attempt.task === id);
-    for (const id of group.tasks) {
-      const count = ofTask(id);
-      if (exceeded(count)) return { action: 'limit', kind: 'task', task: id, attempts: count.total, stale };
+    const ofTask = (id) => stateOf('task', id, (attempt) => attempt.kind === 'task' && attempt.task === id);
+    const states = group.tasks.map((id) => [id, ofTask(id)]);
+    for (const [id, state] of states) {
+      if (state.exceeded) return { action: 'limit', kind: 'task', task: id, ...limitOf(state), stale };
     }
-    const entries = group.tasks.map((id) => ({ task: id, attempt: ofTask(id).total + 1 }));
+    const entries = states.map(([id, state]) => entryOf(id, state));
     // The order of the run: a sequential group has one entry per task (run one after another), a parallel group one
     // entry with all its tasks (run at the same time).
     return {
@@ -1433,6 +1529,7 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
       phase: group.phase,
       completesPhase: group.completesPhase,
       stale,
+      ...waitOf(states.map(([, state]) => state)),
       ...givenUp,
     };
   }
@@ -1441,24 +1538,39 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   const lastTask = Math.max(0, ...attempts.filter((attempt) => attempt.kind === 'task' && attempt.outcome === 'success').map(atOf));
   const converged = attempts.some((attempt) => attempt.kind === 'converge' && attempt.outcome === 'success' && atOf(attempt) > lastTask);
   let kind;
-  let count;
+  let state;
   if (!converged) {
     kind = 'converge';
-    count = tally((attempt) => attempt.kind === 'converge' && atOf(attempt) > lastTask);
+    state = stateOf(kind, null, (attempt) => attempt.kind === 'converge' && atOf(attempt) > lastTask);
   } else if (latestCheckRun(checks.filter((check) => [CHECK_MERGE, CHECK_CONFLICT].includes(check.external_id) && (check.external_id !== CHECK_CONFLICT || unresolved(check))))?.external_id === CHECK_CONFLICT) {
     kind = 'resolve';
     // Only attempts at the current conflict count; earlier, already resolved conflicts do not.
     const conflictAt = checkTime(latestCheckRun(checks.filter((check) => check.external_id === CHECK_CONFLICT)));
-    count = tally((attempt) => attempt.kind === 'resolve' && atOf(attempt) >= conflictAt);
+    state = stateOf(kind, null, (attempt) => attempt.kind === 'resolve' && atOf(attempt) >= conflictAt);
   } else {
-    const merges = mergeChecks.filter((check) => checkTime(check) >= since);
-    const merge = { failures: merges.filter((check) => stale.includes(check) || check.conclusion === 'failure').length, total: merges.length };
-    if (exceeded(merge)) return { action: 'limit', kind: 'merge', attempts: merge.total, stale };
+    // Merges are counted by their check runs on this head; the class of a failure comes from the attempt marker its
+    // land job wrote after the check started (none, as before the classes existed, counts as `agent`). A merge whose
+    // branch moved during verification is an `agent` failure and stays retryable.
+    const merges = mergeChecks.filter((check) => checkTime(check) >= since).sort((a, b) => checkTime(a) - checkTime(b));
+    const failedMerge = (check) => stale.includes(check) || check.conclusion === 'failure';
+    const markers = inWindow.filter((attempt) => attempt.kind === 'merge' && attempt.outcome === 'failure');
+    const classOf = (check, index) => {
+      const next = merges[index + 1];
+      return markers.find((attempt) => atOf(attempt) >= checkTime(check) && (!next || atOf(attempt) < checkTime(next)))?.class;
+    };
+    const list = merges.map((check, index) => {
+      const at = check.started_at ?? check.created_at;
+      if (!failedMerge(check)) return { kind: 'merge', task: null, outcome: check.conclusion === 'success' ? 'success' : 'requeue', at };
+      const failureClass = classOf(check, index);
+      return { kind: 'merge', task: null, outcome: 'failure', at, ...(failureClass ? { class: failureClass } : {}) };
+    });
+    const merge = retryState(list, { kind: 'merge', stopped });
+    if (merge.exceeded) return { action: 'limit', kind: 'merge', ...limitOf(merge), stale };
     // The flag survives into the merge decision, so a pending repair that wraps it does not merge the base branch again.
-    return { action: 'merge', kind: 'merge', attempt: merge.total + 1, stale, ...givenUp };
+    return { action: 'merge', kind: 'merge', attempt: merge.total + 1, stale, ...waitOf([merge]), ...givenUp };
   }
-  if (exceeded(count)) return { action: 'limit', kind, attempts: count.total, stale };
-  return { action: 'tasks', kind, order: [[{ task: null, attempt: count.total + 1 }]], stale, ...(kind === 'converge' ? givenUp : {}) };
+  if (state.exceeded) return { action: 'limit', kind, ...limitOf(state), stale };
+  return { action: 'tasks', kind, order: [[entryOf(null, state)]], stale, ...waitOf([state]), ...(kind === 'converge' ? givenUp : {}) };
 }
 
 // The first finished phase whose tasks this chain landed after the phase's last successful verification (attempt kind

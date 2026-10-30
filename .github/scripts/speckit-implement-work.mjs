@@ -10,8 +10,12 @@ import { createGitHubClient, createReporter, setOutput } from './speckit-script-
 import { workflowFailure } from './speckit-workflow-job.mjs';
 import {
   BOT_LOGIN,
+  FAILURE_CLASS_TEXT,
+  MAX_TASK_ATTEMPTS,
+  autoContinuedStop,
   latestHumanCommit,
   parseAttempts,
+  retryState,
   CHECK_CONFLICT,
   CHECK_DONE,
   CHECK_LIMIT,
@@ -99,9 +103,75 @@ function title(inputs) {
   return `${label.charAt(0).toUpperCase()}${label.slice(1)} attempt ${inputs.attempt}`;
 }
 
-// The attempt marker line of an outcome comment (see parseAttempts); merges are tracked by check runs instead.
-function markerLines(inputs, outcome) {
-  return inputs.kind === 'merge' ? [] : [renderAttemptMarker({ kind: inputs.kind, task: inputs.task, attempt: inputs.attempt, outcome })];
+// The attempt marker line of an outcome comment (see parseAttempts), with the class of a failure. Merges are counted by
+// check runs; their failure markers only carry the class.
+function markerLines(inputs, outcome, failureClass = undefined) {
+  if (inputs.kind === 'merge' && outcome !== 'failure') return [];
+  return [renderAttemptMarker({ kind: inputs.kind, task: inputs.task, attempt: inputs.attempt, outcome, failureClass })];
+}
+
+// Reasons of a failure that another attempt cannot change (class `repeat`, see FAILURE_CLASSES): the texts of
+// validateTaskChange, environmentExclusivityReasons, validateConvergeChange, checkStagedRepair, resolutionScope,
+// runIntegrate, referenceOnlySpecChanges, applyPatch, and a push the branch refused without moving.
+export const REPEAT_REASON_PATTERNS = Object.freeze([
+  /^the agent made no changes$/,
+  /^changed protected paths: /,
+  /^`[^`]+` may only change by checking T\d{3,}/,
+  /^changes to the environment actions must come from a standalone environment spec/,
+  /^convergence may only /,
+  /^the (repair|resolution) changed protected files: /,
+  /^the resolution deleted files that only the base branch owns: /,
+  /^conflicts in protected paths need a person: /,
+  /^the push to `[^`]+` was rejected: /,
+  /^merging \S+ failed: /,
+  /^changes under specs\/ outside .+ must be reference rewrites of the archive/,
+]);
+
+// Reasons that show the work failed before the agent ran (class `infrastructure`): the Spec Kit workflow did not start
+// or left no state, the agent never ran, or the branch could not be read after a rejected push.
+export const INFRASTRUCTURE_REASON_PATTERNS = Object.freeze([
+  /^the agent did not run$/,
+  /^the Spec Kit workflow `[^`]+` failed: the Spec Kit workflow `[^`]+` (did not start|left no run state)/,
+  /and the branch could not be read \(/,
+]);
+
+// The class of a failed attempt (FAILURE_CLASSES). `workFinished` tells that the work job left its result.json,
+// `agentOutput` that the agent left output (agent-exit.txt, agent.jsonl, workflow.json), and `noChange` that the agent
+// made no change without a completion claim.
+export function classifyFailure(reasons, { workFinished = true, agentOutput = true, noChange = false } = {}) {
+  const matches = (patterns) => reasons.some((reason) => patterns.some((pattern) => pattern.test(String(reason))));
+  if ((!workFinished && !agentOutput) || matches(INFRASTRUCTURE_REASON_PATTERNS)) return 'infrastructure';
+  if (noChange || matches(REPEAT_REASON_PATTERNS)) return 'repeat';
+  return 'agent';
+}
+
+const hasAgentOutput = (resultDir) => ['agent-exit.txt', 'agent.jsonl', 'workflow.json'].some((file) => existsSync(path.join(resultDir, file)));
+
+// What happens after this failure, with the same rule as the next decision (retryState): the item's earlier attempts of
+// the current window are its ledger entries since its latest attempt 1.
+export function failureOutlook({ comments = [], inputs, failureClass, now = Date.now() }) {
+  const ledger = parseAttempts(comments);
+  const task = inputs.task || null;
+  const item = ledger.filter((attempt) => attempt.kind === inputs.kind && (attempt.task ?? null) === task);
+  const first = item.findLastIndex((attempt) => attempt.attempt === 1);
+  const earlier = Number(inputs.attempt) > 1 && first >= 0 ? item.slice(first) : [];
+  let stopped = autoContinuedStop(comments, ledger, null);
+  if (stopped && earlier.length > 0 && Date.parse(earlier[0].at) < Date.parse(stopped.at)) stopped = null;
+  const current = { kind: inputs.kind, task, attempt: Number(inputs.attempt), outcome: 'failure', at: new Date(now).toISOString(), class: failureClass };
+  const state = retryState([...earlier, current], { kind: inputs.kind, task, stopped, limit: MAX_TASK_ATTEMPTS });
+  return state.exceeded ? (failureClass === 'repeat' ? 'repeat' : state.sameAsStop ? 'same' : 'limit') : state.wait ? 'wait' : 'evidence';
+}
+
+function outlookLine(outlook, { bestEffort = false } = {}) {
+  if (bestEffort && !['evidence', 'wait'].includes(outlook)) return 'The merge of the base branch is given up; the implementation continues on its current base, and the conflicts are resolved when it merges.';
+  return {
+    evidence: 'It is retried once with the failure evidence: the next attempt gets this report.',
+    wait: `It is retried once after a short wait, because ${FAILURE_CLASS_TEXT.infrastructure}.`,
+    repeat: `It stops for diagnosis: ${FAILURE_CLASS_TEXT.repeat}.`,
+    same: 'It stops for diagnosis: it failed the same way as before the automatic continuation.',
+    limit: 'It stops for diagnosis: the attempt limit is reached.',
+    repair: 'It stops for diagnosis and a repair of the failed verification instead of another attempt.',
+  }[outlook];
 }
 
 function tail(text, lines = 60) {
@@ -235,11 +305,12 @@ function taskFiles(text, workspace) {
 // build check over the files the task names, and a file only this task names either differs on the implementation
 // branch (someone pushed the work) or changed on the base branch since the implementation started and is merged into
 // the branch (the work landed elsewhere). Returns { reasons, provenance: { where, commit } }.
+const UNCHANGED_HEAD_MOVED = 'verification of the unchanged branch ran on a different head';
 function verifiedUnchangedCheck({ result, headNow, git, workspace, folder, task, baseBranch, since = '' }) {
   const fail = (reason) => ({ reasons: [reason], provenance: null });
   const unchanged = result?.unchanged;
   if (!unchanged) return fail('verification of the unchanged branch was not recorded');
-  if (!headNow || unchanged.head !== headNow) return fail('verification of the unchanged branch ran on a different head');
+  if (!headNow || unchanged.head !== headNow) return fail(UNCHANGED_HEAD_MOVED);
   if (unchanged.status === 'failed') return fail('verification of the unchanged branch failed');
   if (unchanged.status === 'not-configured') return fail('verification of the unchanged branch was not configured');
   if (unchanged.status !== 'passed') return fail('verification of the unchanged branch did not run');
@@ -716,7 +787,8 @@ async function requesterMention(client, twin) {
   return requester?.login ? { login: requester.login, mention: `@${requester.login}` } : { login: null, mention: '' };
 }
 
-async function reportFailure({ client, inputs, reasons, resultDir }) {
+async function reportFailure({ client, inputs, reasons, resultDir, failureClass = 'agent', bestEffort = false, outlook = null }) {
+  outlook ??= failureOutlook({ comments: await client.listIssueComments(inputs.pull), inputs, failureClass });
   const verification = neutralizeMarkers(tail(readOptional(path.join(resultDir, 'verification.log'))));
   const flaky = readJson(path.join(resultDir, 'result.json'))?.flaky ?? [];
   const safeReasons = [...new Set(reasons.map(neutralizeMarkers))];
@@ -726,7 +798,7 @@ async function reportFailure({ client, inputs, reasons, resultDir }) {
     output: { title: `${title(inputs)} failed`, summary: safeReasons.map((reason) => `- ${reason}`).join('\n') },
   });
   await client.createComment(inputs.pull, [
-    ...markerLines(inputs, 'failure'),
+    ...markerLines(inputs, 'failure', failureClass),
     `**${title(inputs)} failed:**`,
     '',
     ...safeReasons.map((reason) => `- ${reason}`),
@@ -734,8 +806,9 @@ async function reportFailure({ client, inputs, reasons, resultDir }) {
     ...(verification.trim() ? ['', '<details><summary>Verification output (tail)</summary>', '', fence(verification), '', '</details>'] : []),
     ...agentDetails(resultDir),
     '',
-    'It is retried until the attempt limit is reached.',
+    outlookLine(outlook, { bestEffort }),
   ].join('\n'));
+  return outlook;
 }
 
 // Stops the implementation and asks the person who requested it, because automation cannot continue. The comment
@@ -909,7 +982,7 @@ async function push({ client, git, env, inputs, folder, resultDir, report, syncR
   const pushed = git(pushArgs(env, branch));
   if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim() };
   const reasons = [`the push to \`${branch}\` was rejected; the branch probably moved (${pushed.stderr.trim().split('\n').at(-1)})`];
-  await reportFailure({ client, inputs, reasons, resultDir });
+  await reportFailure({ client, inputs, reasons, resultDir, failureClass: classifyFailure(reasons) });
   report.flush();
   return { reasons };
 }
@@ -990,8 +1063,9 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   let verifiedUnchanged = false;
   let completed = null;
   let taskNote = '';
+  let pushedWork = false;
   if (reasons.length === 0 && inputs.kind === 'task') {
-    const pushedWork = emptyTaskPatch && await doneByPush(client, { pull: inputs.pull, task: inputs.task });
+    pushedWork = emptyTaskPatch && await doneByPush(client, { pull: inputs.pull, task: inputs.task });
     let allowEmpty = pushedWork;
     if (pushedWork) taskNote = provenanceNote({ provenance: null, baseBranch: baseBranchFromEnv(env) });
     if (emptyTaskPatch && !allowEmpty && result.completion) {
@@ -1071,8 +1145,12 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     }
   }
   if (reasons.length > 0) {
-    await reportFailure({ client, inputs, reasons, resultDir });
-    report.line(`${title(inputs)} failed: ${reasons.join('; ')}`);
+    // An agent that made no change and claimed no completion makes none on a second try either, unless the branch only
+    // moved under the verification of the unchanged branch (a sibling landed), which a second attempt runs again.
+    const noChange = emptyTaskPatch && !pushedWork && !result?.completion && !reasons.includes(UNCHANGED_HEAD_MOVED);
+    const failureClass = classifyFailure(reasons, { workFinished: Boolean(result), agentOutput: hasAgentOutput(resultDir), noChange });
+    await reportFailure({ client, inputs, reasons, resultDir, failureClass, bestEffort });
+    report.line(`${title(inputs)} failed (${failureClass}): ${reasons.join('; ')}`);
     report.flush();
     return { exitCode: 1, reasons };
   }
@@ -1213,7 +1291,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       return { exitCode: 0, requeue: landed.requeue };
     }
     if (landed.reasons) {
-      await reportFailure({ client, inputs, reasons: landed.reasons, resultDir });
+      await reportFailure({ client, inputs, reasons: landed.reasons, resultDir, failureClass: classifyFailure(landed.reasons) });
       report.line(`${title(inputs)} failed: ${landed.reasons.join('; ')}`);
       report.flush();
       return { exitCode: 1, reasons: landed.reasons };
@@ -1737,11 +1815,20 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
   if (result && !result.verified && reasons.length === 0) reasons.push('the merged result was not verified');
   if (reasons.length === 0 && pull.head.sha !== result.head) reasons.push(`the implementation branch moved during verification (${result.head} → ${pull.head.sha})`);
   if (reasons.length > 0) {
-    await reportFailure({ client, inputs, reasons, resultDir });
+    // A merge has no agent: without a result its work job failed (infrastructure); a merge of the base branch that
+    // failed or changed other specs repeats; a branch that moved during verification stays retryable (agent).
     const verificationFailure = result &&
       (result.conflicts ?? []).length === 0 &&
       pull.head.sha === result.head &&
       ((result.checks ?? []).some((check) => check.passed === false) || !['', 'success', 'skipped'].includes(String(result.selfTest ?? '')));
+    await reportFailure({
+      client,
+      inputs,
+      reasons,
+      resultDir,
+      failureClass: classifyFailure(reasons, { workFinished: Boolean(result), agentOutput: false }),
+      ...(verificationFailure ? { outlook: 'repair' } : {}),
+    });
     if (verificationFailure) {
       const repair = {
         id: `merge:${env.GITHUB_RUN_ID || 'run'}:${result.head}`,
