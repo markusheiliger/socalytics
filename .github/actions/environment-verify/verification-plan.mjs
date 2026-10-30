@@ -179,8 +179,9 @@ function testProjects(root, componentRoot) {
 }
 
 export const DEFAULT_UNIT_MINUTES = 10;
-// The Python projects, the environment action tests, and the Markdown check always run in the first shard.
-export const MAIN_MINUTES = 5;
+// The Python projects, the environment action tests, the Spec Kit tooling tests, the Sample tooling tests, and the
+// Markdown check always run in the first shard; the budget includes the Sample tooling tests.
+export const MAIN_MINUTES = 6;
 
 // Packs the work of the selected components into count shards by estimated minutes: a declared shard of a .NET
 // component in all-tests scope is one unit, the rest of each component another. Units go, largest first, to the shard
