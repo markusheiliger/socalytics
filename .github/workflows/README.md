@@ -451,6 +451,16 @@ before it (`repeatedFailure`), the evidence tells the agent, and a recommendatio
 options at publication. Neither retry nor author is synthesized as a fallback. Author requires a supported
 `feature` or `environment` target. Protected trusted tooling and unmet permissions or service prerequisites use an
 explicit external-action option with no immediately runnable command.
+An earlier required synchronization that stopped without moving the branch is shown prominently in the diagnosis,
+with its request time and available link, even when its failure differs from the preceding stop. A verified or
+released synchronization is not reported as failed. Push-permission causes must not be asserted from generic Git
+failure text alone.
+
+When trusted tooling can remove the blocker, an `outside` diagnosis may supply an external option with
+`target: tooling` and a `copilot` prompt. It renders a ready-to-use local Copilot Chat prompt on the repository's
+actual default branch, names the affected implementation PR, and never becomes an `@copilot` PR-comment handoff.
+It must name the evidence, tooling files, fix and checks, and distinguish unresolved permission prerequisites.
+Applying that fix does not itself resume the implementation or clear pending repair verification.
 
 A refused author request, failed Copilot handoff, or unusable diagnosis gets one shared automatic reassessment for
 the unchanged implementation head and pending repair. Its trusted outcome and refusal feed the diagnosis; repeating

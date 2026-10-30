@@ -70,6 +70,10 @@ workflow started you): never ask, and turn every open question into a report que
    changing the outcome (the same failure again, and nobody pushed a change in between), say so in the summary and do
    not recommend that step again. Find out why it did not help (for example a precondition it assumed was never met,
    or it asked the automation for something outside its scope) and recommend a step that removes that reason. After
+   a failed required `/speckit sync`, prominently state when it was requested, link its request or failed run,
+   name the stage that failed, and explain why another sync would or would not help. Do not bury this in collapsed
+   evidence. A push-permission explanation remains a hypothesis until the actual remote rejection establishes it;
+   a generic "failed to push some refs" is not that evidence. After
    2 retries in a row that left the implementation branch at the same commit, `/speckit retry`
    is refused while the implementation is stopped, so
    recommend a step that changes something: a push, a new spec (`/speckit author`), or an amendment. Only when new guidance that differs
@@ -237,11 +241,20 @@ workflow started you): never ask, and turn every open question into a report que
 - Never recommend that a person resolves something locally and pushes when a command can do it on the server: the
   automation resolves conflicts, repairs code, and authors new specs itself (`/speckit author`).
 - When a prerequisite is outside these commands, use `"kind": "external"`, `"target": "tooling"` or `"external"`,
-  and `"command": null`, `"copilot": null`. State the exact action, target and reason in `title` and `why`.
+  and `"command": null`. For a prerequisite Copilot cannot fix (permissions, secrets, quotas, external services),
+  use `"copilot": null`. State the exact action, target and reason in `title` and `why`.
   Explain continuation only conditionally after the prerequisite is satisfied; never attach a runnable command
   that assumes the action was already taken. Prefer supported automated remedies whenever they can fix the cause.
   Reviewing and merging an amendment also needs no command. Other options must be real alternatives, not another
   route to the same known failure.
+- When a trusted-tooling change can remove the blocker, classify it as `outside` and use an option with
+  `"kind": "external"`, `"target": "tooling"`, `"command": null`, and a self-contained `copilot` prompt.
+  The comment renders it for local Copilot Chat on the repository's actual default branch, not as an `@copilot`
+  PR comment. Name the affected implementation PR, evidence and failed sync, exact tooling files and required fix,
+  regression checks, and any unproven hypothesis or permission prerequisite. Prefer this ready-to-use prompt to
+  telling the person to investigate or push manually when tooling can fix the cause. Never claim that changing the
+  default branch automatically resumes the PR or clears a pending repair; name the conditional continuation.
+  Do not ask Copilot to grant itself permissions, handle credentials in source, or weaken trusted-job isolation.
 - When the remedy is an external unblock that only a push to the implementation branch can make (a file the implementation agents
   may not change, such as another spec's folder, `.github/`, or `.specify/`, or the concrete change a person's
   decision needs outside this feature's own artifacts), give that option a `copilot` prompt and `"command": null` instead of telling the person to push
@@ -259,8 +272,9 @@ workflow started you): never ask, and turn every open question into a report que
   tasks must change files the implementation agents may not change (for example Spec Kit tooling under `.github/` or
   `.specify/`), the automation cannot implement this spec at all: say so in the summary, classify it as `outside`
   (the cause is what the automation may change, not this spec's artifacts). Use an external action naming the
-  protected files and required trusted-tooling change, not another unimplementable spec or a Copilot prompt that
-  implements them. A change to tooling executed from the trusted default-branch checkout must reach that checkout;
+  protected files and required trusted-tooling change, not another unimplementable spec or an implementation-branch
+  Copilot prompt that implements them. A default-branch tooling prompt may repair the automation, not implement this
+  feature's tasks. A change to tooling executed from the trusted default-branch checkout must reach that checkout;
   a push only to the implementation branch cannot repair that runner.
 - `artifacts` lists the changed files of the amendment; leave it empty otherwise. Ask at most three questions, each
   with its recommended choice first.

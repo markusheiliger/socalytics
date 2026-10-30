@@ -636,6 +636,22 @@ export function repeatedFailure(comments, head, { includeState = false } = {}) {
     ...(includeState ? { base: state.base ?? null, guidance: parseGuidance(ordered[restartAt].body) } : {}) } : null;
 }
 
+export function failedSynchronization(comments, head) {
+  const ordered = [...comments].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const barrier = syncBarrier(ordered, { includeReleased: true });
+  if (!barrier || barrier.completion) return null;
+  const request = ordered.find((comment) => String(comment.id ?? comment.created_at) === barrier.request);
+  let state;
+  try {
+    state = JSON.parse(String(request?.body).match(RESTART_STATE_PATTERN)?.[1] ?? 'null');
+  } catch {
+    return null;
+  }
+  if (!state?.head || state.head !== head) return null;
+  const reason = latestStopReason(ordered.slice(ordered.indexOf(request) + 1));
+  return reason ? { at: request.created_at, url: request.html_url ?? null, reason } : null;
+}
+
 // The reason of the latest stop for a person, or null.
 export function latestStopReason(comments) {
   return [...comments]
@@ -2109,6 +2125,7 @@ const optionEffect = (option, context) => {
   if (option.effect) return option.effect;
   if (option.command) return describeCommandEffect(option.command, context);
   if (option.copilot) {
+    if (option.target === 'tooling') return `Copilot works on the trusted tooling on \`${context.defaultBranch ?? context.baseBranch ?? 'the default branch'}\`, not on the implementation branch. The fix must be validated and applied there before continuing${context.implementationPull ? ` #${context.implementationPull}` : ' the implementation'}. This does not itself resume the implementation or clear a pending repair.`;
     return context.continuation?.repair
       ? `${COPILOT_EFFECT} After Copilot pushed, request \`/speckit retry\` to reverify the pending repair; a push alone does not clear it.`
       : COPILOT_EFFECT;
@@ -2201,9 +2218,9 @@ export function setAmendmentStatus(body, lines) {
 //   implementation branch lacks, else null.
 // - `continuation`: what a restart continues with (continuationOf).
 // - `diagnosed`: whether a diagnosis already reported.
-export function renderNextSteps({ options = null, amendment = null, amendmentPull = null, baseBranch = null, behindBase = null, continuation = null, diagnosed = false, diagnosisUrl = null } = {}) {
+export function renderNextSteps({ options = null, amendment = null, amendmentPull = null, baseBranch = null, defaultBranch = null, implementationPull = null, behindBase = null, continuation = null, diagnosed = false, diagnosisUrl = null } = {}) {
   const all = options ?? [];
-  const context = { baseBranch: baseBranch ?? behindBase, continuation, diagnosed };
+  const context = { baseBranch: baseBranch ?? behindBase, defaultBranch, implementationPull, continuation, diagnosed };
   const pending = amendment ?? (amendmentPull ? { number: amendmentPull } : null);
   let recommended;
   let others = all;
@@ -2243,7 +2260,7 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
   const details = optionDetails(recommended, context);
   if (details.length > 0) lines.push('', ...details.map(([label, text]) => `- **${label}**: ${text}`));
   if (recommended.command) lines.push('', 'Comment this on the pull request (people with write access):', '', '```text', recommended.command, '```');
-  else if (recommended.copilot) lines.push('', 'Comment this on the pull request (people with write access):', '', '```text', ...renderCopilotRequest(recommended.copilot).split('\n'), '```');
+  else if (recommended.copilot) lines.push('', copilotPromptLocation(recommended, context), '', '```text', ...copilotPrompt(recommended, context).split('\n'), '```');
 
   // Commands the recommendation or an option already suggests are not repeated.
   const used = new Set([recommended, ...others].map((option) => parseNextCommand(option.command)?.verb).filter(Boolean));
@@ -2258,10 +2275,25 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
     lines.push(`- **${optionTitle(option)}**`);
     for (const [label, text] of optionDetails(option, context)) lines.push(`  - ${label}: ${text}`);
     if (option.command) lines.push('', '  ```text', `  ${option.command}`, '  ```');
-    else if (option.copilot) lines.push('', '  ```text', ...renderCopilotRequest(option.copilot).split('\n').map((line) => `  ${line}`), '  ```');
+    else if (option.copilot) lines.push('', `  ${copilotPromptLocation(option, context)}`, '', '  ```text', ...copilotPrompt(option, context).split('\n').map((line) => `  ${line}`), '  ```');
   }
   lines.push('', '</details>');
   return lines;
+}
+
+function copilotPromptLocation(option, context) {
+  return option.target === 'tooling'
+    ? `Run this in Copilot Chat with the repository checked out on \`${context.defaultBranch ?? context.baseBranch ?? 'the default branch'}\` (not as a PR comment):`
+    : 'Comment this on the pull request (people with write access):';
+}
+
+function copilotPrompt(option, context) {
+  if (option.target !== 'tooling') return renderCopilotRequest(option.copilot);
+  return [
+    `Work on the repository's default branch \`${context.defaultBranch ?? context.baseBranch ?? 'the default branch'}\`${context.implementationPull ? ` to unblock implementation PR #${context.implementationPull}` : ''}.`,
+    option.copilot,
+    'Change only the named trusted-tooling files and directly related tests and documentation. Do not implement the feature, change its spec artifacts, weaken verification, or push to the implementation branch. Validate the fix and report the exact continuation step and any remaining permission or external prerequisite. Do not commit, push, or post commands without explicit approval.',
+  ].join('\n\n');
 }
 
 function optionDetails(option, context) {
