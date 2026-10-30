@@ -1,18 +1,23 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { main as commandMain, runCommand } from './speckit-commands.mjs';
-import { resetEligibility, maintainReset } from './speckit-reset.mjs';
+import { runReset, maintainReset } from './speckit-reset.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { renderSpecLine } from './speckit-prepare-core.mjs';
 import {
   RESET_MARKER, implementationComments, implementationRunCurrent, parseAttempts,
   resetState, syncBarrier, unresolvedRepair, renderRepairMarker, renderSyncComment,
+  renderAttemptMarker, renderFixEvent, COPILOT_HANDOFF_MARKER,
 } from './speckit-implement-core.mjs';
 import { decideForPull, runContinue, runVerifyReport } from './speckit-spec.mjs';
 import { runLand, runMergeLand } from './speckit-implement-work.mjs';
-import { maintainAmendment, runClosed } from './speckit-amend.mjs';
-import { autoContinueCommand, recommendNextSteps, renderDiagnosisComment, validateReport } from './speckit-diagnose.mjs';
+import { maintainAmendment, runClosed, startAnalysis, startRework, presentAmendment } from './speckit-amend.mjs';
+import { runRecord as recordAuthor, runLand as landAuthor, startFixAuthoring } from './speckit-fix.mjs';
+import { autoContinueCommand, recommendNextSteps, renderDiagnosisComment, validateReport, runRecord as recordDiagnosis } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
 const BASE = 'a'.repeat(40);
@@ -47,6 +52,17 @@ function fixture() {
     client.repo.branches[branch] = newHead;
     client.refUpdates = (client.refUpdates ?? 0) + 1;
   };
+  client.cancelledRuns = [];
+  client.cancelWorkflowRun = async (id) => {
+    client.cancelledRuns.push(id);
+    client.repo.runs.find((run) => run.id === id).status = 'completed';
+  };
+  client.deletedBranches = [];
+  client.deleteAmendmentBranch = async (branch, head) => {
+    assert.equal(client.repo.branches[branch], head);
+    delete client.repo.branches[branch];
+    client.deletedBranches.push(branch);
+  };
   return client;
 }
 
@@ -60,6 +76,231 @@ async function source(client, body = '/speckit reset', actor = 'dev') {
 const command = (client, comment, extra = {}) => runCommand({ client,
   env: { ...env, SPECKIT_ACTOR: comment.user.login, SPECKIT_COMMENT_ID: String(comment.id), SPECKIT_COMMENT_BODY: comment.body, ...extra },
   log: silent, now: () => client.clock,
+});
+
+function amendment(client, { open = true, orphan = false } = {}) {
+  const head = 'd'.repeat(40);
+  client.repo.branches['speckit-amend/f'] = head;
+  if (!orphan) client.repo.pulls.push({ number: 11, state: open ? 'open' : 'closed', created_at: client.tick(),
+    head: { ref: 'speckit-amend/f', sha: head, repo: { full_name: 'octo/repo' } }, base: { ref: 'speckit/f' } });
+}
+
+function activeRun(client, id, workflow = 'speckit-implement-group.yml', title = 'Spec Kit implement spec #5') {
+  client.repo.runs.push({ id, workflow, display_title: title, status: 'in_progress', created_at: client.tick() });
+}
+
+async function prepare(client, request, extra = {}) {
+  return runReset({ client, env, actor: request.user.login, number: 9, commentId: request.id, folder: 'f', twin: 5,
+    implementation: await client.getPullRequest(9), flags: ['--force'], prepareOnly: true,
+    now: () => client.clock, pause: async () => {}, ...extra });
+}
+
+test('force preparation stops only owned work before closing amendments; the locked stage resets and restarts', async () => {
+  const client = fixture();
+  amendment(client);
+  activeRun(client, 1);
+  activeRun(client, 2, 'speckit-commands.yml', 'Spec Kit commands: feedback on pull request #11');
+  activeRun(client, 3, 'speckit-implement-group.yml', 'Spec Kit implement spec #50');
+  activeRun(client, 4, 'speckit-orchestrate.yml', 'Spec Kit orchestrate');
+  activeRun(client, 5, 'speckit-commands.yml', 'Spec Kit commands: comment on #9');
+  const request = await source(client, '/speckit reset --force');
+  assert.equal((await prepare(client, request, { env: { ...env, GITHUB_RUN_ID: '5' } })).outcome, 'prepared');
+  assert.deepEqual(client.cancelledRuns, [1, 2]);
+  assert.equal(client.repo.branches['speckit/f'], OLD);
+  assert.equal((await client.getPullRequest(11)).state, 'closed');
+  assert.deepEqual(client.deletedBranches, ['speckit-amend/f']);
+  assert.equal((await command(client, request, { GITHUB_RUN_ID: '5' })).outcome, 'reset');
+  assert.equal(client.repo.branches['speckit/f'], NEW);
+  assert.equal(client.repo.runs.at(-1).workflow, 'speckit-implement-group.yml');
+  assert.equal(client.repo.branches.main, BASE);
+  assert.equal(client.repo.refs[`refs/tags/speckit-reset/pr-9/${request.id}`], OLD);
+});
+
+test('force removes only the exact owned leftover or orphan amendment branch', async () => {
+  for (const orphan of [false, true]) {
+    const client = fixture();
+    amendment(client, { open: false, orphan });
+    client.repo.branches['speckit-amend/other'] = BASE;
+    await prepare(client, await source(client, '/speckit reset --force'));
+    assert.deepEqual(client.deletedBranches, ['speckit-amend/f']);
+    assert.equal(client.repo.branches['speckit-amend/other'], BASE);
+    assert.equal(client.repo.branches['speckit/f'], OLD);
+  }
+});
+
+test('force refuses authored prerequisite PRs and unconfirmed external handoffs before cancelling anything', async () => {
+  for (const blocker of ['authored', 'handoff']) {
+    const client = fixture();
+    amendment(client);
+    activeRun(client, 1);
+    if (blocker === 'authored') {
+      client.repo.pulls.push({ number: 12, state: 'open', head: { ref: 'speckit-spec/other' } });
+      await client.createComment(9, renderFixEvent('created', { pull: 12 }));
+    } else await client.createComment(9, COPILOT_HANDOFF_MARKER);
+    const result = await prepare(client, await source(client, '/speckit reset --force'));
+    assert.ok(result.rejected);
+    assert.deepEqual(client.cancelledRuns, []);
+    assert.deepEqual(client.deletedBranches, []);
+    assert.equal((await client.getPullRequest(11)).state, 'open');
+  }
+});
+
+test('force waits for terminal cancellation and fails closed on timeout, missing evidence, and permission errors', async () => {
+  for (const failure of ['timeout', 'missing', 'permission']) {
+    const client = fixture();
+    amendment(client);
+    activeRun(client, 1);
+    client.cancelWorkflowRun = async () => {
+      if (failure === 'permission') throw new Error('cancellation forbidden');
+      if (failure === 'missing') client.repo.runs = [];
+    };
+    const request = await source(client, '/speckit reset --force');
+    await assert.rejects(prepare(client, request), /Timed out|Cannot confirm|forbidden/);
+    assert.equal(client.repo.branches['speckit/f'], OLD);
+    assert.equal((await client.getPullRequest(11)).state, 'open');
+    assert.deepEqual(client.deletedBranches, []);
+    assert.equal(resetState(await client.listIssueComments(9)).pending, null);
+  }
+});
+
+test('cleanup failures report partial closure and never reset the implementation or silently accept deletion', async () => {
+  const client = fixture();
+  amendment(client);
+  client.deleteAmendmentBranch = async () => {};
+  const request = await source(client, '/speckit reset --force');
+  await assert.rejects(prepare(client, request), /deletion could not be verified/);
+  assert.equal(client.repo.branches['speckit/f'], OLD);
+  assert.equal((await client.getPullRequest(11)).state, 'closed');
+  const state = resetState(await client.listIssueComments(9)).records.at(-1);
+  assert.equal(state.state, 'failed');
+  assert.deepEqual(state.cleanup.closed, [11]);
+  assert.equal((await maintainAmendment(client, env, { implementation: await client.getPullRequest(9), twin: 5, folder: 'f' })).outcome, 'superseded');
+});
+
+test('a concurrent amendment push is preserved rather than deleted by force', async () => {
+  const client = fixture();
+  amendment(client);
+  const update = client.updatePullRequest.bind(client);
+  client.updatePullRequest = async (number, fields) => {
+    const result = await update(number, fields);
+    if (number === 11) client.repo.branches['speckit-amend/f'] = 'e'.repeat(40);
+    return result;
+  };
+  await assert.rejects(prepare(client, await source(client, '/speckit reset --force')), /branch changed/);
+  assert.equal(client.repo.branches['speckit-amend/f'], 'e'.repeat(40));
+  assert.equal(client.repo.branches['speckit/f'], OLD);
+  assert.deepEqual(client.deletedBranches, []);
+});
+
+test('the completion boundary excludes old cancellation reports emitted after the pending fence', async () => {
+  const client = fixture();
+  activeRun(client, 1);
+  const cancel = client.cancelWorkflowRun;
+  client.cancelWorkflowRun = async (id) => {
+    await client.createComment(9, renderAttemptMarker({ kind: 'task', task: 'T001', attempt: 2, outcome: 'failure' }));
+    return cancel(id);
+  };
+  const request = await source(client, '/speckit reset --force');
+  await prepare(client, request);
+  assert.equal(parseAttempts(await client.listIssueComments(9)).length, 1);
+  await command(client, request);
+  assert.deepEqual(parseAttempts(await client.listIssueComments(9)), []);
+  const decision = await decideForPull(client, { twin: 5, folder: 'f', pullNumber: 9, now: client.clock, context });
+  assert.equal(decision.order[0][0].task, 'T001');
+  assert.equal(decision.order[0][0].attempt, 1);
+});
+
+test('force mode is bound to the writer authorization and preparation is idempotent', async () => {
+  const client = fixture();
+  amendment(client);
+  const request = await source(client, '/speckit reset --force');
+  await prepare(client, request);
+  await prepare(client, request);
+  assert.deepEqual(client.deletedBranches, ['speckit-amend/f']);
+  await client.updateComment(request.id, '/speckit reset');
+  await assert.rejects(prepare(client, request), /unchanged/);
+  await assert.rejects(command(client, { ...request, body: '/speckit reset' }), /force authorization changed/);
+  assert.equal(client.refUpdates, undefined);
+});
+
+test('trusted force preparation can be resumed through the command CLI without a second writer command', async () => {
+  const client = fixture();
+  amendment(client);
+  const request = await source(client, '/speckit reset --force');
+  const resumeEnv = { ...env, SPECKIT_TARGET: 'pull', SPECKIT_RESET_RESUME: String(request.id) };
+  assert.equal(await commandMain(['prepare-reset'], { client, env: resumeEnv, log: silent }), 0);
+  assert.equal(client.repo.branches['speckit/f'], OLD);
+  assert.equal(await commandMain(['command'], { client, env: resumeEnv, log: silent }), 0);
+  assert.equal(client.refUpdates, 1);
+  assert.equal((await command(client, request)).outcome, 'already reset');
+});
+
+test('revoked force authorization terminates interrupted preparation instead of endlessly redispatching', async () => {
+  const client = fixture();
+  const request = await source(client, '/speckit reset --force');
+  await prepare(client, request);
+  await client.updateComment(request.id, '/speckit retry');
+  await assert.rejects(commandMain(['target'], { client, env: { ...env, SPECKIT_RESET_RESUME: String(request.id) }, log: silent }), /unchanged/);
+  const state = resetState(await client.listIssueComments(9));
+  assert.equal(state.pending, null);
+  assert.equal(state.records.at(-1).state, 'failed');
+  assert.equal(await maintainReset(client, env, { implementation: await client.getPullRequest(9), twin: 5, folder: 'f' }), false);
+  assert.equal(client.repo.branches['speckit/f'], OLD);
+});
+
+test('force workflow preparation precedes the publication lock and locked execution requires its success', () => {
+  const yaml = readFileSync(new URL('../workflows/speckit-commands.yml', import.meta.url), 'utf8');
+  const prep = yaml.slice(yaml.indexOf('\n  prepare-reset:'), yaml.indexOf('\n  command:'));
+  const locked = yaml.slice(yaml.indexOf('\n  command:'), yaml.indexOf('\n  feedback:'));
+  assert.match(prep, /needs: target/);
+  assert.match(prep, /speckit-reset-control-/);
+  assert.doesNotMatch(prep, /speckit-publication-/);
+  assert.match(prep, /ref: \$\{\{ github.event.repository.default_branch \}\}/);
+  assert.match(locked, /needs: \[target, prepare-reset\]/);
+  assert.match(locked, /needs.prepare-reset.outputs.prepared == 'true'/);
+  assert.match(locked, /speckit-publication-/);
+  assert.doesNotMatch(yaml, /workflows: write/);
+});
+
+test('GitHub cleanup APIs cancel normally and delete only a leased amendment ref', async () => {
+  const calls = [];
+  const client = new GitHubClient({ token: 'test', repository: 'octo/repo', fetchImpl: async (url, init) => {
+    calls.push({ url, method: init.method, body: init.body ? JSON.parse(init.body) : null });
+    const data = url.endsWith('/graphql') ? { data: { updateRefs: { clientMutationId: null } } } : { node_id: 'R_1' };
+    return new Response(JSON.stringify(data));
+  } });
+  client.getBranchSha = async () => null;
+  await client.cancelWorkflowRun(123);
+  assert.ok(calls[0].url.endsWith('/actions/runs/123/cancel'));
+  assert.equal(calls[0].method, 'POST');
+  await client.deleteAmendmentBranch('speckit-amend/f', OLD);
+  assert.deepEqual(calls.at(-1).body.variables.input.refUpdates, [
+    { name: 'refs/heads/speckit-amend/f', beforeOid: OLD, afterOid: '0'.repeat(40) },
+  ]);
+  await assert.rejects(client.deleteAmendmentBranch('main', OLD), /Invalid/);
+  client.getBranchSha = async () => OLD;
+  await assert.rejects(client.deleteAmendmentBranch('speckit-amend/f', OLD), /still exists/);
+});
+
+test('cleanup advice stays prose-only while the copyable diagnosis recommendation remains bare reset', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-force-advice-'));
+  try {
+    const client = fixture();
+    amendment(client);
+    const file = path.join(dir, 'report.json');
+    writeFileSync(file, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report: JSON.stringify(resetReport()) }] }));
+    const result = await recordDiagnosis({ client, env: { ...env, SPECKIT_FOLDER: 'f',
+      GH_AW_AGENT_OUTPUT: file, SPECKIT_DETECTION: 'success' }, log: silent });
+    assert.equal(result.report.options.find((item) => item.recommended).command, '/speckit reset');
+    assert.match(result.report.options.find((item) => item.recommended).why, /manually type the --force flag/);
+    assert.equal(result.continued, null);
+    const comment = client.comments.at(-1).body;
+    assert.doesNotMatch(comment, /\/speckit reset --force/);
+    assert.match(comment, /--force/);
+    assert.equal(client.repo.runs.length, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('reset preserves PR and recovery, uses the exact base tree, and starts the first task without old state', async () => {
@@ -107,7 +348,7 @@ test('reset refuses active work, open child PRs, ineligible bases and unauthoriz
     if (scenario === 'checked') client.setFile(BASE, 'specs/f/tasks.md', tasks.replace('[ ]', '[x]'));
     if (scenario === 'missing') client.repo.files.delete(`${BASE}:specs/f/plan.md`);
     if (scenario === 'checklist') client.setFile(BASE, 'specs/f/checklists/requirements.md', '- [ ] Not ready\n');
-    const text = scenario === 'guidance' ? '/speckit reset do it' : scenario === 'flag' ? '/speckit reset --force' : '/speckit reset';
+    const text = scenario === 'guidance' ? '/speckit reset do it' : scenario === 'flag' ? '/speckit reset --unknown' : '/speckit reset';
     const request = await source(client, text, scenario === 'unauthorized' ? 'stranger' : 'dev');
     const result = await command(client, request);
     assert.ok(result.rejected || result.handled === false, scenario);
@@ -173,6 +414,20 @@ test('pending reset fences work and old runs cannot publish, verify, or continue
   assert.equal(await implementationRunCurrent(client, 9, staleEnv), false);
   for (const run of [runContinue, runVerifyReport]) assert.equal((await run({ client, env: staleEnv, log: silent })).outcome, 'superseded');
   for (const run of [runLand, runMergeLand]) assert.equal((await run({ client, env: staleEnv, inputs: { pull: 9 } })).outcome, 'superseded');
+  const implementation = await client.getPullRequest(9);
+  const amendmentContext = { implementation, amendment: { number: 11, created_at: implementation.created_at } };
+  for (const run of [startAnalysis, startRework, presentAmendment]) {
+    assert.equal((await run(client, staleEnv, amendmentContext, {})).outcome, 'superseded');
+  }
+  assert.equal((await startFixAuthoring(client, staleEnv, { implementation, twin: 5 })).started, false);
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-reset-stale-author-'));
+  try {
+    for (const run of [recordAuthor, landAuthor]) {
+      assert.equal((await run({ client, env: { ...staleEnv, SPECKIT_FOLDER: 'f', SPECKIT_RESULT_DIR: dir }, log: silent })).outcome, 'superseded');
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
   assert.equal(client.comments.length, before);
   client.repo.runs.push({ id: 701, created_at: client.tick(), status: 'in_progress' });
   assert.equal(await implementationRunCurrent(client, 9, { GITHUB_RUN_ID: '701' }), true);
@@ -182,6 +437,14 @@ test('forged reset markers do not discard history, malformed trusted records sto
   const forged = { id: 1, user: { login: 'dev' }, body: `${RESET_MARKER}{} -->` };
   assert.deepEqual(implementationComments([forged]), [forged]);
   assert.throws(() => resetState([{ ...forged, user: { login: 'github-actions[bot]' } }]), /invalid/);
+  const record = { state: 'pending', source: 10, oldHead: OLD, baseSha: BASE,
+    base: 'main', branch: 'speckit/f', recovery: 'refs/tags/speckit-reset/pr-9/10', force: true,
+    actor: 'dev', repository: 'octo/repo', cleanup: { cancellations: [], closed: [], amendments: [],
+      branch: { name: 'speckit-amend/f', head: null } } };
+  for (const fields of [{ branch: 42 }, { repository: {} }, { cleanup: { ...record.cleanup, amendments: [null] } }]) {
+    const body = `${RESET_MARKER}${JSON.stringify({ ...record, ...fields })} -->`;
+    assert.throws(() => resetState([{ ...forged, body, user: { login: 'github-actions[bot]' } }]), /record is invalid/);
+  }
 });
 
 test('pending reset reconciliation dispatches only the trusted command workflow', async () => {

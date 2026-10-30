@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { implementationRunCurrent } from './speckit-implement-core.mjs';
 
 import { IMPLEMENT_STAGE, PENDING_LABEL, TWIN_LABEL, countOpenChecklistItems, deriveStage, hasLabel, implementBlockers, isImplementRequested, isValidFolderName, parseFixForLine, parseTwinFolder, resolveTwins, stageLabelChange } from './speckit-prepare-core.mjs';
 import { readSpecFolder, renderImplementRequested, updateIssueWithLabels } from './speckit-prepare.mjs';
@@ -216,6 +217,7 @@ export async function existingFixSpecs(client, env) {
 // for one that makes a flaky test deterministic): its events carry `link: false`, it is never linked as a dependency
 // of the twin, and it is refused only while another such spec is being authored or open.
 export async function startFixAuthoring(client, env, { twin, implementation, guidance = '', actor, now = Date.now(), link = true }) {
+  if (!(await implementationRunCurrent(client, implementation.number, env))) return { started: false, reason: 'superseded by reset' };
   const folder = folderOfBranch(implementation.head?.ref);
   const baseBranch = baseBranchOf(implementation);
   const defaultBranch = defaultBranchOf(env);
@@ -670,6 +672,7 @@ async function reportAuthorFailure(client, env, { implementation, unlinked, mess
 export async function runRecord({ client, env, log }) {
   const inputs = inputsFrom(env);
   const result = readResult(env);
+  if (!(await implementationRunCurrent(client, inputs.pull, env))) return { exitCode: 0, outcome: 'superseded' };
   if (inputs.mode !== 'author') {
     const pushed = String(env.SPECKIT_PUSH_SHA ?? '').trim();
     if (pushed) await syncPlanDecisions(client, inputs.amendment, inputs.folder, pushed);
@@ -1263,6 +1266,7 @@ export async function runLand({ client, env, log, git }) {
   const dir = resultDir(env);
   mkdirSync(dir, { recursive: true });
   const result = readResult(env);
+  if (!(await implementationRunCurrent(client, inputs.pull, env))) return { exitCode: 0, outcome: 'superseded' };
   const extra = {};
   if (inputs.mode === 'author') {
     if (result.decision === 'author' && result.outcome === 'authored') {

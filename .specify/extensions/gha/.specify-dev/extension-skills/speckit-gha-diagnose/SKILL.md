@@ -235,6 +235,11 @@ workflow started you): never ask, and turn every open question into a report que
   checks it again. A recommendation never authorizes or automatically executes reset, regardless of confidence.
   Never recommend it for unknown causes, as a fallback for repeated failure, to bypass protected paths, or for a
   defect still present on the base. It discards branch-only amendments rather than preserving their corrections.
+  If owned active work or amendments are the only obstacles, prose may suggest manually typing the `--force` flag,
+  warning that it cancels related workflows, closes amendment PRs, and deletes their exact owned branch. Never add
+  that flag to a command field, copy block, or prefilled action: the copyable recommendation remains bare reset, so
+  the writer must type the flag deliberately. Force cannot remove authored prerequisite PRs or bypass an external
+  handoff that cannot be confirmed stopped. Shared workflows, unrelated branches, and recovery refs are preserved.
 - Never recommend a command that already failed the same way. When the evidence has a section **A command that already
   failed the same way**, the last `/speckit retry` or `/speckit sync` left the branch unchanged and stopped with the same
   reason as before; recommending it again only repeats the stop (a recommendation of it is moved to the other options at

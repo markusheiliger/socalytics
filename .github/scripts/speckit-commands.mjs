@@ -5,7 +5,7 @@ import { IMPLEMENT_STAGE, IMPLEMENTING_STAGE, TWIN_LABEL, deriveStage, hasLabel,
 import { canWrite, readSpecFolder, renderImplementRequested, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { startFixAuthoring } from './speckit-fix.mjs';
 import { requestAmendment } from './speckit-amend.mjs';
-import { runReset } from './speckit-reset.mjs';
+import { runReset, readResetSource } from './speckit-reset.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   ATTENTION_LABEL,
@@ -243,7 +243,7 @@ export async function runCommand({ client, env, log, now = Date.now, rootDir = e
     return { exitCode: 0, handled: true, command: command.name, rejected: 'command superseded by reset' };
   }
   const handler = HANDLERS[command.name];
-  const result = await handler({ client, env, actor, number, commentId, flags: command.flags, guidance: command.guidance.slice(0, 4000), now, ...target });
+  const result = await handler({ client, env, actor, number, commentId, flags: command.flags, guidance: command.guidance.slice(0, 4000), now, prepareOnly: env.SPECKIT_RESET_PREPARE === 'true', ...target });
   if (command.name === 'reset' && result.rejected) {
     await reply(client, number, `**Reset was not run**: ${result.rejected}.\n\n**Recommended next step**: Resolve the reported obstacle, then post \`/speckit reset\` on #${target.implementation.number}.`);
   }
@@ -498,21 +498,27 @@ export async function runCopilotHandoff({ client, env, log }) {
 export async function main(argv, { env = process.env, log = console.log, client, docsFile } = {}) {
   const [command, ...args] = argv;
   if (command === 'docs') return runDocs(args, { file: docsFile, log });
-  if (!['command', 'target', 'copilot-handoff'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target | copilot-handoff | docs [--write]> (command, target, and copilot-handoff take their inputs from SPECKIT_* environment variables)');
+  if (!['command', 'target', 'prepare-reset', 'copilot-handoff'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target | prepare-reset | copilot-handoff | docs [--write]>');
   const github = client ?? createGitHubClient(env);
   if (env.SPECKIT_RESET_RESUME) {
-    const source = (await github.listIssueComments(Number(env.SPECKIT_PULL))).find((comment) => String(comment.id) === env.SPECKIT_RESET_RESUME);
-    if (!source) throw new CommandUsageError('The authorized reset comment is missing.');
+    const source = await readResetSource(github, env);
     env = { ...env, SPECKIT_COMMENT_ID: String(source.id), SPECKIT_ACTOR: source.user?.login, SPECKIT_COMMENT_BODY: source.body };
   }
   if (command === 'copilot-handoff') return (await runCopilotHandoff({ client: github, env, log })).exitCode;
   if (command === 'target') {
     const pull = await runCommandTarget({ client: github, env });
-    if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `pull=${pull}\n`);
+    const parsed = parseCommand(env.SPECKIT_COMMENT_BODY);
+    const force = parsed?.name === 'reset' && parsed.flags.includes(RESTART_FORCE_FLAG) && !parsed.unknownFlags.length && !parsed.guidance;
+    if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `pull=${pull}\nforce_reset=${Boolean(force)}\n`);
     return 0;
   }
+  if (command === 'prepare-reset') {
+    const parsed = parseCommand(env.SPECKIT_COMMENT_BODY);
+    if (parsed?.name !== 'reset' || !parsed.flags.includes(RESTART_FORCE_FLAG)) throw new CommandUsageError('Force preparation requires an authorized reset with the force flag.');
+    env = { ...env, SPECKIT_RESET_PREPARE: 'true' };
+  }
   const result = await runCommand({ client: github, env, log });
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `handled=${result.handled}\n`);
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `handled=${result.handled}\nprepared=${['prepared', 'already reset'].includes(result.outcome)}\n`);
   return result.exitCode;
 }
 

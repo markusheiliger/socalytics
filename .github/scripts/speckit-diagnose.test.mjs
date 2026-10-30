@@ -188,7 +188,9 @@ test('collects evidence: checks, comments, failed run logs, branch state, and no
     assert.deepEqual([context.implementationBranch, context.amendmentBranch, context.nextTask], ['speckit/f', 'speckit-amend/f', 'T002']);
     // The live command reference: every recommendable command with what it does on this pull request.
     assert.match(evidence, new RegExp(`## ${COMMAND_REFERENCE_TITLE}\\n`));
-    for (const command of PR_COMMANDS.filter((item) => item.recommend)) assert.ok(evidence.includes(`### \`${command.usage}\``), command.name);
+    for (const command of PR_COMMANDS.filter((item) => item.recommend)) assert.ok(evidence.includes(`### \`${command.name === 'reset' ? '/speckit reset' : command.usage}\``), command.name);
+    assert.doesNotMatch(evidence, /### `\/speckit reset \[--force\]/);
+    assert.match(evidence, /manually typing the force flag/);
     assert.doesNotMatch(evidence, /### `\/speckit help/);
     assert.match(evidence, /No repair is pending on this pull request\./);
     assert.match(evidence, /Does not merge `main`: the implementation continues with what stopped/);
