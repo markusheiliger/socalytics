@@ -1,5 +1,56 @@
 # Payload Conformance Evidence
 
+Passing and failing results in this file are development evidence only: they were produced on one 4-core development machine with Docker, they are not a guarantee of determinism on other environments, and they are not production-readiness evidence. The detailed entries per task follow in [Evidence](#evidence).
+
+## Summary
+
+### Counts
+
+| Run | Before the change (T001, T002) | After the change (T010) |
+| --- | --- | --- |
+| Baseline, single run of the class | 2 passed of 2 | - |
+| Repeated, alone | 30 runs, 30 passed, 0 failed | 30 runs, 30 passed, 0 failed |
+| Repeated, under CPU load (one busy loop per core) | 10 runs, 10 passed, 0 failed | 10 runs, 10 passed, 0 failed |
+| Maximum test duration | 18 s (loaded) | 17 s (loaded) |
+
+The original intermittent failure did not reproduce in the 40 runs before the change, so the cause is established by deliberately widening the race window test-side (T003, T004) and by inspecting the code (T005), not by reproducing the failure. The hang guard stays 180 s (at least ten times the maximum observed duration); it bounds a stuck run and is never a success condition.
+
+### Suspected causes
+
+| Suspected cause | Result | Evidence |
+| --- | --- | --- |
+| Premature read | Proven (test-side) | T003: with later ready-work rows delayed, the old wait accepted the first visible row as the complete set (variant 1 passed without reading the delayed rows), and with the segment rows delayed it failed with `No ready-work message was published.` (variant 2). T011: the fixed wait passes under the same widening. |
+| Wait on elapsed time | Proven (test-side) | T003 variant 2: the old outcome depended on 360 fake-clock advances with 500 ms delays and on publication order, not on the publication state of the run. T013: the fixed wait fails by its own named limit when a row is never published. |
+| Staggered stream reads | Ruled out as a demonstrated cause | T004: with 20 fake-clock advances before each of the two stream reads, both tests passed and every id of the snapshot was found; the read is filtered by one fixed outbox id set, so a message published between the snapshot and a read is neither missed nor split. The set is only as complete as the moment of the snapshot, which is the premature-read cause. The one id snapshot read of both streams remains as a consistency measure. |
+| Shared state | Ruled out as a cause of wrong assertions; not evidenced as a failure cause | T005: every test has its own database and outbox; leftover messages of other tests in the shared NATS streams are filtered out by outbox id. A shared durable consumer can only slow the finalization notification, which is not proven as a failure cause, so no isolation was added. T010: the two tests pass in either order, and a failure in one test does not affect the other. |
+| Covered production code | Ruled out | T005: the outbox publisher claims and publishes rows in creation order within a batch, the run's rows commit atomically with the run, and the run's messages are single rows with one `Nats-Msg-Id` each; no production code changed (T014: no shared helper changed either). |
+
+### Widening before and after
+
+- Before (T003): delaying the pending ready-work rows of the run, the old wait either accepted a partial set (variant 1, passed after reading one message) or timed out on the first condition that depended on publication order (variant 2, failed after 3 m 8 s).
+- After (T011): the same delay applied to the fixed test, which passed with 2 of 2 tests in 8 s because it returns only once the run's publication state is complete.
+
+### Probes that must still fail (T012)
+
+With the fixed test, each of three temporary test-side probes made it fail on the intended assertion without a hang: an invalid job payload (`teamId` as a number; schema assertion), a missing segment identity field (`segment.timelineMappingDigest`; segment-identity assertion), and a segment on a non-segment job (no-segment assertion). All probe edits were reverted.
+
+### Unpublished and unpublishable rows (T013)
+
+A `failed` row of the run's message set fails the test at once, naming the row and its failure category. A `pending` row that is not due fails through the wait's own limit (150 s, inside the 180 s hang guard) and names id, `message_type`, `subject`, `attempt_count`, `failure_category`, and `next_attempt_at`. Neither case asserts on a partial set or hangs.
+
+### Findings and decisions of the spec artifacts that the evidence contradicts
+
+The implementation changes no spec artifact; the following statements are recorded here instead.
+
+- `research.md` already records the staggered-read finding; `spec.md` lists staggered stream reads as a suspected cause that the implementation evaluates, and the evidence rules it out as a demonstrated cause (T004).
+- The spec's input and research.md state that the first-visible set can lack the segment job so that an assertion fails. T003 shows the old test failing at the wait with a `TimeoutException`, before the `jobs.ShouldContain(... "segment")` assertion was reached, and passing with a partial set when only later rows were delayed; the demonstrated failure mode of the premature read is therefore a wait outcome that depends on elapsed time and publication order, not a segment assertion that was shown to fail.
+- The spec describes the failure as three observed intermittent failures; none reproduced in 40 runs here, so the observed failures are explained by the widening demonstrations only.
+- research.md says leftover stream state can only slow the scheduler's finalization consumer; T005 treats even that as not proven as a failure cause.
+
+### Scope
+
+Only `PayloadConformanceTests.cs` and this file changed in the test project; no production code and no shared helper changed (T014), so no architecture statement changed.
+
 ## Evidence
 
 ### T001 Baseline
