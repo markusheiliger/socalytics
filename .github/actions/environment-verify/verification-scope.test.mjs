@@ -80,6 +80,34 @@ describe('documentation-only classification', () => {
     }
   });
 
+  it('reports the four sample tooling files with the sample tooling reason', () => {
+    const root = repository();
+    for (const tooling of ['tools/samples.test.mjs', 'tools/samples-lib.mjs', 'tools/upload-samples.mjs', 'tools/download-samples.mjs']) {
+      const result = scope(root, [tooling]);
+      assert.equal(result.documentationOnly, false, tooling);
+      assert.equal(result.reason, `${tooling} is a sample tooling file covered by the Sample tooling tests`);
+    }
+  });
+
+  it('keeps other files under tools/ as not Markdown', () => {
+    const root = repository();
+    for (const other of ['tools/other.mjs', 'tools/samples.test.mjs.bak', 'tools/sub/samples-lib.mjs', 'tools/Samples-Lib.mjs']) {
+      const result = scope(root, [other]);
+      assert.equal(result.documentationOnly, false, other);
+      assert.equal(result.reason, `${other} is not Markdown`);
+    }
+  });
+
+  it('keeps Markdown under tools/ covered by the Markdown rule', () => {
+    const root = repository();
+    const readme = scope(root, ['tools/README.md']);
+    assert.equal(readme.documentationOnly, true);
+    assert.match(readme.reason, /^1 Markdown file\(s\) that no build, package, or test reads/);
+    const mixed = scope(root, ['tools/README.md', 'tools/samples-lib.mjs']);
+    assert.equal(mixed.documentationOnly, false);
+    assert.equal(mixed.reason, 'tools/samples-lib.mjs is a sample tooling file covered by the Sample tooling tests');
+  });
+
   it('reports the first non-Markdown file of a mixed list', () => {
     const root = repository();
     const tooling = '.github/scripts/speckit-implement-core.mjs';

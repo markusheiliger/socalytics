@@ -43,7 +43,7 @@
 
 ### Scope and plan tests
 
-- [ ] T006 [P] [US2] In `.github/actions/environment-verify/verification-scope.test.mjs`, add cases for the exact four paths (reason names the Sample tooling tests), the non-matching paths `tools/other.mjs`, `tools/samples.test.mjs.bak`, `tools/sub/samples-lib.mjs`, and `tools/Samples-Lib.mjs`, and Markdown under `tools/` staying covered by the Markdown rule
+- [x] T006 [P] [US2] In `.github/actions/environment-verify/verification-scope.test.mjs`, add cases for the exact four paths (reason names the Sample tooling tests), the non-matching paths `tools/other.mjs`, `tools/samples.test.mjs.bak`, `tools/sub/samples-lib.mjs`, and `tools/Samples-Lib.mjs`, and Markdown under `tools/` staying covered by the Markdown rule
 - [x] T007 [P] [US2] In `.github/actions/environment-verify/verification-plan.test.mjs`, add cases that a change of only `tools/samples.test.mjs` plus a spec-folder file reports `uncovered` as `[]`, that each of the other three files is covered, that a mixed change with `tools/other.mjs` lists only that path as uncovered, and that `SAMPLE_TOOLING_FILE` and the `grep -E` pattern extracted from the `applies` call in `action.yml` (read the action text) give the same match result (behavioral equivalence, since their syntax differs) for the four paths and for `tools/other.mjs`, `tools/samples.test.mjs.bak`, `tools/sub/samples-lib.mjs`, and `tools/Samples-Lib.mjs`; protection is decided outside the plan module, so no protected-path case is asserted here
 
 **Checkpoint**: Coverage matches exactly the four files, each backed by the check from User Story 1.
