@@ -70,7 +70,7 @@
 **Independent Test**: Read the README section; remove the pattern, the budget, or the check block locally and observe the corresponding test fail.
 
 - [x] T010 [US4] In `.github/actions/environment-verify/README.md`, add a section "Sample tooling tests" after "Spec Kit tooling tests" documenting the check name, the command `node --test tools/samples.test.mjs`, the trigger (exactly the four files changed or deleted, always in finalize mode, never otherwise), the nested-run marker, the first-shard-only placement and its budget, the three failure messages, and the covered scope (exactly the four files, no broader `tools/` glob); update the check-order sentence (line 194), the `checks` description, the scope reason mention (line 71), and the covered-paths list (line 202) to include the four files and state that every other `tools/` path stays uncovered
-- [ ] T011 [US4] Verify the new tests fail when each rule is removed: run each mutation (a weakened `applies` pattern in `action.yml`, a weakened `SAMPLE_TOOLING_FILE` pattern, and a changed `MAIN_MINUTES`) on a temporary copy of the action folder (for example under a `mktemp -d` directory), never on the repository files, confirm the matching cases in `analyst-projects.test.mjs`, `verification-scope.test.mjs`, and `verification-plan.test.mjs` fail against the copy, and leave `git status` unchanged (completion is claimed as `verified` without changes)
+- [ ] T011 [US4] In `quickstart.md`, add a section "5. Manual mutation check (not verified by the implementation)" that states the three mutations (a weakened `applies` pattern in `action.yml`, a weakened `SAMPLE_TOOLING_FILE` pattern in `verification-plan.mjs`, and a changed `MAIN_MINUTES`) as steps a person can run on a temporary copy of the action folder, naming the cases in `analyst-projects.test.mjs`, `verification-scope.test.mjs`, and `verification-plan.test.mjs` expected to fail, and stating that this is manual evidence that the implementation does not run and does not claim as verified; the new tests' ability to detect each mutation rests on their existing assertions, which T013 runs (no mutation is executed by this task, and no repository file other than `quickstart.md` changes)
 
 ---
 
@@ -83,7 +83,7 @@
 
 ## Dependencies & Execution Order
 
-- Phase 1 (T001) first. User Story 1 (T002, T003) next: the check must run before any path is counted covered (FR-005). User Story 2 (T004 to T007) follows; T005 needs T004's export, and T007 needs T002 and T005. User Story 3 (T008, T009) after User Story 2 because both edit `verification-plan.mjs` and its test. User Story 4 (T010, T011) after the code tasks. Polish (T012, T013) last.
+- Phase 1 (T001) first. User Story 1 (T002, T003) next: the check must run before any path is counted covered (FR-005). User Story 2 (T004 to T007) follows; T005 needs T004's export, and T007 needs T002 and T005. User Story 3 (T008, T009) after User Story 2 because both edit `verification-plan.mjs` and its test. User Story 4 (T010, T011) after the code tasks; T011 only documents the manual mutation check in `quickstart.md`, and the tests' detection of each rule rests on the assertions T013 runs. Polish (T012, T013) last.
 - Tasks are sequential because they share `action.yml`, `verification-plan.mjs`, and the test files; except the group "Scope and plan tests" (T006, T007), which runs in parallel: T006 changes only `verification-scope.test.mjs` and T007 only `verification-plan.test.mjs` (it reads `action.yml` without changing it).
 
 ## Implementation Strategy

@@ -12,7 +12,7 @@ SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test \
 ```
 
 Expected: all pass, including the new cases for selection, execution, failure propagation, a missing test file, coverage,
-and sharding. Removing the check, its pattern, or its budget makes the corresponding case fail.
+and sharding. The assertions for the check, its pattern, and its budget are what detect their removal.
 
 ## 2. Check the plan for a change of only the sample tooling test
 
