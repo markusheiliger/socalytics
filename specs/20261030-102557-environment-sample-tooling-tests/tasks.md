@@ -70,7 +70,7 @@
 **Independent Test**: Read the README section; check that the tests contain assertions for the pattern, the budget, and the check block, and that the action's test suite passes (T011); the assertions encode each rule, so a removed rule fails its case, which T011 and T013 do not mutate-test.
 
 - [x] T010 [US4] In `.github/actions/environment-verify/README.md`, add a section "Sample tooling tests" after "Spec Kit tooling tests" documenting the check name, the command `node --test tools/samples.test.mjs`, the trigger (exactly the four files changed or deleted, always in finalize mode, never otherwise), the nested-run marker, the first-shard-only placement and its budget, the three failure messages, and the covered scope (exactly the four files, no broader `tools/` glob); update the check-order sentence (line 194), the `checks` description, the scope reason mention (line 71), and the covered-paths list (line 202) to include the four files and state that every other `tools/` path stays uncovered
-- [ ] T011 [US4] Verification only: run `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test .github/actions/environment-verify/*.test.mjs` and confirm that every test passes, including the cases for the check, its triggers, its scope, and its sharding; no file changes and no mutation run (completion claimed as verified)
+- [ ] T011 [US4] Verification only: run the environment-verify action in task mode over the files `.github/actions/environment-verify/analyst-projects.test.mjs`, `.github/actions/environment-verify/verification-scope.test.mjs`, and `.github/actions/environment-verify/verification-plan.test.mjs`, whose check Environment action tests runs the action's `node --test` suite, and confirm that the verification passes, that the check Environment action tests applied, and that no file is left uncovered; no file changes and no mutation run (completion claimed as verified)
 
 ---
 
@@ -83,7 +83,7 @@
 
 ## Dependencies & Execution Order
 
-- Phase 1 (T001) first. User Story 1 (T002, T003) next: the check must run before any path is counted covered (FR-005). User Story 2 (T004 to T007) follows; T005 needs T004's export, and T007 needs T002 and T005. User Story 3 (T008, T009) after User Story 2 because both edit `verification-plan.mjs` and its test. User Story 4 (T010, T011) after the code tasks; T011 only verifies, without a file change, that the action's tests pass. Polish (T012, T013) last.
+- Phase 1 (T001) first. User Story 1 (T002, T003) next: the check must run before any path is counted covered (FR-005). User Story 2 (T004 to T007) follows; T005 needs T004's export, and T007 needs T002 and T005. User Story 3 (T008, T009) after User Story 2 because both edit `verification-plan.mjs` and its test. User Story 4 (T010, T011) after the code tasks; T011 only verifies, without a file change, that the action's tests pass through the action's own Environment action tests check; T013 runs the raw `node --test` commands. Polish (T012, T013) last.
 - Tasks are sequential because they share `action.yml`, `verification-plan.mjs`, and the test files; except the group "Scope and plan tests" (T006, T007), which runs in parallel: T006 changes only `verification-scope.test.mjs` and T007 only `verification-plan.test.mjs` (it reads `action.yml` without changing it).
 
 ## Implementation Strategy
