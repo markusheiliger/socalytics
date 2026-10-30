@@ -108,7 +108,7 @@ Each class takes the cached image where the reuse rule allows; a test that calls
 - [x] T023 [P] [US3] Edit `ShotBoundaryImageTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
 - [x] T024 [P] [US3] Edit `ShotBoundaryEndToEndTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
 - [ ] T025 [P] [US3] Edit `DockerRuntimeEndToEndTests.cs` to use the class-scoped `AnalystImageCache` fixture where its tests need the same variant and inputs; acceptance: after the edit each test either takes the cached image or is named in a comment with the reason it keeps its own (for example it calls `RemoveAsync` or force-removes images), including the registries created in the nested helper
-- [ ] T026 [P] [US3] Edit `SegmentMediaEndToEndTests.cs` to use the class-scoped `AnalystImageCache` fixture where its tests need the same variant and inputs; acceptance: after the edit each test either takes the cached image or is named in a comment with the reason it keeps its own (for example it calls `RemoveAsync` or force-removes images)
+- [x] T026 [P] [US3] Edit `SegmentMediaEndToEndTests.cs` to use the class-scoped `AnalystImageCache` fixture where its tests need the same variant and inputs; acceptance: after the edit each test either takes the cached image or is named in a comment with the reason it keeps its own (for example it calls `RemoveAsync` or force-removes images)
 
 **Checkpoint**: User Stories 1 to 3 work; builds and pushes are bounded and reused.
 
