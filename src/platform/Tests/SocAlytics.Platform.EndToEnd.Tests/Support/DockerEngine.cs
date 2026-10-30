@@ -43,7 +43,8 @@ internal sealed class DockerEngine : IDisposable
         _http = new HttpClient(handler)
         {
             BaseAddress = new Uri("http://docker"),
-            Timeout = TimeSpan.FromMinutes(5),
+            // Each call is ended by its named limit under EngineCallPolicy or by the test's token, never by a shared client timeout.
+            Timeout = Timeout.InfiniteTimeSpan,
         };
     }
 
@@ -61,11 +62,19 @@ internal sealed class DockerEngine : IDisposable
 
     public async Task<string> PushAsync(string name, string tag, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"/images/{Uri.EscapeDataString(name)}/push?tag={tag}");
-        request.Headers.Add("X-Registry-Auth", Convert.ToBase64String(Encoding.UTF8.GetBytes("{}")));
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadAsStringAsync(ct);
+        var body = await EngineCallPolicy.ExecuteAsync(
+            $"The push of {name}:{tag}",
+            nameof(EngineCallPolicy.PushLimit),
+            EngineCallPolicy.PushLimit,
+            async pushCt =>
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"/images/{Uri.EscapeDataString(name)}/push?tag={tag}");
+                request.Headers.Add("X-Registry-Auth", Convert.ToBase64String(Encoding.UTF8.GetBytes("{}")));
+                using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, pushCt);
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadAsStringAsync(pushCt);
+            },
+            ct);
 
         var separator = name.IndexOf('/');
         var repository = separator < 0 ? name : name[(separator + 1)..];
@@ -97,73 +106,89 @@ internal sealed class DockerEngine : IDisposable
             return DigestLookup.Unavailable("no registry address");
         }
 
-        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        limit.CancelAfter(EngineCallPolicy.RegistryLookupLimit);
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(RegistryBaseAddress, $"/v2/{repository}/manifests/{tag}"));
-            foreach (var type in ManifestMediaTypes)
-            {
-                request.Headers.Accept.ParseAdd(type);
-            }
+            return await EngineCallPolicy.ExecuteWithinAsync(
+                "The registry lookup",
+                nameof(EngineCallPolicy.RegistryLookupLimit),
+                EngineCallPolicy.RegistryLookupLimit,
+                async limitCt =>
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(RegistryBaseAddress, $"/v2/{repository}/manifests/{tag}"));
+                    foreach (var type in ManifestMediaTypes)
+                    {
+                        request.Headers.Accept.ParseAdd(type);
+                    }
 
-            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, limit.Token);
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                return DigestLookup.Absent;
-            }
+                    using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, limitCt);
+                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        return DigestLookup.Absent;
+                    }
 
-            if (!response.IsSuccessStatusCode)
-            {
-                return DigestLookup.Unavailable($"registry answered {(int)response.StatusCode}");
-            }
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return DigestLookup.Unavailable($"registry answered {(int)response.StatusCode}");
+                    }
 
-            if (!response.Headers.TryGetValues("Docker-Content-Digest", out var values))
-            {
-                return DigestLookup.Absent;
-            }
-
-            return DigestLookup.FromValue(values.FirstOrDefault());
+                    return response.Headers.TryGetValues("Docker-Content-Digest", out var values)
+                        ? DigestLookup.FromValue(values.FirstOrDefault())
+                        : DigestLookup.Absent;
+                },
+                ct);
         }
-        catch (Exception e) when (e is HttpRequestException or OperationCanceledException && !ct.IsCancellationRequested)
+        catch (EngineCallFailedException e)
         {
-            return DigestLookup.Unavailable(e is OperationCanceledException ? "registry lookup timed out" : e.Message);
+            return DigestLookup.Unavailable(string.Join("; ", e.Reasons));
         }
     }
 
     /// <summary>The digest in the engine's image record of <paramref name="name"/> that belongs to the pushed repository (<c>RepoDigests</c>).</summary>
     public async Task<DigestLookup> LookupEngineDigestAsync(string name, string tag, CancellationToken ct)
     {
-        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        limit.CancelAfter(EngineCallPolicy.RegistryLookupLimit);
         try
         {
-            using var response = await _http.GetAsync($"/images/{Uri.EscapeDataString(name + ":" + tag)}/json", limit.Token);
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                return DigestLookup.Absent;
-            }
+            return await EngineCallPolicy.ExecuteWithinAsync(
+                "The image-record lookup",
+                nameof(EngineCallPolicy.RegistryLookupLimit),
+                EngineCallPolicy.RegistryLookupLimit,
+                async limitCt =>
+                {
+                    using var response = await _http.GetAsync($"/images/{Uri.EscapeDataString(name + ":" + tag)}/json", limitCt);
+                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        return DigestLookup.Absent;
+                    }
 
-            if (!response.IsSuccessStatusCode)
-            {
-                return DigestLookup.Unavailable($"engine answered {(int)response.StatusCode}");
-            }
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return DigestLookup.Unavailable($"engine answered {(int)response.StatusCode}");
+                    }
 
-            using var record = JsonDocument.Parse(await response.Content.ReadAsStringAsync(limit.Token));
-            if (!record.RootElement.TryGetProperty("RepoDigests", out var digests) || digests.ValueKind != JsonValueKind.Array)
-            {
-                return DigestLookup.Absent;
-            }
+                    try
+                    {
+                        using var record = JsonDocument.Parse(await response.Content.ReadAsStringAsync(limitCt));
+                        if (!record.RootElement.TryGetProperty("RepoDigests", out var digests) || digests.ValueKind != JsonValueKind.Array)
+                        {
+                            return DigestLookup.Absent;
+                        }
 
-            var prefix = name + "@";
-            var value = digests.EnumerateArray()
-                .Select(d => d.ValueKind == JsonValueKind.String ? d.GetString()! : string.Empty)
-                .FirstOrDefault(d => d.StartsWith(prefix, StringComparison.Ordinal));
-            return value is null ? DigestLookup.Absent : DigestLookup.FromValue(value[prefix.Length..]);
+                        var prefix = name + "@";
+                        var value = digests.EnumerateArray()
+                            .Select(d => d.ValueKind == JsonValueKind.String ? d.GetString()! : string.Empty)
+                            .FirstOrDefault(d => d.StartsWith(prefix, StringComparison.Ordinal));
+                        return value is null ? DigestLookup.Absent : DigestLookup.FromValue(value[prefix.Length..]);
+                    }
+                    catch (JsonException e)
+                    {
+                        return DigestLookup.Unavailable(e.Message);
+                    }
+                },
+                ct);
         }
-        catch (Exception e) when (e is HttpRequestException or JsonException or OperationCanceledException && !ct.IsCancellationRequested)
+        catch (EngineCallFailedException e)
         {
-            return DigestLookup.Unavailable(e is OperationCanceledException ? "engine lookup timed out" : e.Message);
+            return DigestLookup.Unavailable(string.Join("; ", e.Reasons));
         }
     }
 

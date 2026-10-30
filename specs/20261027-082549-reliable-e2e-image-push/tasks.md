@@ -65,7 +65,7 @@
 ### Implementation for User Story 2
 
 - [x] T009 [US2] Edit `Support/EngineCallPolicy.cs`: add the execution of an engine call under a linked token (the test's token plus `CancelAfter(limit)`), the classification into `Succeeded`, `Transient(reason)`, `Deterministic(exception)`, and `Cancelled` per [research.md](research.md) D3, the bounded attempts with `RetryDelay` read through `TimeProvider`, and the final exception that names the limit or condition and lists every attempt's reason without credentials — verified without changes by the assessed verification at 5445577e (no change by this task)
-- [ ] T010 [US2] Edit `Support/DockerEngine.cs`: set `HttpClient.Timeout` to infinite so the shared client timeout no longer ends any call, run the push under `EngineCallPolicy` with `PushLimit` and the test's cancellation token, and run the registry and image-record lookups under `RegistryLookupLimit` with the transient handling tested by the registry-not-yet-answering case of T008
+- [x] T010 [US2] Edit `Support/DockerEngine.cs`: set `HttpClient.Timeout` to infinite so the shared client timeout no longer ends any call, run the push under `EngineCallPolicy` with `PushLimit` and the test's cancellation token, and run the registry and image-record lookups under `RegistryLookupLimit` with the transient handling tested by the registry-not-yet-answering case of T008
 
 ### Build helpers under the policy
 

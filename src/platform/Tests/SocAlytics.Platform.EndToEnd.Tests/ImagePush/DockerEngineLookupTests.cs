@@ -62,13 +62,25 @@ public sealed class DockerEngineLookupTests
     }
 
     [Fact]
-    public async Task Registry_lookup_reports_a_server_error_or_a_failing_connection_as_unavailable()
+    public async Task Registry_lookup_reports_a_server_error_as_unavailable()
     {
         using var failing = new DockerEngine(new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError)), Registry);
-        using var refused = new DockerEngine(new FakeHandler(_ => throw new HttpRequestException("connection refused")), Registry);
 
         (await failing.LookupRegistryDigestAsync(Repository, Tag, CancellationToken.None)).Outcome.ShouldBe("unavailable: registry answered 500");
-        (await refused.LookupRegistryDigestAsync(Repository, Tag, CancellationToken.None)).Outcome.ShouldBe("unavailable: connection refused");
+    }
+
+    [Fact]
+    public async Task Registry_lookup_repeats_a_refused_connection_and_succeeds_when_the_registry_answers()
+    {
+        var calls = 0;
+        using var engine = new DockerEngine(new FakeHandler(_ => ++calls < 2
+            ? throw new HttpRequestException("connection refused")
+            : ManifestResponse(Digest)), Registry);
+
+        var result = await engine.LookupRegistryDigestAsync(Repository, Tag, CancellationToken.None);
+
+        result.Digest.ShouldBe(Digest);
+        calls.ShouldBe(2);
     }
 
     [Fact]
