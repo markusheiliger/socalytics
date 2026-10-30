@@ -103,7 +103,7 @@
 
 Each class takes the cached image where the reuse rule allows; a test that calls `RemoveAsync`, force-removes images to prove cleanup, or otherwise depends on the image being its own keeps its own build and push through the uncached helper. No assertion is removed or loosened.
 
-- [ ] T021 [P] [US3] Edit `ReferenceAnalystImageTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
+- [x] T021 [P] [US3] Edit `ReferenceAnalystImageTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
 - [ ] T022 [P] [US3] Edit `ReferenceAnalystEndToEndTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
 - [x] T023 [P] [US3] Edit `ShotBoundaryImageTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
 - [ ] T024 [P] [US3] Edit `ShotBoundaryEndToEndTests.cs` to use the class-scoped `AnalystImageCache` fixture for its image variants
