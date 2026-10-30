@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Fix for**: #335 (implementation pull request #345, `specs/20261025-233727-deterministic-payload-conformance-test`)
+**Fix for**: #335 (implementation pull request #345, `specs/archive/20261025-233727-deterministic-payload-conformance-test`)
 
-**Input**: User description: "Make the Docker-backed end-to-end tests of `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests` reliable when they push Analyst test images to the local test registry. In the full platform verification of a branch that merged main, 14 of 33 tests fail twice (for example `ShotBoundaryImageTests`, which fails in the engine push support of `Support/TestAnalystImage.cs` after the roughly 214 MB `media-context-classification` image was pushed completely), while the same project passed 33 of 33 on the unmerged branch. The push response ends with every layer pushed and a final status line `<tag>: digest: sha256:... size: ...`, yet the support code reads the manifest digest only from an `aux` record with a `Digest` property and otherwise throws 'The push did not report a manifest digest'. The spec `specs/20261025-233727-deterministic-payload-conformance-test` depends on this spec."
+**Input**: User description: "Make the Docker-backed end-to-end tests of `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests` reliable when they push Analyst test images to the local test registry. In the full platform verification of a branch that merged main, 14 of 33 tests fail twice (for example `ShotBoundaryImageTests`, which fails in the engine push support of `Support/TestAnalystImage.cs` after the roughly 214 MB `media-context-classification` image was pushed completely), while the same project passed 33 of 33 on the unmerged branch. The push response ends with every layer pushed and a final status line `<tag>: digest: sha256:... size: ...`, yet the support code reads the manifest digest only from an `aux` record with a `Digest` property and otherwise throws 'The push did not report a manifest digest'. The spec `specs/archive/20261025-233727-deterministic-payload-conformance-test` depends on this spec."
 
 ## Clarifications
 
@@ -152,6 +152,6 @@ A maintainer reading the end-to-end tests' documentation finds the evidenced cau
 ## Assumptions
 
 - **Cause**: The primary cause is presumed to be a push response without the progress record the support code needs, with load and the shared five-minute client timeout as contributing causes; this is a hypothesis, and the concrete cause is established during implementation (FR-001). If the evidence shows that a recent change on main caused it, the fix still makes the support code robust and the finding is recorded.
-- **Dependencies**: The spec [Deterministic Payload Conformance Test](../../20261025-233727-deterministic-payload-conformance-test/spec.md) (implementation #345, twin #335) depends on this spec. Related earlier work not to be repeated: the Docker-backed evidence of the reference and shot-boundary Analyst capabilities (see the merged specs under `specs/archive/`).
+- **Dependencies**: The spec [Deterministic Payload Conformance Test](../20261025-233727-deterministic-payload-conformance-test/spec.md) (implementation #345, twin #335) depends on this spec. Related earlier work not to be repeated: the Docker-backed evidence of the reference and shot-boundary Analyst capabilities (see the merged specs under `specs/archive/`).
 - **Environment**: A Docker-compatible engine on Linux (and the Compose-less registry the tests start) is available as for the existing end-to-end tests; Docker Desktop on Windows stays manual evidence.
 - **Out of scope**: Other flaky tests, the content and size of the images, registry or engine configuration of the runner, publication of images, and production registry values. Passing tests are development evidence only and do not establish deployment support or production readiness.

@@ -183,7 +183,7 @@ Inspected with `git diff --stat 9bd4d0fe` and `git diff 9bd4d0fe` (`9bd4d0fe` is
 
 `git diff --stat 9bd4d0fe` (before this section was added): 9 files changed, 387 insertions(+), 52 deletions(-):
 
-- `specs/20261025-233727-deterministic-payload-conformance-test/`: `checklists/requirements.md`, `data-model.md`, `plan.md`, `quickstart.md`, `research.md`, `spec.md`, and `tasks.md` (7 files).
+- `specs/archive/20261025-233727-deterministic-payload-conformance-test/`: `checklists/requirements.md`, `data-model.md`, `plan.md`, `quickstart.md`, `research.md`, `spec.md`, and `tasks.md` (7 files).
 - `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/PayloadConformanceEvidence.md` (167 insertions).
 - `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/PayloadConformanceTests.cs` (202 lines changed).
 

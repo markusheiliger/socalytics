@@ -2,7 +2,7 @@
 
 **Branch**: `20261025-233727-deterministic-payload-conformance-test` | **Date**: 2026-10-25 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261025-233727-deterministic-payload-conformance-test/spec.md`
+**Input**: Feature specification from `/specs/archive/20261025-233727-deterministic-payload-conformance-test/spec.md`
 
 ## Summary
 
@@ -60,7 +60,7 @@ None. The fix removes a race in test code and changes no architecture narrative,
 ### Documentation (this feature)
 
 ```text
-specs/20261025-233727-deterministic-payload-conformance-test/
+specs/archive/20261025-233727-deterministic-payload-conformance-test/
 ├── plan.md
 ├── research.md
 ├── data-model.md

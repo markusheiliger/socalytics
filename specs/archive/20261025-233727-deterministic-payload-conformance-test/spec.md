@@ -80,7 +80,7 @@ A maintainer running the integration tests, or the verification of any implement
 
 ## Assumptions
 
-- **Cause**: The test belongs to the durable analysis workflow development evidence (see the merged spec [Durable Analysis Workflow](../archive/20261005-130703-durable-analysis-workflow/spec.md)). The concrete cause is unknown; the suspected causes above are hypotheses established or ruled out during implementation (FR-001).
-- **Dependencies**: [Analysis Fact Timeline](../20261023-074600-analysis-fact-timeline/spec.md) (implementation #314) depends on this spec. A related spec that must not be repeated: [Deterministic Finalized Recording Set Run Test](../20261024-070502-deterministic-finalized-run-test/spec.md) (a different test).
+- **Cause**: The test belongs to the durable analysis workflow development evidence (see the merged spec [Durable Analysis Workflow](../20261005-130703-durable-analysis-workflow/spec.md)). The concrete cause is unknown; the suspected causes above are hypotheses established or ruled out during implementation (FR-001).
+- **Dependencies**: [Analysis Fact Timeline](../../20261023-074600-analysis-fact-timeline/spec.md) (implementation #314) depends on this spec. A related spec that must not be repeated: [Deterministic Finalized Recording Set Run Test](../../20261024-070502-deterministic-finalized-run-test/spec.md) (a different test).
 - **Out of scope**: Other flaky tests, the Web UI and Host test projects, and production values (outbox publication intervals, readiness timings, and stream settings are development values that stay as they are).
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

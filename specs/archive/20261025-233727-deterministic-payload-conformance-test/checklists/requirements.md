@@ -31,4 +31,4 @@
 
 ## Notes
 
-- The named test and covered components are the subject of the fix and therefore named; the cause is a hypothesis resolved during implementation (FR-001), with evidence recorded in [`PayloadConformanceEvidence.md`](../../../src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/PayloadConformanceEvidence.md).
+- The named test and covered components are the subject of the fix and therefore named; the cause is a hypothesis resolved during implementation (FR-001), with evidence recorded in [`PayloadConformanceEvidence.md`](../../../../src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/PayloadConformanceEvidence.md).
