@@ -72,6 +72,8 @@ on:
         value: ${{ jobs.decide.outputs.entry }}
       verify_only:
         value: ${{ jobs.decide.outputs.verify_only }}
+      wait:
+        value: ${{ jobs.decide.outputs.wait }}
 
 permissions: {}
 
@@ -154,6 +156,7 @@ jobs:
       repair: ${{ steps.decide.outputs.repair }}
       entry: ${{ steps.decide.outputs.entry }}
       verify_only: ${{ steps.decide.outputs.verify_only }}
+      wait: ${{ steps.decide.outputs.wait }}
     steps:
       - name: Check out the trusted tooling
         uses: actions/checkout@v5
@@ -176,3 +179,23 @@ jobs:
           SPECKIT_GUIDANCE: ${{ inputs.guidance }}
           SPECKIT_WORKFLOW: ${{ inputs.workflow }}
         run: node .github/scripts/speckit-spec.mjs decide
+
+  # An attempt that failed before its agent ran (infrastructure) is tried once more, after a short wait; the callers start
+  # their work only when this reusable workflow, and so this job, has finished.
+  pause:
+    name: Wait before the next attempt
+    needs: decide
+    if: ${{ !cancelled() && needs.decide.outputs.wait == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    permissions: {}
+    steps:
+      - name: Wait before the next attempt
+        env:
+          SPECKIT_RETRY_WAIT: ${{ vars.SPECKIT_RETRY_WAIT || '300' }}
+        run: |
+          seconds="$SPECKIT_RETRY_WAIT"
+          case "$seconds" in ''|*[!0-9]*) seconds=300 ;; esac
+          if [ "$seconds" -gt 3600 ]; then seconds=3600; fi
+          echo "The last attempt failed before its agent ran; the next one starts in $seconds seconds."
+          sleep "$seconds"

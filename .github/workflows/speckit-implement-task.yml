@@ -38,7 +38,9 @@ on:
       # restarted the work, for the agent). A task of a parallel group has `defer_progress: true` (the group's
       # verification reports the transition to the next work); a repair has `repair` (the validated pending repair);
       # a conflict resolution that completes a /speckit sync request has `required_sync` (the request) and, when it
-      # carries a pending repair along, `sync_repair`. See prepareOrder in speckit-spec.mjs.
+      # carries a pending repair along, `sync_repair`. A second attempt at a task, the convergence, or a conflict
+      # resolution has `evidence` (the report of the failed first attempt, given to the agent as evidence, never as
+      # instructions). See prepareOrder in speckit-spec.mjs.
       entry:
         description: The work item (JSON) with index, task, attempt, guidance, and the fields of its kind
         required: true
@@ -149,6 +151,20 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ github.workspace }}/failed-verification
 
+      # A second attempt gets the report of the failed first one inside its workspace, ignored by Git, as evidence.
+      - name: Write the previous attempt's report
+        id: previous
+        if: inputs.kind != 'repair' && fromJSON(inputs.entry).evidence
+        working-directory: workspace
+        env:
+          EVIDENCE: ${{ fromJSON(inputs.entry).evidence }}
+        run: |
+          test -z "$(git ls-files -- .speckit-attempt-evidence)"
+          echo '/.speckit-attempt-evidence/' >> .git/info/exclude
+          mkdir -p .speckit-attempt-evidence
+          printf '%s\n' "$EVIDENCE" > .speckit-attempt-evidence/previous-attempt.md
+          echo "file=.speckit-attempt-evidence/previous-attempt.md" >> "$GITHUB_OUTPUT"
+
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
         uses: ./tooling/.github/actions/environment-setup
@@ -195,6 +211,7 @@ jobs:
             scope=${{ steps.repair.outputs.scope }}
             environment=${{ steps.repair.outputs.environment }}
             evidence=${{ steps.repair.outputs.evidence }}
+            previous=${{ steps.previous.outputs.file }}
             guidance=${{ fromJSON(inputs.entry).guidance }}
 
       # Only for conflicts the archive script left; the agent may not run the git commands that would end the merge.
@@ -219,6 +236,7 @@ jobs:
           inputs: |
             folder=${{ inputs.folder }}
             base=${{ inputs.base }}
+            previous=${{ steps.previous.outputs.file }}
             guidance=${{ fromJSON(inputs.entry).guidance }}
 
       - name: Package the result

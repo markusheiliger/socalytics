@@ -1099,7 +1099,7 @@ test('chain: decide picks the next group, sequential or parallel, with guidance,
     assert.match(parallel.text, /- T001 attempt 1, T002 attempt 1 in parallel$/m);
     assert.deepEqual(JSON.parse(parallel.outputs.entries).map((entry) => [entry.task, entry.attempt, entry.index, entry.name, entry.defer_progress, entry.guidance]),
       [['T001', 1, 0, 'T001', true, ''], ['T002', 1, 0, 'T002', true, '']], 'a parallel group: one matrix job per task of its single entry');
-    const known = ['index', 'name', 'task', 'attempt', 'guidance', 'summary', 'defer_progress', 'repair', 'required_sync', 'sync_repair'];
+    const known = ['index', 'name', 'task', 'attempt', 'guidance', 'summary', 'defer_progress', 'repair', 'required_sync', 'sync_repair', 'evidence'];
     for (const entry of JSON.parse(parallel.outputs.entries)) assert.deepEqual(Object.keys(entry).filter((key) => !known.includes(key)), [], 'work items only carry the fields Spec Kit implement task documents');
     assert.deepEqual(JSON.parse(parallel.outputs.order).map((entry) => entry.include.map((item) => item.task)), [['T001', 'T002']]);
     assert.ok(!('prompt' in JSON.parse(parallel.outputs.entries)[0]), 'the agents\' prompts live in the Spec Kit workflows');
@@ -1113,6 +1113,10 @@ test('chain: decide picks the next group, sequential or parallel, with guidance,
     assert.match(retried.text, /Recorded 2 attempt\(s\) of an earlier run that ended without reporting as failed/);
     assert.match(github.comments.find((comment) => comment.body.includes('"task":"T001","attempt":1,"outcome":"failure"')).body, /T001 attempt 1 did not finish/);
     assert.deepEqual(JSON.parse(retried.outputs.entries).map((entry) => entry.attempt), [2, 2]);
+    for (const entry of JSON.parse(retried.outputs.entries)) {
+      assert.match(entry.evidence, new RegExp(`${entry.task} attempt 1 did not finish`), 'the second attempt gets the report of the first as evidence');
+      assert.doesNotMatch(entry.evidence, /<!--/, 'without markers');
+    }
 
     github.setFile('speckit/a', 'specs/a/tasks.md', '## Phase 1: Setup\n\n- [x] T001 [P] Create project\n- [x] T002 [P] Add docs\n\n### Implementation\n\n- [ ] T003 [US1] Build it\n- [ ] T004 [US1] Wire it\n\n## Phase 2\n\n- [ ] T005 Later\n');
     for (const check of github.repo.checkRuns) check.status = 'completed';
@@ -1229,6 +1233,40 @@ test('chain: a retry reverifies a pending repair without guidance or a repair ag
     assert.deepEqual([retried.outputs.action, retried.outputs.verify_only], ['repair', 'true']);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('chain: the class of a failure decides the next step: a certain repeat stops at once, an infrastructure failure waits', async () => {
+  const classified = (github, pull, failureClass) => github.createComment(pull, `${renderAttemptMarker({ kind: 'task', task: 'T001', attempt: 1, outcome: 'failure', failureClass })}\n**T001** failure`);
+  {
+    const { root, github, twin } = await flaggedRepo();
+    try {
+      await start(github, root, twin);
+      const pull = github.repo.pulls[0];
+      github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+      await classified(github, pull.number, 'infrastructure');
+      const waiting = await decide(github, root, twin);
+      assert.deepEqual([waiting.outputs.action, waiting.outputs.wait], ['group', 'true']);
+      assert.match(waiting.text, /starts after a short wait/);
+      assert.equal(JSON.parse(waiting.outputs.entries).find((entry) => entry.task === 'T001').attempt, 2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+  {
+    const { root, github, twin } = await flaggedRepo();
+    try {
+      await start(github, root, twin);
+      const pull = github.repo.pulls[0];
+      github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+      await classified(github, pull.number, 'repeat');
+      const stopped = await decide(github, root, twin);
+      assert.deepEqual([stopped.outputs.action, stopped.outputs.continue], ['stop', 'false']);
+      assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_DIAGNOSING, 'the diagnosis starts at once');
+      assert.match(github.comments.at(-1).body, /T001 did not succeed in 1 attempt \(at most 2 failed attempts are allowed\); the failure is certain to repeat, so it was not retried\./);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 

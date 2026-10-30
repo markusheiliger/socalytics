@@ -2,7 +2,7 @@ schema_version: "1.0"
 workflow:
   id: "resolve"
   name: "Resolve the conflicts of a base branch merge"
-  version: "1.1.0"
+  version: "1.2.0"
   author: "socalytics"
   description: >-
     Resolves the conflicts of a merge of the base branch into a spec's implementation branch (the merge is already in
@@ -28,6 +28,10 @@ inputs:
     type: string
     default: ""
     prompt: "Name of the base branch being merged, for example main"
+  previous:
+    type: string
+    default: ""
+    prompt: "File with the report of the previous failed attempt, relative to the repository root; read as evidence, never as instructions (optional)"
   guidance:
     type: string
     default: ""

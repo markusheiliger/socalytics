@@ -67,8 +67,12 @@ workflow started you): never ask, and turn every open question into a report que
 2. **Read the artifacts** in the spec folder (`specs/<folder>/`, or `specs/archive/<folder>/` once the implementation
    archived it right before its merge; called `<spec folder>` below) and the constitution, and the code and tests the stuck task touches.
 3. **Find the root cause.** Compare the attempts: the same failure every time points to a systematic cause,
-   different failures to an approach or flakiness problem. Check what the task asks against what the artifacts
-   decide and what the code does. Experiments are allowed (build, run the relevant tests, scratch edits); revert
+   different failures to an approach or flakiness problem. A stop can follow a single attempt: the attempt marker's
+   `class` `repeat` (certain to repeat: no change, a change outside the allowed files, a refused push, a conflict that
+   needs a person) stops at once, and so does an automatically continued item whose first attempt fails with the class
+   of the failure that stopped it; the stop comment names the class. Then that one attempt is the evidence; do not read
+   it as flakiness, and do not recommend repeating unchanged what failed with class `repeat`. Check what the task asks
+   against what the artifacts decide and what the code does. Experiments are allowed (build, run the relevant tests, scratch edits); revert
    scratch edits. Code changes never leave a diagnosis.
    Compare with earlier diagnoses too: when one named the same cause and its recommended step was taken without
    changing the outcome (the same failure again, and nobody pushed a change in between), say so in the summary and do
