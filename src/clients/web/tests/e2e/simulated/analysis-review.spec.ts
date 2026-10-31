@@ -375,15 +375,16 @@ test.describe('Explicit states', () => {
 
   test('shows a platform error with a reload that recovers (scenario 4)', async ({ page, api }) => {
     const run = seedRun(api, { streams: [stream({ facts: [fact(0)] })] });
-    let failed = false;
+    // The timeline's lane load reads the same route, so every request fails until the reload instead of only the first.
+    let failing = true;
     await page.route(factsRequest, (route) => {
-      if (failed) return route.fallback();
-      failed = true;
+      if (!failing) return route.fallback();
       return route.fulfill({ status: 500, contentType: 'application/problem+json', body: JSON.stringify(problem(500, 'Server error')) });
     });
     await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}?stream=detections`);
 
     await expect(page.getByRole('alert').filter({ hasText: 'The analysis could not be loaded.' })).toBeVisible();
+    failing = false;
     await page.getByRole('button', { name: 'Reload', exact: true }).click();
     await expect(page.getByRole('list', { name: 'Facts of the selected stream' }).locator(':scope > li')).toHaveCount(1);
     await expect(page.getByText('The analysis could not be loaded.')).toHaveCount(0);
