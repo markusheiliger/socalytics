@@ -1,6 +1,6 @@
 # Environment Interface Extension: CV and Inference Libraries
 
-This contract extends the [environment interface](../../archive/20261017-163801-analyst-media-environment/contracts/environment-interface.md)
+This contract extends the [environment interface](../../20261017-163801-analyst-media-environment/contracts/environment-interface.md)
 of the Analyst and Media Verification Environment. Everything it does not mention is unchanged, including every input
 and output of both actions.
 
@@ -19,6 +19,11 @@ and output of both actions.
   `Recommended action: <one action>`.
 - **Success evidence**: `Verified Analyst CV libraries: <n> wheels, <m> bundled libraries, SBOM <path>` and
   `Verified synthetic CV smoke check: decoded <frames> frames, NumPy mean <value>, ONNX Runtime Add graph executed`.
+- **Smoke evidence parsing** (stage `cv smoke`): standard output and standard error are captured separately. A
+  nonzero exit or a timeout fails first. On a zero exit the stage passes only when standard output holds a complete
+  evidence line in the form above, anchored at the start of a line (the last such line is echoed); diagnostics on
+  either stream before or after it are tolerated, and missing or malformed evidence fails with `the smoke check
+  printed no evidence line`. Failure messages flatten newlines and truncate to 300 characters.
 - **Files**: `notices/analyst-cv/sbom.cdx.json`, `notices/analyst-cv/<wheel>/PROVENANCE.txt` and licence files.
   No `GITHUB_PATH` or `GITHUB_ENV` change.
 

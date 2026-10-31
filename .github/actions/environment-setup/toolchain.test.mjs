@@ -419,9 +419,11 @@ describe('environment-setup action integration', () => {
     assert.match(installerStep.block, /INSTALLER="\$GITHUB_ACTION_PATH\/install-analyst-media\.sh" setsid bash -c/);
   });
 
-  it('starts the installer before the other tool installs, waits for it last, and publishes no new action output', () => {
-    assert.equal(steps.at(-1), finishStep);
+  it('starts the installer before the other tool installs, waits before CV installation, and publishes no new action output', () => {
     assert.equal(steps.indexOf(installerStep), steps.findIndex((step) => step.name === 'Report dependency cache restores') + 1);
+    const cvStep = steps.find((step) => step.block.includes('install-analyst-cv.sh'));
+    assert.equal(steps.indexOf(finishStep) + 1, steps.indexOf(cvStep));
+    assert.equal(steps.at(-1), cvStep);
     const outputs = header.slice(header.indexOf('\noutputs:'));
     assert.deepEqual(names(outputs), [
       'nuget-key', 'npm-key', 'nuget-path', 'npm-path', 'nuget-hit', 'npm-hit', 'npm-tools', 'kiota-version',
@@ -449,6 +451,7 @@ describe('environment-setup action integration', () => {
       'Install the Kiota client generator',
       'Install the Playwright Chromium browser',
       'Install the Analyst Python and media toolchain',
+      'Install the Analyst computer-vision libraries',
     ];
     assert.deepEqual(steps.map((step) => step.name), expected);
     for (const step of steps.filter((candidate) => /^(Install|Start) /.test(candidate.name))) {
@@ -509,6 +512,35 @@ describe('environment-setup action integration', () => {
   it('adds no dependency-cache path, key input, or save step', () => {
     assert.doesNotMatch(actionText, /actions\/cache\/save|actions\/cache@/);
     assert.doesNotMatch(readFileSync(path.join(here, 'cache-keys.mjs'), 'utf8'), /analyst-media|toolchain/i);
+  });
+});
+
+describe('environment-setup computer-vision step integration', () => {
+  const cvSteps = steps.filter((step) => step.block.includes('install-analyst-cv.sh'));
+  const toolchainStep = steps.find((step) => step.name === 'Install the Analyst Python and media toolchain');
+
+  it('runs one gated step directly after the toolchain completes', () => {
+    assert.equal(cvSteps.length, 1);
+    const [cvStep] = cvSteps;
+    assert.equal(cvStep.name, 'Install the Analyst computer-vision libraries');
+    assert.equal(cvStep.condition, "inputs.install-tools == 'true'");
+    assert.match(cvStep.block, /shell: bash/);
+    assert.match(cvStep.block, /run: bash "\$GITHUB_ACTION_PATH\/install-analyst-cv\.sh"/);
+    assert.equal(steps[steps.indexOf(toolchainStep) + 1], cvStep);
+  });
+
+  it('downloads nothing in tools-disabled mode', () => {
+    const installing = steps.filter((step) => /^(Install|Start) /.test(step.name));
+    assert.ok(installing.includes(cvSteps[0]));
+    for (const step of installing) {
+      assert.equal(step.condition, "inputs.install-tools == 'true'", step.name);
+    }
+  });
+
+  it('keeps the toolchain declaration and the cache keys free of the libraries', () => {
+    assert.deepEqual(realDeclaration.tools.map((tool) => tool.id), ['cpython', 'uv', 'ffmpeg']);
+    assert.doesNotMatch(JSON.stringify(realDeclaration), /opencv|onnxruntime|numpy|analyst-cv/i);
+    assert.doesNotMatch(readFileSync(path.join(here, 'cache-keys.mjs'), 'utf8'), /analyst-cv|opencv|onnxruntime/i);
   });
 });
 

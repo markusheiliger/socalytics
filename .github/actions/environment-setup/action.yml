@@ -175,3 +175,8 @@ runs:
         [ "$result" = 0 ] || exit "$result"
         cat "$state/path" >> "$GITHUB_PATH"
         cat "$state/env" >> "$GITHUB_ENV"
+
+    - name: Install the Analyst computer-vision libraries
+      if: inputs.install-tools == 'true'
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/install-analyst-cv.sh"

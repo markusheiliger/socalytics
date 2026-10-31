@@ -394,7 +394,7 @@ model digests, and its status is not promotable.
 ### Dependencies
 
 - Depends on the environment spec
-  [CV and Inference Verification Environment](../20261023-085421-cv-inference-environment/spec.md), which provides the pinned
+  [CV and Inference Verification Environment](../archive/20261023-085421-cv-inference-environment/spec.md), which provides the pinned
   CPU OpenCV, NumPy, and ONNX Runtime wheels and the capability verification sequence. It MUST be implemented first; this
   feature never changes the environment actions itself.
 - Depends on the implemented

@@ -37,7 +37,7 @@ The Playwright test "has no violations with facts, and every control is reachabl
 - III. API-First Control Plane: PASS. No API, contract, or OpenAPI change.
 - IV. Evidence Over Claims: PASS. The cause is established with evidence first, and the quickstart's load, delay, and probe runs prove determinism and that the assertions still bite. Results are development evidence only.
 - V. Focused, Minimal Changes: PASS. One test is changed; no abstraction or dependency is added.
-- Environment: PASS. The `simulated` Playwright project and Node.js 24 are already provided by `environment-setup` and `environment-verify`; no environment spec is needed. The spec's dependent `specs/20261023-085421-cv-inference-environment` waits for this one.
+- Environment: PASS. The `simulated` Playwright project and Node.js 24 are already provided by `environment-setup` and `environment-verify`; no environment spec is needed. The spec's dependent `specs/archive/20261023-085421-cv-inference-environment` waits for this one.
 
 Post-design re-check: PASS, unchanged.
 

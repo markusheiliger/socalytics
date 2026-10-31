@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Fix for**: #318 (implementation of `specs/20261023-085421-cv-inference-environment`, twin #256)
+**Fix for**: #318 (implementation of `specs/archive/20261023-085421-cv-inference-environment`, twin #256)
 
-**Input**: User description: "The Playwright test 'has no violations with facts, and every control is reachable by keyboard with visible focus' in `src/clients/web/tests/e2e/simulated/analysis-review-access.spec.ts` fails intermittently, also on retry: after 'Apply range' the test activates the 'Next page' button by keyboard and the focus assertion fails for 5 seconds because the button is inactive. Investigate why the button is not focusable after the range-filter reload, make the test wait for the stable, enabled state of the control, or, if the page is at fault, fix the page so the control stays mounted and keeps focus. Do not weaken the assertions or the accessibility checks, add retries or sleeps, or change Web UI behavior beyond what the defect needs. The spec `specs/20261023-085421-cv-inference-environment` depends on this spec."
+**Input**: User description: "The Playwright test 'has no violations with facts, and every control is reachable by keyboard with visible focus' in `src/clients/web/tests/e2e/simulated/analysis-review-access.spec.ts` fails intermittently, also on retry: after 'Apply range' the test activates the 'Next page' button by keyboard and the focus assertion fails for 5 seconds because the button is inactive. Investigate why the button is not focusable after the range-filter reload, make the test wait for the stable, enabled state of the control, or, if the page is at fault, fix the page so the control stays mounted and keeps focus. Do not weaken the assertions or the accessibility checks, add retries or sleeps, or change Web UI behavior beyond what the defect needs. The spec `specs/archive/20261023-085421-cv-inference-environment` depends on this spec."
 
 ## Clarifications
 
@@ -78,6 +78,6 @@ A maintainer running the Web UI browser tests, or the verification of any implem
 ## Assumptions
 
 - **Cause**: The test belongs to the merged Web UI connected analysis review; the concrete cause is established during implementation (FR-001). The review replaces the facts list and the page navigation with a loading state while a new selection loads, which makes a test that acts on the previous selection's facts racy.
-- **Dependencies**: `specs/20261023-085421-cv-inference-environment` (twin #256) depends on this spec and starts only after it is merged.
+- **Dependencies**: `specs/archive/20261023-085421-cv-inference-environment` (twin #256) depends on this spec and starts only after it is merged.
 - **Out of scope**: Other flaky tests, the other browser projects, the platform, and the content or design of the review.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

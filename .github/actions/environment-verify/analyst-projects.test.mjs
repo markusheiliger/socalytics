@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -412,7 +412,8 @@ exit 0
       env: {
         PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME,
         WORKSPACE: root, MODE: mode, CHANGED_FILES: files.changed, LOG_FILE: files.log,
-        MARKDOWN_CHECK: markdownStub, ANALYST_PROJECTS: helper, VERIFICATION_PLAN: path.join(here, 'verification-plan.mjs'),
+        MARKDOWN_CHECK: markdownStub, ANALYST_PROJECTS: helper, GITHUB_ACTION_PATH: here,
+        VERIFICATION_PLAN: path.join(here, 'verification-plan.mjs'),
         GITHUB_STEP_SUMMARY: files.summary, GITHUB_OUTPUT: files.output, UV_CALLS: files.calls,
         ...(withPython ? { SOCALYTICS_PYTHON: python } : {}), ...env,
       },
@@ -1553,6 +1554,155 @@ it('sample', () => {
     });
   });
 
+  describe('capability projects', () => {
+    const capabilities = 'src/analysts/capabilities';
+    const alpha = `${capabilities}/alpha`;
+    const beta = `${capabilities}/beta`;
+    const gamma = `${capabilities}/gamma`;
+    const stageNames = ['library pin', 'bootstrap sync', 'project sync', 'wheel build', 'tests'];
+    const setupFolder = path.join(here, '..', 'environment-setup');
+    const declarationFiles = [
+      path.join(setupFolder, 'analyst-cv-libraries.json'),
+      path.join(setupFolder, 'analyst-media-toolchain.json'),
+    ];
+
+    const stageLines = (log) => log.split('\n').filter((line) => /^Analyst Python stage: /.test(line));
+    const projectLines = (log) => log.split('\n').filter((line) => /^Analyst Python project: /.test(line));
+    const stagesOf = (log, root) => stageLines(log).filter((line) => line.endsWith(`(${root})`)).map((line) => line.slice('Analyst Python stage: '.length, line.lastIndexOf(' (')));
+
+    function several() {
+      const root = repository();
+      project(root, alpha, { name: 'alpha' });
+      project(root, beta, { name: 'beta', dependencies: ['alpha'], sources: { alpha: '../alpha' } });
+      project(root, gamma, { name: 'gamma' });
+      return root;
+    }
+
+    it('runs nothing in any mode without a capability project', () => {
+      for (const mode of ['task', 'phase', 'finalize']) {
+        const result = run(repository(), { mode, changed: [`${alpha}/src/x.py`] });
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.calls.length, 0);
+        assert.equal(stageLines(result.log).length, 0);
+        assert.equal(result.outputs.uncovered, `${alpha}/src/x.py`);
+      }
+    });
+
+    it('runs the five stages once for one project in every mode', () => {
+      const root = repository();
+      project(root, alpha, { name: 'alpha' });
+      for (const mode of ['task', 'phase', 'finalize']) {
+        const result = run(root, { mode, changed: [`${alpha}/src/x.py`] });
+        assert.equal(result.status, 0, result.log);
+        assert.deepEqual(projectLines(result.log), [`Analyst Python project: ${alpha}`]);
+        assert.deepEqual(stagesOf(result.log, alpha), stageNames);
+        assert.deepEqual(result.calls.map((call) => call[3]), stages);
+        assert.equal(result.outputs.uncovered ?? '', '');
+      }
+    });
+
+    it('checks the changed project and its dependents in task and phase mode', () => {
+      const root = several();
+      for (const mode of ['task', 'phase']) {
+        const changed = run(root, { mode, changed: [`${alpha}/src/x.py`] });
+        assert.equal(changed.status, 0, changed.log);
+        assert.deepEqual(projectLines(changed.log), [`Analyst Python project: ${alpha}`, `Analyst Python project: ${beta}`]);
+        for (const name of [alpha, beta]) assert.deepEqual(stagesOf(changed.log, name), stageNames);
+        assert.equal(changed.calls.length, 8);
+        const leaf = run(root, { mode, changed: [`${beta}/tests/test_b.py`] });
+        assert.deepEqual(projectLines(leaf.log), [`Analyst Python project: ${beta}`]);
+        const other = run(root, { mode, changed: [`${gamma}/src/x.py`] });
+        assert.deepEqual(projectLines(other.log), [`Analyst Python project: ${gamma}`]);
+      }
+    });
+
+    it('checks every project once in finalize mode, dependencies first', () => {
+      const root = several();
+      const result = run(root, { mode: 'finalize', changed: [`${gamma}/src/x.py`] });
+      assert.equal(result.status, 0, result.log);
+      const projects = projectLines(result.log).map((line) => line.slice('Analyst Python project: '.length));
+      assert.deepEqual([...projects].sort(), [alpha, beta, gamma]);
+      assert.ok(projects.indexOf(alpha) < projects.indexOf(beta));
+      for (const name of [alpha, beta, gamma]) assert.deepEqual(stagesOf(result.log, name), stageNames);
+      assert.equal(result.calls.length, 12);
+    });
+
+    it('covers a capability root only while its pyproject.toml exists', () => {
+      const root = several();
+      const kept = [`${alpha}/src/x.py`, `${beta}/README.md`, `${gamma}/pyproject.toml`];
+      const present = run(root, { mode: 'task', changed: kept });
+      assert.equal(present.status, 0, present.log);
+      assert.equal(present.outputs.uncovered ?? '', '');
+      unlinkSync(path.join(root, gamma, 'pyproject.toml'));
+      const deleted = run(root, { mode: 'task', changed: [...kept, `${gamma}/src/y.py`] });
+      assert.equal(deleted.status, 0, deleted.log);
+      assert.equal(deleted.outputs.uncovered, `${gamma}/pyproject.toml,${gamma}/src/y.py`);
+      assert.ok(!projectLines(deleted.log).some((line) => line.endsWith(gamma)));
+      const finalize = run(root, { mode: 'finalize' });
+      assert.ok(!projectLines(finalize.log).some((line) => line.endsWith(gamma)));
+      assert.equal(projectLines(finalize.log).length, 2);
+    });
+
+    it('covers no other path under src/analysts', () => {
+      const root = several();
+      const other = [
+        'src/analysts/sdk/src/x.py', 'src/analysts/manager/a.cs', 'src/analysts/other/a.py', `${capabilities}/stray.py`,
+        `${capabilities}/alpha/nested/pyproject.toml`.replace('alpha/nested', 'missing'), 'src/analysts/capabilities-extra/a.py', 'src/analysts/a.py',
+      ];
+      const result = run(root, { mode: 'task', changed: other });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.outputs.uncovered, other.join(','));
+      assert.equal(result.calls.length, 0);
+    });
+
+    it('reports a failing stage with project, stage, and one recommended action', () => {
+      for (const [index, stage] of stageNames.entries()) {
+        const root = several();
+        const env = {};
+        if (index === 0) {
+          const wheel = 'https://files.pythonhosted.org/packages/ab/cd/opencv_python-4.12.0.88-cp37-abi3-manylinux2014_x86_64.whl';
+          writeFileSync(path.join(root, alpha, 'uv.lock'), [
+            'version = 1', '', '[[package]]', 'name = "opencv-python"', 'version = "4.12.0.88"',
+            'source = { registry = "https://pypi.org/simple" }',
+            `wheels = [{ url = "${wheel}", hash = "sha256:${'8'.repeat(64)}", size = 1000 }]`, '',
+          ].join('\n'));
+        } else {
+          env.FAIL_STAGE = stages[index - 1];
+        }
+        const result = run(root, { mode: 'task', changed: [`${alpha}/src/x.py`], env });
+        assert.equal(result.status, 1, stage);
+        assert.equal(result.outputs.checks, 'Analyst Python projects');
+        const failure = result.log.split('\n').filter((line) => line.startsWith('Analyst Python stage failed: '));
+        assert.equal(failure.length, 1, stage);
+        assert.ok(failure[0].startsWith(`Analyst Python stage failed: ${stage} in ${alpha} (command: `), failure[0]);
+        assert.equal(failure[0].match(/Recommended action:/g).length, 1);
+        assert.deepEqual(stagesOf(result.log, alpha), stageNames.slice(0, index + 1));
+        assert.ok(!projectLines(result.log).some((line) => line.endsWith(beta)));
+        assert.equal(result.calls.length, Math.max(0, index));
+      }
+    });
+
+    it('triggers no extra check for a documentation-only change outside the projects', () => {
+      const root = several();
+      const result = run(root, { mode: 'task', changed: ['docs/architecture/overview.md', 'README.md'] });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.calls.length, 0);
+      assert.equal(stageLines(result.log).length, 0);
+      assert.equal(result.outputs.checks, 'Markdown check');
+      assert.equal(result.outputs.uncovered ?? '', '');
+    });
+
+    it('leaves the committed declarations and project files unchanged', () => {
+      const root = several();
+      const read = () => [
+        ...declarationFiles, ...[alpha, beta, gamma].flatMap((name) => ['pyproject.toml', 'uv.lock'].map((file) => path.join(root, name, file))),
+      ].map((file) => readFileSync(file, 'utf8'));
+      const before = read();
+      for (const mode of ['task', 'phase', 'finalize']) assert.equal(run(root, { mode, changed: [`${alpha}/src/x.py`] }).status, 0);
+      assert.deepEqual(read(), before);
+    });
+  });
+
   const uvReal = spawnSync('uv', ['--version']).status === 0;
   it('passes every stage for a real isolated package fixture without changing declarations', { skip: !uvReal }, () => {
     const root = repository();
@@ -1851,5 +2001,192 @@ describe('agents area selection', () => {
     const result = spawnSync('python', [helper, 'select', '--root', root, '--python-version', '3.13.5', '--mode', 'task', '--changed-files', list], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout).projects.map((entry) => entry.reason), ['shared contract change']);
+  });
+});
+
+describe('library pin check', () => {
+  const pins = path.join(here, 'analyst-library-pins.py');
+  const declarationPath = path.join(here, '..', 'environment-setup', 'analyst-cv-libraries.json');
+  const declaration = JSON.parse(readFileSync(declarationPath, 'utf8'));
+  const projectRoot = 'src/analysts/capabilities/vision';
+  const wheelOf = (name) => declaration.wheels.find((wheel) => wheel.name === name);
+  const hexOf = (character) => character.repeat(64);
+
+  const packageBlock = ({ name, version, wheels = [], sdist = null }) => {
+    const lines = ['[[package]]', `name = "${name}"`, `version = "${version}"`, 'source = { registry = "https://pypi.org/simple" }'];
+    if (sdist) lines.push(`sdist = { url = "https://files.pythonhosted.org/packages/ab/cd/${sdist.fileName}", hash = "sha256:${sdist.sha256}", size = 1000 }`);
+    if (wheels.length) {
+      lines.push('wheels = [');
+      for (const wheel of wheels) lines.push(`    { url = "${wheel.url}", hash = "sha256:${wheel.sha256}", size = 1000 },`);
+      lines.push(']');
+    }
+    return lines.join('\n');
+  };
+
+  const pinnedPackage = (name, overrides = {}) => {
+    const wheel = wheelOf(name);
+    return {
+      name,
+      version: wheel.version,
+      wheels: [{ url: wheel.url, sha256: wheel.sha256 }],
+      ...overrides,
+    };
+  };
+
+  const lockText = (packages) => [
+    'version = 1',
+    'requires-python = ">=3.12"',
+    '',
+    '[[package]]',
+    'name = "vision"',
+    'version = "1.0.0"',
+    'source = { editable = "." }',
+    ...packages.flatMap((entry) => ['', packageBlock(entry)]),
+    '',
+  ].join('\n');
+
+  const closure = () => declaration.wheels.map((wheel) => pinnedPackage(wheel.name));
+  const replaced = (name, overrides) => closure().map((entry) => (entry.name === name ? { ...entry, ...overrides } : entry));
+
+  function snapshot(directory) {
+    return ['uv.lock', 'pyproject.toml'].map((file) => {
+      const target = path.join(directory, file);
+      return existsSync(target) ? readFileSync(target, 'utf8') : null;
+    });
+  }
+
+  function check(packages) {
+    const directory = repository();
+    const lock = path.join(directory, 'uv.lock');
+    writeFileSync(lock, typeof packages === 'string' ? packages : lockText(packages));
+    writeFileSync(path.join(directory, 'pyproject.toml'), manifest({ name: 'vision' }));
+    const before = snapshot(directory);
+    const result = spawnSync('python', [pins, '--declaration', declarationPath, '--lock', lock, '--project', projectRoot], { encoding: 'utf8' });
+    assert.deepEqual(snapshot(directory), before, 'the check never writes');
+    assert.equal(result.error, undefined, String(result.error));
+    return result;
+  }
+
+  const passes = (packages) => {
+    const result = check(packages);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, '');
+  };
+
+  const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  function fails(packages, library, kind, locked, pinned) {
+    const result = check(packages);
+    assert.equal(result.status, 1, result.stdout);
+    const lines = result.stderr.trim().split('\n');
+    assert.equal(lines.length, 1, result.stderr);
+    const prefix = `project ${projectRoot}: library pin: ${library}: ${kind}: locked `;
+    assert.ok(lines[0].startsWith(prefix), lines[0]);
+    assert.match(lines[0], new RegExp(`^${escaped(prefix)}${locked}, pinned ${pinned}\\. Recommended action: \\S`));
+    assert.equal(lines[0].match(/Recommended action: /g).length, 1);
+    return lines[0];
+  }
+
+  const digest = (value) => `(?:sha256:)?${escaped(value)}`;
+
+  it('passes a lock without any pinned library', () => {
+    passes([{ name: 'requests', version: '2.32.0', wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/requests-2.32.0-py3-none-any.whl', sha256: hexOf('1') }] }]);
+    passes([]);
+  });
+
+  it('passes a lock with only packaging at another version', () => {
+    passes([{ name: 'packaging', version: '25.0', wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/packaging-25.0-py3-none-any.whl', sha256: hexOf('2') }] }]);
+  });
+
+  it('fails a lock with the opencv library and a different protobuf', () => {
+    const pinned = wheelOf('protobuf');
+    const other = {
+      version: '6.0.0',
+      wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/protobuf-6.0.0-cp310-abi3-manylinux2014_x86_64.whl', sha256: hexOf('3') }],
+    };
+    fails(replaced('protobuf', other), 'protobuf', 'version', '6\\.0\\.0', escaped(pinned.version));
+  });
+
+  it('passes a lock with exactly the pinned versions, wheel files, and digests', () => {
+    passes(closure());
+  });
+
+  it('passes the pinned wheels next to a source distribution and unrelated packages', () => {
+    const numpy = pinnedPackage('numpy', { sdist: { fileName: 'numpy-2.5.4.tar.gz', sha256: hexOf('4') } });
+    const rest = closure().filter((entry) => entry.name !== 'numpy');
+    passes([...rest, numpy, { name: 'pytest', version: '9.0.0', wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/pytest-9.0.0-py3-none-any.whl', sha256: hexOf('5') }] }]);
+  });
+
+  it('reports a version that differs from the pin', () => {
+    const numpy = wheelOf('numpy');
+    const url = numpy.url.replace('numpy-2.5.4-', 'numpy-2.5.3-');
+    fails(replaced('numpy', { version: '2.5.3', wheels: [{ url, sha256: numpy.sha256 }] }), 'numpy', 'version', '2\\.5\\.3', escaped(numpy.version));
+  });
+
+  it('reports a wheel with another platform tag', () => {
+    const onnx = wheelOf('onnxruntime');
+    const other = onnx.fileName.replace('x86_64', 'aarch64');
+    const line = fails(
+      replaced('onnxruntime', { wheels: [{ url: onnx.url.replace(onnx.fileName, other), sha256: onnx.sha256 }] }),
+      'onnxruntime', 'platform-tag', escaped(other), escaped(onnx.fileName),
+    );
+    assert.ok(!line.includes('\n'));
+  });
+
+  it('reports a digest that differs from the pin', () => {
+    const wheel = wheelOf('opencv-python-headless');
+    const wrong = hexOf('a');
+    fails(replaced('opencv-python-headless', { wheels: [{ url: wheel.url, sha256: wrong }] }), 'opencv-python-headless', 'digest', digest(wrong), digest(wheel.sha256));
+  });
+
+  it('reports a library locked as a source distribution only', () => {
+    const numpy = wheelOf('numpy');
+    fails(
+      replaced('numpy', { wheels: [], sdist: { fileName: 'numpy-2.5.4.tar.gz', sha256: hexOf('6') } }),
+      'numpy', 'source-distribution', '[^,]+', '[^.]+(?:\\.[^.]+)*',
+    );
+    assert.ok(numpy.fileName.endsWith('.whl'));
+  });
+
+  it('passes a lock that has the pinned opencv, numpy, and packaging but not onnxruntime, flatbuffers, or protobuf', () => {
+    const present = new Set(['opencv-python-headless', 'numpy', 'packaging']);
+    passes(closure().filter((entry) => present.has(entry.name)));
+    assert.ok(['onnxruntime', 'flatbuffers', 'protobuf'].every((name) => !present.has(name) && wheelOf(name)));
+  });
+
+  it('reports a pinned package at the pinned version that lists neither a wheel nor a source distribution', () => {
+    const numpy = wheelOf('numpy');
+    fails(replaced('numpy', { wheels: [] }), 'numpy', 'missing-wheel', '[^,]+', escaped(numpy.fileName));
+  });
+
+  for (const name of ['opencv-python', 'onnxruntime-gpu', 'nvidia-cublas-cu12', 'tensorrt', 'tensorrt-cu12']) {
+    it(`reports the disallowed package ${name} next to the pinned closure`, () => {
+      const extra = { name, version: '1.0.0', wheels: [{ url: `https://files.pythonhosted.org/packages/ab/cd/${name.replaceAll('-', '_')}-1.0.0-py3-none-any.whl`, sha256: hexOf('7') }] };
+      fails([...closure(), extra], name, 'disallowed-package', escaped(name), '[^,]+');
+    });
+  }
+
+  it('applies the disallowed-package rule to a project without pinned libraries', () => {
+    fails([{ name: 'opencv-python', version: '4.12.0.88', wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/opencv_python-4.12.0.88-cp37-abi3-manylinux2014_x86_64.whl', sha256: hexOf('8') }] }], 'opencv-python', 'disallowed-package', 'opencv-python', '[^,]+');
+  });
+
+  it('stops the sequence at the first finding of a project', () => {
+    const numpy = wheelOf('numpy');
+    const broken = replaced('numpy', { version: '2.5.3', wheels: [{ url: numpy.url.replace('numpy-2.5.4-', 'numpy-2.5.3-'), sha256: hexOf('9') }] })
+      .filter((entry) => entry.name !== 'protobuf');
+    broken.push({ name: 'nvidia-cudnn-cu12', version: '9.0.0', wheels: [{ url: 'https://files.pythonhosted.org/packages/ab/cd/nvidia_cudnn_cu12-9.0.0-py3-none-any.whl', sha256: hexOf('b') }] });
+    const result = check(broken);
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr.trim().split('\n').length, 1, result.stderr);
+  });
+
+  it('never writes beside the lock', () => {
+    const directory = repository();
+    const lock = path.join(directory, 'uv.lock');
+    writeFileSync(lock, lockText(closure()));
+    const result = spawnSync('python', [pins, '--declaration', declarationPath, '--lock', lock, '--project', projectRoot], { encoding: 'utf8', cwd: directory });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readdirSync(directory), ['uv.lock']);
+    assert.equal(readFileSync(lock, 'utf8'), lockText(closure()));
   });
 });
