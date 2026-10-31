@@ -87,8 +87,9 @@ The React Web UI supports connected platform and club workflows, including:
 - team and match review, analytics, and agent conversations for coaches (the
   connected analysis review and the match triage conversations with Specialist
   Agents are implemented, see below, as is evidence playback in the review;
-  run comparison is decided but not yet implemented as described below;
-  visualizations, the Coach Agent
+  run comparison is decided but not yet implemented as described below; the
+  review's match-time fact timeline is its first implemented visualization,
+  while spatial visualizations, heatmaps, pitch views, the Coach Agent
   conversations and consultations are not implemented yet)
 
 What a user sees is decided by their roles and team authorization, online and
@@ -105,9 +106,25 @@ order through the member fact reads of
 filter them by a match-time range, page forward and back, and see coverage
 windows and run-pinned provenance, with explicit messages for missing,
 incomplete, empty, and unavailable analysis instead of empty lists. The review
-is online only and keeps analysis data in memory only; the current
-implementation offers no run controls, visualizations, cross-run comparison,
-or export, and plays no video other than the evidence playback below.
+is online only and keeps analysis data in memory only.
+
+Above the fact list, the review shows a match-time fact timeline as its first
+implemented visualization (development evidence): one lane per fact stream
+(capability node) with the density of accepted facts per match-time bin at one
+of four fixed zoom levels (10 seconds, 30 seconds, 1 minute, and 5 minutes per
+bin; the visible extent can be moved without leaving the zoom level), the
+stream's reported total, and coverage windows drawn distinctly from bins that
+simply hold zero facts. A text alternative lists every lane's bins with their
+match-time range and fact count or coverage state and is operable by keyboard,
+and selecting a bin jumps to the fact list filtered to that bin's match-time
+range. The density is derived in the browser from bounded page-by-page reads of
+`listAnalysisRunFacts` and `listAnalysisRunFactStreams`, with no new platform
+operation; the loading bound of 5 000 facts per stream and 20 000 per timeline
+and the zoom levels are development values, and a stream that exceeds the bound
+is shown as partial. The timeline is online only and keeps its data in memory
+only. The current implementation offers no run controls, spatial
+visualizations, heatmaps, pitch views, cross-run comparison, or export, and
+plays no video other than the evidence playback below.
 
 Connected analysis run comparison is decided and not yet implemented. Club
 Admins and Coaches and Viewers authorized for the owning team will reach a
