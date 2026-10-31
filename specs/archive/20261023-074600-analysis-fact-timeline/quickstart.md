@@ -21,15 +21,15 @@ Expected: density bins count overlapping facts once per bin, partial coverage an
 ## 2. Simulated browser project
 
 ```bash
-npm run test:e2e -- --project simulated analysis-timeline
+npm run test:e2e -- analysis-timeline --project simulated
 ```
 
 Expected scenarios (see [spec.md](spec.md) user stories): lanes per stream over a shared axis with extra-time labels, zoom and extent, the four distinct coverage states and an in-progress lane, the jump to the fact list with exactly the selected range in the address and the "Back to timeline" return with zoom and extent kept, keyboard-only operation, axe checks in every state, role-based access, offline connection-required state, and no timeline data in storage or service-worker caches after leaving or access loss.
 
-## 3. Platform browser project
+## 3. Platform browser project (`platform-timeline`)
 
 ```bash
-npm run test:e2e -- --project platform analysis-timeline
+npm run test:e2e -- analysis-timeline --project platform-timeline
 ```
 
 Expected: a Coach opens the review of a run with accepted facts against the running platform, sees the timeline, jumps from a bin to the fact list, and sees exactly the facts overlapping the bin; the lane's totals agree with the stream's reported fact count.

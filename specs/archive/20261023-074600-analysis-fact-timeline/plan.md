@@ -2,7 +2,7 @@
 
 **Branch**: `20261023-074600-analysis-fact-timeline` | **Date**: 2026-10-23 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261023-074600-analysis-fact-timeline/spec.md`
+**Input**: Feature specification from `/specs/archive/20261023-074600-analysis-fact-timeline/spec.md`
 
 ## Summary
 
@@ -34,7 +34,7 @@ Add a match-time timeline to the connected analysis review of a run: one lane pe
 
 | Principle / constraint | Status |
 | ---------------------- | ------ |
-| I. Architecture is the design authority | Pass: conforms to [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui) and [Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access); the `## Architecture Updates` section below names the narrative changes and a documentation task is required |
+| I. Architecture is the design authority | Pass: conforms to [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui) and [Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access); the `## Architecture Updates` section below names the narrative changes and a documentation task is required |
 | II. Source-area ownership | Pass: all code is in `src/clients/web` |
 | III. API-First control plane | Pass: the Web UI consumes the two existing member reads through application-owned adapters; no business logic or database access; no video bytes |
 | IV. Evidence over claims | Pass: unit tests and the `simulated` and `platform` browser projects (FR-021) |
@@ -45,8 +45,8 @@ Add a match-time timeline to the connected analysis review of a run: one lane pe
 
 **Narratives**:
 
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): the connected analysis review paragraph gains the match-time fact timeline as its first implemented visualization (lanes per fact stream, density at fixed zoom levels, coverage windows distinct from zero facts, text alternative, jump to the range-filtered fact list, online-only and memory-only).
-- [Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access): the paragraph on the member fact reads names the timeline as a second consumer of `listAnalysisRunFacts` and `listAnalysisRunFactStreams`, with density derived in the browser from bounded page-by-page reads and no new operation.
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): the connected analysis review paragraph gains the match-time fact timeline as its first implemented visualization (lanes per fact stream, density at fixed zoom levels, coverage windows distinct from zero facts, text alternative, jump to the range-filtered fact list, online-only and memory-only).
+- [Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access): the paragraph on the member fact reads names the timeline as a second consumer of `listAnalysisRunFacts` and `listAnalysisRunFactStreams`, with density derived in the browser from bounded page-by-page reads and no new operation.
 
 **Design updates**: None applied to `docs/architecture/` now. The plan's decisions (no new platform operation, browser-derived density, development loading bound of 5 000 facts per stream and 20 000 per timeline, four fixed zoom levels, in-memory-only data) are Web UI implementation choices within the existing design; the architecture states them as implemented at merge through the documentation task below. The loading bound and zoom levels are development values and MUST be worded as such, not as production values.
 
@@ -65,7 +65,7 @@ Add a match-time timeline to the connected analysis review of a run: one lane pe
 ### Documentation (this feature)
 
 ```text
-specs/20261023-074600-analysis-fact-timeline/
+specs/archive/20261023-074600-analysis-fact-timeline/
 ├── plan.md
 ├── research.md
 ├── data-model.md

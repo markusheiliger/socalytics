@@ -2,7 +2,7 @@ import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useConnectivity } from '../../connectivity/useConnectivity';
@@ -16,13 +16,15 @@ import { NotFoundPage } from '../../shell/NotFoundPage';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { useMatchContext } from '../matches/useMatchContext';
 import { FailureAlert } from '../shared/FailureAlert';
-import { analysisRunKey, analysisStreamsKey, runRefreshInterval } from './analysisKeys';
+import { analysisRunKey, analysisStreamsKey, analysisTimelineKey, runRefreshInterval } from './analysisKeys';
 import { FactBrowser } from './FactBrowser';
 import { FactRangeForm } from './FactRangeForm';
 import type { FactRange } from './FactRangeForm';
 import { FactStreamList } from './FactStreamList';
 import { validateRange } from './matchClock';
 import { RunStatusSection } from './RunStatusSection';
+import { AnalysisTimeline } from './timeline/AnalysisTimeline';
+import type { TimelineView } from './timeline/AnalysisTimeline';
 
 const WHOLE_NUMBER = /^\d+$/;
 
@@ -52,7 +54,7 @@ export function AnalysisRunPage() {
   const { matchId = '', runId = '' } = useParams();
   const { t } = useTranslation('analysis');
   const { t: tc } = useTranslation('common');
-  const { platform } = useSession();
+  const { platform, status: sessionStatus } = useSession();
   const adapter = useMemo(() => createAnalysisRunAdapter(platform), [platform]);
   const factAdapter = useMemo(() => createAnalysisFactAdapter(platform), [platform]);
   const evidenceAdapter = useMemo(() => createAnalysisEvidenceAdapter(platform), [platform]);
@@ -60,6 +62,9 @@ export function AnalysisRunPage() {
   const queryClient = useQueryClient();
   const { isUnreachable } = useConnectivity();
   const [reloads, setReloads] = useState(0);
+  // `open` is page state, open by default; zoom and extent survive reloads (data-model.md).
+  const [timelineOpen, setTimelineOpen] = useState(true);
+  const [timelineView, setTimelineView] = useState<TimelineView>({});
   const [loaded, setLoaded] = useState<{ id: string; stream: FactStreamSummary }>();
   const { match, team, permitted } = useMatchContext(matchId);
   const run = useQuery({
@@ -83,6 +88,29 @@ export function AnalysisRunPage() {
     refetchIntervalInBackground: false,
   });
 
+  const isNotPermitted = (error: unknown) => Boolean(error) && toPlatformFailure(error).kind === 'notPermitted';
+  const accessLost =
+    Boolean(match.data && !permitted) ||
+    isNotPermitted(match.error) ||
+    isNotPermitted(run.error) ||
+    isNotPermitted(streams.error) ||
+    runOutcome?.kind === 'runNotFound' ||
+    (runOutcome?.kind === 'found' && runOutcome.run.matchId !== matchId) ||
+    streams.data?.kind === 'runNotFound';
+  const discardTimeline = isUnreachable || sessionStatus !== 'signedIn' || accessLost;
+
+  // Timeline data is memory-only: it is discarded when connectivity or access is lost and on sign-out.
+  useEffect(() => {
+    if (discardTimeline) queryClient.removeQueries({ queryKey: analysisTimelineKey });
+  }, [discardTimeline, queryClient]);
+  // Leaving the page discards what is left; the removal is deferred so a remount keeps the queries its observers hold.
+  useEffect(
+    () => () => {
+      setTimeout(() => queryClient.removeQueries({ queryKey: analysisTimelineKey, type: 'inactive' }), 0);
+    },
+    [queryClient],
+  );
+
   // Without a connection no earlier analysis data stays on screen and nothing is kept in browser storage (FR-018).
   if (isUnreachable) {
     return (
@@ -94,7 +122,6 @@ export function AnalysisRunPage() {
     );
   }
 
-  const isNotPermitted = (error: unknown) => Boolean(error) && toPlatformFailure(error).kind === 'notPermitted';
   if ((match.data && !permitted) || isNotPermitted(match.error) || isNotPermitted(run.error) || isNotPermitted(streams.error)) return <NotPermittedPage />;
 
   const outcome = run.data;
@@ -128,6 +155,11 @@ export function AnalysisRunPage() {
     if (next.toMs !== undefined) params.toMs = String(next.toMs);
     setSearchParams(params);
   };
+  // Closing unmounts the timeline and so discards its lane data; reopening reads afresh with the kept zoom and extent (research R7).
+  const showFacts = (nodeKey: string, fromMs: number, toMs: number) => {
+    setSearchParams({ stream: nodeKey, fromMs: String(fromMs), toMs: String(toMs) });
+    setTimelineOpen(false);
+  };
 
   return (
     <Container component="main" maxWidth="md" sx={{ py: 4 }}>
@@ -141,6 +173,24 @@ export function AnalysisRunPage() {
       )}
       {!error && !outcome && <Typography>{t('page.loading')}</Typography>}
       {outcome?.kind === 'found' && <RunStatusSection run={outcome.run} />}
+      {outcome?.kind === 'found' && streamList && timelineOpen && (
+        <AnalysisTimeline
+          adapter={factAdapter}
+          runId={runId}
+          runState={outcome.run.state}
+          streams={streamList}
+          nodeStates={Object.fromEntries(outcome.run.nodes.map((node) => [node.nodeKey, node.state]))}
+          view={timelineView}
+          onViewChange={setTimelineView}
+          onSelectStream={selectStream}
+          onShowFacts={showFacts}
+        />
+      )}
+      {outcome?.kind === 'found' && streamList && !timelineOpen && (
+        <Button variant="outlined" sx={{ mt: 1 }} onClick={() => setTimelineOpen(true)}>
+          {t('timeline.backToTimeline')}
+        </Button>
+      )}
       {streamList && <FactStreamList streams={streamList} selectedNodeKey={selectedStream?.nodeKey} onSelect={selectStream} />}
       {streamList && streamKey !== undefined && !selectedStream && <Typography role="alert">{t('states.capabilityNotInRun')}</Typography>}
       {selectedStream && !rangeValid && (
