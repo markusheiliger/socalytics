@@ -14,6 +14,7 @@ import {
   classifyFailure,
   failureOutlook,
   combinedGroupEdits,
+  conflictAuthorizationReasons,
   defaultGit,
   lastAgentMessage,
   main,
@@ -1879,6 +1880,106 @@ test('resolve: markers, changes outside the conflicts, and forged resolutions ar
 });
 
 const ENVIRONMENT_ACTION = '.github/actions/environment-setup/action.yml';
+
+const ENVIRONMENT_CONFLICT = '.github/actions/environment-verify/action.yml';
+const conflictingEnvironment = {
+  tasks: DONE_TASKS,
+  seed: (dir) => write(dir, ENVIRONMENT_CONFLICT, 'name: original\n'),
+  branch: (dir) => write(dir, ENVIRONMENT_CONFLICT, 'name: implementation\n'),
+  main: (dir) => {
+    write(dir, ENVIRONMENT_CONFLICT, 'name: main\n');
+    write(dir, 'src/base.cs', 'class Base {}\n');
+  },
+};
+const resolveEnvironment = (repos) => write(repos.work, ENVIRONMENT_CONFLICT, 'name: integrated\n');
+
+test('resolve: a standalone environment conflict is authorized, packaged, and replayed by trusted landing', () => withRepos(conflictingEnvironment, async (repos) => {
+  const { integrated, result, output } = work(repos, {
+    inputs: RESOLVE_INPUTS, agent: resolveEnvironment,
+    verify: { outcome: 'success', checks: 'Environment action unit tests' },
+  });
+  assert.deepEqual(integrated.result.conflicts, [ENVIRONMENT_CONFLICT]);
+  assert.match(output, /agent=true/);
+  assert.deepEqual(result.reasons, []);
+  assert.equal(result.environment, true);
+  assert.deepEqual(result.changedFiles, [ENVIRONMENT_CONFLICT]);
+  const landed = await land(repos, fakeGitHub(), { inputs: RESOLVE_INPUTS });
+  assert.equal(landed.exitCode, 0, landed.reasons?.join());
+  assert.equal(remoteShow(repos, `speckit/f:${ENVIRONMENT_CONFLICT}`), 'name: integrated\n');
+  assert.equal(remoteShow(repos, 'speckit/f:src/base.cs'), 'class Base {}\n');
+  assert.equal(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), DONE_TASKS);
+}));
+
+test('resolve: mixed-scope environment conflicts stop preparation and cannot be authorized by a forged report', () => withRepos({
+  ...conflictingEnvironment,
+  branch: (dir) => {
+    conflictingEnvironment.branch(dir);
+    write(dir, 'src/feature.cs', 'class Feature {}\n');
+  },
+}, async (repos) => {
+  const { integrated, result, output } = work(repos, { inputs: RESOLVE_INPUTS, agent: resolveEnvironment });
+  assert.match(integrated.result.reasons.join(), /standalone environment spec.*src\/feature\.cs/);
+  assert.match(output, /agent=false/);
+  const resultFile = path.join(repos.resultDir, 'result.json');
+  write(repos.resultDir, 'resolved/0', 'name: integrated\n');
+  writeFileSync(resultFile, JSON.stringify({
+    ...result, reasons: [], verified: true, environment: true, attention: false,
+    resolutions: [{ path: ENVIRONMENT_CONFLICT, deleted: false, blob: '0' }],
+  }));
+  const before = remoteHead(repos);
+  const landed = await land(repos, fakeGitHub(), { inputs: RESOLVE_INPUTS });
+  assert.equal(landed.exitCode, 1);
+  assert.match(landed.reasons.join(), /standalone environment spec.*src\/feature\.cs/);
+  assert.equal(remoteHead(repos), before);
+}));
+
+test('resolve: environment packaging refuses product additions and unrelated environment edits', async () => {
+  for (const file of ['src/unrelated.cs', '.github/actions/environment-setup/unrelated.sh']) {
+    await withRepos(conflictingEnvironment, (repos) => {
+      const { result } = work(repos, {
+        inputs: RESOLVE_INPUTS,
+        agent: (r) => {
+          resolveEnvironment(r);
+          write(r.work, file, 'unrelated\n');
+        },
+      });
+      assert.equal(result.verified, false);
+      assert.match(result.reasons.join(), /standalone environment spec|resolution changed protected files/);
+    });
+  }
+});
+
+test('resolve: trusted landing rechecks environment confinement after applying a forged resolution change', () => withRepos(conflictingEnvironment, async (repos) => {
+  const { result } = work(repos, { inputs: RESOLVE_INPUTS, agent: resolveEnvironment });
+  write(repos.resultDir, 'resolved/forged', 'class Unrelated {}\n');
+  writeFileSync(path.join(repos.resultDir, 'result.json'), JSON.stringify({
+    ...result, changes: [{ path: 'src/unrelated.cs', deleted: false, blob: 'forged' }],
+  }));
+  const before = remoteHead(repos);
+  const landed = await land(repos, fakeGitHub(), { inputs: RESOLVE_INPUTS });
+  assert.equal(landed.exitCode, 1);
+  assert.match(landed.reasons.join(), /standalone environment spec.*src\/unrelated\.cs/);
+  assert.equal(remoteHead(repos), before);
+}));
+
+test('resolve: environment conflict authorization fails closed on missing evidence or a non-owned action', () => withRepos(conflictingEnvironment, (repos) => {
+  const run = work(repos, { inputs: RESOLVE_INPUTS, agent: resolveEnvironment });
+  const actual = defaultGit(repos.work);
+  const context = { git: actual, baseSha: run.result.baseSha, folder: 'f', conflicts: [ENVIRONMENT_CONFLICT] };
+  assert.match(conflictAuthorizationReasons({ ...context, baseSha: '' }).join(), /pinned base SHA is missing/);
+  for (const stage of ['merge-base', 'own', 'staged']) {
+    const missing = (args) => {
+      const matches = stage === 'merge-base' ? args[0] === 'merge-base'
+        : stage === 'own' ? args[0] === 'diff' && !args.includes('--cached')
+          : args[0] === 'diff' && args.includes('--cached');
+      return matches ? { status: 1, stdout: '', stderr: `missing ${stage} evidence` } : actual(args);
+    };
+    assert.match(conflictAuthorizationReasons({ ...context, git: missing }).join(), /missing .* evidence/);
+  }
+  const noOwn = (args) => args[0] === 'diff' && !args.includes('--cached')
+    ? { status: 0, stdout: '', stderr: '' } : actual(args);
+  assert.match(conflictAuthorizationReasons({ ...context, git: noOwn }).join(), /implementation did not change/);
+}));
 
 // Both sides add migration 0017 (no textual conflict) and change docs/shared.md (a conflict).
 const clashingMigrations = {
