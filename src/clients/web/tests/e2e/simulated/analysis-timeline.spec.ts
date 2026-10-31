@@ -4,6 +4,8 @@ import { activateWithKeyboard, expectAllReachableByKeyboard } from '../support/k
 import {
   coverageMatchEndMs,
   match,
+  problem,
+  sessionFor,
   team,
   timelineRunFixture,
   type SeededAnalysisRun,
@@ -545,5 +547,150 @@ test.describe('Timeline accessibility', () => {
     await expect(timelineRegion(page)).toHaveCount(0);
     await expectNoAxeViolations(page);
     await context.setOffline(false);
+  });
+});
+
+async function timelineDataInBrowserStorage(page: import('@playwright/test').Page): Promise<{ cacheApi: string[]; text: string }> {
+  return page.evaluate(async () => {
+    const cacheApi: string[] = [];
+    for (const name of await caches.keys()) {
+      cacheApi.push(...(await (await caches.open(name)).keys()).map((request) => new URL(request.url).pathname).filter((p) => p.startsWith('/api/')));
+    }
+    const entries: string[] = [];
+    for (const storage of [localStorage, sessionStorage]) {
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i) ?? '';
+        entries.push(`${key}=${storage.getItem(key) ?? ''}`);
+      }
+    }
+    for (const info of (await indexedDB.databases?.()) ?? []) {
+      if (!info.name) continue;
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const open = indexedDB.open(info.name as string);
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+      });
+      for (const store of Array.from(db.objectStoreNames)) {
+        const rows = await new Promise<unknown[]>((resolve, reject) => {
+          const request = db.transaction(store).objectStore(store).getAll();
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        entries.push(`${info.name}/${store}=${JSON.stringify(rows)}`);
+      }
+      db.close();
+    }
+    return { cacheApi, text: entries.join('\n') };
+  });
+}
+
+const factsReads = (api: SimulatedApi) => api.requests.filter((r) => r.method === 'GET' && /^\/analysis\/runs\/[^/]+\/facts/.test(r.path)).length;
+
+test.describe('Timeline online only and scoped to access', () => {
+  for (const role of ['ClubAdmin', 'Coach', 'Viewer'] as const) {
+    test(`a ${role} of the team sees the timeline (scenario 1, role-based access)`, async ({ page, api }) => {
+      api.signInAs(role === 'ClubAdmin' ? 'Coach' : role);
+      if (role === 'ClubAdmin') {
+        // The simulated platform authorizes analysis reads by team role; the session alone is a Club Admin's.
+        await page.route(/\/api\/v1\/session$/, (route) =>
+          route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sessionFor('ClubAdmin')) }),
+        );
+      }
+      const run = api.seedTimelineRun();
+      registerRecordingSet(api, run);
+      await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+      await expect(timelineRegion(page).getByRole('region', { name: /^Timeline of / })).toHaveCount(3);
+      await expect(binGroup(page.getByRole('region', { name: firstLane, exact: true })).getByRole('button')).toHaveCount(30);
+    });
+  }
+
+  test('refuses a member without a team role, offers no timeline, and makes no analysis request (scenario 1)', async ({ page, api }) => {
+    api.signInAs('Registrar');
+    const run = api.seedTimelineRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    await expect(page.getByText('You are not permitted to open this page.')).toBeVisible();
+    await expect(timelineRegion(page)).toHaveCount(0);
+    await expect(page.getByRole('region', { name: /^Timeline of / })).toHaveCount(0);
+    expect(api.requests.filter((r) => r.path.startsWith('/analysis/'))).toEqual([]);
+  });
+
+  test('replaces the timeline with connection required offline, shows no earlier data, and reads afresh when back online (scenario 2)', async ({ page, api, context }) => {
+    api.signInAs('Viewer');
+    const run = api.seedTimelineRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+    await expect(binGroup(page.getByRole('region', { name: firstLane, exact: true })).getByRole('button')).toHaveCount(30);
+    const before = factsReads(api);
+
+    await context.setOffline(true);
+    await expect(page.getByRole('alert').filter({ hasText: 'A connection is required to review analysis results.' })).toBeVisible();
+    await expect(timelineRegion(page)).toHaveCount(0);
+    await expect(page.getByRole('region', { name: /^Timeline of / })).toHaveCount(0);
+    await expect(page.getByText('90 facts reported')).toHaveCount(0);
+
+    await context.setOffline(false);
+    await expect(binGroup(page.getByRole('region', { name: firstLane, exact: true })).getByRole('button')).toHaveCount(30, { timeout: 20_000 });
+    expect(factsReads(api)).toBeGreaterThan(before);
+  });
+
+  test('discards the data on leaving the review so that returning reads afresh (scenario 3)', async ({ page, api }) => {
+    api.signInAs('Viewer');
+    const run = api.seedTimelineRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}`);
+    await page.getByRole('link', { name: 'Open analysis review' }).click();
+    await expect(binGroup(page.getByRole('region', { name: firstLane, exact: true })).getByRole('button')).toHaveCount(30);
+    const before = factsReads(api);
+
+    await page.goBack();
+    await expect(page.getByRole('link', { name: 'Open analysis review' })).toBeVisible();
+    // The discard is deferred by one task, so wait for it before returning.
+    await page.waitForTimeout(250);
+    await page.getByRole('link', { name: 'Open analysis review' }).click();
+    await expect(binGroup(page.getByRole('region', { name: firstLane, exact: true })).getByRole('button')).toHaveCount(30);
+    expect(factsReads(api)).toBeGreaterThan(before);
+  });
+
+  for (const [status, view] of [
+    [404, 'This page does not exist.'],
+    [403, 'You are not permitted to open this page.'],
+  ] as const) {
+    test(`discards the timeline when the next read is refused with ${status} after access is lost (scenario 3)`, async ({ page, api }) => {
+      api.signInAs('Viewer');
+      const run = api.seedTimelineRun({ state: 'Running', terminatedAt: null });
+      registerRecordingSet(api, run);
+      await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+      await expect(binGroup(page.getByRole('region', { name: firstLane, exact: true })).getByRole('button')).toHaveCount(30);
+
+      api.on('GET', `/analysis/runs/${run.runId}`, (route) =>
+        route.fulfill({ status, contentType: 'application/problem+json', body: JSON.stringify(problem(status, 'Refused')) }),
+      );
+      await expect(page.getByText(view)).toBeVisible({ timeout: 20_000 });
+      await expect(timelineRegion(page)).toHaveCount(0);
+      await expect(page.getByRole('region', { name: /^Timeline of / })).toHaveCount(0);
+      await expect(page.getByText('90 facts reported')).toHaveCount(0);
+    });
+  }
+
+  test('leaves no fact, density, or coverage data in Cache Storage, localStorage, sessionStorage, or IndexedDB (scenario 4)', async ({ page, api }) => {
+    api.signInAs('Viewer');
+    const run = api.seedTimelineRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}`);
+    await page.getByRole('link', { name: 'Open analysis review' }).click();
+    const lane = page.getByRole('region', { name: firstLane, exact: true });
+    await expect(binGroup(lane).getByRole('button')).toHaveCount(30);
+    await page.getByRole('button', { name: '1 minute', exact: true }).click();
+    await binGroup(lane).getByRole('button').first().click();
+    await expect(lane.getByRole('group', { name: 'Selection', exact: true })).toBeVisible();
+
+    const stored = await timelineDataInBrowserStorage(page);
+    expect(stored.cacheApi).toEqual([]);
+    for (const marker of [run.runId, 'passes-first-half', 'pass-detection', 'Facts present', 'accepted', 'startMs', 'coverage']) {
+      expect(stored.text, `storage holds ${marker}`).not.toContain(marker);
+    }
   });
 });
