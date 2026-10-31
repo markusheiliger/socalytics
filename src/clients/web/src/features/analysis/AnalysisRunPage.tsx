@@ -2,7 +2,7 @@ import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useConnectivity } from '../../connectivity/useConnectivity';
@@ -16,7 +16,7 @@ import { NotFoundPage } from '../../shell/NotFoundPage';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { useMatchContext } from '../matches/useMatchContext';
 import { FailureAlert } from '../shared/FailureAlert';
-import { analysisRunKey, analysisStreamsKey, runRefreshInterval } from './analysisKeys';
+import { analysisRunKey, analysisStreamsKey, analysisTimelineKey, runRefreshInterval } from './analysisKeys';
 import { FactBrowser } from './FactBrowser';
 import { FactRangeForm } from './FactRangeForm';
 import type { FactRange } from './FactRangeForm';
@@ -54,7 +54,7 @@ export function AnalysisRunPage() {
   const { matchId = '', runId = '' } = useParams();
   const { t } = useTranslation('analysis');
   const { t: tc } = useTranslation('common');
-  const { platform } = useSession();
+  const { platform, status: sessionStatus } = useSession();
   const adapter = useMemo(() => createAnalysisRunAdapter(platform), [platform]);
   const factAdapter = useMemo(() => createAnalysisFactAdapter(platform), [platform]);
   const evidenceAdapter = useMemo(() => createAnalysisEvidenceAdapter(platform), [platform]);
@@ -88,6 +88,29 @@ export function AnalysisRunPage() {
     refetchIntervalInBackground: false,
   });
 
+  const isNotPermitted = (error: unknown) => Boolean(error) && toPlatformFailure(error).kind === 'notPermitted';
+  const accessLost =
+    Boolean(match.data && !permitted) ||
+    isNotPermitted(match.error) ||
+    isNotPermitted(run.error) ||
+    isNotPermitted(streams.error) ||
+    runOutcome?.kind === 'runNotFound' ||
+    (runOutcome?.kind === 'found' && runOutcome.run.matchId !== matchId) ||
+    streams.data?.kind === 'runNotFound';
+  const discardTimeline = isUnreachable || sessionStatus !== 'signedIn' || accessLost;
+
+  // Timeline data is memory-only: it is discarded when connectivity or access is lost and on sign-out.
+  useEffect(() => {
+    if (discardTimeline) queryClient.removeQueries({ queryKey: analysisTimelineKey });
+  }, [discardTimeline, queryClient]);
+  // Leaving the page discards what is left; the removal is deferred so a remount keeps the queries its observers hold.
+  useEffect(
+    () => () => {
+      setTimeout(() => queryClient.removeQueries({ queryKey: analysisTimelineKey, type: 'inactive' }), 0);
+    },
+    [queryClient],
+  );
+
   // Without a connection no earlier analysis data stays on screen and nothing is kept in browser storage (FR-018).
   if (isUnreachable) {
     return (
@@ -99,7 +122,6 @@ export function AnalysisRunPage() {
     );
   }
 
-  const isNotPermitted = (error: unknown) => Boolean(error) && toPlatformFailure(error).kind === 'notPermitted';
   if ((match.data && !permitted) || isNotPermitted(match.error) || isNotPermitted(run.error) || isNotPermitted(streams.error)) return <NotPermittedPage />;
 
   const outcome = run.data;

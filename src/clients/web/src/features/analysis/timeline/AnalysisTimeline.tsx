@@ -1,10 +1,13 @@
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useConnectivity } from "../../../connectivity/useConnectivity";
 import type { AnalysisFactAdapter } from "../../../platform/adapters/analysisFactAdapter";
 import type { FactStreamSummary } from "../../../platform/models/analysis";
+import { analysisTimelineKey } from "../analysisKeys";
 import { FactStreamList } from "../FactStreamList";
 import { formatMatchClock, formatMatchRange } from "../matchClock";
 import { TimelineLane } from "./TimelineLane";
@@ -193,11 +196,24 @@ export function AnalysisTimeline({
   onShowFacts,
 }: AnalysisTimelineProps) {
   const { t } = useTranslation("analysis");
+  const queryClient = useQueryClient();
+  const { isUnreachable } = useConnectivity();
   const [selection, setSelection] = useState<TimelineSelection | undefined>();
   const [reports, setReports] = useState<Record<string, LaneFactsView>>({});
   const [announcement, setAnnouncement] = useState("");
   const [textAlternative, setTextAlternative] = useState(false);
   const allowance = laneAllowance(streams.length);
+
+  // Timeline data is memory-only: leaving discards it (deferred so a remount keeps the queries its observers hold), and so does losing connectivity.
+  useEffect(
+    () => () => {
+      setTimeout(() => queryClient.removeQueries({ queryKey: analysisTimelineKey, type: "inactive" }), 0);
+    },
+    [queryClient],
+  );
+  useEffect(() => {
+    if (isUnreachable) queryClient.removeQueries({ queryKey: analysisTimelineKey });
+  }, [isUnreachable, queryClient]);
 
   const report = useCallback(
     (nodeKey: string, laneView: LaneFactsView | undefined) => {
@@ -327,6 +343,14 @@ export function AnalysisTimeline({
       onAnnounce={announce}
     />
   ));
+
+  if (isUnreachable) {
+    return (
+      <section aria-label={t("timeline.title")}>
+        <Typography role="alert">{t("states.connectionRequired")}</Typography>
+      </section>
+    );
+  }
 
   const tickEvery = 5;
   const ticks =

@@ -144,7 +144,7 @@
 
 ### Discard on leaving and access loss
 
-- [ ] T028 [US5] Remove all queries under the `['analysis', 'timeline']` prefix on unmount, when connectivity is lost, on sign-out, and when a read is refused as forbidden or not found, and show the connection-required state offline, in `src/clients/web/src/features/analysis/AnalysisRunPage.tsx` and `src/clients/web/src/features/analysis/timeline/AnalysisTimeline.tsx`
+- [x] T028 [US5] Remove all queries under the `['analysis', 'timeline']` prefix on unmount, when connectivity is lost, on sign-out, and when a read is refused as forbidden or not found, and show the connection-required state offline, in `src/clients/web/src/features/analysis/AnalysisRunPage.tsx` and `src/clients/web/src/features/analysis/timeline/AnalysisTimeline.tsx`
 
 ### Discard and platform tests
 
