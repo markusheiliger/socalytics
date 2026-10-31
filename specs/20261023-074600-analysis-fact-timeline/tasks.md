@@ -129,7 +129,7 @@
 
 ### Accessibility tests
 
-- [ ] T026 [P] [US4] Component tests in `src/clients/web/tests/unit/features/analysis/timeline/timelineKeyboard.test.tsx` (key handling, focus, selection, live-region messages without focus moves) and `src/clients/web/tests/unit/features/analysis/timeline/timelineTextAlternative.test.tsx` (table rows equal the graphic's bins for the same zoom and extent)
+- [x] T026 [P] [US4] Component tests in `src/clients/web/tests/unit/features/analysis/timeline/timelineKeyboard.test.tsx` (key handling, focus, selection, live-region messages without focus moves) and `src/clients/web/tests/unit/features/analysis/timeline/timelineTextAlternative.test.tsx` (table rows equal the graphic's bins for the same zoom and extent)
 - [ ] T027 [P] [US4] Add the US4 scenarios (keyboard-only flow from lane to jump, text alternative equals graphic, axe checks in every state using `tests/e2e/support/axe.ts` and `tests/e2e/support/keyboard.ts`) to `src/clients/web/tests/e2e/simulated/analysis-timeline.spec.ts`
 
 **Checkpoint**: The timeline meets the accessibility requirements.
