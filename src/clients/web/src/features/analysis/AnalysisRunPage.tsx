@@ -23,6 +23,8 @@ import type { FactRange } from './FactRangeForm';
 import { FactStreamList } from './FactStreamList';
 import { validateRange } from './matchClock';
 import { RunStatusSection } from './RunStatusSection';
+import { AnalysisTimeline } from './timeline/AnalysisTimeline';
+import type { TimelineView } from './timeline/AnalysisTimeline';
 
 const WHOLE_NUMBER = /^\d+$/;
 
@@ -60,6 +62,9 @@ export function AnalysisRunPage() {
   const queryClient = useQueryClient();
   const { isUnreachable } = useConnectivity();
   const [reloads, setReloads] = useState(0);
+  // `open` is page state, open by default; zoom and extent survive reloads (data-model.md).
+  const [timelineOpen] = useState(true);
+  const [timelineView, setTimelineView] = useState<TimelineView>({});
   const [loaded, setLoaded] = useState<{ id: string; stream: FactStreamSummary }>();
   const { match, team, permitted } = useMatchContext(matchId);
   const run = useQuery({
@@ -141,6 +146,18 @@ export function AnalysisRunPage() {
       )}
       {!error && !outcome && <Typography>{t('page.loading')}</Typography>}
       {outcome?.kind === 'found' && <RunStatusSection run={outcome.run} />}
+      {outcome?.kind === 'found' && streamList && timelineOpen && (
+        <AnalysisTimeline
+          adapter={factAdapter}
+          runId={runId}
+          runState={outcome.run.state}
+          streams={streamList}
+          nodeStates={Object.fromEntries(outcome.run.nodes.map((node) => [node.nodeKey, node.state]))}
+          view={timelineView}
+          onViewChange={setTimelineView}
+          onSelectStream={selectStream}
+        />
+      )}
       {streamList && <FactStreamList streams={streamList} selectedNodeKey={selectedStream?.nodeKey} onSelect={selectStream} />}
       {streamList && streamKey !== undefined && !selectedStream && <Typography role="alert">{t('states.capabilityNotInRun')}</Typography>}
       {selectedStream && !rangeValid && (

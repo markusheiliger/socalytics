@@ -198,8 +198,9 @@ describe('analysis run page', () => {
     stub(() => json(200, runDto()), matchDto, factUrls);
     renderApp(asRole('Viewer'), `${path()}?stream=detect-1&fromMs=5000&toMs=9000`);
     expect(await screen.findByText('pass')).toBeInTheDocument();
-    expect(factUrls[0]).toContain('fromMs=5000');
-    expect(factUrls[0]).toContain('toMs=9000');
+    // The timeline lanes request the whole stream; the fact browser requests the range of the address.
+    const rangeUrl = factUrls.find((url) => url.includes('fromMs=5000'));
+    expect(rangeUrl).toContain('toMs=9000');
     expect(screen.getByLabelText('From')).toHaveValue('0:05');
     expect(screen.getByLabelText('To')).toHaveValue('0:09');
   });
@@ -212,7 +213,8 @@ describe('analysis run page', () => {
     first.router.dispose();
     renderApp(asRole('Coach'), `${path()}?stream=detect-1&fromMs=9000&toMs=5000`);
     expect(await screen.findByText(/range is not valid/)).toBeInTheDocument();
-    expect(factUrls).toHaveLength(0);
+    expect(factUrls.filter((url) => url.includes('fromMs') || url.includes('toMs'))).toHaveLength(0);
+    expect(factUrls.filter((url) => url.includes('nodeKey=nope'))).toHaveLength(0);
   });
 
   it('offers new results of a running run and restarts at the first page on reload', async () => {
