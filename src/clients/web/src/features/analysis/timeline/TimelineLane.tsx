@@ -233,6 +233,14 @@ export function TimelineLane({
     event: KeyboardEvent<HTMLButtonElement>,
     index: number,
   ) => {
+    if (event.key === "Escape") {
+      if (selection) {
+        event.preventDefault();
+        anchor.current = undefined;
+        onClearSelection?.();
+      }
+      return;
+    }
     let next: number | undefined;
     if (event.key === "ArrowRight") next = Math.min(bins.length - 1, index + 1);
     else if (event.key === "ArrowLeft") next = Math.max(0, index - 1);
@@ -388,7 +396,9 @@ export function TimelineLane({
                 ref={(element: HTMLButtonElement | null) => {
                   cells.current[index] = element;
                 }}
-                tabIndex={index === focusIndex ? 0 : -1}
+                tabIndex={
+                  index === Math.min(focusIndex, bins.length - 1) ? 0 : -1
+                }
                 aria-label={binName(bin)}
                 aria-pressed={selectedBins.includes(bin)}
                 onClick={(event: MouseEvent<HTMLButtonElement>) =>

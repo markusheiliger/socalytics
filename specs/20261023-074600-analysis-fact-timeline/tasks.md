@@ -124,7 +124,7 @@
 
 ### Keyboard and text alternative
 
-- [ ] T024 [US4] Add roving-tabindex bin navigation (arrow keys move, Shift+arrow extends a span, Enter or Space selects, Escape clears), visible focus, and accessible names with range and count or coverage state to `src/clients/web/src/features/analysis/timeline/TimelineLane.tsx` (research R5)
+- [x] T024 [US4] Add roving-tabindex bin navigation (arrow keys move, Shift+arrow extends a span, Enter or Space selects, Escape clears), visible focus, and accessible names with range and count or coverage state to `src/clients/web/src/features/analysis/timeline/TimelineLane.tsx` (research R5)
 - [ ] T025 [US4] Implement `src/clients/web/src/features/analysis/timeline/TimelineTextAlternative.tsx`: one table per lane from the same derived data (range and count or coverage state of every bin at the current zoom and extent) and the "Show text alternative" toggle in `src/clients/web/src/features/analysis/timeline/AnalysisTimeline.tsx`
 
 ### Accessibility tests
