@@ -62,7 +62,7 @@
 
 ### Timeline scenario fixture
 
-- [ ] T013 [P] [US1] Add a timeline scenario fixture (several pages of unevenly spread facts, two nodes of one capability, extra-time coverage) to `src/clients/web/tests/e2e/support/simulatedApi.ts`
+- [x] T013 [P] [US1] Add a timeline scenario fixture (several pages of unevenly spread facts, two nodes of one capability, extra-time coverage) to `src/clients/web/tests/e2e/support/simulatedApi.ts`
 
 ### Density browser scenarios
 

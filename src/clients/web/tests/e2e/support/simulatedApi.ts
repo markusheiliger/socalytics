@@ -354,6 +354,74 @@ export function analysisRunFixture(overrides: Partial<SeededAnalysisRun> = {}): 
   };
 }
 
+/** Match end of the timeline scenario: 90 minutes of regular time plus 30 minutes of extra time. */
+export const timelineMatchEndMs = 7_200_000;
+
+/** Facts per page the timeline scenario is meant to be read with; every stream needs several pages. */
+export const timelineFactPageSize = 20;
+
+/** Deterministic facts at the given start offsets, each lasting `durationMs`; the result id and ordinal keep the order total. */
+function timelineFacts(prefix: number, starts: number[], durationMs = 5_000): SeededFact[] {
+  return starts.map((startMs, index) => ({
+    acceptedResultId: `00000000-0000-4000-8000-${String(prefix * 1_000 + Math.floor(index / 4)).padStart(12, '0')}`,
+    ordinal: index % 4,
+    kind: `event-${prefix}-${index}`,
+    startMs,
+    endMs: startMs + durationMs,
+    confidence: 0.5 + (index % 5) / 10,
+    payload: { index },
+  }));
+}
+
+/**
+ * A completed run for the timeline: three streams over 120 minutes with extra-time coverage and unevenly spread facts
+ * (a dense opening, a sparse middle, a burst in extra time). Two nodes (`passes-first-half`, `passes-second-half`)
+ * share one capability and differ by node key, and `shots` has another capability. The first stream has 90 facts,
+ * the second 45, and the third 12, so with `timelineFactPageSize` every lane of the timeline needs several pages
+ * except `shots`, which fits on one.
+ */
+export function timelineRunFixture(overrides: Partial<SeededAnalysisRun> = {}): SeededAnalysisRun {
+  const [base] = analysisRunFixture().streams;
+  const spread = (from: number, to: number, count: number) =>
+    Array.from({ length: count }, (_, i) => from + Math.floor(((to - from) * i) / count));
+  const dense = [...spread(0, 600_000, 50), ...spread(600_000, 5_400_000, 15), ...spread(5_400_000, 5_700_000, 5), ...spread(5_700_000, 7_100_000, 20)];
+  const second = [...spread(2_700_000, 3_000_000, 25), ...spread(5_400_000, 7_200_000 - 5_000, 20)];
+  const shots = [...spread(300_000, 4_800_000, 6), ...spread(6_000_000, 6_600_000, 6)];
+  const coverage: SeededCoverageWindow[] = [
+    { startMs: 0, endMs: 5_400_000, state: 'accepted' },
+    { startMs: 5_400_000, endMs: timelineMatchEndMs, state: 'accepted' },
+  ];
+  const stream = (nodeKey: string, capabilityId: string, outputType: string, starts: number[], prefix: number): SeededFactStream => ({
+    ...base,
+    nodeKey,
+    capabilityId,
+    outputType,
+    facts: timelineFacts(prefix, starts),
+    coverage,
+    coverageEndMs: timelineMatchEndMs,
+  });
+  const node = (nodeKey: string, capabilityId: string): SeededNode => ({
+    nodeKey,
+    capabilityId,
+    capabilityVersion: '1.0.0',
+    tier: 'LowLevel',
+    executionScope: 'Segment',
+    state: 'Completed',
+    blockedByNodeKey: null,
+    jobs: { waiting: 0, ready: 0, claimed: 0, completed: 3, failed: 0, blocked: 0 },
+  });
+  return analysisRunFixture({
+    requestedCapabilities: ['pass-detection', 'shot-detection'],
+    nodes: [node('passes-first-half', 'pass-detection'), node('passes-second-half', 'pass-detection'), node('shots', 'shot-detection')],
+    streams: [
+      stream('passes-first-half', 'pass-detection', 'passes', dense, 1),
+      stream('passes-second-half', 'pass-detection', 'passes', second, 2),
+      stream('shots', 'shot-detection', 'shots', shots, 3),
+    ],
+    ...overrides,
+  });
+}
+
 const base64Url = (text: string) => Buffer.from(text, 'utf8').toString('base64url');
 const selectionHash = (runId: string, stream: SeededFactStream, fromMs: number | null, toMs: number | null) =>
   createHash('sha256').update(`${runId}|${stream.nodeKey}|${stream.schemaVersion}|${fromMs}|${toMs}`).digest('hex').slice(0, 32);
@@ -1048,6 +1116,12 @@ export class SimulatedApi {
     this.analysisStates.set(run.runId, run);
     this.syncRunSummary(run);
     return run;
+  }
+
+  /** Seeds the timeline scenario (see `timelineRunFixture`) and pages facts by `timelineFactPageSize`. */
+  seedTimelineRun(overrides: Partial<SeededAnalysisRun> = {}): SeededAnalysisRun {
+    this.factPageSize = timelineFactPageSize;
+    return this.seedAnalysisRun(timelineRunFixture(overrides));
   }
 
   /** Replaces the scripted answers of the evidence resolution and forgets the requests received so far. */
