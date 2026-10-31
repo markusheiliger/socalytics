@@ -54,7 +54,7 @@
 
 ### Timeline component tests and fixture
 
-- [ ] T012 [P] [US1] Component tests in `src/clients/web/tests/unit/features/analysis/timeline/analysisTimeline.test.tsx`: lanes per stream and per node of the same capability, shared axis labels beyond 90 minutes, zoom and extent changes, default zoom chosen once and zoom and extent kept when lanes reload, totals agree with the reported count, partial density wording including the `notLoaded` label in bins and the text alternative, and markup-like node keys, capability ids, and failure reasons rendered as literal text (FR-016)
+- [x] T012 [P] [US1] Component tests in `src/clients/web/tests/unit/features/analysis/timeline/analysisTimeline.test.tsx`: lanes per stream and per node of the same capability, shared axis labels beyond 90 minutes, zoom and extent changes, default zoom chosen once and zoom and extent kept when lanes reload, totals agree with the reported count, partial density wording including the `notLoaded` label in bins and the text alternative, and markup-like node keys, capability ids, and failure reasons rendered as literal text (FR-016)
 - [ ] T013 [P] [US1] Add a timeline scenario fixture (several pages of unevenly spread facts, two nodes of one capability, extra-time coverage) to `src/clients/web/tests/e2e/support/simulatedApi.ts`
 
 ### Density browser scenarios
