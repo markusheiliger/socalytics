@@ -187,6 +187,37 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 		(await CountAsync(f, "agent_versions", ct)).ShouldBe(2);
 	}
 
+	// Evidence: specs/archive/20261025-003459-deterministic-agent-workload-test (comments only; agents cannot change files under specs/).
+	// Baseline: build of src/platform/SocAlytics.Platform.slnx succeeded (0 warnings, 0 errors).
+	// Baseline: SeedTests (--filter "FullyQualifiedName~SeedTests"): 6 passed, 0 failed, 0 skipped (total 6).
+	// Reproduction: unchanged test run alone 30 times (4-core runner): 30 passed, 0 failed; no failure message observed.
+	// Reproduction: unchanged test run 10 times under CPU load (4 busy-loop processes, one per core): 10 passed, 0 failed; no failure message observed.
+	// Reproduction: the failure did not reproduce naturally; the causes are to be established by the deliberate widening of the suspected windows.
+	// Widening: hold-publish. Change (temporary, reverted): in the named test, StartAsync configureServices replaced IMessageTransport (the internal NatsJetStreamTransport in Infrastructure/Messaging/Nats) by a wrapper whose first PublishAsync call throws MessageTransportException("transport-unavailable") and later calls delegate to the real transport; the wait limit was lowered from 120 s to 25 s so the failure is quick.
+	// Widening: hold-publish result of the old test: failed after 27 s (invocation.ShouldNotBeNull(), no state in the message).
+	// Widening: hold-publish rows: outbox_messages state=pending, attempt_count=1, next_attempt_at=2026-10-27 06:32:56 (observed, set from the frozen fixture clock at the failed publication plus backoff); agent_attempts: no row; agent_invocations.state=queued. The retry never became due because OutboxPublicationStore selects next_attempt_at <= @now and the fixture MutableTimeProvider (set once to UtcNow in AgentOrchestrationFixture.StartAsync) never advances; the runner never received a work message.
+	// Widening: delay-topology. Change (temporary, reverted): same wrapper, but the first PublishAsync call awaits Task.Delay(4000 ms) before delegating (the stream and consumer exist only after the first publish, so the runner started 4 s without its consumer); wait limit 25 s.
+	// Widening: delay-topology result of the old test: passed in 7 s (the runner's RetryDelay of 200 ms retried until the consumer existed); no non-terminal rows to read.
+	// Widening: clock-back and clock-ahead. Change (temporary, reverted): in the named test right after StartAsync, f.Factory.Time.Set(DateTimeOffset.UtcNow.AddMinutes(-10)) and then AddMinutes(10), before SeedRunAsync; wait limit 25 s.
+	// Widening: clock-back and clock-ahead result of the old test: both passed in 3 s (a frozen reading offset from the wall clock is harmless while no first publication fails); no non-terminal rows to read.
+	// Suspects: wall-clock versus fake time = cause (hold-publish: old test failed after 27 s with the outbox row pending and attempt_count=1 because the frozen fixture clock never reaches next_attempt_at; a frozen clock merely offset from the wall clock passed, 2 of 2).
+	// Suspects: start order (runner before topology or work message) = ruled out (delay-topology: old test passed, the runner's 200 ms RetryDelay retries until the consumer exists; 30 of 30 alone and 10 of 10 under load passed).
+	// Suspects: polling loop = cause of the missing diagnosis, not of the failure (the wait polls to a guessed 120 s bound and fails with invocation.ShouldNotBeNull(), hiding the invocation state; hold-publish ended with the state queued unreported).
+	// Suspects: shared state = ruled out (stream, consumer, and database names are unique per fixture and no run left state behind: 40 of 40 natural runs passed, and the widened runs failed or passed deterministically).
+	// Suspects: covered production code = ruled out (the outbox selects next_attempt_at <= now and retries after a failed publication as documented; the defect is the test clock that never advances).
+	// Cause: the first outbox publication of the invocation can fail transiently (for example a JetStream publish while the topology is provisioned); the retry is gated by next_attempt_at against the fixture MutableTimeProvider (AgentOrchestrationFixture.StartAsync, IdentityAccess/Support/MutableTimeProvider.cs), which is set once and never advances, so the work message is never published and the test waits out its bound without naming the state. Fix files: T/AgentOrchestration/Support/AgentOrchestrationFixture.cs and T/IdentityAccess/Support/MutableTimeProvider.cs (one clock that follows real time), and the wait in T/AgentOrchestration/Catalog/SeedTests.cs (poll to a terminal state, fail with state and reason). Decision 2 rows: "Frozen fixture clock" and "Wait ends on a guessed bound" apply; "Topology", "Leftover or shared state", and "Covered production code" do not.
+	// Ruled out: SimulatedAgentWorkloadRunner and the covered production code (outbox, WorkerLoop, AgentAttemptMonitorWorker) are not the cause and are unchanged; the workload stays a development-only simulation.
+	// Fix: MutableTimeProvider.FollowRealTime keeps the fixture clock running from its set value, and AgentOrchestrationFixture.StartAsync enables it for fixtures with a live workload (ConnectionStrings:nats), so a retry time stored from the clock falls due; the named test polls to a terminal state and fails with the observed state and failureReason, with the linked token as the only time-based safety net.
+	// Verification: fixed test run alone 30 times (4-core runner): 30 passed, 0 failed; 10 times under CPU load (4 busy-loop processes): 10 passed, 0 failed (SC-001).
+	// Verification: --filter "FullyQualifiedName~AgentOrchestration" (SeedTests, SimulatedAgentWorkloadTests, SimulatedAgentWorkloadBehaviorTests, every user of the changed fixture): 158 passed, 0 failed, 0 skipped (SC-002).
+	// Verification: whole Integration.Tests project (MutableTimeProvider changed; classes run in parallel): 1944 passed, 1 skipped, 1 failed (FactPayloadPerformanceTests, a timing-budget test unrelated to the change: 2430 ms against a 2354 ms budget); it passed on rerun (2 of 2).
+	// Verification: widenings applied again on top of the fix (temporary wrapper around IMessageTransport, reverted): hold-publish (first publication throws transport-unavailable, the old test failed after 27 s) passed in 6 s; delay-topology (first publication delayed 4000 ms, runner running before the work message and its consumer) passed in 8 s; forced redelivery (every agent work message published a second time with another message id) passed in 4 s.
+	// Verification: shared state: the fixture is held with await using, so the runner and the NATS stream and consumer of a failed test are disposed; names are unique per fixture and the parallel full run showed no cross-test failure.
+	// Probes: wrong advice text (expected text with " PROBE" appended, temporary, reverted): the named test failed on the advice assertion (invocation.GetProperty("advice").GetString()) in 4 s.
+	// Probes: wrong pinned digest (expected digest with "PROBE" appended, temporary, reverted): the named test failed on the digest assertion (pin.GetProperty("digest").GetString()) in 4 s.
+	// Probes: missing pinned artifact kind (expected kinds without "safety-policy", temporary, reverted): the named test failed on the artifact kinds assertion (pin.GetProperty("artifacts")...ShouldBe) in 4 s.
+	// Probes: every probe was removed afterwards and git diff shows no probe.
+	// Scope: the change touches only SeedTests.cs, AgentOrchestrationFixture.cs, and MutableTimeProvider.cs (the files the cause lives in), the one sentence in docs/architecture/platform-implementation.md, and this spec folder; no assertion was removed (advice text, pinned version, pinned digest, and the four pinned artifact kinds are unchanged, the terminal-state assertion replaces ShouldNotBeNull), and no fixed wait, retry, skip, or longer timeout was added (the 250 ms poll and the 120 s safety net already existed); node .github/scripts/check-markdown.mjs: 0 issues in 0 files.
 	[Fact]
 	public async Task TheSimulatedAgentWorkloadCompletesAnInvocationOfTheSeededVersionWithItsPinnedReferences()
 	{
@@ -200,7 +231,7 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 			});
 		var runId = await f.SeedRunAsync(SeededRunState.Completed, ct: ct);
 
-		async Task<JsonElement> SendAsync(HttpMethod method, string path, object? body, string? ifMatch)
+		async Task<JsonElement> SendAsync(HttpMethod method, string path, object? body, string? ifMatch, CancellationToken token)
 		{
 			using var request = new HttpRequestMessage(method, path);
 			if (body is not null)
@@ -219,20 +250,20 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 				request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
 			}
 
-			using var response = await f.Admin.Client.SendAsync(request, ct);
-			((int)response.StatusCode).ShouldBeInRange(200, 202, await response.Content.ReadAsStringAsync(ct));
-			var element = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)).RootElement.Clone();
+			using var response = await f.Admin.Client.SendAsync(request, token);
+			((int)response.StatusCode).ShouldBeInRange(200, 202, await response.Content.ReadAsStringAsync(token));
+			var element = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token)).RootElement.Clone();
 			return method == HttpMethod.Post && response.Headers.ETag is { } etag
 				? JsonDocument.Parse($"{{\"etag\":\"{etag.Tag.Replace("\"", "\\\"")}\",\"body\":{element.GetRawText()}}}").RootElement.Clone()
 				: element;
 		}
 
-		var created = await SendAsync(HttpMethod.Post, $"/api/v1/matches/{f.Hierarchy.MatchId}/agent-conversations", new { analysisRunId = runId }, null);
+		var created = await SendAsync(HttpMethod.Post, $"/api/v1/matches/{f.Hierarchy.MatchId}/agent-conversations", new { analysisRunId = runId }, null, ct);
 		var conversationId = created.GetProperty("body").GetProperty("conversationId").GetGuid();
 		await SendAsync(
-			HttpMethod.Post, $"/api/v1/agent-conversations/{conversationId}/participants", new { agentId = Tactics }, created.GetProperty("etag").GetString());
+			HttpMethod.Post, $"/api/v1/agent-conversations/{conversationId}/participants", new { agentId = Tactics }, created.GetProperty("etag").GetString(), ct);
 		var submitted = await SendAsync(
-			HttpMethod.Post, $"/api/v1/agent-conversations/{conversationId}/invocations", new { agentId = Tactics, question = "What should we change?" }, null);
+			HttpMethod.Post, $"/api/v1/agent-conversations/{conversationId}/invocations", new { agentId = Tactics, question = "What should we change?" }, null, ct);
 		var invocationId = (submitted.TryGetProperty("body", out var wrapped) ? wrapped : submitted).GetProperty("invocationId").GetGuid();
 
 		var options = new SimulatedAgentWorkloadOptions
@@ -253,30 +284,41 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 		run.CancelAfter(limit + TimeSpan.FromSeconds(5));
 		var worker = runner.RunAsync(run.Token);
 
-		JsonElement? invocation = null;
-		var deadline = DateTime.UtcNow.Add(limit);
-		while (invocation is null && DateTime.UtcNow < deadline)
+		// The success condition is a terminal state; the linked token is only the safety net against a hung platform.
+		JsonElement invocation = default;
+		string? state = null;
+		string? failureReason = null;
+		try
 		{
-			var read = await SendAsync(HttpMethod.Get, $"/api/v1/agent-invocations/{invocationId}", null, null);
-			if (read.GetProperty("state").GetString() == "succeeded")
+			while (true)
 			{
-				invocation = read;
-			}
-			else
-			{
-				await Task.Delay(250, ct);
+				invocation = await SendAsync(HttpMethod.Get, $"/api/v1/agent-invocations/{invocationId}", null, null, run.Token);
+				state = invocation.GetProperty("state").GetString();
+				failureReason = invocation.TryGetProperty("failureReason", out var reason) && reason.ValueKind == JsonValueKind.String ? reason.GetString() : null;
+				if (state is "succeeded" or "failed" or "lifecycle-suppressed")
+				{
+					break;
+				}
+
+				await Task.Delay(250, run.Token);
 			}
 		}
+		catch (OperationCanceledException) when (run.IsCancellationRequested && !ct.IsCancellationRequested)
+		{
+			Assert.Fail($"The invocation {invocationId} did not reach a terminal state within {limit.TotalSeconds:0} s: state '{state}', failureReason '{failureReason}'.");
+		}
+		finally
+		{
+			await run.CancelAsync();
+			await worker;
+		}
 
-		await run.CancelAsync();
-		await worker;
-
-		invocation.ShouldNotBeNull();
-		var advice = invocation.Value.GetProperty("advice").GetString();
+		state.ShouldBe("succeeded", $"failureReason: '{failureReason}'");
+		var advice = invocation.GetProperty("advice").GetString();
 		advice.ShouldNotBeNull();
 		advice.ShouldStartWith($"Simulated advice from {Tactics}.");
 		advice.ShouldContain("Simulated tool outcomes:");
-		var pin = invocation.Value.GetProperty("agent");
+		var pin = invocation.GetProperty("agent");
 		pin.GetProperty("version").GetString().ShouldBe(SeedVersion);
 		var digest = await RowsAsync(f, $"SELECT digest FROM socalytics.agent_versions WHERE agent_id = '{Tactics}' AND agent_version = '{SeedVersion}'", ct);
 		pin.GetProperty("digest").GetString().ShouldBe(digest.Single()[0]);

@@ -867,7 +867,10 @@ other runtimes emit compatible telemetry with the same correlation context.
 Telemetry payload minimization and lifecycle follow
 [Security and Data Governance](security-and-data-governance.md).
 Testcontainers runs disposable PostgreSQL, NATS, and RustFS instances for
-`SocAlytics.Platform.Integration.Tests`.
+`SocAlytics.Platform.Integration.Tests`. The shared fixture clock is frozen at
+its set value by default; fixtures that run the simulated agent workload let it
+follow real time from that value, so retry times stored from the clock fall due
+and an invocation test never waits on a clock that cannot advance.
 
 ## Acceptance Evidence
 

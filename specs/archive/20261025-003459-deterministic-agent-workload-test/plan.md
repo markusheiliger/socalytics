@@ -2,7 +2,7 @@
 
 **Branch**: `20261025-003459-deterministic-agent-workload-test` | **Date**: 2026-10-25 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261025-003459-deterministic-agent-workload-test/spec.md`
+**Input**: Feature specification from `/specs/archive/20261025-003459-deterministic-agent-workload-test/spec.md`
 
 ## Summary
 
@@ -58,7 +58,7 @@ Post-design re-check: unchanged, all gates pass. No Complexity Tracking entries.
 ### Documentation (this feature)
 
 ```text
-specs/20261025-003459-deterministic-agent-workload-test/
+specs/archive/20261025-003459-deterministic-agent-workload-test/
 ├── plan.md
 ├── research.md
 ├── data-model.md
@@ -82,16 +82,16 @@ src/platform/Tests/
 ```
 
 **Structure Decision**: No new project or file is planned; the final file list is decided by the evidence recorded
-in `research.md` (`## Evidence`). Production code (`SocAlytics.Platform.Infrastructure` outbox, `WorkerLoop`,
+in the evidence comment block above the named test in `SeedTests.cs` (`research.md` `## Evidence` explains why). Production code (`SocAlytics.Platform.Infrastructure` outbox, `WorkerLoop`,
 `AgentAttemptMonitorWorker`) changes only if the evidence shows the cause there (FR-006).
 
 ## Architecture Updates
 
 **Narratives**:
 
-- [Platform Implementation](../../docs/architecture/platform-implementation.md), "Test And Observability Baseline",
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md), "Test And Observability Baseline",
   which describes the Testcontainers-backed `SocAlytics.Platform.Integration.Tests`.
-- [Intelligence and Agents](../../docs/architecture/intelligence-and-agents.md), which describes the simulated agent
+- [Intelligence and Agents](../../../docs/architecture/intelligence-and-agents.md), which describes the simulated agent
   workload that executes invocations in Development and Test.
 
 **Design updates**: None applied now. The fix concerns how a test controls time and waits; the architecture does not

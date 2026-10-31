@@ -25,7 +25,7 @@
 
 **Decision**: Reproduce first (30 runs alone, 10 under one busy-loop process per core), then demonstrate each suspect
 by widening its window test-side (delay the topology provisioning, hold the first publication, skew the fixture clock),
-and record the outcome per suspect in `## Evidence`.
+and record the outcome per suspect in the evidence comment block above the named test in `SeedTests.cs`.
 
 **Rationale**: FR-001 and SC-001 require evidence; the failure never reproduced in the three verifications except by
 chance.
@@ -55,6 +55,9 @@ artifact kind) show the assertions still fail, and are removed afterwards.
 
 ## Evidence
 
-To be filled in during implementation: the repeated-run results alone and under load, the demonstration per suspected
-cause (wall-clock versus fake time, start order, polling loop, shared state, covered production code) with the result
-"cause" or "ruled out", and the probe results. The same text goes into a code comment next to the fix.
+The evidence is not recorded in this file: implementation agents may not change files under `specs/` (only the land job
+ticks `tasks.md`), so it lives in an `// Evidence:` comment block directly above the named test in
+`SeedTests.cs`, started by T001. It holds the baseline of T001 (build result and `SeedTests` counts), the repeated-run
+results alone and under load, the demonstration per suspected cause (wall-clock versus fake time, start order, polling
+loop, shared state, covered production code) with the result "cause" or "ruled out", the verification and probe
+results, and the architecture re-read outcome.
