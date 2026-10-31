@@ -145,8 +145,9 @@ export function canonicalRequirement(value, { exists, readText }) {
     if (!underSrc(value.project) || !/\.(csproj|slnx|sln)$/.test(value.project) || !exists(value.project)) {
       return { reasons: ['dotnet-test requirement project must be an existing .csproj, .slnx, or .sln file under src/'] };
     }
-    if (value.filter !== undefined && !isArg(value.filter, MAX_FILTER)) return { reasons: ['dotnet-test requirement filter must be a single line'] };
-    return { requirement: { runner, project: value.project, ...(value.filter !== undefined ? { filter: value.filter } : {}), runs } };
+    const filter = value.filter ?? '';
+    if (filter !== '' && !isArg(filter, MAX_FILTER)) return { reasons: ['dotnet-test requirement filter must be a single line'] };
+    return { requirement: { runner, project: value.project, ...(filter.trim() ? { filter } : {}), runs } };
   }
   if (runner === 'pytest') {
     if (!underSrc(value.project) || !exists(`${value.project}/pyproject.toml`)) return { reasons: ['pytest requirement project must be a folder under src/ with a pyproject.toml'] };

@@ -106,7 +106,8 @@ public sealed class SimulatedAgentWorkloadTests(PostgresContainerFixture postgre
 		await worker;
 
 		advice.ShouldNotBeNull();
-		advice.ShouldBe($"Simulated advice from {Tactics}");
+		advice.ShouldStartWith($"Simulated advice from {Tactics}.");
+		advice.ShouldContain("Simulated tool outcomes:");
 	}
 
 	[Fact]

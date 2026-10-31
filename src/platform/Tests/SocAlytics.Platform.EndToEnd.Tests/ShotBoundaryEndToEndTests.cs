@@ -23,11 +23,15 @@ namespace SocAlytics.Platform.EndToEnd.Tests;
 /// exactly, and the cut-free segment is analyzed with an empty fact stream (SC-001).
 /// </summary>
 [Collection("EndToEnd")]
-public sealed class ShotBoundaryEndToEndTests
+public sealed class ShotBoundaryEndToEndTests : IClassFixture<AnalystImageCache>
 {
     private const string Prefix = "analysts/";
     private const string WorkflowId = "shot-boundary-workflow";
     private const string NodeKey = "shot-boundary";
+
+    private readonly AnalystImageCache _images;
+
+    public ShotBoundaryEndToEndTests(AnalystImageCache images) => _images = images;
 
     [Fact]
     public async Task The_registered_shot_boundary_Analyst_reports_exactly_the_known_cuts_and_none_for_the_cut_free_segment()
@@ -38,9 +42,7 @@ public sealed class ShotBoundaryEndToEndTests
         var manifest = JsonNode.Parse(await File.ReadAllBytesAsync(
             Path.Combine(ShotBoundaryAnalystImage.FindRepositoryRoot(), ShotBoundaryAnalystImage.ManifestPath), ct))!;
 
-        var registry = new OciRegistryContainerFixture();
-        await registry.InitializeAsync();
-        PushedAnalystImage? image = null;
+        var registryHost = await _images.GetRegistryHostAsync(ct);
         string? compatibilityPath = null;
         try
         {
@@ -48,7 +50,7 @@ public sealed class ShotBoundaryEndToEndTests
             {
                 ["Segments:Toolchain:FfmpegPath"] = SyntheticMedia.FfmpegPath,
                 ["Segments:Toolchain:FfprobePath"] = Path.Combine(Path.GetDirectoryName(SyntheticMedia.FfmpegPath) ?? string.Empty, "ffprobe"),
-                ["Registry:Images:RegistryHost"] = registry.RegistryHost,
+                ["Registry:Images:RegistryHost"] = registryHost,
                 ["Registry:Images:RepositoryPrefix"] = Prefix,
                 ["Registry:Images:UseHttp"] = "true",
             };
@@ -60,8 +62,8 @@ public sealed class ShotBoundaryEndToEndTests
             }
 
             await using var harness = started;
-            image = await ShotBoundaryAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct);
-            await RegisterAndDefineDefaultWorkflowAsync(harness, image, manifest, registry.RegistryHost, ct);
+            var image = await ShotBoundaryAnalystImage.GetCachedAsync(_images, Prefix, ct);
+            await RegisterAndDefineDefaultWorkflowAsync(harness, image, manifest, registryHost, ct);
 
             using var docker = new DockerEngine();
             compatibilityPath = await DockerRuntimeEndToEndTests.WriteCompatibilityListAsync(docker, ct);
@@ -89,17 +91,10 @@ public sealed class ShotBoundaryEndToEndTests
         }
         finally
         {
-            if (image is not null)
-            {
-                await ShotBoundaryAnalystImage.RemoveAsync(image);
-            }
-
             if (compatibilityPath is not null)
             {
                 File.Delete(compatibilityPath);
             }
-
-            await registry.DisposeAsync();
         }
     }
 

@@ -1,0 +1,245 @@
+{
+  "schemaVersion": "1.0.0",
+  "allowlistVersion": "1.0.0",
+  "tools": [
+    {
+      "toolId": "get_match",
+      "operationId": "agentToolGetMatch",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/get-match",
+      "answers": "accepted-evidence",
+      "producingCapability": null,
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "facts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["capabilityId", "capabilityVersion", "schemaVersion"],
+            "properties": {
+              "capabilityId": { "type": "string" },
+              "capabilityVersion": { "type": "string" },
+              "schemaVersion": { "type": "string" },
+              "nodeKey": { "type": "string" },
+              "fromMs": { "type": "integer", "minimum": 0 },
+              "toMs": { "type": "integer", "minimum": 0 },
+              "pageSize": { "type": "integer", "minimum": 1 },
+              "continuationToken": { "type": "string" }
+            }
+          }
+        }
+      },
+      "resultSchema": {
+        "type": "object",
+        "required": ["match", "run", "streams"],
+        "properties": {
+          "match": { "type": "object" },
+          "run": { "type": "object" },
+          "streams": { "type": "array" },
+          "facts": { "type": "object" }
+        }
+      }
+    },
+    {
+      "toolId": "get_video_clip",
+      "operationId": "agentToolGetVideoClip",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/get-video-clip",
+      "answers": "accepted-evidence",
+      "producingCapability": null,
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fact": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["acceptedResultId", "ordinal"],
+            "properties": {
+              "acceptedResultId": { "type": "string" },
+              "ordinal": { "type": "integer", "minimum": 0 },
+              "contextBeforeMs": { "type": "integer", "minimum": 0 },
+              "contextAfterMs": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "range": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["fromMs", "toMs"],
+            "properties": {
+              "fromMs": { "type": "integer", "minimum": 0 },
+              "toMs": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "retryFailed": { "type": "boolean" }
+        },
+        "oneOf": [{ "required": ["fact"] }, { "required": ["range"] }]
+      },
+      "resultSchema": {
+        "type": "object",
+        "required": ["run", "requested", "shortened", "parts"],
+        "properties": {
+          "run": { "type": "object" },
+          "requested": { "type": "object" },
+          "fact": { "type": "object" },
+          "shortened": { "type": "boolean" },
+          "parts": { "type": "array" }
+        }
+      }
+    },
+    {
+      "toolId": "get_player_stats",
+      "operationId": "agentToolGetPlayerStats",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/get-player-stats",
+      "answers": "analysis-unavailable",
+      "producingCapability": null,
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fromMs": { "type": "integer", "minimum": 0 },
+          "toMs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "resultSchema": { "type": "object" }
+    },
+    {
+      "toolId": "find_counter_attacks",
+      "operationId": "agentToolFindCounterAttacks",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/find-counter-attacks",
+      "answers": "analysis-unavailable",
+      "producingCapability": "counter-attack-analysis",
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fromMs": { "type": "integer", "minimum": 0 },
+          "toMs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "resultSchema": { "type": "object" }
+    },
+    {
+      "toolId": "find_turnovers",
+      "operationId": "agentToolFindTurnovers",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/find-turnovers",
+      "answers": "analysis-unavailable",
+      "producingCapability": "possession-and-transitions",
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fromMs": { "type": "integer", "minimum": 0 },
+          "toMs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "resultSchema": { "type": "object" }
+    },
+    {
+      "toolId": "get_heatmap",
+      "operationId": "agentToolGetHeatmap",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/get-heatmap",
+      "answers": "analysis-unavailable",
+      "producingCapability": "spatial-aggregation",
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fromMs": { "type": "integer", "minimum": 0 },
+          "toMs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "resultSchema": { "type": "object" }
+    },
+    {
+      "toolId": "find_ball_actions",
+      "operationId": "agentToolFindBallActions",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/find-ball-actions",
+      "answers": "analysis-unavailable",
+      "producingCapability": "ball-action-analysis",
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fromMs": { "type": "integer", "minimum": 0 },
+          "toMs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "resultSchema": { "type": "object" }
+    },
+    {
+      "toolId": "find_set_plays",
+      "operationId": "agentToolFindSetPlays",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/find-set-plays",
+      "answers": "analysis-unavailable",
+      "producingCapability": "set-play-analysis",
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fromMs": { "type": "integer", "minimum": 0 },
+          "toMs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "resultSchema": { "type": "object" }
+    },
+    {
+      "toolId": "get_formations",
+      "operationId": "agentToolGetFormations",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/get-formations",
+      "answers": "analysis-unavailable",
+      "producingCapability": "formation-analysis",
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fromMs": { "type": "integer", "minimum": 0 },
+          "toMs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "resultSchema": { "type": "object" }
+    },
+    {
+      "toolId": "find_pressing_phases",
+      "operationId": "agentToolFindPressingPhases",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/find-pressing-phases",
+      "answers": "analysis-unavailable",
+      "producingCapability": "pressing-analysis",
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fromMs": { "type": "integer", "minimum": 0 },
+          "toMs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "resultSchema": { "type": "object" }
+    },
+    {
+      "toolId": "get_tactical_phases",
+      "operationId": "agentToolGetTacticalPhases",
+      "method": "POST",
+      "pathTemplate": "/api/v1/agent-tools/attempts/{attemptId}/get-tactical-phases",
+      "answers": "analysis-unavailable",
+      "producingCapability": "tactical-phase-aggregation",
+      "argumentsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fromMs": { "type": "integer", "minimum": 0 },
+          "toMs": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "resultSchema": { "type": "object" }
+    }
+  ]
+}

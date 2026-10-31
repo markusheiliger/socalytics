@@ -18,7 +18,7 @@ namespace SocAlytics.Platform.EndToEnd.Tests;
 /// facts are accepted, indexed, and readable by a team member (FR-013, FR-014, FR-018; SC-001, SC-002, SC-004).
 /// </summary>
 [Collection("EndToEnd")]
-public sealed class ReferenceAnalystEndToEndTests
+public sealed class ReferenceAnalystEndToEndTests(AnalystImageCache images) : IClassFixture<AnalystImageCache>
 {
     private const string Prefix = "analysts/";
     private const string WorkflowId = "reference-analyst-workflow";
@@ -40,9 +40,7 @@ public sealed class ReferenceAnalystEndToEndTests
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
         var ct = cts.Token;
 
-        var registry = new OciRegistryContainerFixture();
-        await registry.InitializeAsync();
-        PushedAnalystImage? image = null;
+        var registryHost = await images.GetRegistryHostAsync(ct);
         string? compatibilityPath = null;
         try
         {
@@ -50,7 +48,7 @@ public sealed class ReferenceAnalystEndToEndTests
             {
                 ["Segments:Toolchain:FfmpegPath"] = SyntheticMedia.FfmpegPath,
                 ["Segments:Toolchain:FfprobePath"] = Path.Combine(Path.GetDirectoryName(SyntheticMedia.FfmpegPath) ?? string.Empty, "ffprobe"),
-                ["Registry:Images:RegistryHost"] = registry.RegistryHost,
+                ["Registry:Images:RegistryHost"] = registryHost,
                 ["Registry:Images:RepositoryPrefix"] = Prefix,
                 ["Registry:Images:UseHttp"] = "true",
             };
@@ -62,9 +60,10 @@ public sealed class ReferenceAnalystEndToEndTests
             }
 
             await using var harness = started;
-            image = await TestAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct, "payload-invalid");
+            // The class's cache builds and pushes each variant once and removes the images and the registry when the class ends.
+            var image = await TestAnalystImage.GetCachedAsync(images, Prefix, ct, "payload-invalid");
             await DockerRuntimeEndToEndTests.DefineDefaultWorkflowAsync(
-                harness, image.Reference(registry.RegistryHost), ct, "payload-invalid", maxAttempts: 1, videoPolicy: "required", segmentationSeconds: PolicySeconds);
+                harness, image.Reference(registryHost), ct, "payload-invalid", maxAttempts: 1, videoPolicy: "required", segmentationSeconds: PolicySeconds);
 
             using var docker = new DockerEngine();
             compatibilityPath = await DockerRuntimeEndToEndTests.WriteCompatibilityListAsync(docker, ct);
@@ -96,17 +95,10 @@ public sealed class ReferenceAnalystEndToEndTests
         }
         finally
         {
-            if (image is not null)
-            {
-                await TestAnalystImage.RemoveAsync(image);
-            }
-
             if (compatibilityPath is not null)
             {
                 File.Delete(compatibilityPath);
             }
-
-            await registry.DisposeAsync();
         }
     }
 
@@ -119,14 +111,12 @@ public sealed class ReferenceAnalystEndToEndTests
         return (long)(await command.ExecuteScalarAsync(ct))!;
     }
 
-    private static async Task RunAsync(ReferenceAnalystVariant variant)
+    private async Task RunAsync(ReferenceAnalystVariant variant)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(12));
         var ct = cts.Token;
 
-        var registry = new OciRegistryContainerFixture();
-        await registry.InitializeAsync();
-        PushedAnalystImage? image = null;
+        var registryHost = await images.GetRegistryHostAsync(ct);
         string? compatibilityPath = null;
         try
         {
@@ -134,7 +124,7 @@ public sealed class ReferenceAnalystEndToEndTests
             {
                 ["Segments:Toolchain:FfmpegPath"] = SyntheticMedia.FfmpegPath,
                 ["Segments:Toolchain:FfprobePath"] = Path.Combine(Path.GetDirectoryName(SyntheticMedia.FfmpegPath) ?? string.Empty, "ffprobe"),
-                ["Registry:Images:RegistryHost"] = registry.RegistryHost,
+                ["Registry:Images:RegistryHost"] = registryHost,
                 ["Registry:Images:RepositoryPrefix"] = Prefix,
                 ["Registry:Images:UseHttp"] = "true",
             };
@@ -146,8 +136,9 @@ public sealed class ReferenceAnalystEndToEndTests
             }
 
             await using var harness = started;
-            image = await ReferenceAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct, variant);
-            await DefineDefaultWorkflowAsync(harness, image.Reference(registry.RegistryHost), variant.CapabilityVersion, ct);
+            // The class's cache builds and pushes each variant once and removes the images and the registry when the class ends.
+            var image = await ReferenceAnalystImage.GetOrBuildAsync(images, Prefix, ct, variant);
+            await DefineDefaultWorkflowAsync(harness, image.Reference(registryHost), variant.CapabilityVersion, ct);
 
             using var docker = new DockerEngine();
             compatibilityPath = await DockerRuntimeEndToEndTests.WriteCompatibilityListAsync(docker, ct);
@@ -174,17 +165,10 @@ public sealed class ReferenceAnalystEndToEndTests
         }
         finally
         {
-            if (image is not null)
-            {
-                await ReferenceAnalystImage.RemoveAsync(image);
-            }
-
             if (compatibilityPath is not null)
             {
                 File.Delete(compatibilityPath);
             }
-
-            await registry.DisposeAsync();
         }
     }
 

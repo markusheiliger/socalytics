@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -157,6 +158,22 @@ export class FakeGitHub {
       ?? this.repo.files.get(`${this.repo.branches[ref]}:${filePath}`)
       ?? (branch ? this.repo.files.get(`${branch}:${filePath}`) : undefined)
       ?? null;
+  }
+
+  async listRepositoryFiles(ref) {
+    const branch = Object.entries(this.repo.branches).find(([, sha]) => sha === ref)?.[0];
+    const prefixes = [...new Set([ref, this.repo.branches[ref], branch].filter(Boolean))].map((value) => `${value}:`);
+    return [...new Set([...this.repo.files.keys()].flatMap((key) => {
+      const prefix = prefixes.find((value) => key.startsWith(value));
+      return prefix ? [key.slice(prefix.length)] : [];
+    }))];
+  }
+
+  async listRepositoryEntries(ref) {
+    return Promise.all((await this.listRepositoryFiles(ref)).map(async (file) => ({
+      path: file, type: 'blob', mode: '100644',
+      sha: createHash('sha1').update(await this.getFileContent(file, ref)).digest('hex'),
+    })));
   }
 
   async getPullRequest(number) {

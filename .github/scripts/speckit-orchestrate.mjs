@@ -21,10 +21,12 @@ import {
 } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
-import { maintainAmendment } from './speckit-amend.mjs';
+import { maintainAmendment, maintainAmendmentRequest } from './speckit-amend.mjs';
 import { maintainBacklog } from './speckit-backlog.mjs';
+import { maintainReset } from './speckit-reset.mjs';
+import { startDiagnosis } from './speckit-diagnose.mjs';
 import { maintainFixSpec, maintainIndependentSpecs, startFixAuthoring } from './speckit-fix.mjs';
-import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
+import { contextFromEnv, decideForPull, implementationAttention, needsRun, reconcileImplementationAttention } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import {
@@ -33,12 +35,29 @@ import {
   ROADBLOCK_LABEL,
   ROADBLOCK_MARKER,
   BRANCH_PREFIX,
+  CHECK_CONFLICT,
+  CHECK_DIAGNOSED,
+  CHECK_DIAGNOSING,
+  CHECK_DONE,
+  CHECK_LIMIT,
+  CHECK_MERGE,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
+  CHECK_SYNC_CONFLICT,
+  refreshSkippedShas,
+  renderRefreshSkippedMarker,
+  syncBarrier,
+  unresolvedRepair,
   DIAGNOSIS_COMMENT_MARKER,
+  ACTION_REQUIRED_MARKER,
+  acceptedImplementationAction,
+  supersedeActionRequired,
   IMPLEMENT_CHAIN_WORKFLOW_FILES,
   LEGACY_IMPLEMENT_WORKFLOW_FILES,
   ORCHESTRATE_WORKFLOW_FILE,
+  failedRecoveryRoutes,
+  recoveryReassessment,
+  reassessRecovery,
   START_COMMENT_MARKER,
   baseBranchOf,
   checkRunOutput,
@@ -51,6 +70,7 @@ import {
   implementationBranch,
   isImplementRunOf,
   kindLabel,
+  latestCheckRun,
   neutralizeMarkers,
   parseFlakyMarkers,
   parseFlakySpecMarkers,
@@ -138,46 +158,80 @@ export function blockedTarget(inProgress, env, now = Date.now()) {
   return { blocked, aged, days, missed: reasons.length > 0, reason: reasons.join('; ') };
 }
 
-// Escalates a chain head that waits for a person: an implementation that is not blocked, stopped with a diagnosis (or
+// Reminds the owner of a chain head that awaits human action: an implementation that is not blocked, stopped with a diagnosis (or
 // another stop) that waits for a person's decision, while implementations open longer than SPECKIT_MAX_BLOCKED_DAYS wait
 // for it, directly or through a chain. It gets one comment per stop that mentions its requester, names the waiting
 // implementations, and recommends following the latest diagnosis; `help wanted` stays with it. Returns the summary lines.
-export const ESCALATION_MARKER = 'speckit-implement:escalation';
-export async function maintainEscalations(client, env, inProgress, { now = Date.now() } = {}) {
+export { ACTION_REQUIRED_MARKER } from './speckit-implement-core.mjs';
+export async function maintainActionRequired(client, env, inProgress, { now = Date.now() } = {}) {
   const days = parseMaxBlockedDays(env.SPECKIT_MAX_BLOCKED_DAYS);
-  if (days === 0) return [];
   const sets = waitingSets(inProgress);
   const byNumber = new Map(inProgress.map((twin) => [twin.number, twin]));
   const lines = [];
   for (const head of inProgress) {
     const decision = head.decision ?? {};
-    if (head.blocked || head.active || decision.action !== 'failed' || decision.diagnosis?.state !== 'reported') continue;
+    const warn = (line) => lines.push(`- ${line}`);
+    const hasReminder = (decision.comments ?? []).some((comment) => comment.user?.login === BOT_LOGIN &&
+      String(comment.body ?? '').startsWith(`<!-- ${ACTION_REQUIRED_MARKER} `));
+    if (hasReminder) {
+      await supersedeActionRequired(client, head.pull, { warn });
+    }
+    const eligible = days !== 0 && !head.blocked && !head.active && decision.action === 'failed' && decision.diagnosis?.state === 'reported';
     const waiting = [...(sets.get(head.number) ?? [])]
       .map((number) => byNumber.get(number))
       .filter((twin) => twin?.openedAt && daysOpen(twin, now) > days)
       .sort((a, b) => Date.parse(a.openedAt) - Date.parse(b.openedAt));
-    if (waiting.length === 0) continue;
-    const comments = decision.comments ?? [];
-    const diagnosis = [...comments]
-      .filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER))
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
-    const key = String(diagnosis?.id ?? decision.diagnosis?.check?.id ?? 'stop');
-    const marker = `<!-- ${ESCALATION_MARKER} ${JSON.stringify({ key })} -->`;
-    if (comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(marker))) continue;
+    if (!hasReminder && (!eligible || waiting.length === 0)) continue;
     const refs = waiting.map((twin) => `#${twin.pull} (spec #${twin.number}, open ${formatDays(daysOpen(twin, now))})`);
     try {
+      const fresh = await decideForPull(client, {
+        twin: head.number, folder: head.folder, pullNumber: head.pull, now, context: contextFromEnv(env), dryRun: true,
+      });
+      const attention = await implementationAttention(client, fresh, {
+        blocked: (fresh.pull?.labels ?? []).some((label) => (label?.name ?? label) === BLOCKED_LABEL), now,
+      });
+      if (fresh.pull?.state !== 'open' || fresh.action !== 'failed' || !attention?.needed || !attention.recommendation) {
+        await reconcileImplementationAttention(client, fresh, { blocked: head.blocked, now });
+        await supersedeActionRequired(client, head.pull, { successor: attention?.successor, warn });
+        continue;
+      }
+      if (!eligible || !waiting.length) continue;
+      const diagnosis = attention.recommendation;
+      const key = String(diagnosis.id);
+      const marker = `<!-- ${ACTION_REQUIRED_MARKER} ${JSON.stringify({ key })} -->`;
+      const comments = await client.listIssueComments(head.pull);
+      const current = await client.getPullRequest(head.pull);
+      const currentCheck = latestCheckRun(await client.listCheckRuns(current.head.sha, CHECK_RUN_NAME));
+      const observedCheck = latestCheckRun(fresh.checks ?? []);
+      const accepted = acceptedImplementationAction(comments, diagnosis.created_at);
+      if (current.state !== 'open' || current.head.sha !== fresh.pull.head.sha ||
+          (current.labels ?? []).some((label) => (label?.name ?? label) === BLOCKED_LABEL) ||
+          currentCheck?.id !== observedCheck?.id || currentCheck?.status !== observedCheck?.status ||
+          currentCheck?.external_id !== observedCheck?.external_id || currentCheck?.conclusion !== observedCheck?.conclusion ||
+          accepted) {
+        if (accepted && !(current.labels ?? []).some((label) => (label?.name ?? label) === BLOCKED_LABEL)) {
+          await setAttention(client, head.pull, false);
+        }
+        await supersedeActionRequired(client, head.pull, { warn });
+        continue;
+      }
+      const finalAttention = await implementationAttention(client, { ...fresh, pull: current, comments }, { now });
+      if (!finalAttention?.needed) {
+        if (finalAttention) await setAttention(client, head.pull, false);
+        await supersedeActionRequired(client, head.pull, { successor: finalAttention?.successor, warn });
+        continue;
+      }
       await setAttention(client, head.pull, true);
+      if (comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(marker))) continue;
       await client.createComment(head.pull, [
         marker,
-        `**Escalation**${head.requester ? ` @${head.requester}` : ''}: this implementation is stopped for a person's decision, and ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for it, directly or through a chain: ${refs.join(', ')}. None of them moves until this one continues.`,
+        `**Action required**${head.requester ? ` @${head.requester}` : ''}: this implementation awaits human action, and ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for it, directly or through a chain: ${refs.join(', ')}. None of them moves until this one continues.`,
         '',
-        diagnosis
-          ? `**Recommended next step**: Follow the [latest diagnosis](${diagnosis.html_url ?? `#issuecomment-${diagnosis.id}`}): post the command or \`@copilot\` request it recommends.`
-          : '**Recommended next step**: Follow the recommendation of the latest stop comment above: post the command it recommends.',
+        `**Recommended next step**: Follow the [${String(diagnosis.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER) ? 'latest diagnosis' : 'current stop recommendation'}](${diagnosis.html_url ?? `#issuecomment-${diagnosis.id}`}): post the command or \`@copilot\` request it recommends.`,
       ].join('\n'));
-      lines.push(`- Escalated #${head.pull} (spec #${head.number}): ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for its decision.`);
+      lines.push(`- Awaiting human action on #${head.pull} (spec #${head.number}): ${waiting.length} implementation${waiting.length === 1 ? '' : 's'} open longer than ${days} day${days === 1 ? '' : 's'} wait${waiting.length === 1 ? 's' : ''} for its decision.`);
     } catch (error) {
-      lines.push(`- Warning: could not escalate #${head.pull}: ${error.message}`);
+      lines.push(`- Warning: could not post the action-required reminder on #${head.pull}: ${error.message}`);
     }
   }
   return lines;
@@ -283,6 +337,11 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
     }
 
     if (lifecycle.state === 'in-progress') {
+      if (await maintainReset(client, env, { implementation: lifecycle.pull, twin: issue.number, folder })) {
+        inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login,
+          decision: { action: 'resetting' }, active: true, blocked: false, blockers: [] });
+        continue;
+      }
       // The implementation pull request is open, so the twin is at `implementing` (also when a person opened it or
       // set the flag again).
       await markImplementing(client, issue);
@@ -296,7 +355,24 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       // Prerequisites: a spec authored by `/speckit author` holds the implementation until the twin depends on it;
       // open dependencies of the twin block it, and once none is open, the implementation retries.
       const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number, rootDir }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
-      const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
+      if (!isBlocked) {
+        const request = await maintainAmendmentRequest(client, env, { implementation: lifecycle.pull, twin: issue.number, folder, now: now() });
+        if (request.active) {
+          await setAttention(client, lifecycle.pull.number, false);
+          inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, openedAt: lifecycle.pull.created_at, requester: requester.login, decision: { action: 'diagnosing' }, active: true, blocked: false, blockers });
+          continue;
+        }
+      }
+      let decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
+      if (!isBlocked && failedRecoveryRoutes(decision.comments ?? [], lifecycle.pull.head.sha).length > 0 &&
+          !recoveryReassessment(decision.comments ?? [], lifecycle.pull.head.sha)) {
+        await reassessRecovery(client, { pull: lifecycle.pull, comments: decision.comments,
+          rediagnose: ({ previous, guidance }) => startDiagnosis(client, env, {
+            twin: issue.number, pull: lifecycle.pull.number, folder, head: lifecycle.pull.head.sha,
+            previous, guidance, auto: true, preserveAmendment: true,
+          }) });
+        decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
+      }
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
       // A handoff to Copilot that ended without a push asks for help again.
       try {
@@ -308,16 +384,25 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
           continues: needsRun(decision, env),
           blocked: isBlocked,
           now: now(),
+          rediagnose: ({ previous, guidance }) => startDiagnosis(client, env, {
+            twin: issue.number, pull: lifecycle.pull.number, folder, head: lifecycle.pull.head.sha,
+            previous, guidance, auto: true, preserveAmendment: true,
+          }),
         });
-        if (ended) amendmentNotes.push(`- The handoff of #${issue.number} to Copilot ended without a push (${ended}); it asks for help again.`);
+        if (ended) {
+          amendmentNotes.push(`- The handoff of #${issue.number} to Copilot ended without a push (${ended}); its next action was reassessed.`);
+          decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
+        }
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the Copilot handoff of #${issue.number}: ${error.message}`);
       }
+      await reconcileImplementationAttention(client, decision, { blocked: isBlocked, now: now() });
       inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, openedAt: lifecycle.pull.created_at, requester: requester.login, decision, active, blocked: isBlocked, blockers });
       continue;
     }
     if (lifecycle.state === 'fallback') {
       await setAttention(client, lifecycle.pull.number, false);
+      await supersedeActionRequired(client, lifecycle.pull.number);
       await setBlocked(client, lifecycle.pull.number, false);
       await updateIssueWithLabels(client, issue, stageLabelChange(issue, computedStage));
       await client.createComment(issue.number, [
@@ -395,8 +480,8 @@ async function maintainBlock(client, env, { implementation, twin, rootDir = null
 }
 
 // Every open implementation pull request labelled BLOCKED_LABEL that the twin loop did not handle (for example because
-// its twin is inconsistent) is maintained as well, so an implemented prerequisite always lifts the block and retries
-// it. Returns the number of actions taken.
+// its twin is inconsistent) is maintained as well, so an implemented prerequisite always lifts the block and requests the
+// required synchronization. Returns the number of actions taken.
 async function sweepBlocked(client, env, { handled, now, notes, rootDir = null }) {
   let actions = 0;
   let pulls;
@@ -493,6 +578,90 @@ async function chainActive(client, twin, since) {
   return false;
 }
 
+// Upkeep merge of blocked implementations (SPECKIT_BLOCKED_REFRESH): the number of commits the base branch must be ahead
+// of a blocked implementation branch before the scheduler merges it through GitHub's merge API, so the gap does not keep
+// growing while the implementation waits. `0`, unset, or anything else than a positive whole number turns it off.
+export function parseBlockedRefresh(value) {
+  const number = Number(String(value ?? '').trim());
+  return Number.isInteger(number) && number > 0 ? number : 0;
+}
+
+// Check runs whose state lives on the head commit and would be lost if an upkeep merge moved the head: a stop, its
+// diagnosis, a conflict, the merge, or the end of the implementation.
+const REFRESH_HOLDING_CHECKS = [CHECK_LIMIT, CHECK_DIAGNOSING, CHECK_DIAGNOSED, CHECK_CONFLICT, CHECK_SYNC_CONFLICT, CHECK_MERGE, CHECK_DONE];
+
+// Why a blocked implementation must not get an upkeep merge, or null when it may.
+function refreshHeld(twin) {
+  const decision = twin.decision ?? {};
+  if (twin.active) return 'a run of its chain is active';
+  if (decision.requiredSync || syncBarrier(decision.comments ?? [])) return 'a required synchronization is pending';
+  if (decision.repair || unresolvedRepair(decision.comments ?? [])) return 'a repair is pending';
+  if (!['tasks', 'merge'].includes(decision.action)) return `it is ${decision.action === 'diagnosing' ? 'being diagnosed' : 'stopped'}`;
+  const checks = decision.checks ?? [];
+  if (checks.some((check) => REFRESH_HOLDING_CHECKS.includes(check.external_id))) return 'its head carries a stop, a conflict, or the merge';
+  if (checks.some((check) => check.status !== 'completed' && check.external_id !== CHECK_PROGRESS)) return 'an attempt is running on its head';
+  return null;
+}
+
+// Merges the base branch into blocked implementations that are at least SPECKIT_BLOCKED_REFRESH commits behind it,
+// through GitHub's merge API (no agent, no verification, no attempt, and no label change), so a later conflict
+// resolution has less to do. An implementation that is stopped, active, repairing, or waits for a required
+// synchronization is left alone, because its state lives on its head. A conflict or a refused merge merges nothing and
+// is recorded once per base commit with a hidden marker, so the same base is never tried again; the conflict is then
+// resolved by the required synchronization once the block is lifted (maintainDependencyBlock). The merge commit is the
+// workflow's, so it is never taken for a person's push. Returns the report lines.
+export async function refreshBlocked(client, env, inProgress) {
+  const threshold = parseBlockedRefresh(env.SPECKIT_BLOCKED_REFRESH);
+  if (threshold === 0) return [];
+  const lines = [];
+  for (const twin of inProgress.filter((candidate) => candidate.blocked)) {
+    if (refreshHeld(twin)) continue;
+    const pull = twin.decision.pull;
+    const base = baseBranchOf(pull);
+    const branch = implementationBranch(twin.folder);
+    try {
+      const behind = await client.aheadBy(branch, base);
+      if (behind < threshold) continue;
+      const baseSha = await client.getBranchSha(base);
+      if (refreshSkippedShas(twin.decision.comments).has(baseSha)) continue;
+      let outcome;
+      let reason = '';
+      try {
+        outcome = await client.mergeBranch(branch, base, `Merge ${base} into ${branch} while blocked`);
+      } catch (error) {
+        outcome = 'refused';
+        reason = error.message;
+      }
+      if (outcome === 'merged') {
+        // The queued progress check run of the old head keeps showing the implementation's state on the new head.
+        const progress = (twin.decision.checks ?? []).find((check) => check.status === 'queued' && check.external_id === CHECK_PROGRESS);
+        if (progress) {
+          try {
+            const head = await client.getBranchSha(branch);
+            await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'queued', external_id: CHECK_PROGRESS, output: progress.output ?? { title: 'Blocked', summary: 'The implementation waits for its prerequisites.' } });
+          } catch {
+            // The progress check run is a convenience.
+          }
+        }
+        lines.push(`- Merged \`${base}\` (${behind} commits ahead) into blocked #${twin.number} (pull request #${twin.pull}).`);
+      } else if (outcome === 'up-to-date') {
+        continue;
+      } else {
+        await client.createComment(twin.pull, [
+          renderRefreshSkippedMarker(baseSha),
+          `**\`${base}\` was not merged while blocked**: the merge of \`${base}\` at \`${baseSha.slice(0, 7)}\` into \`${branch}\` ${outcome === 'conflict' ? 'conflicts (GitHub does not report which files)' : `was refused (${neutralizeMarkers(reason)})`}, so nothing was merged.`,
+          '',
+          'No action is needed: once the block is lifted, the implementation merges the base branch with conflict resolution and passes full verification before it continues. This commit is not tried again.',
+        ].join('\n'));
+        lines.push(`- Did not merge \`${base}\` into blocked #${twin.number} (pull request #${twin.pull}): ${outcome === 'conflict' ? 'it conflicts' : 'GitHub refused the merge'}; recorded for \`${baseSha.slice(0, 7)}\`.`);
+      }
+    } catch (error) {
+      lines.push(`- Warning: could not bring blocked #${twin.number} (pull request #${twin.pull}) up to date: ${error.message}`);
+    }
+  }
+  return lines;
+}
+
 // Scheduler: selects flagged twins, starts new implementations while fewer than SPECKIT_MAX_ACTIVE_SPECS are active,
 // and restarts the implementation chain of a twin in progress when no run of it is active although there is something
 // to do (the chain broke, a person pushed, or a merged amendment or a command asked to continue). Each implementation
@@ -505,7 +674,8 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
   report.line();
   let actions = selection.amendmentActions ?? 0;
   const maxActive = parseMaxActiveSpecs(env.SPECKIT_MAX_ACTIVE_SPECS);
-  // A blocked implementation is not continued: it waits for its prerequisites and retries once they are implemented. It
+  // A blocked implementation is not continued: it waits for its prerequisites (at most with an upkeep merge of its base
+  // branch, refreshBlocked) and synchronizes with its base branch once they are implemented. It
   // still holds its slot, so the scheduler starts the prerequisites that unblock it (they start even at the limit)
   // instead of new specs that would most likely run into the same problems.
   const continues = (twin) => !twin.active && !twin.blocked && needsRun(twin.decision, env);
@@ -541,12 +711,19 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     actions += 1;
   }
   if (actions === 0) report.line('- Nothing to do.');
-  const escalations = await maintainEscalations(client, env, selection.inProgress, { now: now() });
-  if (escalations.length > 0) {
+  const actionRequired = await maintainActionRequired(client, env, selection.inProgress, { now: now() });
+  if (actionRequired.length > 0) {
     report.line();
-    report.line('### Escalations');
+    report.line('### Awaiting human action');
     report.line();
-    for (const line of escalations) report.line(line);
+    for (const line of actionRequired) report.line(line);
+  }
+  const refreshed = await refreshBlocked(client, env, selection.inProgress);
+  if (refreshed.length > 0) {
+    report.line();
+    report.line('### Blocked implementations brought up to date');
+    report.line();
+    for (const line of refreshed) report.line(line);
   }
   const roadblocks = await maintainRoadblocks(client, env, selection.inProgress);
   if (roadblocks.length > 0) {

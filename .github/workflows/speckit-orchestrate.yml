@@ -27,7 +27,12 @@ name: Spec Kit orchestrate
 #   - works the blocked queue down: while SPECKIT_MAX_BLOCKED (repository variable, default 5) or more implementations
 #     are blocked, or one of them has been open longer than SPECKIT_MAX_BLOCKED_DAYS (default 2; 0 turns a part off),
 #     only prerequisites of blocked implementations start and the backlog refill and flaky-test specs pause; a stopped
-#     implementation that such old implementations wait for is escalated once per stop.
+#     implementation that such old implementations wait for gets an action-required reminder once per stop.
+#   - optionally brings blocked implementations up to date: with SPECKIT_BLOCKED_REFRESH (repository variable, default
+#     0, which turns it off) it merges the base branch through GitHub's merge API into every blocked implementation
+#     that is at least that many commits behind and neither stopped, active, repairing, nor waiting for a required
+#     synchronization. No agent, verification, attempt, or label change; a conflict merges nothing and is noted once per
+#     base commit, and the required synchronization after the block is lifted resolves it.
 # Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows, so the merge and
 # every dispatched, applying Spec Kit prepare run dispatch this workflow; that is the main path after a merge. The
 # schedule is only a fallback for runs that GitHub drops or delays.
@@ -111,4 +116,6 @@ jobs:
           # The blocked target: fewer blocked implementations than this, none open longer than these days (0 turns a part off).
           SPECKIT_MAX_BLOCKED: ${{ vars.SPECKIT_MAX_BLOCKED || '5' }}
           SPECKIT_MAX_BLOCKED_DAYS: ${{ vars.SPECKIT_MAX_BLOCKED_DAYS || '2' }}
+          # Base branch commits a blocked implementation may fall behind before an upkeep merge; 0 turns it off.
+          SPECKIT_BLOCKED_REFRESH: ${{ vars.SPECKIT_BLOCKED_REFRESH || '0' }}
         run: node .github/scripts/speckit-orchestrate.mjs orchestrate

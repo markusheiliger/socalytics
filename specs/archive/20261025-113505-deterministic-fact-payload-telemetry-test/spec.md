@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Fix for**: #294 (implementation of `specs/20261018-104924-agent-evidence-tools`)
+**Fix for**: #294 (implementation of `specs/archive/20261018-104924-agent-evidence-tools`)
 
-**Input**: User description: "Make the Integration test `SocAlytics.Platform.Integration.Tests.Analysis.Results.FactPayloadTelemetryTests.MetricsAndAuditRecordsCarryThePayloadReasonCodeAndNeverAPayloadValue` deterministic. It lives in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/FactPayloadTelemetryTests.cs` and covers the analysis metrics of `src/platform/SocAlytics.Platform.Application/Telemetry/AnalysisMetrics.cs` (the counter `socalytics.analysis.completions_rejected`). It failed and then passed on its one rerun in the verifications of three implementation pull requests (#259, #284, #294), so it is flaky. Find and confirm the cause, then remove it in the test or in the code it covers, without weakening, skipping, or deleting the test or its assertions, and without retries or longer timeouts as the fix. The spec `specs/20261018-104924-agent-evidence-tools` depends on this spec."
+**Input**: User description: "Make the Integration test `SocAlytics.Platform.Integration.Tests.Analysis.Results.FactPayloadTelemetryTests.MetricsAndAuditRecordsCarryThePayloadReasonCodeAndNeverAPayloadValue` deterministic. It lives in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/FactPayloadTelemetryTests.cs` and covers the analysis metrics of `src/platform/SocAlytics.Platform.Application/Telemetry/AnalysisMetrics.cs` (the counter `socalytics.analysis.completions_rejected`). It failed and then passed on its one rerun in the verifications of three implementation pull requests (#259, #284, #294), so it is flaky. Find and confirm the cause, then remove it in the test or in the code it covers, without weakening, skipping, or deleting the test or its assertions, and without retries or longer timeouts as the fix. The spec `specs/archive/20261018-104924-agent-evidence-tools` depends on this spec."
 
 ## Clarifications
 
@@ -81,5 +81,5 @@ A maintainer running the integration tests, or the verification of any implement
 ## Assumptions
 
 - **Cause**: The test belongs to the validated result acceptance evidence for fact payload schemas (see the merged specs under `specs/archive/`). The primary cause is presumed to be the unscoped listener on the process-wide meter in parallel test collections; this is a hypothesis, and the concrete cause is established during implementation (FR-001).
-- **Dependencies**: The spec [Agent Evidence Tools](../../20261018-104924-agent-evidence-tools/spec.md) (implementation #294) depends on this spec. Related specs that must not be repeated: [Deterministic Finalized Recording Set Run Test](../../20261024-070502-deterministic-finalized-run-test/spec.md) and [Deterministic Integration Races](../20261020-144627-deterministic-integration-races/spec.md) (different tests).
+- **Dependencies**: The spec [Agent Evidence Tools](../20261018-104924-agent-evidence-tools/spec.md) (implementation #294) depends on this spec. Related specs that must not be repeated: [Deterministic Finalized Recording Set Run Test](../../20261024-070502-deterministic-finalized-run-test/spec.md) and [Deterministic Integration Races](../20261020-144627-deterministic-integration-races/spec.md) (different tests).
 - **Out of scope**: Other flaky tests, listeners of meters other than the analysis meter unless they share the defect and the same fix, and production metric values and tag sets. Passing tests are development evidence only and do not establish deployment support or production readiness.

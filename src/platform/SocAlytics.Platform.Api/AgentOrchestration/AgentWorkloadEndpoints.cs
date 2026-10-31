@@ -331,7 +331,7 @@ internal static class AgentWorkloadEndpoints
 	}
 
 	// The stale refusal carries its disposition as a problem member instead of a field error.
-	private static IResult Failure(OperationFailure failure)
+	internal static IResult Failure(OperationFailure failure)
 	{
 		if (failure.Code == AgentExecutionCodes.AttemptStale
 			&& failure.FieldViolations?.FirstOrDefault(v => v.Field == AgentExecutionCodes.DispositionField) is { } disposition)

@@ -1,6 +1,4 @@
-using System.Net.Sockets;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DotNet.Testcontainers.Builders;
@@ -9,7 +7,7 @@ using DotNet.Testcontainers.Images;
 namespace SocAlytics.Platform.EndToEnd.Tests.Support;
 
 /// <summary>A pushed Test Analyst image: the registry repository and its manifest digest (<c>sha256:</c> form).</summary>
-internal sealed record PushedAnalystImage(string Repository, string Digest, string LocalName)
+public sealed record PushedAnalystImage(string Repository, string Digest, string LocalName)
 {
     public string Reference(string registryHost) => $"{registryHost}/{Repository}@{Digest}";
 }
@@ -30,6 +28,44 @@ internal static class TestAnalystImage
     /// every other mode is imported as its own capability with a manifest that allows the short limits of the failure tests.
     /// </summary>
     public static async Task<PushedAnalystImage> BuildAndPushAsync(string registryHost, string repositoryPrefix, CancellationToken ct, string mode = "succeed")
+    {
+        // The only place that acquires the gate: one image's build and push together.
+        var lease = await ImageBuildGate.Shared.AcquireAsync(ct);
+        try
+        {
+            return await BuildAndPushUngatedAsync(registryHost, repositoryPrefix, ct, mode);
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Returns the image for <paramref name="mode"/> from <paramref name="cache"/>, building and pushing it to the cache's registry
+    /// only when the test class has not needed the same variant and inputs before.
+    /// </summary>
+    public static Task<PushedAnalystImage> GetCachedAsync(AnalystImageCache cache, string repositoryPrefix, CancellationToken ct, string mode = "succeed")
+    {
+        var key = new AnalystImageKey("test-analyst", mode, InputsOf(repositoryPrefix));
+        return cache.GetOrBuildAsync(key, (registryHost, buildCt) => BuildAndPushAsync(registryHost, repositoryPrefix, buildCt, mode), ct);
+    }
+
+    private static string InputsOf(string repositoryPrefix)
+    {
+        var directory = Path.Combine(AppContext.BaseDirectory, "TestAnalyst");
+        var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(System.Text.Encoding.UTF8.GetBytes(repositoryPrefix));
+        foreach (var file in Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+        {
+            hash.AppendData(System.Text.Encoding.UTF8.GetBytes(Path.GetRelativePath(directory, file)));
+            hash.AppendData(File.ReadAllBytes(file));
+        }
+
+        return Convert.ToHexStringLower(hash.GetHashAndReset());
+    }
+
+    private static async Task<PushedAnalystImage> BuildAndPushUngatedAsync(string registryHost, string repositoryPrefix, CancellationToken ct, string mode)
     {
         var directory = Path.Combine(AppContext.BaseDirectory, "TestAnalyst");
         var capabilityId = CapabilityId;
@@ -95,7 +131,16 @@ internal static class TestAnalystImage
             .Build();
         try
         {
-            await image.CreateAsync(ct);
+            await EngineCallPolicy.ExecuteAsync(
+                $"The build of {localName}",
+                nameof(EngineCallPolicy.BuildLimit),
+                EngineCallPolicy.BuildLimit,
+                async buildCt =>
+                {
+                    await image.CreateAsync(buildCt);
+                    return true;
+                },
+                ct);
         }
         finally
         {
@@ -116,62 +161,6 @@ internal static class TestAnalystImage
     {
         using var docker = new DockerEngine();
         await docker.DeleteImageAsync(image.LocalName);
-    }
-}
-
-/// <summary>
-/// Reads the pushed manifest digest from the newline-delimited JSON of an image push: the <c>aux.Digest</c> entry of one engine,
-/// or the status line <c>&lt;tag&gt;: digest: sha256:&lt;hex&gt; size: &lt;n&gt;</c> of another. The <c>aux</c> digest wins when both are present.
-/// </summary>
-internal static partial class PushDigestReader
-{
-    [GeneratedRegex(@"^[A-Za-z0-9_][A-Za-z0-9_.-]*: digest: (sha256:[0-9a-f]{64}) size: [0-9]+\z")]
-    private static partial Regex StatusDigest();
-
-    public static string Read(string body)
-    {
-        string? auxDigest = null;
-        string? statusDigest = null;
-        foreach (var line in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            using var document = JsonDocument.Parse(line);
-            var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object)
-            {
-                throw new InvalidOperationException("The push reported a line that is not a JSON object:\n" + line);
-            }
-
-            if (root.TryGetProperty("errorDetail", out var error))
-            {
-                throw new InvalidOperationException("Pushing the Test Analyst image failed: " + error.GetRawText());
-            }
-
-            if (root.TryGetProperty("aux", out var aux))
-            {
-                if (aux.ValueKind != JsonValueKind.Object)
-                {
-                    throw new InvalidOperationException("The push reported an aux entry that is not an object:\n" + line);
-                }
-
-                if (aux.TryGetProperty("Digest", out var value))
-                {
-                    auxDigest = value.ValueKind == JsonValueKind.String
-                        ? value.GetString()
-                        : throw new InvalidOperationException("The push reported an aux digest that is not a string:\n" + line);
-                }
-            }
-
-            if (root.TryGetProperty("status", out var status) && status.ValueKind == JsonValueKind.String)
-            {
-                var match = StatusDigest().Match(status.GetString()!);
-                if (match.Success)
-                {
-                    statusDigest = match.Groups[1].Value;
-                }
-            }
-        }
-
-        return auxDigest ?? statusDigest ?? throw new InvalidOperationException("The push did not report a manifest digest:\n" + body);
     }
 }
 
@@ -231,99 +220,4 @@ internal static partial class PushOutput
 
     [GeneratedRegex(@"^\S+: digest: (sha256:[0-9a-f]{64}) size: \d+$")]
     private static partial Regex StatusDigestLine();
-}
-
-/// <summary>The few Docker Engine calls the end-to-end test needs, on the local engine socket.</summary>
-internal sealed class DockerEngine : IDisposable
-{
-    private const string SocketPath = "/var/run/docker.sock";
-
-    private readonly HttpClient _http = new(new SocketsHttpHandler
-    {
-        ConnectCallback = async (_, ct) =>
-        {
-            var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            await socket.ConnectAsync(new UnixDomainSocketEndPoint(SocketPath), ct);
-            return new NetworkStream(socket, ownsSocket: true);
-        },
-    })
-    {
-        BaseAddress = new Uri("http://docker"),
-        Timeout = TimeSpan.FromMinutes(5),
-    };
-
-    public async Task<string> PushAsync(string name, string tag, CancellationToken ct)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"/images/{Uri.EscapeDataString(name)}/push?tag={tag}");
-        request.Headers.Add("X-Registry-Auth", Convert.ToBase64String(Encoding.UTF8.GetBytes("{}")));
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadAsStringAsync(ct);
-        return PushOutput.ReadDigest(body);
-    }
-
-    public async Task DeleteImageAsync(string name)
-    {
-        using var response = await _http.DeleteAsync($"/images/{Uri.EscapeDataString(name)}?force=true");
-    }
-
-    public async Task<JsonElement> GetJsonAsync(string path, CancellationToken ct)
-    {
-        using var response = await _http.GetAsync(path, ct);
-        response.EnsureSuccessStatusCode();
-        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)).RootElement.Clone();
-    }
-
-    /// <summary>The containers (running or not) that carry the label <c>key=value</c>.</summary>
-    public async Task<IReadOnlyList<string>> ListContainersAsync(string label, CancellationToken ct)
-    {
-        var filters = Uri.EscapeDataString(JsonSerializer.Serialize(new Dictionary<string, string[]> { ["label"] = [label] }));
-        var listed = await GetJsonAsync($"/containers/json?all=1&filters={filters}", ct);
-        return listed.EnumerateArray().Select(c => c.GetProperty("Id").GetString()!).ToList();
-    }
-
-    /// <summary>Creates and starts a container that only sleeps, with the given labels (none for an unlabelled one).</summary>
-    public async Task<string> StartSleepingContainerAsync(string image, IReadOnlyDictionary<string, string> labels, CancellationToken ct)
-    {
-        var body = JsonSerializer.Serialize(new
-        {
-            Image = image,
-            Entrypoint = new[] { "sleep" },
-            Cmd = new[] { "3600" },
-            Labels = labels,
-            HostConfig = new { NetworkMode = "none" },
-        });
-        using var content = new StringContent(body, Encoding.UTF8, "application/json");
-        using var created = await _http.PostAsync("/containers/create", content, ct);
-        created.EnsureSuccessStatusCode();
-        var id = JsonDocument.Parse(await created.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("Id").GetString()!;
-        using var started = await _http.PostAsync($"/containers/{id}/start", null, ct);
-        started.EnsureSuccessStatusCode();
-        return id;
-    }
-
-    public async Task<bool> IsRunningAsync(string containerId, CancellationToken ct)
-    {
-        using var response = await _http.GetAsync($"/containers/{containerId}/json", ct);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return false;
-        }
-
-        response.EnsureSuccessStatusCode();
-        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("State").GetProperty("Running").GetBoolean();
-    }
-
-    public async Task<bool> ExistsAsync(string containerId, CancellationToken ct)
-    {
-        using var response = await _http.GetAsync($"/containers/{containerId}/json", ct);
-        return response.StatusCode != System.Net.HttpStatusCode.NotFound;
-    }
-
-    public async Task RemoveContainerAsync(string containerId)
-    {
-        using var response = await _http.DeleteAsync($"/containers/{containerId}?force=true");
-    }
-
-    public void Dispose() => _http.Dispose();
 }
