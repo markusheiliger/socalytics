@@ -2,7 +2,7 @@
 
 **Branch**: `20261028-235035-case-insensitive-samples-test` | **Date**: 2026-10-28 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261028-235035-case-insensitive-samples-test/spec.md`
+**Input**: Feature specification from `/specs/archive/20261028-235035-case-insensitive-samples-test/spec.md`
 
 ## Summary
 
@@ -46,7 +46,7 @@ Post-design re-check: unchanged, all gates pass. No Complexity Tracking entries.
 ### Documentation (this feature)
 
 ```text
-specs/20261028-235035-case-insensitive-samples-test/
+specs/archive/20261028-235035-case-insensitive-samples-test/
 ├── plan.md              # This file (/speckit-plan command output)
 ├── research.md          # Phase 0 output (/speckit-plan command)
 ├── data-model.md        # Phase 1 output (/speckit-plan command)
