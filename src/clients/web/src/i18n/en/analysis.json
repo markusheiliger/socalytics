@@ -184,6 +184,13 @@
     "reload": "Reload the timeline",
     "connectionRequired": "A connection is required to show the timeline.",
     "extentUnavailable": "The match-time extent cannot be determined because no coverage window or fact is reported. Choose a fact stream from the list instead.",
+    "reportedTotal": "{{count}} facts reported",
+    "partialMark": "Partial",
+    "laneDetail": {
+      "show": "Show details of {{key}}",
+      "hide": "Hide details of {{key}}",
+      "unknownNodeState": "Node state: {{raw}}"
+    },
     "partialBasis": "Based on {{loaded}} of {{reported}} facts",
     "atLeastCount": "At least {{count}} facts, based on loaded facts",
     "zoom": {
