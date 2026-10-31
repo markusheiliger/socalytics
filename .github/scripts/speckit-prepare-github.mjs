@@ -174,8 +174,46 @@ export class GitHubClient {
     await this.request('PATCH', this.repoPath(`/git/refs/heads/${branch}`), { sha, force: false });
   }
 
+  async getGitCommit(sha) {
+    return (await this.request('GET', this.repoPath(`/git/commits/${sha}`))).data;
+  }
+
+  async getRefSha(ref) {
+    const { status, data } = await this.request('GET', this.repoPath(`/git/ref/${ref.replace(/^refs\//, '')}`), undefined, { allow: [404] });
+    return status === 404 ? null : data.object.sha;
+  }
+
+  async resetImplementationRef({ branch, oldHead, newHead, recovery }) {
+    if (!branch.startsWith('speckit/') || !/^refs\/tags\/speckit-reset\/pr-\d+\/\d+$/.test(recovery) ||
+        ![oldHead, newHead].every((sha) => /^[0-9a-f]{40}$/.test(sha))) {
+      throw new Error('Invalid implementation reset references.');
+    }
+    const repository = (await this.request('GET', this.repoPath(''))).data;
+    await this.graphql(
+      `mutation($input: UpdateRefsInput!) {
+        updateRefs(input: $input) { clientMutationId }
+      }`,
+      { input: { repositoryId: repository.node_id, refUpdates: [
+        { name: recovery, beforeOid: '0'.repeat(40), afterOid: oldHead },
+        { name: `refs/heads/${branch}`, beforeOid: oldHead, afterOid: newHead, force: true },
+      ] } },
+    );
+  }
+
   async deleteBranch(branch) {
     await this.request('DELETE', this.repoPath(`/git/refs/heads/${branch}`), undefined, { allow: [404, 422] });
+  }
+
+  async deleteAmendmentBranch(branch, head) {
+    if (!/^speckit-amend\/[^/]+$/.test(branch) || !/^[0-9a-f]{40}$/.test(head)) {
+      throw new Error('Invalid leased amendment branch deletion.');
+    }
+    const repository = (await this.request('GET', this.repoPath(''))).data;
+    await this.graphql('mutation($input: UpdateRefsInput!) { updateRefs(input: $input) { clientMutationId } }',
+      { input: { repositoryId: repository.node_id, refUpdates: [
+        { name: `refs/heads/${branch}`, beforeOid: head, afterOid: '0'.repeat(40) },
+      ] } });
+    if (await this.getBranchSha(branch) !== null) throw new Error(`Amendment branch ${branch} still exists after deletion.`);
   }
 
   async aheadBy(base, head) {
@@ -312,6 +350,18 @@ export class GitHubClient {
     return Buffer.from(data.content, 'base64').toString('utf8');
   }
 
+  async listRepositoryEntries(ref) {
+    const { data } = await this.request('GET', this.repoPath(`/git/trees/${encodeURIComponent(ref)}?recursive=1`));
+    if (data.truncated) throw new Error(`Repository file listing at ${ref} is truncated.`);
+    if (!Array.isArray(data.tree)) throw new Error(`Repository tree at ${ref} is missing.`);
+    return data.tree.filter((entry) => entry.type !== 'tree');
+  }
+
+  async listRepositoryFiles(ref) {
+    return (await this.listRepositoryEntries(ref))
+      .filter((entry) => entry.type === 'blob' && entry.mode !== '120000').map((entry) => entry.path);
+  }
+
   // Lists runs of one workflow file created at or after `since` (ISO time), newest first.
   async listWorkflowRuns(workflowFile, since, maxPages = 10) {
     const runs = [];
@@ -323,6 +373,7 @@ export class GitHubClient {
       );
       runs.push(...data.workflow_runs);
       if (data.workflow_runs.length < 100) break;
+      if (page === maxPages && maxPages === 10) throw new Error(`Workflow run listing for ${workflowFile} is incomplete.`);
     }
     return runs;
   }
@@ -336,6 +387,11 @@ export class GitHubClient {
       allow: [404],
     });
     return status === 404 ? null : data;
+  }
+
+  async cancelWorkflowRun(runId) {
+    if (!Number.isSafeInteger(Number(runId)) || Number(runId) <= 0) throw new Error('Invalid workflow run ID.');
+    await this.request('POST', this.repoPath(`/actions/runs/${runId}/cancel`), undefined, { allow: [409] });
   }
 
   async listRunJobs(runId) {

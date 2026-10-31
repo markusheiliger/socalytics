@@ -478,6 +478,48 @@ test('GitHub client paginates REST lists and surfaces GraphQL errors', async () 
   await assert.rejects(() => client.listTwinIssues('x'), /bad query/);
 });
 
+test('GitHub client lists regular files at a pinned tree and refuses truncated snapshots', async () => {
+  const calls = [];
+  const responses = [
+    response(200, {
+      truncated: false,
+      tree: [
+        { path: 'specs/f', type: 'tree', mode: '040000' },
+        { path: 'specs/f/plan.md', type: 'blob', mode: '100644' },
+        { path: 'specs/f/link.md', type: 'blob', mode: '120000' },
+        { path: 'tools/check.sh', type: 'blob', mode: '100755' },
+      ],
+    }),
+    response(200, { truncated: true, tree: [] }),
+    response(403, { message: 'Forbidden' }),
+  ];
+  const client = new GitHubClient({
+    token: 't',
+    repository: 'octo/repo',
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return responses.shift();
+    },
+  });
+  assert.deepEqual(await client.listRepositoryFiles('sha-head'), ['specs/f/plan.md', 'tools/check.sh']);
+  assert.equal(calls[0], 'https://api.github.com/repos/octo/repo/git/trees/sha-head?recursive=1');
+  await assert.rejects(() => client.listRepositoryFiles('sha-head'), /listing at sha-head is truncated/);
+  await assert.rejects(() => client.listRepositoryFiles('sha-head'), /HTTP 403/);
+});
+
+test('GitHub tree metadata preserves mode, object identity, and symlinks for pinned recovery comparisons', async () => {
+  const entries = [
+    { path: '.github', type: 'tree', mode: '040000', sha: 'tree' },
+    { path: '.github/script.sh', type: 'blob', mode: '100755', sha: 'executable' },
+    { path: '.github/link', type: 'blob', mode: '120000', sha: 'symlink' },
+  ];
+  const responses = [response(200, { tree: entries }), response(200, {}), response(200, { truncated: true, tree: entries })];
+  const client = new GitHubClient({ token: 't', repository: 'octo/repo', fetchImpl: async () => responses.shift() });
+  assert.deepEqual(await client.listRepositoryEntries('pinned'), entries.slice(1));
+  await assert.rejects(client.listRepositoryEntries('pinned'), /tree at pinned is missing/);
+  await assert.rejects(client.listRepositoryEntries('pinned'), /truncated/);
+});
+
 test('GitHub client creates missing labels and surfaces errors', async () => {
   const calls = [];
   const responses = [response(404, { message: 'Not Found' }), response(201, { name: 'x' }), response(500, { message: 'boom' })];

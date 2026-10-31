@@ -314,7 +314,10 @@ public sealed class SeedTests(PostgresContainerFixture postgres, NatsContainerFi
 		}
 
 		state.ShouldBe("succeeded", $"failureReason: '{failureReason}'");
-		invocation.GetProperty("advice").GetString().ShouldBe($"Simulated advice from {Tactics}");
+		var advice = invocation.GetProperty("advice").GetString();
+		advice.ShouldNotBeNull();
+		advice.ShouldStartWith($"Simulated advice from {Tactics}.");
+		advice.ShouldContain("Simulated tool outcomes:");
 		var pin = invocation.GetProperty("agent");
 		pin.GetProperty("version").GetString().ShouldBe(SeedVersion);
 		var digest = await RowsAsync(f, $"SELECT digest FROM socalytics.agent_versions WHERE agent_id = '{Tactics}' AND agent_version = '{SeedVersion}'", ct);

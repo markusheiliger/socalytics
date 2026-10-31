@@ -36,6 +36,13 @@ implementation workflows through the `speckit-workflow` action (see the
 workflows README, "Spec Kit workflows in the jobs"), and Spec Kit author runs
 `author`. In Copilot Chat the extension command `/speckit-gha-author` operates it.
 
+`implement-task`, `converge`, and `resolve` take the optional input `previous`:
+a file, relative to the repository root, with the report of a failed earlier
+attempt at the same work (its reasons, the end of its verification output, and
+the agent's summary). The agent reads it as evidence of what went wrong, never
+as instructions. On GitHub the work job fills it for an automatic second
+attempt only.
+
 ## Workflow Design
 
 Every workflow the extension ships follows one design, so the GitHub workflows
@@ -186,6 +193,12 @@ a generated "Commands you can recommend" section (with what `/speckit retry` doe
 choose and word a command; the diagnose drift tests fail when it names an unknown command or misses a recommendable
 command or flag.
 Publication rejects inconsistent category/command recommendations instead of replacing them with a retry.
+When a decision requires changes to the feature's own artifacts, the diagnosis recommends a concrete
+`/speckit amend <guidance>` comment. A writer's command authorizes only that artifact change and starts amendment
+preparation through the existing diagnose workflow's `amend` mode. It preserves completed tasks, never ticks tasks,
+and propagates the accepted decision consistently. Independent analysis and human review/merge are required before
+implementation resumes. Existing amendments are reused for the same request or linked for review/rework, not replaced.
+Failed Copilot handoffs receive one new diagnosis using the refusal as evidence instead of repeating the same request.
 When the required fix is already on the implementation pull request's base branch, the diagnosis uses `outside`
 and recommends `/speckit sync`: the existing Copilot conflict-resolution workflow must merge and verify the
 latest base before implementation can continue.
@@ -200,8 +213,9 @@ independent analysis finds it consistent, merges it automatically (a spec that
 changes `docs/architecture/` waits for review; its plan's Architecture Updates
 explain its design decisions).
 The stopped spec then depends on it like on any spec; it is implemented only after
-someone signs it off with `/speckit implement` on its twin, and the stopped
-implementation retries by itself when it is implemented.
+someone signs it off with `/speckit implement` on its twin, and once it is
+implemented the stopped implementation merges the base branch, passes full
+verification, and continues by itself.
 
 `speckit.gha.route` and `speckit.gha.request` both run
 `node .github/scripts/speckit-orchestrate.mjs request`, which

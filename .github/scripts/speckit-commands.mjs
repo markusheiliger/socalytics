@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 import { IMPLEMENT_STAGE, IMPLEMENTING_STAGE, TWIN_LABEL, deriveStage, hasLabel, implementBlockers, isImplementRequested, parseTwinFolder, specDir, stageLabel, stageLabelChange } from './speckit-prepare-core.mjs';
 import { canWrite, readSpecFolder, renderImplementRequested, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { startFixAuthoring } from './speckit-fix.mjs';
+import { requestAmendment } from './speckit-amend.mjs';
+import { runReset, readResetSource } from './speckit-reset.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   ATTENTION_LABEL,
@@ -26,15 +28,18 @@ import {
   describeCommandEffect,
   folderOfBranch,
   implementationBranch,
+  implementationRunCurrent,
   isCopilotRequest,
-  latestStopReason,
   neutralizeMarkers,
   parseCommandArguments,
   renderRetryComment,
-  renderSyncComment,
+  requestSync,
+  restartState,
   setAttention,
+  supersedeActionRequired,
   specTitleOfPull,
   unresolvedRepair,
+  resetState,
   unchangedRestarts,
 } from './speckit-implement-core.mjs';
 
@@ -146,6 +151,7 @@ export async function retryImplementation(client, env, { implementation, twin, f
   }
   await client.createComment(implementation.number, `${prefix}${renderRetryComment(`${text}${suffix}`, guidance, state)}`);
   await setAttention(client, implementation.number, false);
+  await supersedeActionRequired(client, implementation.number);
   try {
     await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
   } catch {
@@ -153,25 +159,11 @@ export async function retryImplementation(client, env, { implementation, twin, f
   }
 }
 
-// Requests the required synchronization like `/speckit sync`: the sync comment persists the request, which merges the
-// pull request base and passes full verification before any work continues. `lead` says who requested it; `prefix`
-// and `suffix` as for retryImplementation.
-export async function requestSync(client, env, { implementation, twin }, { lead, guidance = '', prefix = '', suffix = '' }) {
-  const reach = guidance ? ` ${describeGuidanceReach('sync', { lastStop: latestStopReason(await client.listIssueComments(implementation.number)) })}` : '';
-  await client.createComment(implementation.number, `${prefix}${renderSyncComment(
-    `${lead}; merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.${reach}${suffix}`,
-    guidance,
-    await restartState(client, implementation),
-  )}`);
-  await setAttention(client, implementation.number, false);
-  try {
-    await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
-  } catch {
-    // The durable request survives a failed dispatch or replacement by another pending run.
-  }
-}
-
 export const RETRY_EFFECT = 'what stopped restarts with a fresh attempt count while preserving the current phase base.';
+
+// The required synchronization (`/speckit sync`) and the restart state live in core, so the scheduler posts the same
+// request when it lifts a block (maintainDependencyBlock).
+export { requestSync, restartState };
 
 // Command router (issue_comment): validates the author and the command, reacts, and performs the command. Comments
 // by bots never get here; the workflow filters them. SPECKIT_TARGET `twin` marks a comment on a spec twin issue; every
@@ -237,8 +229,24 @@ export async function runCommand({ client, env, log, now = Date.now, rootDir = e
     await reply(client, number, 'The implementation pull request changed while the command waited for publication. Post the command again on the current implementation pull request.');
     return { exitCode: 0, handled: true, command: command.name, rejected: 'publication target changed' };
   }
+  if (command.name === 'reset' && command.guidance) {
+    const rejected = 'reset accepts no arguments; post exactly /speckit reset';
+    await reply(client, number, `**Reset was not run**: ${rejected}.`);
+    return { exitCode: 0, handled: true, command: command.name, rejected };
+  }
+  if (command.name !== 'reset' && resetState(await client.listIssueComments(target.implementation.number)).pending) {
+    const rejected = 'a reset is pending; wait for its reconciliation before posting another command';
+    await reply(client, number, `**Command was not run**: ${rejected}.`);
+    return { exitCode: 0, handled: true, command: command.name, rejected };
+  }
+  if (command.name !== 'reset' && !(await implementationRunCurrent(client, target.implementation.number, env))) {
+    return { exitCode: 0, handled: true, command: command.name, rejected: 'command superseded by reset' };
+  }
   const handler = HANDLERS[command.name];
-  const result = await handler({ client, env, actor, number, flags: command.flags, guidance: command.guidance.slice(0, 4000), now, ...target });
+  const result = await handler({ client, env, actor, number, commentId, flags: command.flags, guidance: command.guidance.slice(0, 4000), now, prepareOnly: env.SPECKIT_RESET_PREPARE === 'true', ...target });
+  if (command.name === 'reset' && result.rejected) {
+    await reply(client, number, `**Reset was not run**: ${result.rejected}.\n\n**Recommended next step**: Resolve the reported obstacle, then post \`/speckit reset\` on #${target.implementation.number}.`);
+  }
   log(`/speckit ${command.name} by @${actor}: ${result.outcome}`);
   return { exitCode: 0, handled: true, command: command.name, ...result };
 }
@@ -256,14 +264,6 @@ async function handleSync({ client, env, actor, number, guidance, implementation
   await requestSync(client, env, { implementation, twin }, { lead: `Required synchronization requested by @${actor}`, guidance });
   if (number !== implementation.number) await reply(client, number, `Synchronization requested; progress is reported on #${implementation.number}.`);
   return { outcome: 'sync requested' };
-}
-
-export async function restartState(client, implementation) {
-  let base = null;
-  try {
-    base = await client.getBranchSha(baseBranchOf(implementation));
-  } catch {}
-  return { head: implementation.head.sha, base };
 }
 
 // Refuses a restart while the implementation is stopped and the last MAX_UNCHANGED_RESTARTS restarts left its branch
@@ -326,6 +326,12 @@ async function handleAuthor({ client, env, actor, number, guidance, now, impleme
 }
 
 const HANDLERS = {
+  reset: runReset,
+  amend: async ({ client, env, ...target }) => {
+    const result = await requestAmendment(client, env, target);
+    if (result.rejected) await reply(client, target.number, `**\`/speckit amend\` was not run**: ${result.rejected}.\n\n**Recommended next step**: ${result.rejected.includes('already') ? 'Review or rework the existing amendment request' : 'Review the current implementation state and post `/speckit amend <guidance>` with the concrete artifact change'}.`);
+    return result;
+  },
   retry: handleRetry,
   sync: handleSync,
   author: handleAuthor,
@@ -466,6 +472,7 @@ export async function runCopilotHandoff({ client, env, log }) {
     return { exitCode: 0, handled: false };
   }
   const pull = await client.getPullRequest(number);
+  if (!(await implementationRunCurrent(client, number, env))) return { exitCode: 0, handled: false, outcome: 'superseded' };
   const folder = folderOfBranch(pull.head?.ref);
   if (pull.state !== 'open' || !folder || pull.head.ref !== implementationBranch(folder) || pull.head?.repo?.full_name !== env.GITHUB_REPOSITORY) {
     log('Not an open Spec Kit implementation pull request.');
@@ -476,13 +483,14 @@ export async function runCopilotHandoff({ client, env, log }) {
     log('The implementation does not wait for a person; nothing to hand over.');
     return { exitCode: 0, handled: false };
   }
-  await setAttention(client, number, false);
   await reply(client, number, [
     COPILOT_HANDOFF_MARKER,
     `**Copilot is working on it**: @${actor} asked GitHub Copilot's cloud agent to change \`${implementationBranch(folder)}\`, so this pull request no longer asks for help. Nothing is needed now: Copilot's push continues the implementation by itself with a fresh attempt count.`,
     '',
     `If Copilot finishes without pushing, or has not pushed within ${COPILOT_HANDOFF_MS / 60000} minutes, the scheduler asks for help here again.`,
   ]);
+  await setAttention(client, number, false);
+  await supersedeActionRequired(client, number);
   log(`Handed #${number} over to Copilot for @${actor}.`);
   return { exitCode: 0, handled: true };
 }
@@ -490,16 +498,27 @@ export async function runCopilotHandoff({ client, env, log }) {
 export async function main(argv, { env = process.env, log = console.log, client, docsFile } = {}) {
   const [command, ...args] = argv;
   if (command === 'docs') return runDocs(args, { file: docsFile, log });
-  if (!['command', 'target', 'copilot-handoff'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target | copilot-handoff | docs [--write]> (command, target, and copilot-handoff take their inputs from SPECKIT_* environment variables)');
+  if (!['command', 'target', 'prepare-reset', 'copilot-handoff'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target | prepare-reset | copilot-handoff | docs [--write]>');
   const github = client ?? createGitHubClient(env);
+  if (env.SPECKIT_RESET_RESUME) {
+    const source = await readResetSource(github, env);
+    env = { ...env, SPECKIT_COMMENT_ID: String(source.id), SPECKIT_ACTOR: source.user?.login, SPECKIT_COMMENT_BODY: source.body };
+  }
   if (command === 'copilot-handoff') return (await runCopilotHandoff({ client: github, env, log })).exitCode;
   if (command === 'target') {
     const pull = await runCommandTarget({ client: github, env });
-    if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `pull=${pull}\n`);
+    const parsed = parseCommand(env.SPECKIT_COMMENT_BODY);
+    const force = parsed?.name === 'reset' && parsed.flags.includes(RESTART_FORCE_FLAG) && !parsed.unknownFlags.length && !parsed.guidance;
+    if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `pull=${pull}\nforce_reset=${Boolean(force)}\n`);
     return 0;
   }
+  if (command === 'prepare-reset') {
+    const parsed = parseCommand(env.SPECKIT_COMMENT_BODY);
+    if (parsed?.name !== 'reset' || !parsed.flags.includes(RESTART_FORCE_FLAG)) throw new CommandUsageError('Force preparation requires an authorized reset with the force flag.');
+    env = { ...env, SPECKIT_RESET_PREPARE: 'true' };
+  }
   const result = await runCommand({ client: github, env, log });
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `handled=${result.handled}\n`);
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `handled=${result.handled}\nprepared=${['prepared', 'already reset'].includes(result.outcome)}\n`);
   return result.exitCode;
 }
 

@@ -17,8 +17,12 @@ namespace SocAlytics.Platform.EndToEnd.Tests;
 /// its audit lists, and it completes a job under the Manager's restrictions (FR-009, FR-011, FR-013; SC-006).
 /// </summary>
 [Collection("EndToEnd")]
-public sealed class ShotBoundaryImageTests
+public sealed class ShotBoundaryImageTests : IClassFixture<AnalystImageCache>
 {
+    private readonly AnalystImageCache _imageCache;
+
+    public ShotBoundaryImageTests(AnalystImageCache imageCache) => _imageCache = imageCache;
+
     private const string Prefix = "analysts/";
     private const string UnknownUser = "54321:54321";
     private const long MemoryLimitBytes = 2L * 1024 * 1024 * 1024;
@@ -61,31 +65,16 @@ public sealed class ShotBoundaryImageTests
         var manifest = JsonNode.Parse(manifestBytes)!;
         var audit = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(root, AuditPath), ct))!.AsArray();
 
-        var registry = new OciRegistryContainerFixture();
-        await registry.InitializeAsync();
-        PushedAnalystImage? image = null;
-        try
-        {
-            image = await ShotBoundaryAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct);
+        var image = await ShotBoundaryAnalystImage.GetCachedAsync(_imageCache, Prefix, ct);
 
-            using var docker = new DockerEngine();
-            await AssertLabelsAsync(docker, image.LocalName, manifest, manifestBytes, ct);
+        using var docker = new DockerEngine();
+        await AssertLabelsAsync(docker, image.LocalName, manifest, manifestBytes, ct);
 
-            using var runner = new ContainerRunner();
-            await AssertNoModelWeightsAsync(runner, image.LocalName, ct);
-            await AssertInstalledDistributionsAsync(runner, image.LocalName, audit, ct);
-            await AssertJobCompletesAsync(runner, image.LocalName, ct);
-            await AssertOneMinuteClipStaysWithinResourcesAsync(runner, image.LocalName, ct);
-        }
-        finally
-        {
-            if (image is not null)
-            {
-                await ShotBoundaryAnalystImage.RemoveAsync(image);
-            }
-
-            await registry.DisposeAsync();
-        }
+        using var runner = new ContainerRunner();
+        await AssertNoModelWeightsAsync(runner, image.LocalName, ct);
+        await AssertInstalledDistributionsAsync(runner, image.LocalName, audit, ct);
+        await AssertJobCompletesAsync(runner, image.LocalName, ct);
+        await AssertOneMinuteClipStaysWithinResourcesAsync(runner, image.LocalName, ct);
     }
 
     private static async Task AssertLabelsAsync(DockerEngine docker, string localName, JsonNode manifest, byte[] manifestBytes, CancellationToken ct)

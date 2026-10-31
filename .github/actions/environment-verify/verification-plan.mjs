@@ -13,7 +13,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { TOOLING_FILE, classify } from './verification-scope.mjs';
+import { SAMPLE_TOOLING_FILE, TOOLING_FILE, classify } from './verification-scope.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -179,8 +179,9 @@ function testProjects(root, componentRoot) {
 }
 
 export const DEFAULT_UNIT_MINUTES = 10;
-// The Python projects, the environment action tests, and the Markdown check always run in the first shard.
-export const MAIN_MINUTES = 5;
+// The Python projects, the environment action tests, the Spec Kit tooling tests, the Sample tooling tests, and the
+// Markdown check always run in the first shard; the budget includes the Sample tooling tests.
+export const MAIN_MINUTES = 6;
 
 // Packs the work of the selected components into count shards by estimated minutes: a declared shard of a .NET
 // component in all-tests scope is one unit, the rest of each component another. Units go, largest first, to the shard
@@ -324,6 +325,7 @@ export function buildPlan({ root, mode, changedFiles, shard = '' }) {
   const covered = [
     ...STATIC_COVERED,
     TOOLING_FILE,
+    SAMPLE_TOOLING_FILE,
     ...planned.flatMap((component) => component.covers.map((prefix) => new RegExp(`^${escapeRegExp(prefix)}`))),
     ...Object.values(python).flatMap((area) => area.covered.map((projectRoot) => new RegExp(`^${escapeRegExp(projectRoot)}/`))),
   ];

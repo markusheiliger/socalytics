@@ -63,6 +63,25 @@ For runtime operations and attempt fencing, see
 
 ---
 
+## Local Development Instance
+
+The adopted [VS Code full-stack F5 contract](platform-implementation.md#local-development-and-debugging)
+requires Aspire to start an isolated development Analyst Manager, initially
+on Windows, with debugger support and the Development-only simulated runtime.
+This integration is not yet implemented; the Manager currently starts
+separately. Implementation will follow through Spec Kit.
+
+The development instance must isolate its state, local-control endpoint, and
+single-instance identity from an installed Manager. It must not enable
+autostart or change the installed Manager's registration, credentials, or
+ordinary lifecycle. It uses normal pairing and approval once through the
+Web UI, without an authorization bypass, and retains that registration across
+subsequent F5 launches. Stopping the debug session must clean up only its own
+Manager instance while preserving development state.
+
+These are local-development requirements, not a third application profile or
+evidence of production readiness.
+
 ## Application Profiles
 
 The Analyst Manager has one implementation with two supported profiles. Both

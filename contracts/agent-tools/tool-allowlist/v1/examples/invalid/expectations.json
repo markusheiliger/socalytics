@@ -1,0 +1,6 @@
+{
+  "tool-id-with-parentheses.json": "pattern",
+  "delete-method.json": "const",
+  "unknown-answers-value.json": "enum",
+  "extra-property.json": "additionalProperties"
+}

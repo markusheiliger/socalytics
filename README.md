@@ -859,11 +859,26 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     access can use them; a 👀 reaction confirms receipt, and a comment reports
     the result.
 
-    The commands (`retry`, `sync`, `fix`, and `help`), their flags, guidance,
+    The commands (`retry`, `sync`, `reset`, `amend`, `author`, and `help`), their flags, guidance,
     and limits are described in
     [Comment commands](.github/workflows/README.md#comment-commands); the
     command table there is generated from the tooling, and `/speckit help`
     posts the same table on the pull request.
+
+    `/speckit reset` is a destructive, writer-authorized restart from the current
+    PR base with a retained recovery reference. It discards branch-only amendments
+    and implementation progress. Bare reset refuses active work or open child PRs.
+    The optional `--force` flag cancels confirmed related work and closes/deletes
+    owned amendments before the locked reset; authored prerequisites and
+    unconfirmed external handoffs still block it. Diagnosis copyable commands
+    stay bare: the writer must type the force flag manually. Neither variant
+    runs automatically from a diagnosis recommendation.
+
+    For protected-path or publication failures, diagnosis must assess reset
+    before recommending privileged publication. It distinguishes the immediate
+    blocker reset removes from remaining, separately authorized scope changes.
+    Trusted base/head evidence and report validation enforce the comparison;
+    missing or stale assessments use the existing bounded reassessment.
 
     What restarts is decided from the pull request's state: the stopped task,
     the convergence, the conflict resolution, or the merge. A failed phase

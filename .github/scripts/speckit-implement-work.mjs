@@ -8,10 +8,15 @@ import { RUNS_FILE, bindEvidence, gitReader, landCompletion, requirementLabel, t
 import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import { workflowFailure } from './speckit-workflow-job.mjs';
+import { implementationRunCurrent } from './speckit-implement-core.mjs';
 import {
   BOT_LOGIN,
+  FAILURE_CLASS_TEXT,
+  MAX_TASK_ATTEMPTS,
+  autoContinuedStop,
   latestHumanCommit,
   parseAttempts,
+  retryState,
   CHECK_CONFLICT,
   CHECK_DONE,
   CHECK_LIMIT,
@@ -99,9 +104,75 @@ function title(inputs) {
   return `${label.charAt(0).toUpperCase()}${label.slice(1)} attempt ${inputs.attempt}`;
 }
 
-// The attempt marker line of an outcome comment (see parseAttempts); merges are tracked by check runs instead.
-function markerLines(inputs, outcome) {
-  return inputs.kind === 'merge' ? [] : [renderAttemptMarker({ kind: inputs.kind, task: inputs.task, attempt: inputs.attempt, outcome })];
+// The attempt marker line of an outcome comment (see parseAttempts), with the class of a failure. Merges are counted by
+// check runs; their failure markers only carry the class.
+function markerLines(inputs, outcome, failureClass = undefined) {
+  if (inputs.kind === 'merge' && outcome !== 'failure') return [];
+  return [renderAttemptMarker({ kind: inputs.kind, task: inputs.task, attempt: inputs.attempt, outcome, failureClass })];
+}
+
+// Reasons of a failure that another attempt cannot change (class `repeat`, see FAILURE_CLASSES): the texts of
+// validateTaskChange, environmentExclusivityReasons, validateConvergeChange, checkStagedRepair, resolutionScope,
+// runIntegrate, referenceOnlySpecChanges, applyPatch, and a push the branch refused without moving.
+export const REPEAT_REASON_PATTERNS = Object.freeze([
+  /^the agent made no changes$/,
+  /^changed protected paths: /,
+  /^`[^`]+` may only change by checking T\d{3,}/,
+  /^changes to the environment actions must come from a standalone environment spec/,
+  /^convergence may only /,
+  /^the (repair|resolution) changed protected files: /,
+  /^the resolution deleted files that only the base branch owns: /,
+  /^conflicts in protected paths need a person: /,
+  /^the push to `[^`]+` was rejected: /,
+  /^merging \S+ failed: /,
+  /^changes under specs\/ outside .+ must be reference rewrites of the archive/,
+]);
+
+// Reasons that show the work failed before the agent ran (class `infrastructure`): the Spec Kit workflow did not start
+// or left no state, the agent never ran, or the branch could not be read after a rejected push.
+export const INFRASTRUCTURE_REASON_PATTERNS = Object.freeze([
+  /^the agent did not run$/,
+  /^the Spec Kit workflow `[^`]+` failed: the Spec Kit workflow `[^`]+` (did not start|left no run state)/,
+  /and the branch could not be read \(/,
+]);
+
+// The class of a failed attempt (FAILURE_CLASSES). `workFinished` tells that the work job left its result.json,
+// `agentOutput` that the agent left output (agent-exit.txt, agent.jsonl, workflow.json), and `noChange` that the agent
+// made no change without a completion claim.
+export function classifyFailure(reasons, { workFinished = true, agentOutput = true, noChange = false } = {}) {
+  const matches = (patterns) => reasons.some((reason) => patterns.some((pattern) => pattern.test(String(reason))));
+  if ((!workFinished && !agentOutput) || matches(INFRASTRUCTURE_REASON_PATTERNS)) return 'infrastructure';
+  if (noChange || matches(REPEAT_REASON_PATTERNS)) return 'repeat';
+  return 'agent';
+}
+
+const hasAgentOutput = (resultDir) => ['agent-exit.txt', 'agent.jsonl', 'workflow.json'].some((file) => existsSync(path.join(resultDir, file)));
+
+// What happens after this failure, with the same rule as the next decision (retryState): the item's earlier attempts of
+// the current window are its ledger entries since its latest attempt 1.
+export function failureOutlook({ comments = [], inputs, failureClass, now = Date.now() }) {
+  const ledger = parseAttempts(comments);
+  const task = inputs.task || null;
+  const item = ledger.filter((attempt) => attempt.kind === inputs.kind && (attempt.task ?? null) === task);
+  const first = item.findLastIndex((attempt) => attempt.attempt === 1);
+  const earlier = Number(inputs.attempt) > 1 && first >= 0 ? item.slice(first) : [];
+  let stopped = autoContinuedStop(comments, ledger, null);
+  if (stopped && earlier.length > 0 && Date.parse(earlier[0].at) < Date.parse(stopped.at)) stopped = null;
+  const current = { kind: inputs.kind, task, attempt: Number(inputs.attempt), outcome: 'failure', at: new Date(now).toISOString(), class: failureClass };
+  const state = retryState([...earlier, current], { kind: inputs.kind, task, stopped, limit: MAX_TASK_ATTEMPTS });
+  return state.exceeded ? (failureClass === 'repeat' ? 'repeat' : state.sameAsStop ? 'same' : 'limit') : state.wait ? 'wait' : 'evidence';
+}
+
+function outlookLine(outlook, { bestEffort = false } = {}) {
+  if (bestEffort && !['evidence', 'wait'].includes(outlook)) return 'The merge of the base branch is given up; the implementation continues on its current base, and the conflicts are resolved when it merges.';
+  return {
+    evidence: 'It is retried once with the failure evidence: the next attempt gets this report.',
+    wait: `It is retried once after a short wait, because ${FAILURE_CLASS_TEXT.infrastructure}.`,
+    repeat: `It stops for diagnosis: ${FAILURE_CLASS_TEXT.repeat}.`,
+    same: 'It stops for diagnosis: it failed the same way as before the automatic continuation.',
+    limit: 'It stops for diagnosis: the attempt limit is reached.',
+    repair: 'It stops for diagnosis and a repair of the failed verification instead of another attempt.',
+  }[outlook];
 }
 
 function tail(text, lines = 60) {
@@ -235,11 +306,12 @@ function taskFiles(text, workspace) {
 // build check over the files the task names, and a file only this task names either differs on the implementation
 // branch (someone pushed the work) or changed on the base branch since the implementation started and is merged into
 // the branch (the work landed elsewhere). Returns { reasons, provenance: { where, commit } }.
+const UNCHANGED_HEAD_MOVED = 'verification of the unchanged branch ran on a different head';
 function verifiedUnchangedCheck({ result, headNow, git, workspace, folder, task, baseBranch, since = '' }) {
   const fail = (reason) => ({ reasons: [reason], provenance: null });
   const unchanged = result?.unchanged;
   if (!unchanged) return fail('verification of the unchanged branch was not recorded');
-  if (!headNow || unchanged.head !== headNow) return fail('verification of the unchanged branch ran on a different head');
+  if (!headNow || unchanged.head !== headNow) return fail(UNCHANGED_HEAD_MOVED);
   if (unchanged.status === 'failed') return fail('verification of the unchanged branch failed');
   if (unchanged.status === 'not-configured') return fail('verification of the unchanged branch was not configured');
   if (unchanged.status !== 'passed') return fail('verification of the unchanged branch did not run');
@@ -554,8 +626,11 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
       if (changedBytes > MAX_PATCH_BYTES) result.reasons.push(`the resolution changes more than ${MAX_PATCH_BYTES} bytes besides the conflicts`);
     }
     if (result.reasons.length === 0) {
+      const current = splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', result.baseSha]));
+      // Git compares object identity, type and mode, including entries absent from both trees.
+      if (result.syncRepair) result.syncRepair.baseEquivalent = result.syncRepair.paths.filter((file) => !current.includes(file));
       paths = [...new Set([
-        ...splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', result.baseSha])),
+        ...current,
         ...(result.syncRepair?.paths ?? []),
       ])].sort();
       result.changedFiles = paths;
@@ -655,6 +730,11 @@ export function runVerdict({ env, inputs, resultDir, log }) {
       result.reasons.push(names.length > 0 ? `${names.at(-1)} failed` : `the verification did not succeed (${outcome || 'not run'})`);
     }
     result.uncovered = String(env.SPECKIT_VERIFY_UNCOVERED ?? '').split(',').map((file) => file.trim()).filter(Boolean);
+    if (env.SPECKIT_REQUIRED_SYNC && result.syncRepair && result.tree) {
+      result.reportedUncovered = [...result.uncovered];
+      result.uncovered = result.uncovered.filter((file) => !result.syncRepair.paths.includes(file) ||
+        !(result.syncRepair.baseEquivalent ?? []).includes(file));
+    }
     if (env.SPECKIT_REQUIRED_SYNC && result.uncovered.length > 0) result.reasons.push('required synchronization has files not covered by verification');
   }
   if (result.reasons.length === 0 && inputs.kind === 'merge' && result.environment && !pendingConflicts) {
@@ -708,17 +788,18 @@ async function requesterMention(client, twin) {
   return requester?.login ? { login: requester.login, mention: `@${requester.login}` } : { login: null, mention: '' };
 }
 
-async function reportFailure({ client, inputs, reasons, resultDir }) {
+async function reportFailure({ client, inputs, reasons, resultDir, failureClass = 'agent', bestEffort = false, outlook = null }) {
+  outlook ??= failureOutlook({ comments: await client.listIssueComments(inputs.pull), inputs, failureClass });
   const verification = neutralizeMarkers(tail(readOptional(path.join(resultDir, 'verification.log'))));
   const flaky = readJson(path.join(resultDir, 'result.json'))?.flaky ?? [];
-  const safeReasons = reasons.map(neutralizeMarkers);
+  const safeReasons = [...new Set(reasons.map(neutralizeMarkers))];
   await client.updateCheckRun(inputs.checkRun, {
     status: 'completed',
     conclusion: 'failure',
     output: { title: `${title(inputs)} failed`, summary: safeReasons.map((reason) => `- ${reason}`).join('\n') },
   });
   await client.createComment(inputs.pull, [
-    ...markerLines(inputs, 'failure'),
+    ...markerLines(inputs, 'failure', failureClass),
     `**${title(inputs)} failed:**`,
     '',
     ...safeReasons.map((reason) => `- ${reason}`),
@@ -726,8 +807,9 @@ async function reportFailure({ client, inputs, reasons, resultDir }) {
     ...(verification.trim() ? ['', '<details><summary>Verification output (tail)</summary>', '', fence(verification), '', '</details>'] : []),
     ...agentDetails(resultDir),
     '',
-    'It is retried until the attempt limit is reached.',
+    outlookLine(outlook, { bestEffort }),
   ].join('\n'));
+  return outlook;
 }
 
 // Stops the implementation and asks the person who requested it, because automation cannot continue. The comment
@@ -770,6 +852,35 @@ function fetchArgs(env, branch) {
   return [...config, 'fetch', '--quiet', url, `+refs/heads/${branch}:${LANDED_HEAD_REF}`];
 }
 
+function gitFailureDiagnostic(result, env) {
+  let text = [result.stderr, result.stdout].filter((value) => value?.trim()).join('\n').trim()
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
+    .replace(/(\b(?:proxy-)?authorization\s*[:=]\s*(?:basic|bearer|token)\s+)[^\s'"]+/gi, '$1***');
+  for (const token of new Set([env.GITHUB_TOKEN, env.GH_TOKEN].filter(Boolean))) {
+    for (const secret of [token, encodeURIComponent(token), Buffer.from(`x-access-token:${token}`).toString('base64')]) {
+      text = text.replaceAll(secret, '***');
+    }
+  }
+  text = text.replace(/(https?:\/\/)[^\s/@]+@/gi, '$1***@');
+  if (!text) return `git exited with status ${result.status ?? 'unknown'} without diagnostics`;
+  return text.length > 6000 ? `${text.slice(0, 4500)}\n[Git diagnostic truncated]\n${text.slice(-1500)}` : text;
+}
+
+function inspectRejectedPush({ git, env, branch, onto, pushed }) {
+  const rejection = gitFailureDiagnostic(pushed, env);
+  const fetched = git(fetchArgs(env, branch));
+  if (fetched.status !== 0) {
+    return { reasons: [`the push to \`${branch}\` was rejected (${rejection}) and the branch could not be read (${gitFailureDiagnostic(fetched, env)})`] };
+  }
+  const newHead = gitOrThrow(git, ['rev-parse', LANDED_HEAD_REF]).trim();
+  if (newHead === onto) {
+    return { reasons: [`the push to \`${branch}\` was rejected: ${rejection}\nThe remote branch is unchanged at ${onto}.`] };
+  }
+  return { newHead, rejection };
+}
+
 // How often a task is rebuilt on a moved branch before it is redone from the newest head.
 const MAX_LAND_TRIES = 5;
 
@@ -810,7 +921,8 @@ export function runCombinedEdits({ git, env, log }) {
 // a change that no longer applies, or conflicts with those edits, has to be redone from the new head: that is a
 // requeue, not a failed attempt.
 // The shared job lock makes acceptance atomic with publication; rereads also fence stale work and push retries.
-async function publicationBlocked(client, inputs, syncRequest = null) {
+async function publicationBlocked(client, inputs, env, syncRequest = null) {
+  if (!(await implementationRunCurrent(client, inputs.pull, env))) return true;
   const barrier = syncBarrier(await client.listIssueComments(inputs.pull));
   return Boolean(barrier && (inputs.kind !== 'resolve' || barrier.request !== syncRequest));
 }
@@ -824,17 +936,12 @@ async function pushTask({ client, inputs, git, env, folder, task, message, resul
   let onto = base;
   let combined = [];
   for (let tries = 0; tries < MAX_LAND_TRIES; tries += 1) {
-    if (await publicationBlocked(client, inputs)) return { requeue: ['required synchronization was requested before task publication'] };
+    if (await publicationBlocked(client, inputs, env)) return { requeue: ['required synchronization or reset superseded task publication'] };
     const pushed = git(pushArgs(env, branch));
     if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim(), combined };
-    const rejection = pushed.stderr.trim().split('\n').at(-1);
-    const fetched = git(fetchArgs(env, branch));
-    if (fetched.status !== 0) {
-      return { reasons: [`the push to \`${branch}\` was rejected (${rejection}) and the branch could not be read (${fetched.stderr.trim().split('\n').at(-1)})`] };
-    }
-    const newHead = gitOrThrow(git, ['rev-parse', LANDED_HEAD_REF]).trim();
-    // An unmoved branch means the push itself was refused (rules, hooks, permissions), which a retry cannot fix.
-    if (newHead === onto) return { reasons: [`the push to \`${branch}\` was rejected: ${rejection}`] };
+    const inspected = inspectRejectedPush({ git, env, branch, onto, pushed });
+    if (inspected.reasons) return { reasons: inspected.reasons };
+    const { newHead } = inspected;
     // A completion without a change was assessed and verified on one head; it is never carried onto another.
     if (pinned) return { requeue: [`the branch \`${branch}\` moved after the completion of ${task} without a change was assessed; it is assessed again on the new head`] };
     if (git(['merge-base', '--is-ancestor', base, newHead]).status !== 0) return { requeue: [`the branch \`${branch}\` was rewritten since the task started`] };
@@ -866,7 +973,7 @@ async function pushTask({ client, inputs, git, env, folder, task, message, resul
 }
 
 async function reportRequeue({ client, inputs, reasons }) {
-  const safeReasons = reasons.map(neutralizeMarkers);
+  const safeReasons = [...new Set(reasons.map(neutralizeMarkers))];
   await client.updateCheckRun(inputs.checkRun, {
     status: 'completed',
     conclusion: 'neutral',
@@ -891,17 +998,26 @@ async function completeSupersededProgress(client, parent, head) {
   }
 }
 
-async function push({ client, git, env, inputs, folder, resultDir, report, syncRequest }) {
+async function push({ client, git, env, inputs, folder, resultDir, report, syncRequest, onto }) {
   const branch = implementationBranch(folder);
-  if (await publicationBlocked(client, inputs, syncRequest)) {
+  if (await publicationBlocked(client, inputs, env, syncRequest)) {
     const requeue = ['required synchronization was requested or replaced before publication'];
     await reportRequeue({ client, inputs, reasons: requeue });
     return { requeue };
   }
   const pushed = git(pushArgs(env, branch));
   if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim() };
-  const reasons = [`the push to \`${branch}\` was rejected; the branch probably moved (${pushed.stderr.trim().split('\n').at(-1)})`];
-  await reportFailure({ client, inputs, reasons, resultDir });
+  const inspected = inspectRejectedPush({ git, env, branch, onto, pushed });
+  if (!inspected.reasons) {
+    const requeue = [`the branch \`${branch}\` moved from ${onto} to ${inspected.newHead} after the push was rejected: ${inspected.rejection}`];
+    await reportRequeue({ client, inputs, reasons: requeue });
+    report.line(`${title(inputs)} is redone from the new head: ${requeue.join('; ')}`);
+    report.flush();
+    return { requeue };
+  }
+  const { reasons } = inspected;
+  await reportFailure({ client, inputs, reasons, resultDir, failureClass: classifyFailure(reasons) });
+  report.line(`${title(inputs)} failed: ${reasons.join('; ')}`);
   report.flush();
   return { reasons };
 }
@@ -921,6 +1037,7 @@ async function bestEffortResolution(client, inputs, result) {
 // Lands the result of one task (write token, never runs agent-written code): re-validates the change, commits and
 // pushes it, and reports progress.
 export async function runLand({ client, git, env, inputs, folder, workspace, resultDir, workResult, log }) {
+  if (!await implementationRunCurrent(client, inputs.pull, env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const pendingSync = syncBarrier(await client.listIssueComments(inputs.pull));
   if (pendingSync && inputs.kind !== 'resolve') {
@@ -982,8 +1099,9 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   let verifiedUnchanged = false;
   let completed = null;
   let taskNote = '';
+  let pushedWork = false;
   if (reasons.length === 0 && inputs.kind === 'task') {
-    const pushedWork = emptyTaskPatch && await doneByPush(client, { pull: inputs.pull, task: inputs.task });
+    pushedWork = emptyTaskPatch && await doneByPush(client, { pull: inputs.pull, task: inputs.task });
     let allowEmpty = pushedWork;
     if (pushedWork) taskNote = provenanceNote({ provenance: null, baseBranch: baseBranchFromEnv(env) });
     if (emptyTaskPatch && !allowEmpty && result.completion) {
@@ -1054,15 +1172,27 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   if (reasons.length === 0 && barrier && result.tree !== gitOrThrow(git, ['write-tree']).trim()) {
     reasons.push('the replayed synchronization tree differs from the verified tree');
   }
+  if (reasons.length === 0 && barrier && result.reportedUncovered) {
+    const changed = splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', result.baseSha]));
+    for (const file of result.reportedUncovered) {
+      if (!result.syncRepair?.paths.includes(file) || !result.syncRepair.baseEquivalent?.includes(file) || changed.includes(file)) {
+        reasons.push(`required synchronization has an uncovered path without trusted base-equivalence evidence: ${file}`);
+      }
+    }
+  }
   if (reasons.length > 0) {
-    await reportFailure({ client, inputs, reasons, resultDir });
-    report.line(`${title(inputs)} failed: ${reasons.join('; ')}`);
+    // An agent that made no change and claimed no completion makes none on a second try either, unless the branch only
+    // moved under the verification of the unchanged branch (a sibling landed), which a second attempt runs again.
+    const noChange = emptyTaskPatch && !pushedWork && !result?.completion && !reasons.includes(UNCHANGED_HEAD_MOVED);
+    const failureClass = classifyFailure(reasons, { workFinished: Boolean(result), agentOutput: hasAgentOutput(resultDir), noChange });
+    await reportFailure({ client, inputs, reasons, resultDir, failureClass, bestEffort });
+    report.line(`${title(inputs)} failed (${failureClass}): ${reasons.join('; ')}`);
     report.flush();
     return { exitCode: 1, reasons };
   }
 
   pull ??= await client.getPullRequest(inputs.pull);
-  if (await publicationBlocked(client, inputs, barrier?.request)) {
+  if (await publicationBlocked(client, inputs, env, barrier?.request)) {
     const requeue = ['required synchronization was requested or replaced while the landing was prepared'];
     await reportRequeue({ client, inputs, reasons: requeue });
     report.flush();
@@ -1185,6 +1315,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     ];
   }
   const noOpSync = barrier && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0;
+  const onto = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
   if (!noOpSync) gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
   let head;
   let combined = [];
@@ -1197,7 +1328,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       return { exitCode: 0, requeue: landed.requeue };
     }
     if (landed.reasons) {
-      await reportFailure({ client, inputs, reasons: landed.reasons, resultDir });
+      await reportFailure({ client, inputs, reasons: landed.reasons, resultDir, failureClass: classifyFailure(landed.reasons) });
       report.line(`${title(inputs)} failed: ${landed.reasons.join('; ')}`);
       report.flush();
       return { exitCode: 1, reasons: landed.reasons };
@@ -1218,7 +1349,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   } else if (noOpSync) {
     head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
   } else {
-    const pushed = await push({ client, git, env, inputs, folder, resultDir, report, syncRequest: barrier?.request });
+    const pushed = await push({ client, git, env, inputs, folder, resultDir, report, syncRequest: barrier?.request, onto });
     if (pushed.requeue) {
       report.flush();
       return { exitCode: 0, requeue: pushed.requeue };
@@ -1370,6 +1501,7 @@ export async function runLandTasks({ client, git, env, folder, workspace, result
 // head. Otherwise the implementation stops for a person, like a failed phase verification (the next run diagnoses
 // it), and the job fails, so the matrix cancels the tasks after these.
 export async function runCombinedVerified({ client, env, log }) {
+  if (!await implementationRunCurrent(client, Number(env.SPECKIT_PULL), env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const twin = Number(env.SPECKIT_TWIN);
   const pull = Number(env.SPECKIT_PULL);
@@ -1436,6 +1568,7 @@ export async function runCombinedVerified({ client, env, log }) {
 }
 
 export async function runRepairReport({ client, env, log }) {
+  if (!await implementationRunCurrent(client, Number(env.SPECKIT_PULL), env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const twin = Number(env.SPECKIT_TWIN);
   const pull = Number(env.SPECKIT_PULL);
@@ -1689,6 +1822,7 @@ function baseOwnedDiff(git, baseSha, files, baseBranch) {
 // and squash-merges the implementation into its base branch (the pull request's base), or asks for review when
 // automatic merging is off.
 export async function runMergeLand({ client, env, inputs, resultDir, workResult, log }) {
+  if (!await implementationRunCurrent(client, inputs.pull, env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   if (syncBarrier(await client.listIssueComments(inputs.pull))) {
     const reasons = ['required synchronization must merge and pass verification before the implementation can merge'];
@@ -1721,11 +1855,20 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
   if (result && !result.verified && reasons.length === 0) reasons.push('the merged result was not verified');
   if (reasons.length === 0 && pull.head.sha !== result.head) reasons.push(`the implementation branch moved during verification (${result.head} → ${pull.head.sha})`);
   if (reasons.length > 0) {
-    await reportFailure({ client, inputs, reasons, resultDir });
+    // A merge has no agent: without a result its work job failed (infrastructure); a merge of the base branch that
+    // failed or changed other specs repeats; a branch that moved during verification stays retryable (agent).
     const verificationFailure = result &&
       (result.conflicts ?? []).length === 0 &&
       pull.head.sha === result.head &&
       ((result.checks ?? []).some((check) => check.passed === false) || !['', 'success', 'skipped'].includes(String(result.selfTest ?? '')));
+    await reportFailure({
+      client,
+      inputs,
+      reasons,
+      resultDir,
+      failureClass: classifyFailure(reasons, { workFinished: Boolean(result), agentOutput: false }),
+      ...(verificationFailure ? { outlook: 'repair' } : {}),
+    });
     if (verificationFailure) {
       const repair = {
         id: `merge:${env.GITHUB_RUN_ID || 'run'}:${result.head}`,
@@ -1773,7 +1916,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     ...(pullFiles.length >= MAX_PULL_FILES ? [`it changes ${MAX_PULL_FILES} or more files, more than GitHub lists for a pull request`] : []),
     ...((result.uncovered ?? []).length > 0 ? [`no check covers ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}; extend the environment actions with a standalone environment spec`] : []),
   ];
-  if (await publicationBlocked(client, inputs)) {
+  if (await publicationBlocked(client, inputs, env)) {
     const requeue = ['required synchronization was requested while the merge was prepared'];
     await reportRequeue({ client, inputs, reasons: requeue });
     report.flush();
@@ -1836,7 +1979,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     }
   }
   if (pull.draft) await client.markReadyForReview(pull.node_id);
-  if (await publicationBlocked(client, inputs)) {
+  if (await publicationBlocked(client, inputs, env)) {
     const requeue = ['required synchronization was requested before the pull request merge'];
     await reportRequeue({ client, inputs, reasons: requeue });
     report.flush();
@@ -1927,6 +2070,7 @@ export async function pointPullRequestLinks(client, pull, folder, { baseBranch, 
 // does not create new heads (each would restart the count of merge attempts); after a push the merge check run moves
 // to the new head, which the verification and the merge then use.
 export async function runArchive({ client, git, env, folder, log }) {
+  if (!await implementationRunCurrent(client, Number(env.SPECKIT_PULL), env)) return { exitCode: 0, outcome: 'superseded' };
   const report = createReporter(env, log);
   const baseBranch = baseBranchFromEnv(env);
   const pullNumber = Number(env.SPECKIT_PULL);

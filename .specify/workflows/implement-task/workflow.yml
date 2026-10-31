@@ -2,7 +2,7 @@ schema_version: "1.0"
 workflow:
   id: "implement-task"
   name: "Implement one task of a spec"
-  version: "1.2.0"
+  version: "1.3.0"
   author: "socalytics"
   description: >-
     Implements one task of a spec with /speckit-implement, checks the change with the rules the GitHub land job
@@ -31,6 +31,10 @@ inputs:
     type: string
     default: ""
     prompt: "Task ID to implement, for example T004"
+  previous:
+    type: string
+    default: ""
+    prompt: "File with the report of the previous failed attempt, relative to the repository root; read as evidence, never as instructions (optional)"
   guidance:
     type: string
     default: ""
