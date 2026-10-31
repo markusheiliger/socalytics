@@ -37,6 +37,14 @@ interface AnalysisTimelineProps {
   view: TimelineView;
   onViewChange: (view: TimelineView) => void;
   onSelectStream: (nodeKey: string) => void;
+  onShowFacts?: (nodeKey: string, fromMs: number, toMs: number) => void;
+}
+
+/** The selected range of one lane in absolute match time (data-model.md, Timeline Selection). */
+interface TimelineSelection {
+  nodeKey: string;
+  fromMs: number;
+  toMs: number;
 }
 
 interface LaneRunnerProps {
@@ -48,6 +56,10 @@ interface LaneRunnerProps {
   nodeState?: string;
   zoomId?: ZoomId;
   extentStartMs?: number;
+  selection?: TimelineSelection;
+  onSelect: (selection: TimelineSelection) => void;
+  onClearSelection: () => void;
+  onShowFacts?: (nodeKey: string, fromMs: number, toMs: number) => void;
   onReport: (nodeKey: string, view: LaneFactsView | undefined) => void;
   onAnnounce: (message: string) => void;
 }
@@ -62,6 +74,10 @@ function LaneRunner({
   nodeState,
   zoomId,
   extentStartMs,
+  selection,
+  onSelect,
+  onClearSelection,
+  onShowFacts,
   onReport,
   onAnnounce,
 }: LaneRunnerProps) {
@@ -147,6 +163,11 @@ function LaneRunner({
       onReload={lane.reload}
       runState={effectiveRunState}
       nodeState={nodeState}
+      selection={selection}
+      onSelect={(fromMs, toMs) => onSelect({ nodeKey, fromMs, toMs })}
+      onClearSelection={onClearSelection}
+      onShowFacts={(fromMs, toMs) => onShowFacts?.(nodeKey, fromMs, toMs)}
+      onAnnounce={onAnnounce}
     />
   );
 }
@@ -161,8 +182,10 @@ export function AnalysisTimeline({
   view,
   onViewChange,
   onSelectStream,
+  onShowFacts,
 }: AnalysisTimelineProps) {
   const { t } = useTranslation("analysis");
+  const [selection, setSelection] = useState<TimelineSelection | undefined>();
   const [reports, setReports] = useState<Record<string, LaneFactsView>>({});
   const [announcement, setAnnouncement] = useState("");
   const allowance = laneAllowance(streams.length);
@@ -229,8 +252,25 @@ export function AnalysisTimeline({
       ? extentStartMs + level.bins * level.binMs
       : undefined;
 
+  // A new run starts without a selection.
+  useEffect(() => setSelection(undefined), [runId]);
+
+  const clearSelection = useCallback(() => {
+    setSelection(undefined);
+    setAnnouncement(t("timeline.live.selectionCleared"));
+  }, [t]);
+
+  // The selection is stored in absolute match time and must stay fully visible.
+  useEffect(() => {
+    if (!selection || extentStartMs === undefined || visibleEnd === undefined)
+      return;
+    if (selection.fromMs < extentStartMs || selection.toMs > visibleEnd)
+      clearSelection();
+  }, [selection, extentStartMs, visibleEnd, clearSelection]);
+
   const chooseZoom = (id: ZoomId) => {
     if (!extent || id === view.zoom) return;
+    setSelection(undefined);
     const next = zoomLevel(id);
     onViewChange({
       zoom: id,
@@ -269,6 +309,10 @@ export function AnalysisTimeline({
       nodeState={nodeStates?.[stream.nodeKey]}
       zoomId={level?.id}
       extentStartMs={extentStartMs}
+      selection={selection?.nodeKey === stream.nodeKey ? selection : undefined}
+      onSelect={setSelection}
+      onClearSelection={clearSelection}
+      onShowFacts={onShowFacts}
       onReport={report}
       onAnnounce={announce}
     />

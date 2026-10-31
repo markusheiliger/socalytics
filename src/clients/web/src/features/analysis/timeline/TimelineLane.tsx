@@ -1,7 +1,13 @@
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
-import { useId, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type {
   CoverageWindow,
@@ -104,6 +110,11 @@ interface TimelineLaneProps {
   onReload?: () => void;
   runState?: string;
   nodeState?: string;
+  selection?: { fromMs: number; toMs: number };
+  onSelect?: (fromMs: number, toMs: number) => void;
+  onClearSelection?: () => void;
+  onShowFacts?: (fromMs: number, toMs: number) => void;
+  onAnnounce?: (message: string) => void;
 }
 
 /** One lane: label, reported total, density bins with count, pattern, and glyph per state, and the lane detail (FR-005, FR-006, FR-009, FR-016). */
@@ -120,12 +131,18 @@ export function TimelineLane({
   onReload,
   runState,
   nodeState,
+  selection,
+  onSelect,
+  onClearSelection,
+  onShowFacts,
+  onAnnounce,
 }: TimelineLaneProps) {
   const { t } = useTranslation("analysis");
   const id = useId();
   const [detailOpen, setDetailOpen] = useState(false);
   const [focusIndex, setFocusIndex] = useState(0);
   const cells = useRef<(HTMLButtonElement | null)[]>([]);
+  const anchor = useRef<number | undefined>(undefined);
 
   const capability = t("streams.capabilityValue", {
     id: stream.capabilityId,
@@ -155,6 +172,63 @@ export function TimelineLane({
   };
   const needsReload = state === "unavailable" || state === "error";
 
+  const selectedBins = selection
+    ? bins.filter(
+        (bin) => bin.startMs >= selection.fromMs && bin.endMs <= selection.toMs,
+      )
+    : [];
+
+  // A count is the sum of the selected bins' counts; other bins contribute their coverage state label.
+  const describeSelection = (selected: DensityBin[]) => {
+    const counted = selected.filter(
+      (bin) => bin.state === "facts" || bin.state === "analysedNoFacts",
+    );
+    const parts: string[] = [];
+    if (counted.length > 0) {
+      const count = counted.reduce((sum, bin) => sum + bin.count, 0);
+      parts.push(
+        t(partial ? "timeline.atLeastCount" : "timeline.selection.factCount", {
+          count,
+        }),
+      );
+    }
+    const labels = new Set(
+      selected
+        .filter((bin) => !counted.includes(bin))
+        .map((bin) => t(`timeline.state.${bin.state}`)),
+    );
+    return [...parts, ...labels].join(". ");
+  };
+
+  const selectSpan = (fromIndex: number, toIndex: number) => {
+    if (!onSelect) return;
+    const low = Math.min(fromIndex, toIndex);
+    const high = Math.max(fromIndex, toIndex);
+    const fromMs = bins[low].startMs;
+    const toMs = bins[high].endMs;
+    onSelect(fromMs, toMs);
+    onAnnounce?.(
+      t("timeline.live.selected", {
+        range: formatMatchRange(fromMs, toMs).text,
+        capability,
+        value: describeSelection(bins.slice(low, high + 1)),
+        interpolation: { escapeValue: false },
+      }),
+    );
+  };
+
+  const chooseBin = (index: number, extend: boolean) => {
+    const anchorIndex =
+      extend && anchor.current !== undefined
+        ? bins.findIndex((bin) => bin.startMs === anchor.current)
+        : -1;
+    if (anchorIndex >= 0) selectSpan(anchorIndex, index);
+    else {
+      anchor.current = bins[index].startMs;
+      selectSpan(index, index);
+    }
+  };
+
   const moveFocus = (
     event: KeyboardEvent<HTMLButtonElement>,
     index: number,
@@ -168,6 +242,10 @@ export function TimelineLane({
     event.preventDefault();
     setFocusIndex(next);
     cells.current[next]?.focus();
+    if (event.shiftKey && next !== index) {
+      if (anchor.current === undefined) anchor.current = bins[index].startMs;
+      chooseBin(next, true);
+    }
   };
 
   const binName = (bin: DensityBin) => {
@@ -312,6 +390,10 @@ export function TimelineLane({
                 }}
                 tabIndex={index === focusIndex ? 0 : -1}
                 aria-label={binName(bin)}
+                aria-pressed={selectedBins.includes(bin)}
+                onClick={(event: MouseEvent<HTMLButtonElement>) =>
+                  chooseBin(index, event.shiftKey)
+                }
                 onFocus={() => setFocusIndex(index)}
                 onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) =>
                   moveFocus(event, index)
@@ -326,6 +408,11 @@ export function TimelineLane({
                   backgroundImage: pattern.image,
                   backgroundSize: pattern.size,
                   border: binOutline(bin.state),
+                  ...(selectedBins.includes(bin) && {
+                    outline: "3px double",
+                    outlineOffset: "-3px",
+                    fontWeight: "bold",
+                  }),
                   fontSize: "0.75rem",
                   "&:focus-visible": {
                     outline: "3px solid",
@@ -367,6 +454,39 @@ export function TimelineLane({
             </Button>
           )}
         </>
+      )}
+      {showBins && selection && selectedBins.length > 0 && (
+        <Box role="group" aria-label={t("timeline.selection.label")}>
+          <Typography component="p">
+            {t("timeline.selection.range", {
+              range: formatMatchRange(selection.fromMs, selection.toMs).text,
+            })}
+          </Typography>
+          <Typography component="p">
+            {describeSelection(selectedBins)}
+          </Typography>
+          <Button
+            size="small"
+            variant="contained"
+            aria-label={t("timeline.selection.showFactsLabel", {
+              key: stream.nodeKey,
+              range: formatMatchRange(selection.fromMs, selection.toMs).label,
+              interpolation: { escapeValue: false },
+            })}
+            onClick={() => onShowFacts?.(selection.fromMs, selection.toMs)}
+          >
+            {t("timeline.selection.showFacts")}
+          </Button>
+          <Button
+            size="small"
+            onClick={() => {
+              anchor.current = undefined;
+              onClearSelection?.();
+            }}
+          >
+            {t("timeline.selection.clear")}
+          </Button>
+        </Box>
       )}
       <Button
         size="small"
