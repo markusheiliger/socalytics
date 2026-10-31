@@ -15,7 +15,7 @@ Prerequisites: .NET 10 SDK from `src/platform/global.json` and a running Docker-
 6. Probe: temporarily change the expected advice text, then the compared digest, then one artifact kind. Expected: the
    test fails on the matching assertion each time (SC-003). Remove the probes.
 7. Reproduce deliberately (before the fix, on the old test): widen the suspected window test-side as recorded in
-   [research.md](research.md) `## Evidence`. Expected: the old test fails and the fixed test passes.
+   the evidence comment block above the named test in `SeedTests.cs`. Expected: the old test fails and the fixed test passes.
 8. `node .github/scripts/check-markdown.mjs` for the documentation changes.
 
 Contracts and the data model are unchanged; see [data-model.md](data-model.md). Results are development evidence only.

@@ -118,6 +118,12 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 			},
 			extraSettings: extra);
 		factory.Time.Set(DateTimeOffset.UtcNow);
+		if (extra.ContainsKey("ConnectionStrings:nats"))
+		{
+			// Fixtures with a live workload need one clock that keeps running, so a retry time stored from the clock falls due.
+			factory.Time.FollowRealTime();
+		}
+
 		await factory.WaitUntilHealthyAsync(ct);
 		await TestMembers.SeedAsync(db, "admin-1", clubRoles: ["club-admin", "registrar"], cancellationToken: ct);
 		var admin = await ApiSession.SignInAsync(factory, "admin-1", TestMembers.DefaultPassword, ct);

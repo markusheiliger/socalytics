@@ -4,7 +4,7 @@ No `NEEDS CLARIFICATION` remains in the plan's Technical Context. The decisions 
 
 ## Decision 1: Apply the one-line edit by hand
 
-- **Decision**: Edit line 83 of `specs/20261025-003459-deterministic-agent-workload-test/spec.md` directly, changing the link target `../20261023-022148-shot-boundary-analyst/spec.md` to `../archive/20261023-022148-shot-boundary-analyst/spec.md`.
+- **Decision**: Edit line 83 of `specs/archive/20261025-003459-deterministic-agent-workload-test/spec.md` directly, changing the link target `../20261023-022148-shot-boundary-analyst/spec.md` to `../archive/20261023-022148-shot-boundary-analyst/spec.md`.
 - **Rationale**: FR-002 requires the link target to change. The archive tooling (`refreshArchivedReferences` and `referenceOnlySpecChanges` in `.github/scripts/speckit-archive.mjs`) also rewrites plain-text `specs/<folder>` mentions at the merge, so lines 9 and 11 MAY be rewritten to `specs/archive/20261023-022148-shot-boundary-analyst` as well; both states are pure reference rewrites and are accepted. The target already exists at `specs/archive/20261023-022148-shot-boundary-analyst/spec.md`, and the relative depth from the edited spec is unchanged apart from the added `archive/` segment.
 - **Alternatives considered**: Running the archive tooling by hand (rejected: the merge applies it anyway, and the direct edit keeps this change minimal); removing the link (rejected: loses the dependency reference); rewriting the link as plain text (rejected: hides rather than repairs the defect).
 

@@ -10,7 +10,7 @@
 
 ## Problem
 
-The test decides whether the file system it runs on is case-insensitive by running the sample discovery on a folder holding `probe/a.mp4` and `probe/A.mp4` and counting the videos. On a case-sensitive file system (Linux CI) both files exist, so the discovery itself refuses the folder with "Paths differ only in case". That refusal is the behavior under test, but here it escapes from the probe and fails the test instead of selecting the branch. The test therefore fails on the default branch on Linux. The merge verification of the stopped implementation of `specs/20261025-003459-deterministic-agent-workload-test` (twin #308, pull request #319) runs the repository tooling tests, so that implementation cannot merge although it changes nothing under `tools/`. The failure came in with the sample-video tooling commit `5a03454d`.
+The test decides whether the file system it runs on is case-insensitive by running the sample discovery on a folder holding `probe/a.mp4` and `probe/A.mp4` and counting the videos. On a case-sensitive file system (Linux CI) both files exist, so the discovery itself refuses the folder with "Paths differ only in case". That refusal is the behavior under test, but here it escapes from the probe and fails the test instead of selecting the branch. The test therefore fails on the default branch on Linux. The merge verification of the stopped implementation of `specs/archive/20261025-003459-deterministic-agent-workload-test` (twin #308, pull request #319) runs the repository tooling tests, so that implementation cannot merge although it changes nothing under `tools/`. The failure came in with the sample-video tooling commit `5a03454d`.
 
 The test must tell, without relying on a refusal from the code under test, whether the file system keeps `a.mp4` and `A.mp4` apart, and then exercise the case-clash assertion wherever it can be exercised.
 
@@ -94,7 +94,7 @@ A reviewer needs to be sure the fix does not weaken the protection against case-
 ## Assumptions
 
 - **Cause**: The failing test and its probe were introduced with the sample-video tooling feature (commit `5a03454d`); the test is owned by that feature and the discovery's refusal is correct.
-- **Dependencies**: The stopped spec `specs/20261025-003459-deterministic-agent-workload-test` (twin #308, pull request #319) depends on this spec.
+- **Dependencies**: The stopped spec `specs/archive/20261025-003459-deterministic-agent-workload-test` (twin #308, pull request #319) depends on this spec.
 - **Approach**: Either wrapping the probe call in a try/catch or checking directly whether both probe files can coexist is acceptable; the choice is made at planning, and the direct check is the preferred one because it does not depend on the code under test.
 - **Out of scope**: Changes to `tools/samples-lib.mjs`, other tests, other tooling, product code, and `docs/architecture/`; real case-insensitive file systems are verified by running the test on them, since Linux CI exercises only the case-sensitive branch.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.
