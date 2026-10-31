@@ -1,6 +1,6 @@
 # Tasks: Web UI Analysis Fact Timeline
 
-**Input**: Design documents from `/specs/20261023-074600-analysis-fact-timeline/`
+**Input**: Design documents from `/specs/archive/20261023-074600-analysis-fact-timeline/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [quickstart.md](quickstart.md)
 

@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Fix for**: #314 (implementation of `specs/20261023-074600-analysis-fact-timeline`, twin #253)
+**Fix for**: #314 (implementation of `specs/archive/20261023-074600-analysis-fact-timeline`, twin #253)
 
 **Input**: User description: "Make the Web UI platform browser test `[platform-club-structure] tests/e2e/platform/club-structure.spec.ts:36` ('creates and activates a season; creates two teams; and edits one (SC-002)') deterministic. It failed and then passed on its one rerun in the verifications of implementation pull requests #235, #284, and #314, so it is flaky, and it reports a flaky test that none of those features caused. Find the cause by reproduction and remove it in the test, its support code, or the Web UI or platform code it covers, without changing the documented behavior of the season and team screens or the club structure operations, without weakening, skipping, or deleting the test or any assertion, and without retries or longer timeouts as the fix. The earlier spec `specs/archive/20261022-173520-deterministic-club-structure-test` already hardened this test once and the flake remains, so the remaining cause must be found by reproduction and not assumed. The analysis fact timeline spec depends on this spec."
 
@@ -90,6 +90,6 @@ A maintainer running the Web UI browser tests, or the verification of any implem
 ## Assumptions
 
 - **Cause**: The test belongs to the Web UI club structure behavior (merged Web UI foundation and club structure specs under `specs/archive/`). The cause is unknown; every candidate above is a hypothesis to confirm or reject by reproduction (FR-001).
-- **Dependencies**: [Analysis Fact Timeline](../../20261023-074600-analysis-fact-timeline/spec.md) (implementation #314, twin #253) depends on this spec. Related specs that must not be repeated: [Deterministic Club Structure Browser Test](../20261022-173520-deterministic-club-structure-test/spec.md) and [Deterministic Web UI Keyboard and Club Structure Browser Tests](../20261014-172346-fix-web-ui-keyboard-flake/spec.md).
+- **Dependencies**: [Analysis Fact Timeline](../20261023-074600-analysis-fact-timeline/spec.md) (implementation #314, twin #253) depends on this spec. Related specs that must not be repeated: [Deterministic Club Structure Browser Test](../20261022-173520-deterministic-club-structure-test/spec.md) and [Deterministic Web UI Keyboard and Club Structure Browser Tests](../20261014-172346-fix-web-ui-keyboard-flake/spec.md).
 - **Out of scope**: Other flaky tests, the simulated browser projects, and production values.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.
