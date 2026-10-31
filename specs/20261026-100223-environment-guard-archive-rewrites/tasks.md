@@ -102,5 +102,5 @@ Acceptance tests:  T006 speckit-implement-core.test.mjs, T007 speckit-implement.
 
 ## Implementation Strategy
 
-- **MVP**: Phases 1 to 3 (shared criterion, guard, caller, acceptance tests) unblock environment specs; Phase 4 locks the non-exemption classes; Phase 5 and 6 prove unchanged behavior and document the rule.
+- **MVP**: Phases 2 to 3 (shared criterion, guard, caller, acceptance tests) unblock environment specs; Phase 4 locks the non-exemption classes; Phases 5 and 6 prove unchanged behavior and document the rule.
 - Deliver incrementally: each checkpoint leaves the tooling tests green.
