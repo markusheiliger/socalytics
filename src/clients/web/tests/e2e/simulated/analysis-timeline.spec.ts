@@ -1,4 +1,6 @@
 import { expect, test } from '../support/fixtures';
+import { expectNoAxeViolations } from '../support/axe';
+import { activateWithKeyboard, expectAllReachableByKeyboard } from '../support/keyboard';
 import {
   coverageMatchEndMs,
   match,
@@ -365,5 +367,183 @@ test.describe('Timeline jump', () => {
     await bins.getByRole('button', { name: 'from 100:00 to 105:00 (end excluded): Facts beyond the loading bound not shown', exact: true }).click();
     await expect(selection.getByText('Facts beyond the loading bound not shown', { exact: true })).toBeVisible();
     await expect(selection.getByText(/At least/)).toHaveCount(0);
+  });
+});
+
+const timelineRegion = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'Timeline', exact: true });
+
+test.describe('Timeline accessibility', () => {
+  test('operates from lane to jump with the keyboard only and announces changes without moving focus (scenarios 1, 4)', async ({ page, api }) => {
+    const run = api.seedTimelineRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    const lane = page.getByRole('region', { name: firstLane, exact: true });
+    await expect(binGroup(lane).getByRole('button')).toHaveCount(30);
+    await expectAllReachableByKeyboard(page, timelineRegion(page));
+
+    // Zoom and extent change with the keyboard; the focus stays on the pressed button.
+    const status = timelineRegion(page).getByRole('status');
+    const oneMinute = page.getByRole('button', { name: '1 minute', exact: true });
+    await activateWithKeyboard(oneMinute, 'Space');
+    await expect(oneMinute).toHaveAttribute('aria-pressed', 'true');
+    await expect(oneMinute).toBeFocused();
+    await expect(status).toHaveText('Zoom changed to 1 minute per bin.');
+    const later = page.getByRole('button', { name: 'Later', exact: true });
+    await activateWithKeyboard(later);
+    await expect(later).toBeFocused();
+    await expect(status).toHaveText('Showing 15:00–45:00.');
+    await activateWithKeyboard(page.getByRole('button', { name: 'Earlier', exact: true }));
+    await expect(page.getByText('Showing 0:00–30:00', { exact: true })).toBeVisible();
+
+    // Arrow keys move between bins, Shift extends the span, Escape clears it.
+    const bins = binGroup(lane).getByRole('button');
+    await bins.nth(0).focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(bins.nth(1)).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(bins.nth(29)).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(bins.nth(0)).toBeFocused();
+    await page.keyboard.press('Shift+ArrowRight');
+    await expect(bins.nth(1)).toBeFocused();
+    await expect(bins.nth(0)).toHaveAttribute('aria-pressed', 'true');
+    await expect(bins.nth(1)).toHaveAttribute('aria-pressed', 'true');
+    await expect(status).toContainText('Selected 0:00–2:00 on pass-detection 1.0.0');
+    await page.keyboard.press('Escape');
+    await expect(bins.nth(1)).toBeFocused();
+    await expect(bins.nth(0)).toHaveAttribute('aria-pressed', 'false');
+    await expect(status).toHaveText('Selection cleared.');
+
+    // Enter selects the focused bin and the next Tab stop is the jump.
+    await page.keyboard.press('Enter');
+    await expect(bins.nth(1)).toHaveAttribute('aria-pressed', 'true');
+    await expect(bins.nth(1)).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(selectionGroup(lane).getByRole('button', { name: /^Show facts of passes-first-half for / })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/[?&]stream=passes-first-half&fromMs=60000&toMs=120000$/);
+    await expect(factList(page)).toHaveCount(5);
+
+    await activateWithKeyboard(page.getByRole('button', { name: 'Back to timeline', exact: true }));
+    await expect(page.getByText('Current zoom: 1 minute per bin')).toBeVisible();
+  });
+
+  test('lists in the text alternative exactly the bins of the graphic for the same zoom and extent (scenario 2)', async ({ page, api }) => {
+    const run = api.seedTimelineRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    await activateWithKeyboard(page.getByRole('button', { name: 'Show text alternative', exact: true }));
+    await expect(page.getByRole('button', { name: 'Hide text alternative', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+    const compare = async () => {
+      for (const [name, key] of [[firstLane, 'passes-first-half'], [secondLane, 'passes-second-half'], [shotsLane, 'shots']] as const) {
+        const graphic = await binGroup(page.getByRole('region', { name, exact: true })).getByRole('button').evaluateAll((buttons) =>
+          buttons.map((b) => b.getAttribute('aria-label') ?? ''),
+        );
+        const table = page.getByRole('table', { name: new RegExp(`^Bins of .*\\(${key}\\)$`) });
+        await expect(table.getByRole('row')).toHaveCount(graphic.length + 1);
+        const rows = await table.getByRole('row').evaluateAll((all) =>
+          all.slice(1).map((row) => Array.from(row.querySelectorAll('th, td')).map((cell) => cell.textContent?.trim() ?? '')),
+        );
+        const expected = graphic.map((label) => {
+          const parts = /^from (.+) to (.+) \(end excluded\): (.+)$/.exec(label);
+          return [`${parts?.[1]}–${parts?.[2]}`, parts?.[3] ?? ''];
+        });
+        expect(rows).toEqual(expected);
+      }
+    };
+    await compare();
+
+    await page.getByRole('button', { name: '1 minute', exact: true }).click();
+    await page.getByRole('button', { name: 'Later', exact: true }).click();
+    await expect(page.getByText('Showing 15:00–45:00', { exact: true })).toBeVisible();
+    await compare();
+    await expectNoAxeViolations(page);
+  });
+
+  test('has no accessibility violations in the data, selection, and zoomed states (scenario 3)', async ({ page, api }) => {
+    const run = api.seedTimelineRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    const lane = page.getByRole('region', { name: firstLane, exact: true });
+    await expect(binGroup(lane).getByRole('button')).toHaveCount(30);
+    await expectNoAxeViolations(page);
+
+    await binGroup(lane).getByRole('button', { name: 'from 0:00 to 5:00 (end excluded): Facts present, 25', exact: true }).click();
+    await expect(selectionGroup(lane)).toBeVisible();
+    await expectNoAxeViolations(page);
+
+    await page.getByRole('button', { name: 'Show text alternative', exact: true }).click();
+    await expect(page.getByRole('table')).toHaveCount(3);
+    await expectNoAxeViolations(page);
+
+    await page.getByRole('button', { name: '10 seconds', exact: true }).click();
+    await expect(page.getByText('Current zoom: 10 seconds per bin')).toBeVisible();
+    await expectNoAxeViolations(page);
+  });
+
+  test('has no accessibility violations while loading and in the incomplete, empty, unavailable, failed, and in-progress states (scenario 3)', async ({ page, api }) => {
+    const loading = api.seedTimelineRun();
+    registerRecordingSet(api, loading);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route(/\/api\/v1\/analysis\/runs\/[^/]+\/facts\?/, async (route) => {
+      await gate;
+      await route.fallback();
+    });
+    await page.goto(`/matches/${match.id}/analysis-runs/${loading.runId}`);
+    await expect(timelineRegion(page)).toBeVisible();
+    await expectNoAxeViolations(page);
+    release();
+    await expect(binGroup(page.getByRole('region', { name: firstLane, exact: true })).getByRole('button')).toHaveCount(30);
+
+    const coverage = api.seedCoverageRun();
+    registerRecordingSet(api, coverage);
+    await page.goto(`/matches/${match.id}/analysis-runs/${coverage.runId}`);
+    await expect(page.getByRole('region', { name: failingLane, exact: true }).getByText('The timeline of this stream could not be loaded.')).toBeVisible();
+    await expect(page.getByRole('region', { name: emptyLane, exact: true }).getByText('The analysis is complete and produced no facts.')).toBeVisible();
+    await expect(page.getByRole('region', { name: absentLane, exact: true }).getByText('The chosen capability is not part of this run.')).toBeVisible();
+    await expect(page.getByRole('region', { name: uncoveredLane, exact: true }).getByText('The platform reports no coverage windows for this selection.')).toBeVisible();
+    await expectNoAxeViolations(page);
+
+    const running = api.seedCoverageRun({ state: 'Running', terminatedAt: null });
+    registerRecordingSet(api, running);
+    await page.goto(`/matches/${match.id}/analysis-runs/${running.runId}`);
+    await expect(page.getByRole('region', { name: emptyLane, exact: true }).getByText('The analysis is still in progress; no facts yet.')).toBeVisible();
+    await expectNoAxeViolations(page);
+  });
+
+  test('has no accessibility violations in the partial and connection-required states (scenario 3)', async ({ page, api, context }) => {
+    const [base] = timelineRunFixture().streams;
+    const [firstNode] = timelineRunFixture().nodes;
+    const fact = (index: number, startMs: number): SeededFact => ({
+      acceptedResultId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      ordinal: 0,
+      kind: `event-${index}`,
+      startMs,
+      endMs: startMs + 5_000,
+      confidence: 0.5,
+      payload: { index },
+    });
+    const facts = [
+      ...Array.from({ length: 5_000 }, (_, i) => fact(i, i * 720)),
+      ...Array.from({ length: 100 }, (_, i) => fact(5_000 + i, 6_000_000 + i * 10_000)),
+    ];
+    const run = api.seedTimelineRun({ nodes: [firstNode], requestedCapabilities: ['pass-detection'], streams: [{ ...base, facts }] });
+    api.factPageSize = 500;
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    await expect(page.getByRole('region', { name: firstLane, exact: true }).getByText('Partial', { exact: true })).toBeVisible();
+    await expectNoAxeViolations(page);
+
+    await context.setOffline(true);
+    await expect(page.getByRole('alert').filter({ hasText: 'A connection is required to review analysis results.' })).toBeVisible();
+    await expect(timelineRegion(page)).toHaveCount(0);
+    await expectNoAxeViolations(page);
+    await context.setOffline(false);
   });
 });
