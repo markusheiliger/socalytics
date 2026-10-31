@@ -63,7 +63,7 @@ export function AnalysisRunPage() {
   const { isUnreachable } = useConnectivity();
   const [reloads, setReloads] = useState(0);
   // `open` is page state, open by default; zoom and extent survive reloads (data-model.md).
-  const [timelineOpen] = useState(true);
+  const [timelineOpen, setTimelineOpen] = useState(true);
   const [timelineView, setTimelineView] = useState<TimelineView>({});
   const [loaded, setLoaded] = useState<{ id: string; stream: FactStreamSummary }>();
   const { match, team, permitted } = useMatchContext(matchId);
@@ -133,6 +133,11 @@ export function AnalysisRunPage() {
     if (next.toMs !== undefined) params.toMs = String(next.toMs);
     setSearchParams(params);
   };
+  // Closing unmounts the timeline and so discards its lane data; reopening reads afresh with the kept zoom and extent (research R7).
+  const showFacts = (nodeKey: string, fromMs: number, toMs: number) => {
+    setSearchParams({ stream: nodeKey, fromMs: String(fromMs), toMs: String(toMs) });
+    setTimelineOpen(false);
+  };
 
   return (
     <Container component="main" maxWidth="md" sx={{ py: 4 }}>
@@ -156,7 +161,13 @@ export function AnalysisRunPage() {
           view={timelineView}
           onViewChange={setTimelineView}
           onSelectStream={selectStream}
+          onShowFacts={showFacts}
         />
+      )}
+      {outcome?.kind === 'found' && streamList && !timelineOpen && (
+        <Button variant="outlined" sx={{ mt: 1 }} onClick={() => setTimelineOpen(true)}>
+          {t('timeline.backToTimeline')}
+        </Button>
       )}
       {streamList && <FactStreamList streams={streamList} selectedNodeKey={selectedStream?.nodeKey} onSelect={selectStream} />}
       {streamList && streamKey !== undefined && !selectedStream && <Typography role="alert">{t('states.capabilityNotInRun')}</Typography>}
