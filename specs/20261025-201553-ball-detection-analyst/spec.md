@@ -406,7 +406,7 @@ model digests, and its status is not promotable.
   indexing, analysis review, and evidence playback.
 - It is independent of the [Person and Role Detection Analyst](../20261025-195345-person-role-detection/spec.md) and may be
   implemented before or after it.
-- The [Analyst Evaluation Harness](../20261023-082736-analyst-evaluation-harness/spec.md) is required only for the
+- The [Analyst Evaluation Harness](../archive/20261023-082736-analyst-evaluation-harness/spec.md) is required only for the
   evaluation report (FR-019); the rest of the feature does not depend on it.
 
 ### Decisions Made By Default

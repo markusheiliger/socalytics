@@ -86,6 +86,7 @@ import {
   nextTaskGroup,
   parseGuidance,
   isImplementRunOf,
+  dependencyBlock,
   isTwinRunOf,
   phaseSubject,
   specTitleOfPull,
@@ -265,7 +266,7 @@ test('renders the chain run name, attempt markers, and prompts', () => {
     comment(renderAttemptMarker({ kind: 'converge', attempt: 1, outcome: 'success' }), undefined, '2026-10-06T10:00:00Z'),
     comment(renderAttemptMarker({ kind: 'repair', attempt: 1, outcome: 'failure' }), undefined, '2026-10-06T10:30:00Z'),
     comment(marker, 'mallory'),
-    comment('<!-- speckit-implement:attempt {"kind":"merge","outcome":"failure"} -->'),
+    comment('<!-- speckit-implement:attempt {"kind":"deploy","outcome":"failure"} -->'),
     comment('<!-- speckit-implement:attempt {"step":"task","task":"T001","attempt":1,"outcome":"success"} -->', undefined, '2026-10-06T09:00:00Z'),
     comment('<!-- speckit-implement:attempt {broken -->'),
   ]), [
@@ -298,11 +299,11 @@ test('decides the next tasks of an implementation from the attempt ledger', () =
 
   assert.deepEqual(decide({ done: true }), { action: 'done' });
   assert.deepEqual(decide({}), order([{ task: 'T002', attempt: 1 }]));
-  assert.deepEqual(decide({ attempts: [attempt('T001'), attempt('T002')] }), order([{ task: 'T002', attempt: 2 }]));
+  assert.deepEqual(decide({ attempts: [attempt('T001'), attempt('T002')] }), order([{ task: 'T002', attempt: 2, previous: attempt('T002') }]));
   assert.deepEqual(decide({ attempts: [attempt('T002', 'failure', '2026-10-06T09:00:00Z')] }), order([{ task: 'T002', attempt: 1 }]), 'attempts before the window do not count');
-  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002', 'requeue')] }), order([{ task: 'T002', attempt: 4 }]), 'a redo is no failure');
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002', 'requeue')] }), order([{ task: 'T002', attempt: 4, previous: attempt('T002') }]), 'a redo is no failure');
   assert.deepEqual(decide({ tasksMarkdown: TASKS.replace('- [ ] T002', '- [x] T002') }), group('sequential', true, [{ task: 'T003', attempt: 1 }]), 'a sequential group runs one task per entry');
-  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 2, stale: [] });
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 2, failureClass: 'agent', stale: [] });
   const noOps = Array.from({ length: 4 }, () => attempt('T002', 'requeue'));
   assert.deepEqual(decide({ attempts: noOps }), { action: 'limit', kind: 'task', task: 'T002', attempts: 4, stale: [] }, 'endless redos stop too');
   assert.deepEqual(decide({ checks: [{ id: 1, external_id: CHECK_DONE, conclusion: 'success' }] }), { action: 'done' });
@@ -328,12 +329,13 @@ test('waits while a diagnosis runs, then for a decision, and gives up on a stale
 test('renders the next steps a person can take', () => {
   const plain = renderNextSteps().join('\n');
   assert.match(plain, /^\*\*Recommended next step\*\*: Wait for the diagnosis\.\n\n- \*\*Why\*\*: It starts automatically/);
-  assert.match(plain, /<details><summary>Other options<\/summary>[\s\S]*- \*\*Retry what stopped\*\*\n {2}- Why: [^\n]+\n {2}- What it does: Does not merge the base branch[\s\S]*\/speckit retry[\s\S]*Push a fix yourself, or close the pull request[\s\S]*<\/details>$/);
+  assert.match(plain, /<details><summary>Other options<\/summary>[\s\S]*Push a fix yourself, or close the pull request[\s\S]*<\/details>$/);
+  assert.doesNotMatch(plain, /\/speckit retry/, 'no speculative retry without diagnosis evidence');
   assert.doesNotMatch(plain, /\/speckit (diagnose|resume|sync|apply)/);
   const auto = renderNextSteps({ diagnosisUrl: 'https://github.com/octo/repo/actions/workflows/speckit-diagnose.lock.yml', behindBase: 'release', baseBranch: 'release', continuation: 'continues with T004' }).join('\n');
   assert.match(auto, /^\*\*Recommended next step\*\*: \[Wait for the diagnosis\]\(https:\/\/github\.com\/octo\/repo\/actions\/workflows\/speckit-diagnose\.lock\.yml\)\.\n\n- \*\*Why\*\*: It starts automatically/);
   assert.doesNotMatch(auto, /\/speckit diagnose/);
-  assert.match(auto, /- What it does: Does not merge `release`: the implementation continues with T004 on the branch as it is, with a fresh attempt count \(at most 2 failed attempts\)/);
+  assert.doesNotMatch(auto, /\/speckit retry/, 'being behind a base does not establish a recovery');
   assert.doesNotMatch(auto, /Merge `release` first|\/speckit (resume|sync)/);
   const diagnosed = renderNextSteps({ options: [{ title: 'Retry with guidance', why: 'The agent mixed up the paths.', command: '/speckit retry Use the helper' }], amendment: { number: 7, title: 'Amend: Clarify R6', html_url: 'https://github.com/octo/repo/pull/7', status: 'consistent' }, diagnosed: true }).join('\n');
   assert.match(diagnosed, /^\*\*Recommended next step\*\*: \[Review and merge the amendment #7: Amend: Clarify R6 \(consistent\)\]\(https:\/\/github\.com\/octo\/repo\/pull\/7\)\.\n\n- \*\*Why\*\*: [^\n]+\n- \*\*What it does\*\*: Merging applies the amendment[\s\S]*Other options[\s\S]*- Why: The agent mixed up the paths\.[\s\S]*\/speckit retry Use the helper/);
@@ -570,6 +572,14 @@ test('ticks a task in tasks.md and syncs the pull request body with it', () => {
   assert.equal(ticked.replace('- [x] T003', '- [ ] T003'), PARALLEL_TASKS);
   assert.equal(tickTask(PARALLEL_TASKS, 'T001'), null);
   assert.equal(tickTask(PARALLEL_TASKS, 'T999'), null);
+  const noted = tickTask(PARALLEL_TASKS, 'T003', 'already satisfied by abc1234 on main (verified;\nno change by this task)');
+  assert.match(noted, /- \[x\] T003 \[P\] \[US1\] B — already satisfied by abc1234 on main \(verified; no change by this task\)\r\n/, 'the note stays on the task line and keeps its line ending');
+  assert.ok(listTasks(noted).some((task) => task.id === 'T003' && task.done), 'a noted task still parses as done');
+  const note = 'already satisfied by abc1234 on main (verified; no change by this task)';
+  const change = (after, extra = {}) => validateTaskChange({ folder: 'f', taskId: 'T003', before: PARALLEL_TASKS, after, changedPaths: ['specs/f/tasks.md'], ...extra });
+  assert.match(change(tickTask(PARALLEL_TASKS, 'T003', note)).join(), /may only change by checking T003/, 'an agent cannot add a provenance note');
+  assert.deepEqual(change(tickTask(PARALLEL_TASKS, 'T003', note), { note }), [], 'the land job may add its own note');
+  assert.match(change(tickTask(PARALLEL_TASKS, 'T003', 'another note'), { note }).join(), /may only change by checking T003/, 'only that exact note');
   const body = '## Tasks\n\n- [ ] T001 Setup\n- [ ] T002 A\n- [ ] T003 B\n';
   assert.equal(syncPullRequestTicks(body, ticked), '## Tasks\n\n- [x] T001 Setup\n- [ ] T002 A\n- [x] T003 B\n');
 });
@@ -580,8 +590,8 @@ test('decides parallel [P] tasks and their limit', () => {
   const members = [{ task: 'T002', attempt: 1 }, { task: 'T003', attempt: 1 }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }];
   assert.deepEqual(decide({}), order(members), 'consecutive [P] tasks form one parallel group; T006 follows in the next run');
   const afterLand = PARALLEL_TASKS.replace('- [ ] T002', '- [x] T002');
-  assert.deepEqual(decide({ tasksMarkdown: afterLand, attempts: [attempt('T002', 'success'), attempt('T003')] }).order[0], [{ task: 'T003', attempt: 2 }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }], 'landed siblings leave the group');
-  assert.deepEqual(decide({ attempts: [attempt('T003'), attempt('T003'), attempt('T003')] }), { action: 'limit', kind: 'task', task: 'T003', attempts: 3, stale: [] }, 'a member at its limit stops the group');
+  assert.deepEqual(decide({ tasksMarkdown: afterLand, attempts: [attempt('T002', 'success'), attempt('T003')] }).order[0], [{ task: 'T003', attempt: 2, previous: attempt('T003') }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }], 'landed siblings leave the group');
+  assert.deepEqual(decide({ attempts: [attempt('T003'), attempt('T003'), attempt('T003')] }), { action: 'limit', kind: 'task', task: 'T003', attempts: 3, failureClass: 'agent', stale: [] }, 'a member at its limit stops the group');
 });
 
 test('decides convergence, conflict resolution, and merging after the last task', () => {
@@ -595,20 +605,20 @@ test('decides convergence, conflict resolution, and merging after the last task'
   const landed = attempt('T001', 'success', at(11));
   // The finished phase was verified after its last task; without that the phase verification comes first.
   const phaseVerified = { kind: 'verify', task: null, attempt: 1, outcome: 'success', at: at(11), phase: null };
-  const single = (name, number) => ({ action: 'tasks', kind: name, order: [[{ task: null, attempt: number }]], stale: [] });
+  const single = (name, number, previous) => ({ action: 'tasks', kind: name, order: [[{ task: null, attempt: number, ...(previous ? { previous } : {}) }]], stale: [] });
 
   assert.equal(decide({ attempts: [landed] }).action, 'verify', 'the phase is verified before the convergence');
 
   assert.deepEqual(decide({ attempts: [landed, phaseVerified] }), single('converge', 1));
   assert.deepEqual(decide({ attempts: [kind('converge', 10), landed, phaseVerified] }), single('converge', 1), 'a convergence older than the last task does not count');
-  assert.deepEqual(decide({ attempts: [landed, phaseVerified, kind('converge', 12, 'failure'), kind('converge', 13, 'failure'), kind('converge', 14, 'failure')] }), { action: 'limit', kind: 'converge', attempts: 3, stale: [] });
+  assert.deepEqual(decide({ attempts: [landed, phaseVerified, kind('converge', 12, 'failure'), kind('converge', 13, 'failure'), kind('converge', 14, 'failure')] }), { action: 'limit', kind: 'converge', attempts: 3, failureClass: 'agent', stale: [] });
 
   const converged = [landed, phaseVerified, kind('converge', 12)];
   assert.deepEqual(decide({ attempts: converged }), { action: 'merge', kind: 'merge', attempt: 1, stale: [] });
   const merges = [check(1, CHECK_MERGE, { conclusion: 'failure' }), check(2, CHECK_MERGE, { conclusion: 'neutral' })];
   assert.deepEqual(decide({ attempts: converged, checks: merges }), { action: 'merge', kind: 'merge', attempt: 3, stale: [] });
   const failedMerges = [1, 2, 3].map((id) => check(id, CHECK_MERGE, { conclusion: 'failure' }));
-  assert.deepEqual(decide({ attempts: converged, checks: failedMerges }), { action: 'limit', kind: 'merge', attempts: 3, stale: [] });
+  assert.deepEqual(decide({ attempts: converged, checks: failedMerges }), { action: 'limit', kind: 'merge', attempts: 3, failureClass: 'agent', stale: [] });
   assert.deepEqual(decide({ attempts: converged, checks: failedMerges, windowStart: at(13) }), { action: 'merge', kind: 'merge', attempt: 1, stale: [] }, 'a person pushing starts a new window');
 
   assert.deepEqual(decide({ attempts: converged, checks: [check(1, CHECK_MERGE, { status: 'in_progress', started_at: at(19) })] }), { action: 'wait' });
@@ -617,7 +627,7 @@ test('decides convergence, conflict resolution, and merging after the last task'
 
   const conflict = check(5, CHECK_CONFLICT);
   assert.deepEqual(decide({ attempts: converged, checks: [check(4, CHECK_MERGE), conflict] }), single('resolve', 1));
-  assert.deepEqual(decide({ attempts: [...converged, kind('resolve', 13, 'failure')], checks: [conflict] }), single('resolve', 2), 'a failed resolve keeps the conflict state');
+  assert.deepEqual(decide({ attempts: [...converged, kind('resolve', 13, 'failure')], checks: [conflict] }), single('resolve', 2, kind('resolve', 13, 'failure')), 'a failed resolve keeps the conflict state');
   assert.equal(decide({ attempts: [...converged, kind('resolve', 13)], checks: [conflict] }).action, 'merge', 'successful no-op sync resolves an old conflict on the same head');
   assert.deepEqual(decide({ attempts: converged, checks: [conflict, check(7, CHECK_MERGE)] }), { action: 'merge', kind: 'merge', attempt: 2, stale: [] });
   const earlierResolves = [kind('resolve', 11, 'failure'), kind('resolve', 11, 'failure'), kind('resolve', 11)];
@@ -634,11 +644,11 @@ test('resolves conflicts with the base branch before a phase, best effort', () =
   const open = '- [x] T001 a\n- [ ] T002 b\n';
   const syncConflict = { id: 1, external_id: CHECK_SYNC_CONFLICT, status: 'completed', conclusion: 'neutral', started_at: at(12) };
   const decide = (fields) => decideNext({ tasksMarkdown: open, windowStart, now, checks: [syncConflict], ...fields });
-  const resolveNext = (number) => ({ action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: number }]], stale: [] });
+  const resolveNext = (number, previous) => ({ action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: number, ...(previous ? { previous } : {}) }]], stale: [] });
   const phaseVerified = { kind: 'verify', task: null, attempt: 1, outcome: 'success', at: at(11), phase: null };
 
   assert.deepEqual(decide({}), resolveNext(1), 'the conflict is resolved before the phase');
-  assert.deepEqual(decide({ attempts: [resolve(11, 'failure'), resolve(13, 'failure')] }), resolveNext(2), 'only attempts at this conflict count');
+  assert.deepEqual(decide({ attempts: [resolve(11, 'failure'), resolve(13, 'failure')] }), resolveNext(2, resolve(13, 'failure')), 'only attempts at this conflict count');
   const phase = decideNext({ tasksMarkdown: open, windowStart, now });
   assert.deepEqual(decide({ attempts: [resolve(13, 'success')] }), phase, 'successful no-op sync does not revive a best-effort conflict on the same head');
   assert.deepEqual(decide({ attempts: [resolve(13, 'failure'), resolve(14, 'failure')] }), { ...phase, syncGivenUp: syncConflict }, `after ${MAX_SYNC_RESOLVE_ATTEMPTS} failed attempts the phase continues on the current base`);
@@ -805,9 +815,9 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.equal(needsOf(chain, 'continue'), 'decide');
   for (const [action, jobs, names] of [
     ['tasks', ['implement', 'verify', 'report'], ['${{ matrix.name }}', 'Verify the parallel tasks together', 'Report the group verification']],
-    ['verify', ['verify', 'report'], ['Verify the phase', 'Record the phase verification']],
-    ['repair', ['implement', 'verify', 'report'], ['${{ matrix.name }}', 'Verify the repair', 'Report the repair']],
-    ['merge', ['archive', 'verify', 'report'], ['Archive the spec before the merge', 'Verify the merged result', 'Merge into the base branch']],
+    ['verify', ['shards', 'verify', 'report'], ['Plan the verification shards', 'Verify the phase', 'Record the phase verification']],
+    ['repair', ['implement', 'prepare', 'shards', 'selftest', 'verdict', 'report'], ['${{ matrix.name }}', 'Prepare the repair verification', 'Verify the repaired scope', 'Self-test the repaired environment actions', 'Record the repair verification', 'Report the repair']],
+    ['merge', ['archive', 'prepare', 'shards', 'selftest', 'verdict', 'report'], ['Archive the spec before the merge', 'Prepare the merged result', 'Verify the merged result', 'Self-test the changed environment actions', 'Record the verdict', 'Merge into the base branch']],
   ]) {
     const text = kinds[action];
     assert.deepEqual(jobsOf(text), ['refuse', 'decide', ...jobs, 'continue'], action);
@@ -815,8 +825,9 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
     assert.equal(needsOf(text, 'continue'), '[decide, report]', action);
   }
   // Spec Kit implement prepare: merge the base branch (after checking the spec issue), then decide; every output of
-  // decide reaches the calling workflow.
-  assert.deepEqual(jobsOf(prepare), ['sync', 'decide']);
+  // decide reaches the calling workflow; an attempt after an infrastructure failure starts after the pause.
+  assert.deepEqual(jobsOf(prepare), ['sync', 'decide', 'pause']);
+  assert.match(job(prepare, 'pause'), /needs: decide\n\s+if: \$\{\{ !cancelled\(\) && needs\.decide\.outputs\.wait == 'true' \}\}[\s\S]*SPECKIT_RETRY_WAIT: \$\{\{ vars\.SPECKIT_RETRY_WAIT \|\| '300' \}\}[\s\S]*sleep "\$seconds"/);
   assert.match(prepare, /^ {2}workflow_call:\n/m);
   assert.match(job(prepare, 'sync'), /name: Merge the base branch\n\s+if: github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)[\s\S]*run: node \.github\/scripts\/speckit-spec\.mjs sync/);
   assert.match(job(prepare, 'decide'), /needs: sync\n[\s\S]*if: \$\{\{ !cancelled\(\) && github\.ref == [\s\S]*SPECKIT_WORKFLOW: \$\{\{ inputs\.workflow \}\}[\s\S]*speckit-spec\.mjs decide/);
@@ -838,8 +849,15 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   const inputs = unit.slice(unit.indexOf('    inputs:\n'), unit.indexOf('    outputs:\n'));
   assert.deepEqual([...inputs.matchAll(/^ {6}([a-z_]+):\n/gm)].map((match) => match[1]), ['issue', 'pull', 'folder', 'base', 'kind', 'order', 'entry']);
   assert.deepEqual([...new Set([...unit.matchAll(/fromJSON\(inputs\.entry\)\.([a-z_]+)/g)].map((match) => match[1]))].sort(),
-    ['attempt', 'defer_progress', 'guidance', 'index', 'repair', 'required_sync', 'sync_repair', 'task']);
-  assert.match(unit, /mode: \$\{\{ inputs\.kind == 'resolve' && 'finalize' \|\| 'task' \}\}/, 'the verification mode follows the kind');
+    ['attempt', 'defer_progress', 'evidence', 'guidance', 'index', 'repair', 'required_sync', 'sync_repair', 'task']);
+  assert.match(unit, /mode: \$\{\{ inputs\.kind == 'resolve' && 'finalize' \|\| steps\.package\.outputs\.verify_mode \|\| 'task' \}\}/, 'the verification mode follows the kind, or the assessed environment-verify requirement');
+  // A task completed without a change: the trusted runner executes the assessed requirements before the verdict, in
+  // the read-only work job, without a token.
+  const runner = unit.slice(unit.indexOf("      - name: Run the task's own verification\n"), unit.indexOf('      - name: Record the verdict\n'));
+  assert.match(runner, /if: inputs\.kind == 'implement' && steps\.package\.outputs\.completion == 'verified'\n\s+continue-on-error: true\n/, 'only for an assessed verification');
+  assert.match(runner, /run: node "\$SPECKIT_TOOLING\/\.github\/scripts\/speckit-completion\.mjs" verify\n/, 'from the trusted tooling');
+  assert.doesNotMatch(runner, /TOKEN/, 'agent-written code runs here, so no token');
+  assert.ok(unit.indexOf("- name: Run the task's own verification") < unit.indexOf('- name: Record the verdict'), 'the verdict reads its record');
   // Parallel tasks are verified together only when a landing combined a sibling's edits, with the affected tests.
   const group = kinds.tasks;
   assert.match(job(group, 'verify'), /needs: \[decide, implement\][\s\S]*GROUP_START: \$\{\{ needs\.decide\.outputs\.head \}\}[\s\S]*- name: Find combined edits\n\s+id: combined\n[\s\S]*run: node tooling\/\.github\/scripts\/speckit-group\.mjs combined-edits/);
@@ -852,14 +870,43 @@ test('the implementation chain: one workflow per kind of work, prepared by Spec 
   assert.match(job(phase, 'verify'), /BASE_BRANCH: \$\{\{ needs\.decide\.outputs\.base_branch \}\}[\s\S]*git merge-base HEAD "origin\/\$BASE_BRANCH"/, 'the phase verification covers all changes of the branch');
   assert.match(job(phase, 'verify'), /- name: Verify the phase\n\s+if: [^\n]+\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify[\s\S]*mode: phase/, 'a failed phase verification fails the job');
   assert.match(job(phase, 'report'), /needs: \[decide, verify\][\s\S]*SPECKIT_VERIFY_RESULT: \$\{\{ needs\.verify\.result \}\}[\s\S]*speckit-spec\.mjs verify-report/);
-  // A repair is reverified with its original failed scope and reported.
-  assert.match(job(kinds.repair, 'report'), /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}[\s\S]*speckit-repair\.mjs repair-report/);
+  // The phase verification runs in the shards its plan names, side by side; the report combines their artifacts into the
+  // one the repair reads.
+  assert.match(job(phase, 'shards'), /needs: decide\n[\s\S]*contents: read\n[\s\S]*verification-plan\.mjs --root workspace --mode phase --changed-files "\$RUNNER_TEMP\/changed-files\.txt" --matrix 4\)"\n[\s\S]*echo "matrix=\$matrix" >> "\$GITHUB_OUTPUT"/);
+  assert.doesNotMatch(job(phase, 'shards'), /environment-setup|environment-verify\n|copilot/);
+  assert.match(job(phase, 'verify'), /needs: \[decide, shards\]\n[\s\S]*needs\.shards\.result == 'success'[\s\S]*strategy:\n\s+fail-fast: false\n\s+matrix: \$\{\{ fromJSON\(needs\.shards\.outputs\.matrix\) \}\}\n/);
+  assert.match(job(phase, 'verify'), /mode: phase\n[\s\S]*shard: \$\{\{ matrix\.shard \}\}\n/);
+  assert.match(job(phase, 'verify'), /name: speckit-phase-verification-shard-\$\{\{ strategy\.job-index \}\}\n/);
+  assert.match(job(phase, 'verify'), /SHARD: \$\{\{ matrix\.shard \}\}[\s\S]*"\$SPECKIT_RESULT_DIR\/shard\.txt"/);
+  assert.match(job(phase, 'report'), /pattern: speckit-phase-verification-shard-\*[\s\S]*speckit-verify-shards\.mjs combine[\s\S]*name: speckit-phase-verification\n[\s\S]*SPECKIT_VERIFY_FLAKY: \$\{\{ steps\.combine\.outputs\.flaky \}\}/);
+  // A repair is reverified with its original failed scope and reported; the reverification runs in planned shards whose
+  // verdict fails when a shard or the self-test did not pass.
+  assert.match(job(kinds.repair, 'report'), /needs: \[decide, implement, prepare, verdict\][\s\S]*SPECKIT_VERIFY_RESULT: \$\{\{ needs\.prepare\.result != 'success' && needs\.prepare\.result \|\| needs\.verdict\.result \}\}\n\s+SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verdict\.outputs\.verification \}\}[\s\S]*speckit-repair\.mjs repair-report/);
   // The spec is archived on the implementation branch before the verification, which verifies and merges that head.
   const merge = kinds.merge;
   assert.match(job(merge, 'archive'), /SPECKIT_BASE_BRANCH: \$\{\{ needs\.decide\.outputs\.base_branch \}\}[\s\S]*run: node tooling\/\.github\/scripts\/speckit-merge\.mjs archive/);
   assert.doesNotMatch(job(merge, 'archive'), /environment-setup|environment-verify|copilot/);
-  assert.match(job(merge, 'verify'), /needs: \[decide, archive\][\s\S]*ref: \$\{\{ needs\.archive\.outputs\.head \}\}/);
-  assert.match(job(merge, 'report'), /SPECKIT_CHECK_RUN: \$\{\{ needs\.archive\.outputs\.check_run \|\| needs\.decide\.outputs\.check_run \}\}[\s\S]*speckit-merge\.mjs merge-land/);
+  assert.match(job(merge, 'prepare'), /needs: \[decide, archive\][\s\S]*ref: \$\{\{ needs\.archive\.outputs\.head \}\}/);
+  assert.match(job(merge, 'prepare'), /speckit-merge\.mjs" integrate\n[\s\S]*verification-plan\.mjs" --root "\$SPECKIT_WORKSPACE" --mode finalize --changed-files "\$SPECKIT_RESULT_DIR\/changed-files\.txt" --matrix 4\)"/);
+  assert.doesNotMatch(job(merge, 'prepare'), /environment-setup|environment-verify\n|copilot/);
+  assert.match(job(merge, 'report'), /needs: \[decide, archive, prepare, verdict\][\s\S]*SPECKIT_CHECK_RUN: \$\{\{ needs\.archive\.outputs\.check_run \|\| needs\.decide\.outputs\.check_run \}\}[\s\S]*needs\.verdict\.result \}\}[\s\S]*speckit-merge\.mjs merge-land/);
+  assert.match(job(merge, 'verdict'), /pattern: speckit-merge-verification-shard-\*[\s\S]*speckit-verify-shards\.mjs" combine "\$RUNNER_TEMP\/shards" "\$SPECKIT_RESULT_DIR" --expect "\$MATRIX"[\s\S]*SPECKIT_VERIFY_COMBINED: 'true'[\s\S]*SPECKIT_VERIFY_FAILED: \$\{\{ steps\.combine\.outputs\.failed \}\}[\s\S]*SPECKIT_SELFTEST_OUTCOME: \$\{\{ needs\.selftest\.outputs\.outcome \|\| needs\.selftest\.result \}\}[\s\S]*speckit-merge\.mjs" verdict[\s\S]*name: speckit-merge-result\n/);
+  assert.match(job(kinds.repair, 'verdict'), /pattern: speckit-repair-verification-shard-\*[\s\S]*--expect "\$MATRIX"[\s\S]*SELFTEST: \$\{\{ needs\.selftest\.result \}\}[\s\S]*name: speckit-repair-verification\n[\s\S]*- name: Fail on a failed verification\n/);
+  // Merge and repair verify in planned shards side by side, each rebuilding the planned tree; the changed environment
+  // actions are self-tested once, with their own tests only. No job that runs workspace code can write.
+  for (const [label, text, artifact] of [['merge', merge, 'speckit-merge-verification-shard-'], ['repair', kinds.repair, 'speckit-repair-verification-shard-']]) {
+    const shards = job(text, 'shards');
+    assert.match(shards, /timeout-minutes: 90\n\s+strategy:\n\s+fail-fast: false\n(?:\s+#[^\n]*\n)?\s+matrix: \$\{\{ fromJSON\(needs\.prepare\.outputs\.matrix \|\| '\{"include":\[\{"name":"no plan","shard":"1\/1"\}\]\}'\) \}\}\n/, label);
+    assert.match(shards, /PLANNED_TREE: \$\{\{ needs\.prepare\.outputs\.tree \}\}[\s\S]*tree="\$\(git (-C "\$SPECKIT_WORKSPACE" )?write-tree\)"[\s\S]*exit 1/, `${label}: a shard verifies the planned tree`);
+    assert.match(shards, /uses: \.\/tooling\/\.github\/actions\/environment-verify\n[\s\S]*shard: \$\{\{ matrix\.shard \}\}\n/, label);
+    assert.match(shards, new RegExp(`name: ${artifact}\\$\\{\\{ strategy\\.job-index \\}\\}\\n`), label);
+    assert.match(shards, /UNCOVERED: \$\{\{ steps\.verify\.outputs\.uncovered \}\}[\s\S]*"\$SPECKIT_RESULT_DIR\/uncovered\.txt"/, label);
+    assert.match(job(text, 'selftest'), /uses: \.\/workspace\/\.github\/actions\/environment-verify\n\s+with:\n[\s\S]*environment-tests-only: "true"\n/, label);
+    for (const name of ['prepare', 'shards', 'selftest', 'verdict']) {
+      assert.match(job(text, name), /timeout-minutes: (15|45|90)\n/, `${label} ${name}: within the 90-minute limit`);
+      assert.doesNotMatch(job(text, name), /: write\b|GITHUB_TOKEN|copilot/, `${label} ${name}: read-only`);
+    }
+  }
   // The pull request's base branch flows from decide to every job that merges or compares with git.
   assert.match(job(prepare, 'decide'), /base_branch: \$\{\{ steps\.decide\.outputs\.base_branch \}\}/);
   assert.match(unit, /^ {6}base:\n {8}description: [^\n]+\n {8}required: true/m);
@@ -944,4 +991,223 @@ test('finds the spec of an implementation branch in specs/ or, once archived for
   assert.match(validateTaskChange({ folder: 'f', archived: true, taskId: 'T001', before, after, changedPaths: ['specs/f/tasks.md'] }).join(), /changed protected paths: specs\/f\/tasks\.md/);
   assert.match(validateAmendment({ folder: 'f', archived: true, changedPaths: ['specs/f/plan.md'], beforeTasks: before, afterTasks: before }).reasons.join(), /may only change files in `specs\/archive\/f\/`/);
   assert.deepEqual(environmentExclusivityReasons({ folder: 'f', branchPaths: ['.github/actions/environment-verify/action.yml', 'specs/archive/f/tasks.md'] }), []);
+});
+test('a Blocked comment tells a blocker with an implementation pull request from a spec twin that needs /speckit implement', () => {
+  const twin = (number, stage = null) => ({ number, labels: stage ? [{ name: `speckit:stage:${stage}` }] : [] });
+  const block = dependencyBlock([twin(77), twin(80, 'implement'), twin(81, 'implementing'), twin(90), 55], { pulls: new Map([[81, 331]]) });
+  const text = block.lines.join('\n');
+  assert.deepEqual(block.key, { blockers: [55, 77, 80, 81, 90], unrequested: [77, 90], pulls: [331] });
+  assert.match(text, /^\*\*Blocked\*\* by prerequisite #55, #77, #80, #81, #90: [^\n]*waits instead of continuing\.\n/, 'something is needed, so it does not say nothing is needed');
+  assert.match(text, /\*\*Recommended next step\*\*: Comment the following on spec twin #77, #90 \(on each\) to request their implementation\.\n\n```text\n\/speckit implement\n```/, 'every unrequested twin is named in the recommendation');
+  assert.match(text, /\*\*Spec twins to request first\*\* \(no implementation pull request yet\):\n\n- #77: not requested; comment `\/speckit implement` on #77 to start its implementation\.\n- #90: [^\n]*on #90/);
+  assert.match(text, /\*\*Implementation pull request to finish first\*\*:\n\n- #331 implements #81; this implementation resumes once it is merged\./);
+  assert.match(text, /\*\*Requested, starting by itself\*\*:\n\n- #80: requested for implementation; [^\n]*Nothing to do\./);
+  assert.match(text, /\*\*Other prerequisites\*\*:\n\n- #55: this implementation waits until it is implemented\./);
+  assert.doesNotMatch(text, /#81: not requested|#80: not requested|#331 implements #80/, 'each blocker appears in exactly one section');
+
+  const waiting = dependencyBlock([twin(80, 'implement')]).lines.join('\n');
+  assert.match(waiting, /waits instead of continuing\. Nothing is needed on this pull request\./);
+  assert.doesNotMatch(waiting, /Recommended next step|to finish first|to request first/);
+  assert.match(waiting, /\*\*Requested, starting by itself\*\*/);
+});
+
+import { COPILOT_HANDOFF_MARKER, COPILOT_HANDOFF_MS, ATTENTION_LABEL as HELP, BLOCKED_LABEL as BLOCKED, isCopilotRequest, maintainCopilotHandoff, pendingCopilotHandoff, setAttention } from './speckit-implement-core.mjs';
+import { diagnosisRepo } from './speckit-test-helpers.mjs';
+
+test('attention labels are idempotent, removed from closed PRs, and report recoverable API failures', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const warnings = [];
+  const options = { warn: (message) => warnings.push(message) };
+  const add = github.addLabels.bind(github);
+  github.addLabels = async () => { throw new Error('rate limited'); };
+  assert.equal(await setAttention(github, 9, true, options), false);
+  assert.match(warnings[0], /help wanted.*#9.*rate limited/);
+  let additions = 0;
+  github.addLabels = async (...args) => { additions += 1; return add(...args); };
+  assert.equal(await setAttention(github, 9, true, options), true);
+  const comments = github.comments.length;
+  assert.equal(await setAttention(github, 9, true, options), true);
+  assert.equal(github.repo.pulls[0].labels.filter((label) => label.name === HELP).length, 1);
+  assert.equal(additions, 1);
+  assert.equal(github.comments.length, comments);
+  github.closePull(9);
+  assert.equal(await setAttention(github, 9, true, options), true);
+  assert.equal(github.repo.pulls[0].labels.some((label) => label.name === HELP), false);
+  const remove = github.removeLabel.bind(github);
+  github.repo.pulls[0].labels.push({ name: HELP });
+  github.removeLabel = async () => { throw new Error('forbidden'); };
+  assert.equal(await setAttention(github, 9, false, options), false);
+  assert.match(warnings.at(-1), /help wanted.*#9.*forbidden/);
+  github.removeLabel = remove;
+  assert.equal(await setAttention(github, 9, false, options), true);
+});
+
+test('a handoff to Copilot is working until Copilot pushes, replies without a push, or the time runs out', () => {
+  assert.equal(isCopilotRequest('@copilot Merge main'), true);
+  assert.equal(isCopilotRequest('\n  @Copilot, please'), true);
+  assert.equal(isCopilotRequest('thanks @copilot'), false);
+  assert.equal(isCopilotRequest('@copilotx'), false);
+  const at = Date.parse('2026-10-28T13:20:00Z');
+  const comment = (id, login, body, offset) => ({ id, user: { login }, body, created_at: new Date(at + offset).toISOString() });
+  const handed = comment(1, 'github-actions[bot]', `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`, 0);
+  assert.equal(pendingCopilotHandoff([]), null);
+  assert.equal(pendingCopilotHandoff([handed], { now: at + 60_000 }).state, 'working');
+  assert.equal(pendingCopilotHandoff([handed], { now: at + COPILOT_HANDOFF_MS }).state, 'expired');
+  const reply = comment(2, 'Copilot', 'I could not resolve it.', 300_000);
+  assert.deepEqual(pendingCopilotHandoff([handed, reply], { now: at + 400_000 }).reply, reply);
+  assert.equal(pendingCopilotHandoff([handed, reply], { now: at + 400_000 }).state, 'finished');
+  assert.equal(pendingCopilotHandoff([handed, reply], { pushedAt: new Date(at + 200_000).toISOString(), now: at + 400_000 }), null, 'a push after the handoff continues the implementation');
+  assert.equal(pendingCopilotHandoff([handed], { pushedAt: new Date(at - 1000).toISOString(), now: at + COPILOT_HANDOFF_MS }).state, 'expired', 'an older push does not count');
+  const retried = comment(3, 'github-actions[bot]', '<!-- speckit-implement:retry -->\nImplementation retried', 100_000);
+  assert.equal(pendingCopilotHandoff([handed, retried, reply], { now: at + 400_000 }), null, 'a restart ends the handoff');
+  const ended = comment(4, 'github-actions[bot]', '<!-- speckit-implement:copilot-handoff-ended {"handoff":1} -->\n...', 500_000);
+  assert.equal(pendingCopilotHandoff([handed, reply, ended], { now: at + 600_000 }), null, 'it ends once');
+  assert.equal(pendingCopilotHandoff([handed, comment(5, 'dev', 'Copilot? any news', 100_000)], { now: at + 120_000 }).state, 'working', 'only Copilot\'s own reply finishes it');
+});
+
+test('the scheduler asks for help again when a handoff to Copilot ended without a push, once, with one next step', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const pull = github.repo.pulls[0];
+  const labels = () => (pull.labels ?? []).map((label) => label.name);
+  const diagnosis = await github.createComment(9, '<!-- speckit-implement:diagnosis -->\n**Diagnosis**: ...');
+  const handed = await github.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
+  const state = async (extra = {}) => maintainCopilotHandoff(github, { pull, comments: await github.listIssueComments(9), pushedAt: null, active: false, continues: false, blocked: false, now: Date.parse(handed.created_at) + 60_000, ...extra });
+  assert.equal(await state(), null, 'still working');
+  assert.equal(await state({ now: Date.parse(handed.created_at) + COPILOT_HANDOFF_MS, active: true }), null, 'a running chain decides itself');
+  assert.equal(await state({ now: Date.parse(handed.created_at) + COPILOT_HANDOFF_MS, continues: true }), null, 'a chain about to continue decides itself');
+  assert.equal(await state({ now: Date.parse(handed.created_at) + COPILOT_HANDOFF_MS, blocked: true }), null);
+  assert.deepEqual(labels(), []);
+  github.commentAuthor = 'Copilot';
+  const reply = await github.createComment(9, 'I could not find the conflict.');
+  github.commentAuthor = undefined;
+  assert.equal(await state(), 'finished');
+  assert.deepEqual(labels(), [HELP]);
+  const note = github.comments.at(-1).body;
+  assert.match(note, /^<!-- speckit-implement:copilot-handoff-ended \{"handoff":\d+,"head":"sha-impl","request":null\} -->\n\*\*Copilot finished without pushing\*\* to `speckit\/f`/);
+  assert.ok(note.includes(reply.html_url));
+  assert.match(note, /\*\*Recommended next step\*\*: Review the failed handoff/);
+  assert.doesNotMatch(note, /Follow the \[latest diagnosis\].*again/);
+  assert.equal(note.match(/Recommended next step/g).length, 1);
+  const count = github.comments.length;
+  assert.equal(await state(), null, 'reported once');
+  assert.equal(github.comments.length, count);
+
+  const quiet = diagnosisRepo({ amendment: false });
+  const quietPull = quiet.repo.pulls[0];
+  const quietHandoff = await quiet.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
+  quietPull.labels = [{ name: BLOCKED }];
+  assert.equal(await maintainCopilotHandoff(quiet, { pull: quietPull, comments: await quiet.listIssueComments(9), now: Date.parse(quietHandoff.created_at) + COPILOT_HANDOFF_MS }), 'expired');
+  assert.deepEqual(quietPull.labels.map((label) => label.name), [BLOCKED], 'a blocked pull request does not get the label');
+  quietPull.labels = [];
+  const fresh = await quiet.createComment(9, `${COPILOT_HANDOFF_MARKER}\n**Copilot is working on it**`);
+  assert.equal(await maintainCopilotHandoff(quiet, { pull: quietPull, comments: await quiet.listIssueComments(9), now: Date.parse(fresh.created_at) + COPILOT_HANDOFF_MS }), 'expired');
+  assert.match(quiet.comments.at(-1).body, /\*\*Copilot has not pushed\*\* to `speckit\/f` within 60 minutes[\s\S]*\*\*Recommended next step\*\*: Review the failed handoff/);
+  assert.deepEqual(quietPull.labels.map((label) => label.name), [HELP]);
+});
+import { AUTO_CONTINUE_MARKER as AUTO, BOT_LOGIN as BOT, RETRY_COMMENT_MARKER as RETRY, FAILURE_CLASS_TEXT, attemptEvidence, autoContinuedStop, failureClassOf, parseAttempts as ledgerOf, renderAttemptMarker as markerOf, retryState } from './speckit-implement-core.mjs';
+
+test('records the class of a failed attempt; a marker without one counts as an agent failure', () => {
+  const body = (fields) => `Report\n\n${markerOf(fields)}`;
+  const comments = [
+    { user: { login: BOT }, created_at: '2026-10-06T11:00:00Z', body: body({ kind: 'task', task: 'T002', attempt: 1, outcome: 'failure', failureClass: 'repeat' }) },
+    { user: { login: BOT }, created_at: '2026-10-06T11:10:00Z', body: body({ kind: 'task', task: 'T002', attempt: 2, outcome: 'failure' }) },
+    { user: { login: BOT }, created_at: '2026-10-06T11:20:00Z', body: body({ kind: 'merge', attempt: 1, outcome: 'failure', failureClass: 'infrastructure' }) },
+    { user: { login: BOT }, created_at: '2026-10-06T11:30:00Z', body: '<!-- speckit-implement:attempt {"kind":"task","task":"T003","attempt":1,"outcome":"failure","class":"bogus"} -->' },
+  ];
+  const ledger = ledgerOf(comments);
+  assert.deepEqual(ledger.map((item) => item.class ?? null), ['repeat', null, 'infrastructure', null]);
+  assert.deepEqual(ledger.map(failureClassOf), ['repeat', 'agent', 'infrastructure', 'agent']);
+  assert.doesNotMatch(markerOf({ kind: 'task', task: 'T002', attempt: 1, outcome: 'failure', failureClass: 'unknown' }), /"class"/);
+  assert.deepEqual(Object.keys(FAILURE_CLASS_TEXT).sort(), ['agent', 'infrastructure', 'repeat']);
+});
+
+test('decides a second attempt from the class of the first failure', () => {
+  const failed = (failureClass, at = '2026-10-06T11:00:00Z') => ({ kind: 'task', task: 'T002', attempt: 1, outcome: 'failure', at, ...(failureClass ? { class: failureClass } : {}) });
+  assert.deepEqual(retryState([failed('repeat')], { kind: 'task', task: 'T002' }), { failures: 1, total: 1, exceeded: true, failureClass: 'repeat', sameAsStop: false, previous: failed('repeat'), wait: false }, 'certain to repeat: stops at once');
+  assert.deepEqual(retryState([failed('infrastructure')], { kind: 'task', task: 'T002' }), { failures: 1, total: 1, exceeded: false, failureClass: 'infrastructure', sameAsStop: false, previous: failed('infrastructure'), wait: true }, 'infrastructure: once more after a wait');
+  assert.equal(retryState([failed('agent')], { kind: 'task', task: 'T002' }).exceeded, false, 'agent: the second attempt');
+  assert.equal(retryState([failed('agent')], { kind: 'task', task: 'T002' }).wait, false);
+  assert.equal(retryState([failed(null)], { kind: 'task', task: 'T002' }).failureClass, 'agent', 'an old marker without a class');
+  assert.equal(retryState([failed('infrastructure'), failed('infrastructure', '2026-10-06T11:30:00Z')], { kind: 'task', task: 'T002' }).exceeded, true, 'the limit still holds');
+  const requeued = [failed('infrastructure'), { ...failed(null), outcome: 'requeue' }];
+  assert.equal(retryState(requeued, { kind: 'task', task: 'T002' }).wait, false, 'a redo after the failure does not wait again');
+
+  const stopped = { kind: 'task', task: 'T002', class: 'agent', at: '2026-10-06T10:30:00Z' };
+  assert.equal(retryState([failed('agent')], { kind: 'task', task: 'T002', stopped }).exceeded, true, 'an automatic continuation that fails the same way stops');
+  assert.equal(retryState([failed('agent')], { kind: 'task', task: 'T002', stopped }).sameAsStop, true);
+  assert.equal(retryState([failed('infrastructure')], { kind: 'task', task: 'T002', stopped }).exceeded, false, 'another class keeps the second attempt');
+  assert.equal(retryState([failed('agent')], { kind: 'task', task: 'T003', stopped }).exceeded, false, 'another item keeps the second attempt');
+});
+
+test('applies the classes to tasks, convergence, conflict resolution, and merges', () => {
+  const windowStart = '2026-10-06T10:00:00Z';
+  const now = Date.parse('2026-10-06T20:00:00Z');
+  const at = (hour) => `2026-10-06T${String(hour).padStart(2, '0')}:00:00Z`;
+  const failed = (kind, task, hour, failureClass) => ({ kind, task, attempt: 1, outcome: 'failure', at: at(hour), ...(failureClass ? { class: failureClass } : {}) });
+  const decide = (fields) => decideNext({ tasksMarkdown: TASKS, windowStart, now, ...fields });
+
+  assert.deepEqual(decide({ attempts: [failed('task', 'T002', 11, 'repeat')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 1, failureClass: 'repeat', stale: [] });
+  const waiting = decide({ attempts: [failed('task', 'T002', 11, 'infrastructure')] });
+  assert.equal(waiting.wait, true);
+  assert.deepEqual(waiting.order, [[{ task: 'T002', attempt: 2, previous: failed('task', 'T002', 11, 'infrastructure') }]]);
+  const retried = decide({ attempts: [failed('task', 'T002', 11, 'agent')] });
+  assert.equal(retried.wait, undefined);
+  assert.equal(retried.order[0][0].previous.class, 'agent', 'the second attempt names the failure it follows');
+  assert.equal(decide({ attempts: [failed('task', 'T002', 11)] }).action, 'tasks', 'an old marker keeps the second attempt');
+  const stopped = { kind: 'task', task: 'T002', class: 'agent', at: at(10) };
+  assert.deepEqual(decide({ attempts: [failed('task', 'T002', 11, 'agent')], stopped }), { action: 'limit', kind: 'task', task: 'T002', attempts: 1, failureClass: 'agent', sameAsStop: true, stale: [] });
+
+  const done = '- [x] T001 a\n';
+  const landed = { kind: 'task', task: 'T001', attempt: 1, outcome: 'success', at: at(11) };
+  const phaseVerified = { kind: 'verify', task: null, attempt: 1, outcome: 'success', at: at(11), phase: null };
+  const closing = (fields) => decideNext({ tasksMarkdown: done, windowStart, now, ...fields });
+  assert.equal(closing({ attempts: [landed, phaseVerified, failed('converge', null, 12, 'repeat')] }).action, 'limit', 'a convergence outside its scope stops at once');
+  assert.equal(closing({ attempts: [landed, phaseVerified, failed('converge', null, 12, 'infrastructure')] }).wait, true);
+
+  const converged = [landed, phaseVerified, { kind: 'converge', task: null, attempt: 1, outcome: 'success', at: at(12) }];
+  const check = (id, external_id, hour, fields = {}) => ({ id, external_id, status: 'completed', conclusion: 'failure', started_at: at(hour), ...fields });
+  const conflict = check(5, CHECK_CONFLICT, 13, { conclusion: 'neutral' });
+  assert.equal(closing({ attempts: [...converged, failed('resolve', null, 14, 'repeat')], checks: [conflict] }).action, 'limit', 'a conflict that needs a person stops at once');
+
+  const merge = check(6, CHECK_MERGE, 13);
+  assert.deepEqual(closing({ attempts: [...converged, failed('merge', null, 14, 'repeat')], checks: [merge] }), { action: 'limit', kind: 'merge', attempts: 1, failureClass: 'repeat', stale: [] });
+  assert.deepEqual(closing({ attempts: [...converged, failed('merge', null, 14, 'infrastructure')], checks: [merge] }), { action: 'merge', kind: 'merge', attempt: 2, stale: [], wait: true });
+  assert.deepEqual(closing({ attempts: converged, checks: [merge] }), { action: 'merge', kind: 'merge', attempt: 2, stale: [] }, 'a merge without a class marker, or whose branch moved, stays retryable');
+  const second = check(7, CHECK_MERGE, 15);
+  assert.equal(closing({ attempts: [...converged, failed('merge', null, 14, 'infrastructure')], checks: [merge, second] }).action, 'limit', 'a marker only classifies its own merge');
+
+  const open = '- [x] T001 a\n- [ ] T002 b\n';
+  const syncConflict = check(1, CHECK_SYNC_CONFLICT, 12, { conclusion: 'neutral' });
+  const sync = (attempts) => decideNext({ tasksMarkdown: open, windowStart, now, checks: [syncConflict], attempts });
+  assert.equal(sync([failed('resolve', null, 13, 'repeat')]).syncGivenUp, syncConflict, 'a best-effort base merge that needs a person is given up at once');
+  assert.equal(sync([failed('resolve', null, 13, 'infrastructure')]).wait, true);
+});
+
+test('finds the automatic continuation that started the window', () => {
+  const at = (minute) => `2026-10-06T11:${String(minute).padStart(2, '0')}:00Z`;
+  const failure = { kind: 'task', task: 'T002', attempt: 2, outcome: 'failure', at: at(0), class: 'infrastructure' };
+  const continued = { user: { login: BOT }, created_at: at(10), body: `${AUTO}\n${RETRY}\nContinued.` };
+  assert.deepEqual(autoContinuedStop([continued], [failure], at(10)), { kind: 'task', task: 'T002', class: 'infrastructure', at: at(10) });
+  assert.equal(autoContinuedStop([continued], [{ ...failure, class: undefined }], null).class, 'agent');
+  const person = { user: { login: BOT }, created_at: at(20), body: `${RETRY}\nRetried by @someone.` };
+  assert.equal(autoContinuedStop([continued, person], [failure], at(20)), null, "a person's retry gives the full count");
+  assert.equal(autoContinuedStop([continued], [failure], at(30)), null, "a person's later push gives the full count");
+  assert.equal(autoContinuedStop([{ ...continued, user: { login: 'mallory' } }], [failure], null), null, 'only the workflow continues');
+  assert.equal(autoContinuedStop([continued], [{ ...failure, outcome: 'attention' }], null), null);
+});
+
+test('gives the next attempt the report of the failed one as evidence', () => {
+  const marker = markerOf({ kind: 'task', task: 'T002', attempt: 1, outcome: 'failure', failureClass: 'agent' });
+  const report = { user: { login: BOT }, created_at: '2026-10-06T11:00:00Z', body: `**T002** attempt 1 failed\n\n- the tests failed\n<!-- hidden -->\n${marker}` };
+  const [failure] = ledgerOf([report]);
+  const evidence = attemptEvidence([report], failure);
+  assert.match(evidence, /T002\*\* attempt 1 failed[\s\S]*the tests failed/);
+  assert.doesNotMatch(evidence, /<!--/);
+  assert.equal(attemptEvidence([report], { ...failure, attempt: 2 }), '', 'only the comment that recorded the failure');
+  assert.equal(attemptEvidence([], failure), '');
+  assert.equal(attemptEvidence([report], null), '');
+  const long = { ...report, body: `${'x'.repeat(10000)}\n${marker}` };
+  assert.ok(attemptEvidence([long], failure).length < 6100);
+  const forged = { ...report, body: `${report.body}\n${RETRY}` };
+  assert.doesNotMatch(attemptEvidence([forged], failure), /<!-- speckit-implement:retry -->/, 'markers in the report are neutralized');
 });

@@ -1,7 +1,7 @@
 name: Spec Kit commands
 
 # Handles people's input on Spec Kit pull requests:
-# - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): retry, sync, specify, help;
+# - `/speckit <command>` comments on implementation pull requests: reset, retry, sync, amend, author, help;
 #   and on spec twin issues (label speckit:spec): implement (the only way to request an implementation), help.
 #   - Feedback on amendment pull requests (speckit-amend/<folder>) and authored spec pull requests
 #     (speckit-spec/<folder>, earlier speckit-fix/<folder>): a comment, or a review with Comment or Request changes,
@@ -12,6 +12,8 @@ name: Spec Kit commands
 #   - Guard: Spec Kit pull requests are removed from pull request stacks, an amendment's base branch is set back to
 #     its implementation branch, and an authored spec's to the default branch (the scheduler, Spec Kit orchestrate,
 #     does the same on every run, also for events this job cannot see).
+#   - A `@copilot` request on a stopped implementation pull request hands it to Copilot's cloud agent: the pull
+#     request stops asking for help until the scheduler sees that Copilot ended without a push.
 # Only people with write access are heard; comments and reviews by bots never trigger. Reviews arrive through a small
 # forwarder job, because GitHub runs pull_request_review workflows from the pull request's merge ref; it only
 # dispatches this workflow on the default branch, where everything else runs.
@@ -28,6 +30,10 @@ on:
         description: Amendment pull request whose feedback to handle (set by the review forwarder)
         required: true
         type: string
+      reset_comment:
+        description: Writer reset comment to reconcile after an interrupted command
+        required: false
+        type: string
 
 # Every run says which pull request or issue it handles: GitHub would otherwise name it after the pull request title
 # alone ("Implement: …", "Amend: …").
@@ -39,10 +45,12 @@ jobs:
   target:
     name: Resolve the command publication target
     if: >-
-      github.event_name == 'issue_comment' &&
+      (github.event_name == 'workflow_dispatch' && inputs.reset_comment != '' &&
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+      (github.event_name == 'issue_comment' &&
       (github.event.issue.pull_request || contains(github.event.issue.labels.*.name, 'speckit:spec')) &&
       github.event.comment.user.type != 'Bot' &&
-      startsWith(github.event.comment.body, '/speckit')
+      startsWith(github.event.comment.body, '/speckit'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -50,6 +58,7 @@ jobs:
       pull-requests: read
     outputs:
       pull: ${{ steps.target.outputs.pull }}
+      force_reset: ${{ steps.target.outputs.force_reset }}
     steps:
       - name: Check out the default branch
         uses: actions/checkout@v5
@@ -66,20 +75,68 @@ jobs:
         id: target
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_PULL: ${{ github.event.issue.number }}
-          SPECKIT_TARGET: ${{ github.event.issue.pull_request && 'pull' || 'twin' }}
+          SPECKIT_PULL: ${{ github.event.issue.number || inputs.pull }}
+          SPECKIT_TARGET: ${{ (github.event.issue.pull_request || inputs.reset_comment != '') && 'pull' || 'twin' }}
           SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
+          SPECKIT_RESET_RESUME: ${{ inputs.reset_comment }}
         run: node .github/scripts/speckit-commands.mjs target
+
+  prepare-reset:
+    name: Quiesce related work before a force reset
+    needs: target
+    if: needs.target.outputs.force_reset == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: speckit-reset-control-${{ needs.target.outputs.pull }}
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      actions: write
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      prepared: ${{ steps.prepare.outputs.prepared }}
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Authorize and prepare force cleanup
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_PULL: ${{ github.event.issue.number || inputs.pull }}
+          SPECKIT_RESET_RESUME: ${{ inputs.reset_comment }}
+          SPECKIT_COMMENT_ID: ${{ github.event.comment.id }}
+          SPECKIT_ACTOR: ${{ github.event.comment.user.login }}
+          SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
+          SPECKIT_PUBLICATION_PULL: ${{ needs.target.outputs.pull }}
+          SPECKIT_TARGET: pull
+        run: node .github/scripts/speckit-commands.mjs prepare-reset
 
   command:
     name: Handle the /speckit command
-    needs: target
+    needs: [target, prepare-reset]
     # issue_comment always uses this workflow from the default branch; no job checks out pull request code.
     if: >-
-      github.event_name == 'issue_comment' &&
+      always() && needs.target.result == 'success' &&
+      (needs.target.outputs.force_reset != 'true' || needs.prepare-reset.outputs.prepared == 'true') &&
+      ((github.event_name == 'workflow_dispatch' && inputs.reset_comment != '' &&
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+      (github.event_name == 'issue_comment' &&
       (github.event.issue.pull_request || contains(github.event.issue.labels.*.name, 'speckit:spec')) &&
       github.event.comment.user.type != 'Bot' &&
-      startsWith(github.event.comment.body, '/speckit')
+      startsWith(github.event.comment.body, '/speckit')))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Atomic with all branch publication jobs; queue rather than replacing pending commands or parallel task landings.
@@ -110,12 +167,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          SPECKIT_PULL: ${{ github.event.issue.number }}
+          SPECKIT_PULL: ${{ github.event.issue.number || inputs.pull }}
+          SPECKIT_RESET_RESUME: ${{ inputs.reset_comment }}
           SPECKIT_COMMENT_ID: ${{ github.event.comment.id }}
           SPECKIT_ACTOR: ${{ github.event.comment.user.login }}
           SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
           SPECKIT_PUBLICATION_PULL: ${{ needs.target.outputs.pull }}
-          SPECKIT_TARGET: ${{ github.event.issue.pull_request && 'pull' || 'twin' }}
+          SPECKIT_TARGET: ${{ (github.event.issue.pull_request || inputs.reset_comment != '') && 'pull' || 'twin' }}
         run: node .github/scripts/speckit-commands.mjs command
 
   feedback:
@@ -125,7 +183,7 @@ jobs:
       github.event.issue.pull_request &&
       github.event.comment.user.type != 'Bot' &&
       !startsWith(github.event.comment.body, '/speckit')) ||
-      (github.event_name == 'workflow_dispatch' &&
+      (github.event_name == 'workflow_dispatch' && inputs.reset_comment == '' &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-latest
     # Waits up to 20 minutes for a running check or rework before starting the rework.
@@ -160,6 +218,43 @@ jobs:
           SPECKIT_COMMENT_ID: ${{ github.event.comment.id }}
           SPECKIT_ACTOR: ${{ github.event.comment.user.login }}
         run: node .github/scripts/speckit-amend.mjs feedback
+
+  # A writer's `@copilot` request on a stopped implementation pull request hands it to GitHub Copilot's cloud agent: the
+  # pull request stops asking for help, because Copilot's push continues the implementation by itself. The script
+  # ignores other pull requests, people without write access, and implementations that do not wait for a person.
+  copilot-handoff:
+    name: Hand a stopped implementation over to Copilot
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(github.event.comment.body, '@copilot')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # The comment reaches the script only through the environment, never through the workflow expression syntax.
+      - name: Hand the implementation over to Copilot
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_PULL: ${{ github.event.issue.number }}
+          SPECKIT_ACTOR: ${{ github.event.comment.user.login }}
+          SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
+        run: node .github/scripts/speckit-commands.mjs copilot-handoff
 
   forward-review:
     name: Forward amendment or authored spec review

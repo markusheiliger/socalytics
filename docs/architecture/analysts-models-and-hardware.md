@@ -130,6 +130,19 @@ catalog is met, and it is not part of any production workflow. Registries and
 publication, the catalog's independent license and provenance audit (the
 capability's own audit does not replace it), and production values remain open.
 
+The development evaluation harness
+`src/analysts/capabilities/analyst-evaluation-harness/` is a consumer of
+Analyst images, not an Analyst and not a catalog capability. It can run the
+container interface of an image such as the reference image only from a
+digest reference that is already present in the local container engine (it
+never pulls), in a restricted container, and records the image digest as
+lineage next to the capability, SDK, and toolchain versions; it can equally run
+a local command as a subprocess, in which case the image digest is reported as
+not evaluated as an image. Its automated tests exercise the container path
+against a fake engine and the reference capability as a subprocess; they do not
+build or run the reference image. It evidences no gate and no promotion: the
+reference capability still passes no gate of the catalog.
+
 ### Implementation Profile
 
 Analyst Containers use Python projects managed with `uv`, `pyproject.toml`, and
@@ -420,8 +433,11 @@ the platform confirms the media's attested digest and size and the manifest
 checksum; it never reads media bytes, never stores or logs links, re-evaluates
 team authorization on every request, rate-limits resolutions per member, and
 records each resolution that issues links as an artifact-authorization audit
-event without the links. This is the API side of `get_video_clip()`; the MCP
-tool remains future work. Production link lifetimes, rate limits, content
+event without the links. This is the API side of `get_video_clip()` for
+members; the agent workload reaches the same resolution through the
+`agentToolGetVideoClip` operation, which is bound to its attempt and pinned
+tool policy and returns the links to the caller only. The MCP tool remains
+future work. Production link lifetimes, rate limits, content
 delivery, and the production storage origin remain unresolved.
 
 ---
@@ -500,7 +516,7 @@ SDK-built Analyst (`reference-media-probe`, and the shot-boundary baseline
 `media-context-classification`) that decodes Manager-staged segment
 media in a restricted container from its digest-pinned image, with its facts
 accepted, indexed, and read by members (validation of presigned video access
-stays open), the local
+stays open; the evaluation harness is not part of this adapter evidence), the local
 endpoint policy (remote and unauthenticated endpoints refused), orphan
 reconciliation of the Manager's own labelled containers, and the launch
 restrictions (non-root user, read-only root filesystem, no network, dropped

@@ -250,7 +250,8 @@ minute and answers `429` `evidence-rate-limited` with `Retry-After`.
 production values): `GrantLifetime` 5 minutes, `RetryAfter` 5 seconds,
 `ResolutionsPerMinute` 60, `MaxDuration` 10 minutes, and `MaxContext` 10
 seconds. The MCP tool, CDN delivery, and production link lifetimes, rate limits,
-and storage origin remain unresolved.
+and storage origin remain unresolved. Agents reach the same resolution through
+the agent evidence tools (see below).
 
 Agent Orchestration direct invocations are implemented as development evidence
 (migrations `0024_agentorchestration_conversations_and_invocations.sql` and
@@ -276,8 +277,35 @@ lineage under `/api/v1`); the initiating user alone reads them.
 - `Tests/SocAlytics.Platform.SimulatedAgentWorkload` is the Development and Test
   simulated agent workload that stands in for Hermes with deterministic advice;
   the AppHost starts it with an ephemeral key. It is not an agent runtime.
-- Hermes, consultations, Coach Agents, MCP tools, lifecycle operations, the
-  Web UI, and production values remain deferred.
+- Hermes, consultations, Coach Agents, the MCP server, lifecycle operations, the
+  Web UI's Coach Agent and consultation workflows, and production values remain
+  deferred.
+
+The agent evidence tools are implemented as development evidence (migration
+`0033_agentorchestration_tool_calls.sql`, a `Tools` folder in each layer). The
+`/api/v1/agent-tools` route group holds exactly one read-only `agentTool*`
+operation per tool of the allowlist contract
+`contracts/agent-tools/tool-allowlist/v1`, whose tool identifiers equal the
+catalog baseline's; the `Architecture.Tests` route group test checks the
+equality. Only an authenticated agent workload (`AgentWorkload` policy) may call
+them, for its current attempt and fencing token and for tools in the invocation's
+pinned tool policy; arguments never name a team, match, or run. `get_match` reads
+the invocation's match and bound run with an optional fact selection,
+`get_video_clip` returns short-lived links to the caller only, and
+`get_player_stats` and the concept tools answer "analysis unavailable" with the
+producing capability, because no such capability is accepted. Each call is
+reserved in the immutable `agent_tool_calls` table (call-identifier uniqueness
+and per-attempt limits), re-evaluates the initiating user's execution authority
+(scope loss denies the call, fences the attempt, and fails the invocation; a tool
+outside the pinned policy is refused without fencing), and appends a `tool-call`
+lineage entry with digests and evidence references, never evidence content. The
+audit events `agent.tool.call.refused`, `agent.tool.call.scope-lost`, and
+`agent.tool.evidence-media.granted` carry identifiers and digests only. The
+`AgentOrchestration:Tools` options `MaxCallsPerAttempt` and
+`MaxClipResolutionsPerAttempt` are required and have development values only.
+The simulated agent workload exercises the tools with the `[simulate:tools-facts]`,
+`[simulate:tools-clip]`, and `[simulate:tools-denied]` markers. The MCP server,
+Hermes, and production limits remain deferred.
 
 The agent catalog registry is implemented as development evidence (migration
 `0028_agentorchestration_agent_catalog.sql`, a `Catalog` folder in each layer):
@@ -293,8 +321,8 @@ references, and the workload reads the pinned artifacts through the
 attempt-scoped `readPinnedAgentArtifacts` operation with the current fencing
 token. In Development and Test a seed registers and enables the two direct
 Specialist Agents with a simulated model provider. Evaluation gates, Coach Agent
-enablement, Hermes, MCP tools, the Web UI's catalog administration, and
-production values remain deferred.
+enablement, Hermes, the MCP server, and production values remain deferred (the
+Web UI's catalog administration exists; see [Client Applications](../../docs/architecture/client-applications.md)).
 
 Partial-coverage match barriers are implemented as development evidence
 against the simulated Analyst. A match-scoped capability declares partial
@@ -392,6 +420,11 @@ deferred.
   ```powershell
   dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests
   ```
+
+  Its [README](Tests/SocAlytics.Platform.EndToEnd.Tests/README.md) records how
+  the tests build and push the development Analyst images, the limits and retry
+  rule of the image push, and the run commands (development values, not
+  deployment support or production readiness).
 
 - The API hosts the outbox publisher, retention, Job Monitor,
   recordings-finalized consumer, and reconciliation workers. The switch

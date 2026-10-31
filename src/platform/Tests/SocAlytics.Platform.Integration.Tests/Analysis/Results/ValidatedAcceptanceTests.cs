@@ -17,6 +17,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis.Results;
 
+[Collection(AnalysisTelemetryCollection.Name)]
 public sealed class ValidatedAcceptanceTests(PostgresContainerFixture postgres, NatsContainerFixture nats, RustFsContainerFixture rustFs)
 {
     private static readonly string Digest = "sha-256:" + new string('a', 64);

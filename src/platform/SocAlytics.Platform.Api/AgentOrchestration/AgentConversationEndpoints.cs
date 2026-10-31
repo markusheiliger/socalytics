@@ -59,6 +59,44 @@ internal sealed record AgentLineageEntryDto(
 	int Sequence, string Kind, Guid? AttemptId, int? AttemptNumber, DateTimeOffset RecordedAt,
 	IReadOnlyDictionary<string, JsonElement> Details);
 
+// Schema-only description of the details of a `tool-call` lineage entry (data-model.md of the agent evidence tools spec):
+// digests and bounded evidence references, never evidence content or links.
+internal sealed record AgentToolCallFactEvidenceDto(Guid AcceptedResultId, int Ordinal);
+
+internal sealed record AgentToolCallMediaEvidenceDto(string MediaDigest, long StartMs, long EndMs);
+
+internal sealed record AgentToolCallEvidenceDto(
+	IReadOnlyList<AgentToolCallFactEvidenceDto> Facts, IReadOnlyList<AgentToolCallMediaEvidenceDto> Media);
+
+internal sealed record AgentToolCallLineageDetailsDto(
+	string CallId, string ToolId, string Outcome, string ArgumentsDigest, AgentToolCallEvidenceDto Evidence,
+	string? Reason = null, string? ResultDigest = null, string? ProducingCapability = null);
+
+internal static class AgentLineageSchemas
+{
+	public static async Task TransformAsync(
+		Microsoft.OpenApi.OpenApiSchema schema, Microsoft.AspNetCore.OpenApi.OpenApiSchemaTransformerContext context,
+		CancellationToken cancellationToken)
+	{
+		if (context.JsonTypeInfo.Type != typeof(AgentLineageEntryDto) || schema.Properties is not { } properties
+			|| !properties.ContainsKey("details"))
+		{
+			return;
+		}
+
+		properties["details"] = new Microsoft.OpenApi.OpenApiSchema
+		{
+			Description = "The bounded payload of the entry. For the kind `tool-call` it has the shape of AgentToolCallLineageDetailsDto.",
+			Type = Microsoft.OpenApi.JsonSchemaType.Object,
+			AnyOf =
+			[
+				new Microsoft.OpenApi.OpenApiSchema { Type = Microsoft.OpenApi.JsonSchemaType.Object },
+				await context.GetOrCreateSchemaAsync(typeof(AgentToolCallLineageDetailsDto), null, cancellationToken),
+			],
+		};
+	}
+}
+
 internal sealed record AgentLineageAdviceDto(
 	Guid AttemptId, string Advice, JsonElement ExecutionReferences, DateTimeOffset AcceptedAt);
 

@@ -29,6 +29,7 @@ workflow started you): never ask, and turn every open question into a report que
 | Mode | Workspace | Task |
 | --- | --- | --- |
 | `diagnose` | the implementation branch `speckit/<folder>` | diagnose the stop (steps 1–6); for `artifacts`, create the amendment pull request |
+| `amend` | the implementation branch `speckit/<folder>` | apply the validated writer authorization consistently to the feature artifacts and create a reviewed amendment (step 5); report with the rework report |
 | `fix` | the amendment branch `speckit-amend/<folder>` | fix the consistency findings listed in the evidence (step 7) |
 | `revise` | the amendment branch `speckit-amend/<folder>` | rework the amendment with a person's feedback listed in the evidence (step 8) |
 
@@ -66,13 +67,21 @@ workflow started you): never ask, and turn every open question into a report que
 2. **Read the artifacts** in the spec folder (`specs/<folder>/`, or `specs/archive/<folder>/` once the implementation
    archived it right before its merge; called `<spec folder>` below) and the constitution, and the code and tests the stuck task touches.
 3. **Find the root cause.** Compare the attempts: the same failure every time points to a systematic cause,
-   different failures to an approach or flakiness problem. Check what the task asks against what the artifacts
-   decide and what the code does. Experiments are allowed (build, run the relevant tests, scratch edits); revert
+   different failures to an approach or flakiness problem. A stop can follow a single attempt: the attempt marker's
+   `class` `repeat` (certain to repeat: no change, a change outside the allowed files, a refused push, a conflict that
+   needs a person) stops at once, and so does an automatically continued item whose first attempt fails with the class
+   of the failure that stopped it; the stop comment names the class. Then that one attempt is the evidence; do not read
+   it as flakiness, and do not recommend repeating unchanged what failed with class `repeat`. Check what the task asks
+   against what the artifacts decide and what the code does. Experiments are allowed (build, run the relevant tests, scratch edits); revert
    scratch edits. Code changes never leave a diagnosis.
    Compare with earlier diagnoses too: when one named the same cause and its recommended step was taken without
    changing the outcome (the same failure again, and nobody pushed a change in between), say so in the summary and do
    not recommend that step again. Find out why it did not help (for example a precondition it assumed was never met,
    or it asked the automation for something outside its scope) and recommend a step that removes that reason. After
+   a failed required `/speckit sync`, prominently state when it was requested, link its request or failed run,
+   name the stage that failed, and explain why another sync would or would not help. Do not bury this in collapsed
+   evidence. A push-permission explanation remains a hypothesis until the actual remote rejection establishes it;
+   a generic "failed to push some refs" is not that evidence. After
    2 retries in a row that left the implementation branch at the same commit, `/speckit retry`
    is refused while the implementation is stopped, so
    recommend a step that changes something: a push, a new spec (`/speckit author`), or an amendment. Only when new guidance that differs
@@ -84,8 +93,8 @@ workflow started you): never ask, and turn every open question into a report que
    | --- | --- | --- |
    | `artifacts` | The task cannot be done as written, or doing it as written cannot meet the spec: a missing, ambiguous, or contradictory design decision; a wrong assumption in research; a task too vague to diagnose its failure; a missing prerequisite task; a wrong task order; or a code fix inside this feature needed first (a **corrective task**) | an amendment pull request (step 5) that the person reviews and merges |
    | `retry` | Transient infrastructure (timeouts, rate limits, runner or network failures, Copilot errors, a flaky test with evidence), or the agent took a poor approach although the artifacts are adequate | `/speckit retry <concrete guidance>` |
-   | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | code, tests, or environment actions not fixed yet: `/speckit author <what to fix, where, and how>`; the fix is already on the base branch: `/speckit sync`; tooling under `.github/` or a non-code cause: name the action in the title, then `/speckit sync` |
-   | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered questions with the recommended choice first; `/speckit retry 1. <choice> 2. <choice>` prefilled with the recommended answers as guidance |
+   | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | ordinary feature or environment-action fix: `/speckit author` with `target: feature` or `environment`; a verified base fix: `/speckit sync` with `target: base` and `fixedBy`; protected trusted tooling or an unmet external prerequisite: `kind: external`, concrete action, no command |
+   | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | when the decision changes this feature's artifacts, recommend `/speckit amend <concrete change>` for a writer to authorize a reviewed amendment; use `/speckit retry` only for answers that require no artifact change |
    | `unknown` | Not enough evidence | what was checked and ruled out; the workflow starts another diagnosis automatically with these findings as context |
 
    A merged result that fails although both sides pass alone (a conflict resolution or merge whose verification
@@ -101,7 +110,31 @@ workflow started you): never ask, and turn every open question into a report que
    a test that races or fails after the merge is fixed by waiting for the right condition, not by changing what it
    expects. It is `outside` only when the base branch fails on its own.
 
-5. **Amend (only for `artifacts`).**
+   A task that is correctly done without a file change is not an artifact defect. A task that only verifies (runs
+   tests, validates a quickstart) or applies only under a condition that does not hold may complete without a change:
+   its agent claims it in `completion.json`, a separate read-only agent assesses the claim (`assessment.json`, both in
+   the run folder of the collected result), and the trusted runner of the work job executes what a verification task
+   requires. Never amend such a task only to give it a file to write (for example a decision record nobody asked for).
+   When it stopped with "the agent made no changes" or "the task names no verifiable file" and its agent did not
+   claim a completion, recommend `/speckit retry` with guidance that names the outcome (`verified` or
+   `not-applicable`) and the lines that show it. When the assessment rejected the claim, follow its reasons: an
+   unsupported verification requirement (a probe, a load condition, a tool the trusted runner lacks) is `outside` or
+   a `decision`, not a reason to invent a file change; a task that really requires a change but was claimed as
+   complete is `retry` with guidance to make the change. Classify it as `artifacts` only when the task itself is
+   ambiguous or contradictory about whether a change is required.
+
+5. **Amend (for `artifacts`, or mode `amend` with validated writer authorization).**
+   - In `diagnose` mode, a requirement change is not authorized by the agent recommending it. Classify it as
+     `decision` and prominently recommend one ready-to-post `/speckit amend` command with the actual change,
+     expected behavior to preserve, and any manual evidence that must not be claimed as verified. Never send
+     a change to this feature's requirements, unchecked tasks, checkpoints, or dependency notes to Copilot's
+     implementation handoff: its scope forbids task-list edits. Do not hide task-list edits behind paraphrases
+     such as "remove the open item". A retry cannot apply artifact changes either.
+   - In mode `amend`, the trusted evidence contains the source writer command and starting revision. Apply only
+     that authorization and create an amendment for independent analysis and human review/merge. Preserve
+     every completed task verbatim, including its checkbox state; never tick any task or implement code.
+     Corrections and revisions of this authorized amendment preserve the same completed-task baseline.
+     Report summary, artifacts, and responses using the rework format, not a new diagnosis.
    - Edit the highest wrong artifact first, then carry the change down: `spec.md` (only with a person's answer) →
      `plan.md` (including risks and the documentation of decisions), `research.md`, `data-model.md`, `contracts/`,
      `quickstart.md` → `tasks.md`. Search the whole folder for every statement about the changed decision
@@ -157,7 +190,7 @@ workflow started you): never ask, and turn every open question into a report que
   "cause": "the root cause and the reasoning, in Markdown",
   "evidence": ["one line per piece of evidence, with numbers, files, and runs"],
   "artifacts": [{ "file": "specs/<folder>/research.md", "reason": "what changed and why" }],
-  "options": [{ "title": "what the option does, in a few words", "why": "why it solves this problem, from the evidence", "command": "/speckit retry Rerun the verification unchanged; only UploadSessionExpiryTests failed on timing.", "recommended": true }],
+  "options": [{ "title": "Reverify the transient timing failure", "why": "Only UploadSessionExpiryTests failed on timing; the evidence supports unchanged reverification.", "command": "/speckit retry", "copilot": null, "target": "implementation", "basis": "transient", "recommended": true }],
   "questions": [{ "question": "a decision a person must make", "choices": ["recommended choice", "other choice"] }]
 }
 ```
@@ -167,9 +200,12 @@ workflow started you): never ask, and turn every open question into a report que
   fail. The person decides from the comment alone: `why` explains in one or two sentences why the option solves this
   problem (the comment adds what the command does).
 - The recommended command must fit the category: `retry` → `/speckit retry`; `outside` → `/speckit author`,
-  or `/speckit sync`; `decision` → `/speckit retry` with the recommended answers as guidance (the categories each
-  command fits are also listed under **Commands you can recommend**).
-  `artifacts` must create an amendment pull request, and `unknown` starts another diagnosis automatically.
+  or `/speckit sync`; `decision` → `/speckit amend` for changes to this feature's artifacts,
+  `/speckit retry` for answers requiring no artifact change, or a Copilot prompt
+  (below) when the decision is carried out as a push (the categories each command fits are also listed under
+  **Commands you can recommend**).
+  `artifacts` must create an amendment pull request. An unusable or `unknown` report gets at most one automatic
+  reassessment for the unchanged blocker; then state the precise missing evidence or external action.
   Inconsistent reports are rejected at publication, not replaced with a retry. A required fix
   already on the base branch is `outside`, not `retry`; recommend `/speckit sync` so the merge and verification
   are mandatory. Never embed another command in retry guidance as a substitute for selecting that command.
@@ -189,27 +225,102 @@ workflow started you): never ask, and turn every open question into a report que
 - A recommended `/speckit retry` (category `retry`, confidence medium or high) or `/speckit sync` (category `outside`)
   may be posted by the automation itself, once after each action of a person: write its guidance so it is right without
   anyone reading it first, and use `low` confidence when a person should look before it runs again.
+- `/speckit reset` is a legitimate recommendation for `retry`, `outside`, or `decision` only when cited evidence
+  establishes that discarding branch-only implementation or execution state and starting from the current PR base
+  solves the obstacle better than retry, sync, amendment, or repair. Use `target: implementation`, nonempty evidence,
+  and exactly `/speckit reset`, with no flags or guidance. Explain the lost implementation, branch-only amendments,
+  and task progress; the retained recovery reference; and the affected PR and actual base. The base must contain the
+  active ready spec with a nonempty fully unchecked task list. Active or queued work, active handoffs, and open
+  related amendment or authored-spec PRs prevent execution. Publication checks eligibility; the writer's command
+  checks it again. A recommendation never authorizes or automatically executes reset, regardless of confidence.
+  Never recommend it for unknown causes, as a fallback for repeated failure, to bypass protected paths, or when
+  the same immediate blocker survives on the base. A staged recovery may remove branch contamination while the
+  original base spec still needs a separately writer-authorized scope correction: prominently distinguish what
+  reset removes now from what remains. Do not promise completion or legalize protected-tooling obligations.
+  Completed implementation tasks do not exclude reset; readiness comes from the actual base's task list.
+  It discards branch-only amendments rather than preserving their corrections.
+  If owned active work or amendments are the only obstacles, prose may suggest manually typing the `--force` flag,
+  warning that it cancels related workflows, closes amendment PRs, and deletes their exact owned branch. Never add
+  that flag to a command field, copy block, or prefilled action: the copyable recommendation remains bare reset, so
+  the writer must type the flag deliberately. Force cannot remove authored prerequisite PRs or bypass an external
+  handoff that cannot be confirmed stopped. Shared workflows, unrelated branches, and recovery refs are preserved.
+- For protected-path/publication failures, the trusted evidence/context contains `resetRecovery`. When
+  `required` is true, the report must include `resetAssessment`, even when reset is not recommended:
+  `{head, baseSha, decision, reason, removes, remaining, alternatives: {retry, sync, amend, repair}}`.
+  Copy the pinned revisions from the evidence; `decision` is `recommend`, `unsuitable`, `blocked`, or `unknown`;
+  `removes` and `remaining` are arrays of concrete statements, and every alternative explains why it does or
+  does not remove this blocker. Retain each protected-tooling task on the base in `remaining`, naming its task
+  ID or target path. Eligibility is not proof of suitability. Before recommending manual privileged publication
+  or extra permissions, explain why a policy-compliant reset is unsuitable; a remote workflows-permission
+  rejection proves one publication failed, not that raising privileges is the only remedy.
+  Missing reads require `unknown` and an action to obtain the missing evidence, not a clean diff or a permission
+  claim. The publisher recomputes these facts and rejects missing, stale, or contradictory assessments through
+  the existing bounded reassessment path. Other diagnosis modes need no reset assessment.
+  Preflight the report with `check-report <file> --context .speckit-diagnosis/context.json` using the trusted
+  tooling script; preflight context does not replace publication-time checks.
 - Never recommend a command that already failed the same way. When the evidence has a section **A command that already
   failed the same way**, the last `/speckit retry` or `/speckit sync` left the branch unchanged and stopped with the same
   reason as before; recommending it again only repeats the stop (a recommendation of it is moved to the other options at
-  publication). Recommend what changes something instead, for example `/speckit author` for a cause outside this spec.
+  publication). Switching from retry to sync does not fix an unchanged cause. Never synthesize author or retry
+  merely because no option fits. Author is supported only for a feature or environment-action fix.
+- Options use structured `target` values: `implementation`, `artifacts`, `feature`, `environment`, `base`, `tooling`,
+  or `external`. Retry `basis` is `transient`, `corrective`, or `decision`; explain the evidence and what materially
+  changes for a corrective approach. Automatic retry needs nonempty evidence and `transient` or `corrective`.
+  Sync needs `target: base` and `fixedBy`, the full commit SHA of the relevant fix; publication verifies that commit
+  belongs to the PR base before any automatic continuation. Being behind the base is not proof of a fix.
+  After the same failure, a sync needs a fix absent from the recorded failed-sync base; corrective retry guidance
+  must differ from the failed approach. Merely relabelling an unchanged request is not progress.
+- A refused author request, failed Copilot handoff, or unusable report shares one bounded reassessment of the
+  unchanged blocker. The request, refusal and previous approaches are evidence; another run ID, paraphrasing, or an
+  unrelated base commit is not progress. Do not recommend
+  the same failed request on the unchanged revision, including a paraphrase that leaves its contradiction intact.
+  A timeout alone does not establish an artifact defect. For a #377-style refusal about editing the task list,
+  recommend `/speckit amend` with the concrete authorized artifact change, not another Copilot prompt.
 - Guidance only steers the next agent's prompt; it changes no check, limit, or verification. A stop that happens before
   any agent runs (for example conflicts under `.github/` or `.specify/`) cannot be changed by guidance. Conflicts under
   `specs/` that the archive's reference rewrites cause are resolved by script and never need a person.
 - Never recommend that a person resolves something locally and pushes when a command can do it on the server: the
   automation resolves conflicts, repairs code, and authors new specs itself (`/speckit author`).
-- When the solution needs an action outside these commands (for example "grant the workflow access to the
-  registry"), describe that action in the option's title and set `command` to the command that continues afterwards
-  (usually `/speckit retry <guidance>`), so the recommendation is one option. Its guidance must not claim that the
-  action is done ("after pushing the rename …", "the file is now renamed"): a person may post the command before
-  acting, and the work then fails again the same way. Prefer a command that lets the automation make a code change
-  itself (task, repair, or conflict-resolution guidance) over asking a person to push it. Reviewing and merging the
-  amendment pull request has `"command": null`. Add other options only when they are real alternatives, each with its
-  `why`, and give each the command that does what its title says.
+- When a prerequisite is outside these commands, use `"kind": "external"`, `"target": "tooling"` or `"external"`,
+  and `"command": null`. For a prerequisite Copilot cannot fix (permissions, secrets, quotas, external services),
+  use `"copilot": null`. State the exact action, target and reason in `title` and `why`.
+  Explain continuation only conditionally after the prerequisite is satisfied; never attach a runnable command
+  that assumes the action was already taken. Prefer supported automated remedies whenever they can fix the cause.
+  Reviewing and merging an amendment also needs no command. Other options must be real alternatives, not another
+  route to the same known failure.
+- When a trusted-tooling change can remove the blocker, classify it as `outside` and use an option with
+  `"kind": "external"`, `"target": "tooling"`, `"command": null`, and a self-contained `copilot` prompt.
+  The comment renders it for local Copilot Chat on the repository's actual default branch, not as an `@copilot`
+  PR comment. Name the affected implementation PR, evidence and failed sync, exact tooling files and required fix,
+  regression checks, and any unproven hypothesis or permission prerequisite. Prefer this ready-to-use prompt to
+  telling the person to investigate or push manually when tooling can fix the cause. Never claim that changing the
+  default branch automatically resumes the PR or clears a pending repair; name the conditional continuation.
+  Do not ask Copilot to grant itself permissions, handle credentials in source, or weaken trusted-job isolation.
+- When the remedy is an external unblock that only a push to the implementation branch can make (a file the implementation agents
+  may not change, such as another spec's folder, `.github/`, or `.specify/`, or the concrete change a person's
+  decision needs outside this feature's own artifacts), give that option a `copilot` prompt and `"command": null` instead of telling the person to push
+  it. A person posts it as a comment, GitHub Copilot's cloud agent pushes the change to the pull request's branch,
+  and that push continues the implementation by itself. The prompt is plain text for that agent, self-contained and
+  ready to post (no placeholders, no code fences, at most 3000 characters): name every file, the exact change (old
+  and new text where it is short), and how to check it (for example the Markdown check or the one test to run). The
+  comment adds `@copilot` and the scope (only this change, no task ticks, no other pull request). A Copilot prompt
+  fits the category `decision`, and it is recommended instead of a command that already failed the same way.
+  Prefer a command whenever the automation can make the change itself.
+- A Copilot prompt is a fallback that removes **what stops the automation**, so the automation can finish the
+  implementation itself; it never does the spec's own work. Never ask Copilot to implement, finish, or check tasks,
+  never name a task ID or `tasks.md` in the prompt (the report is rejected), and never push the changes a task
+  describes through it: the Spec Kit implementation implements, verifies, and ticks every task. When the spec's own
+  tasks must change files the implementation agents may not change (for example Spec Kit tooling under `.github/` or
+  `.specify/`), the automation cannot implement this spec at all: say so in the summary, classify it as `outside`
+  (the cause is what the automation may change, not this spec's artifacts). Use an external action naming the
+  protected files and required trusted-tooling change, not another unimplementable spec or an implementation-branch
+  Copilot prompt that implements them. A default-branch tooling prompt may repair the automation, not implement this
+  feature's tasks. A change to tooling executed from the trusted default-branch checkout must reach that checkout;
+  a push only to the implementation branch cannot repair that runner.
 - `artifacts` lists the changed files of the amendment; leave it empty otherwise. Ask at most three questions, each
   with its recommended choice first.
 
-## Rework report (modes `fix` and `revise`)
+## Rework report (modes `amend`, `fix`, and `revise`)
 
 ```json
 {

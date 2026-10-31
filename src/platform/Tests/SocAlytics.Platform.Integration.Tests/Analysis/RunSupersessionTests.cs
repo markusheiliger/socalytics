@@ -23,6 +23,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis;
 
+[Collection(AnalysisTelemetryCollection.Name)]
 public sealed class RunSupersessionTests(PostgresContainerFixture postgres, NatsContainerFixture nats, RustFsContainerFixture rustFs)
 {
 	private const string Digest = "sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

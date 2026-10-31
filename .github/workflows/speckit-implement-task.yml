@@ -38,7 +38,9 @@ on:
       # restarted the work, for the agent). A task of a parallel group has `defer_progress: true` (the group's
       # verification reports the transition to the next work); a repair has `repair` (the validated pending repair);
       # a conflict resolution that completes a /speckit sync request has `required_sync` (the request) and, when it
-      # carries a pending repair along, `sync_repair`. See prepareOrder in speckit-spec.mjs.
+      # carries a pending repair along, `sync_repair`. A second attempt at a task, the convergence, or a conflict
+      # resolution has `evidence` (the report of the failed first attempt, given to the agent as evidence, never as
+      # instructions). See prepareOrder in speckit-spec.mjs.
       entry:
         description: The work item (JSON) with index, task, attempt, guidance, and the fields of its kind
         required: true
@@ -59,7 +61,8 @@ jobs:
       ${{ inputs.kind == 'implement' && format('Implement {0}', fromJSON(inputs.entry).task) || inputs.kind == 'converge' && 'Check the implementation against the spec'
       || inputs.kind == 'resolve' && 'Resolve conflicts' || 'Repair the implementation' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # A conflict resolution runs the agent and the full finalize verification (up to about 85 minutes) in this job.
+    timeout-minutes: ${{ inputs.kind == 'resolve' && 150 || 90 }}
     permissions:
       actions: read
       contents: read
@@ -148,6 +151,20 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ github.workspace }}/failed-verification
 
+      # A second attempt gets the report of the failed first one inside its workspace, ignored by Git, as evidence.
+      - name: Write the previous attempt's report
+        id: previous
+        if: inputs.kind != 'repair' && fromJSON(inputs.entry).evidence
+        working-directory: workspace
+        env:
+          EVIDENCE: ${{ fromJSON(inputs.entry).evidence }}
+        run: |
+          test -z "$(git ls-files -- .speckit-attempt-evidence)"
+          echo '/.speckit-attempt-evidence/' >> .git/info/exclude
+          mkdir -p .speckit-attempt-evidence
+          printf '%s\n' "$EVIDENCE" > .speckit-attempt-evidence/previous-attempt.md
+          echo "file=.speckit-attempt-evidence/previous-attempt.md" >> "$GITHUB_OUTPUT"
+
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
         uses: ./tooling/.github/actions/environment-setup
@@ -194,6 +211,7 @@ jobs:
             scope=${{ steps.repair.outputs.scope }}
             environment=${{ steps.repair.outputs.environment }}
             evidence=${{ steps.repair.outputs.evidence }}
+            previous=${{ steps.previous.outputs.file }}
             guidance=${{ fromJSON(inputs.entry).guidance }}
 
       # Only for conflicts the archive script left; the agent may not run the git commands that would end the merge.
@@ -218,6 +236,7 @@ jobs:
           inputs: |
             folder=${{ inputs.folder }}
             base=${{ inputs.base }}
+            previous=${{ steps.previous.outputs.file }}
             guidance=${{ fromJSON(inputs.entry).guidance }}
 
       - name: Package the result
@@ -225,7 +244,8 @@ jobs:
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-${{ inputs.kind }}.mjs" package
 
       # A task with the tests it touched, a conflict resolution with the full verification; the convergence changes no
-      # code, and a repair is verified again after it landed.
+      # code, and a repair is verified again after it landed. A task completed without a change runs this step only for
+      # an assessed environment-verify requirement, in its mode over its files.
       - name: Verify the change
         id: verify
         if: >-
@@ -235,9 +255,19 @@ jobs:
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: ${{ inputs.kind == 'resolve' && 'finalize' || 'task' }}
+          mode: ${{ inputs.kind == 'resolve' && 'finalize' || steps.package.outputs.verify_mode || 'task' }}
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      # A task claimed and independently assessed as verified without a change: the trusted runner executes exactly the
+      # assessed requirements (tests, filters, consecutive passing runs) on the unchanged workspace, never the agent.
+      # The land job checks its record (completion-runs.json).
+      - name: Run the task's own verification
+        if: inputs.kind == 'implement' && steps.package.outputs.completion == 'verified'
+        continue-on-error: true
+        env:
+          SPECKIT_COMPLETION_BUDGET_MINUTES: ${{ vars.SPECKIT_COMPLETION_BUDGET_MINUTES || '25' }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-completion.mjs" verify
 
       - name: Self-test the synchronized environment setup
         id: sync_setup
@@ -255,6 +285,8 @@ jobs:
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: finalize
+          # The full verification above already ran every component check; the changed action runs its own tests only.
+          environment-tests-only: "true"
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/environment-self-test.log
 

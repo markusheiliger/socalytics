@@ -32,10 +32,14 @@ on:
         required: true
         type: string
       mode:
-        description: diagnose (a stopped implementation), fix (consistency findings), or revise (a person's feedback)
+        description: diagnose (a stop), amend (writer-authorized artifacts), fix (findings), or revise (feedback)
         required: false
         type: string
         default: diagnose
+      authorization:
+        description: Source writer comment id for an authorized amendment (amend only)
+        required: false
+        type: string
       amendment:
         description: Amendment pull request number (fix and revise)
         required: false
@@ -61,7 +65,7 @@ on:
   # Only the Spec Kit workflows dispatch this workflow, with the repository's token; dispatching already requires
   # write access.
   roles: all
-run-name: "Spec Kit diagnose spec #${{ inputs.issue }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the amendment, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the amendment with review feedback' || inputs.stop || 'Diagnose why the implementation stopped' }}"
+run-name: "Spec Kit diagnose spec #${{ inputs.issue }} · ${{ inputs.mode == 'amend' && 'Prepare the writer-authorized amendment' || inputs.mode == 'fix' && format('Fix consistency findings of the amendment, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the amendment with review feedback' || inputs.stop || 'Diagnose why the implementation stopped' }}"
 # One run per twin at a time; runs for different twins run side by side.
 concurrency:
   group: speckit-diagnose-${{ inputs.issue }}
@@ -125,6 +129,7 @@ steps:
       SPECKIT_GUIDANCE: ${{ inputs.guidance }}
       SPECKIT_PREVIOUS: ${{ inputs.previous }}
       SPECKIT_MODE: ${{ inputs.mode }}
+      SPECKIT_AUTHORIZATION: ${{ inputs.authorization }}
       SPECKIT_AMENDMENT: ${{ inputs.amendment }}
       SPECKIT_ROUND: ${{ inputs.round }}
       SPECKIT_STALLS: ${{ inputs.stalls }}
@@ -186,9 +191,12 @@ safe-outputs:
           description: >-
             The report as one JSON object, as described in the speckit-gha-diagnose skill: for a diagnosis the fields
             category, confidence, summary, cause, evidence, artifacts, options, and questions, where every option is
-            an object {title, why, command, recommended}, exactly one is recommended, and its command fits the
-            category and can be posted as it is (no placeholders); for a rework the fields summary, artifacts, and
-            responses.
+            an object {title, why, command, copilot, target, basis, fixedBy, kind, recommended}, exactly one is
+            recommended. A command or Copilot prompt must be supported for the category and target, with no
+            placeholders. An unmet external prerequisite uses kind external and no command or prompt. Retry needs
+            evidence of a transient failure or changed corrective approach; sync names the relevant full fix SHA
+            in fixedBy and target base. Never invent retry or author as a fallback. For a rework the fields are
+            summary, artifacts, and responses.
           required: true
           type: string
       steps:
@@ -210,6 +218,7 @@ safe-outputs:
             SPECKIT_FOLDER: ${{ inputs.folder }}
             SPECKIT_CHECK_RUN: ${{ inputs.check_run }}
             SPECKIT_MODE: ${{ inputs.mode }}
+            SPECKIT_AUTHORIZATION: ${{ inputs.authorization }}
             SPECKIT_AMENDMENT: ${{ inputs.amendment }}
             SPECKIT_ROUND: ${{ inputs.round }}
             SPECKIT_STALLS: ${{ inputs.stalls }}
@@ -240,6 +249,11 @@ defines the method, the categories, the modes, the rules for amendments, and the
 - **`diagnose`**: the workspace is the implementation branch `speckit/${{ inputs.folder }}`. Diagnose why the
   implementation stopped. Only an amendment of the spec artifacts may leave this run, as a pull request through
   `create_pull_request` with branch `speckit-amend/${{ inputs.folder }}` and base `speckit/${{ inputs.folder }}`.
+- **`amend`**: the workspace is the implementation branch. The trusted evidence contains the validated writer
+  authorization. Apply only that artifact change consistently across the feature folder, preserving completed
+  tasks verbatim and never ticking tasks. Create the amendment using the same safe output as `diagnose`; do not
+  implement code or push to the implementation. Report summary, artifacts, and responses as a rework report.
+  Independent analysis and human review/merge are mandatory before implementation resumes.
 - **`fix`**: the workspace is the amendment branch `speckit-amend/${{ inputs.folder }}` of pull request
   #${{ inputs.amendment }}. Fix the consistency findings listed in the evidence (correction round ${{ inputs.round }}),
   commit, and push with `push_to_pull_request_branch` for pull request #${{ inputs.amendment }}.

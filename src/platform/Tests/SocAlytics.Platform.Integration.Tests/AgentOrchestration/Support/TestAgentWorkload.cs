@@ -174,5 +174,38 @@ internal sealed class TestAgentWorkload : IDisposable
 		HttpClient client, DateTimeOffset now, string? token, Guid attemptId, object report, CancellationToken ct) =>
 		SendAsync(client, now, token, HttpMethod.Post, $"/api/v1/agent-orchestration/attempts/{attemptId}/failure", report, ct);
 
+	public static string ToolPath(Guid attemptId, string pathSegment) =>
+		$"/api/v1/agent-tools/attempts/{attemptId}/{pathSegment}";
+
+	// Calls any allowlisted tool operation (path segment such as "get-match") as the attempt; arguments default to an empty object.
+	public Task<HttpResponseMessage> CallToolAsync(
+		HttpClient client, DateTimeOffset now, string? token, Guid attemptId, string pathSegment, string fencingToken, string callId,
+		object? arguments, CancellationToken ct) =>
+		SendAsync(
+			client, now, token, HttpMethod.Post, ToolPath(attemptId, pathSegment),
+			new { callId, fencingToken, arguments = arguments ?? new { } }, ct);
+
+	// Calls a tool and reads the answered `200` response; any other status fails the call with the response body.
+	public async Task<AgentToolResponse> CallToolAnsweredAsync(
+		HttpClient client, DateTimeOffset now, string? token, Guid attemptId, string pathSegment, string fencingToken, string callId,
+		object? arguments, CancellationToken ct)
+	{
+		using var response = await CallToolAsync(client, now, token, attemptId, pathSegment, fencingToken, callId, arguments, ct);
+		var content = await response.Content.ReadAsStringAsync(ct);
+		if (!response.IsSuccessStatusCode)
+		{
+			throw new HttpRequestException($"Tool call '{pathSegment}' answered {(int)response.StatusCode}: {content}", null, response.StatusCode);
+		}
+
+		var body = JsonSerializer.Deserialize<JsonElement>(content);
+		return new AgentToolResponse(
+			body.GetProperty("callId").GetString()!,
+			body.GetProperty("toolId").GetString()!,
+			body.GetProperty("outcome").GetString()!,
+			body.GetProperty("result").Clone());
+	}
+
 	public void Dispose() => _key.Dispose();
 }
+
+internal sealed record AgentToolResponse(string CallId, string ToolId, string Outcome, JsonElement Result);

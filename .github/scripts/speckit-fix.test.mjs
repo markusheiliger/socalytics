@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 import { renderSpecLine } from './speckit-prepare-core.mjs';
 import { presentAmendment, resolveAmendment, runFeedback, runPushed, runRecordAnalysis, startRework } from './speckit-amend.mjs';
-import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, RETRY_COMMENT_MARKER, maintainDependencyBlock, parseFixEvents, renderFixEvent, setAttention, setBlocked } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, SYNC_COMMENT_MARKER, maintainDependencyBlock, parseFixEvents, renderFixEvent, setAttention, setBlocked, syncBarrier } from './speckit-implement-core.mjs';
 import { authoredFor, checkFixSpec, main as fixMain, designDecisionsFromPlan, fixBlock, fixStamp, isAutomationCommit, linkPrerequisite, maintainFixSpec, maintainIndependentSpecs, parseAuthorReport, parseDesignDecisions, readResult, reworkOutcome, reworkStage, runDecide, runEvidence, runInputs, runLand, runPackage, runRecord, settleClosedFix, startFixAuthoring, syncDesignDecisions, validateDecision } from './speckit-fix.mjs';
 import { defaultGit, runSelect } from './speckit-orchestrate.mjs';
 import { diagnosisRepo, makeRepo, silent } from './speckit-test-helpers.mjs';
@@ -148,13 +148,25 @@ test('a missing, refused, or broken spec goes back to the implementation with th
   const none = fixRepo();
   const result = await authored(none, { SPECKIT_CREATED_PULL: '' });
   assert.equal(result.outcome, 'none');
-  assert.match(none.comments.at(-1).body, /^\*\*No spec was created\*\*: Lengthens the session lifetime[\s\S]*\*\*Recommended next step\*\*: Retry what stopped[\s\S]*```text\n\/speckit retry\n```/);
+  assert.match(none.comments.at(-1).body, /No spec was created\*\*: Lengthens the session lifetime[\s\S]*one bounded recovery diagnosis/);
+  assert.doesNotMatch(none.comments.at(-1).body, /```text\n\/speckit retry/);
+  assert.equal(none.repo.runs.at(-1).workflow, 'speckit-orchestrate.yml');
+  assert.match(none.comments.at(-1).body, /"guidance":"Make the test robust"/);
+  const comments = none.comments.length;
+  const runs = none.repo.runs.length;
+  await withResult(authorResult(), (dir) => runRecord({ client: none, env: env({
+    SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(none.repo.checkRuns.at(-1).id), SPECKIT_CREATED_PULL: '',
+  }), log: silent }));
+  assert.equal(none.comments.length, comments, 'duplicate author delivery keeps the durable failure outcome');
+  assert.equal(none.repo.runs.length, runs, 'duplicate author delivery does not dispatch the scheduler again');
 
   const broken = fixRepo({ files: [`${PREFIX}/spec.md`, 'src/platform/Tests/UploadSessionExpiryTests.cs'] });
   assert.equal((await authored(broken)).outcome, 'rejected');
   assert.equal(broken.repo.pulls.find((item) => item.number === 12).state, 'closed');
   assert.equal(broken.repo.branches[BRANCH], undefined);
-  assert.match(broken.comments.at(-1).body, /^\*\*The authored spec #12 was rejected and closed\*\*: it changes files outside `specs\/20261014-100000-upload-expiry\/` and `docs\/architecture\/`: `src\/platform\/Tests\/UploadSessionExpiryTests\.cs`/);
+  assert.match(broken.comments.at(-1).body, /\*\*The authored spec #12 was rejected and closed\*\*: it changes files outside `specs\/20261014-100000-upload-expiry\/` and `docs\/architecture\/`: `src\/platform\/Tests\/UploadSessionExpiryTests\.cs`/);
+  assert.match(broken.comments.at(-1).body, /^<!-- speckit-implement:recovery-failed /);
+  assert.equal(broken.repo.runs.at(-1).workflow, 'speckit-orchestrate.yml');
   assert.equal(broken.repo.checkRuns.find((check) => check.name === 'Spec Kit author').conclusion, 'failure');
 
   const elsewhere = fixRepo({ branch: `feature/${FOLDER}` });
@@ -265,9 +277,11 @@ test('after the merge, the stopped spec depends on the new twin, which waits for
   assert.equal((await dependency()).outcome, 'retried');
   assert.equal(blocked(), false, 'implementing the new spec removes the hold');
   const retried = github.comments.filter((item) => item.number === 9).at(-1);
-  assert.ok(retried.body.startsWith(RETRY_COMMENT_MARKER), 'the retry preserves the current phase base');
-  assert.match(retried.body, /<!-- speckit-implement:unblocked -->\n\*\*The block is lifted\*\*: prerequisite #30 is implemented/);
-  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-group.yml', { issue: '5', pull: '9', title: 'F', subject: 'P · T002 Next' }]);
+  assert.ok(retried.body.startsWith(SYNC_COMMENT_MARKER), 'a lifted block requests the required synchronization with the base branch');
+  assert.match(retried.body, /<!-- speckit-implement:unblocked -->\n\*\*The block is lifted\*\*: prerequisite #30 is implemented; the implementation merges `main`, passes full verification, and then continues with a fresh attempt count\./);
+  assert.ok(syncBarrier(github.comments.filter((item) => item.number === 9)), 'the request is a durable sync barrier');
+  assert.equal(github.repo.runs.at(-1).inputs.pull, '9');
+  assert.equal(github.repo.runs.at(-1).inputs.issue, '5');
   assert.equal((await dependency()).outcome, 'none', 'retried once');
   assert.equal((await maintain()).outcome, 'linked');
   assert.deepEqual(parseFixEvents(github.comments.filter((item) => item.number === 9)).map((event) => event.event), ['requested', 'created', 'merged', 'linked']);
@@ -500,16 +514,85 @@ test('a fix spec linked by earlier tooling is an ordinary dependency: the missin
   assert.deepEqual(await maintainFixSpec(github, env(), { implementation, twin: 5 }, { now: github.clock, report: silent }), { outcome: 'linked', blocked: false });
   assert.deepEqual(github.edges, [[5, 30]]);
   await maintainDependencyBlock(github, env(), { implementation, twin: 5 }, { report: silent });
-  assert.deepEqual(implementation.labels.map((label) => label.name), [BLOCKED_LABEL]);
+  // #30 is not requested for implementation, so nothing starts it: the block asks a person for /speckit implement.
+  assert.deepEqual(implementation.labels.map((label) => label.name).sort(), [ATTENTION_LABEL, BLOCKED_LABEL].sort());
   assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"blockers":\[30\],"unrequested":\[30\]\} -->\n\*\*Blocked\*\* by prerequisite #30[\s\S]*\*\*Recommended next step\*\*: Comment the following on spec twin #30/);
   const count = github.comments.length;
   await maintainDependencyBlock(github, env(), { implementation, twin: 5 }, { report: silent });
   assert.equal(github.comments.length, count);
+  // Once #30 is requested, the block stays but needs nobody: the attention label goes, and the block is explained again.
+  github.find(30).labels = [...(github.find(30).labels ?? []), { name: 'speckit:stage:implement' }];
+  await maintainDependencyBlock(github, env(), { implementation, twin: 5 }, { report: silent });
+  assert.deepEqual(implementation.labels.map((label) => label.name), [BLOCKED_LABEL]);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"blockers":\[30\]\} -->\n\*\*Blocked\*\* by prerequisite #30[\s\S]*Nothing is needed on this pull request\./);
   Object.assign(github.find(30), { state: 'closed', state_reason: 'completed' });
   assert.equal((await maintainDependencyBlock(github, env(), { implementation, twin: 5 }, { report: silent })).outcome, 'retried');
+  assert.ok(!implementation.labels.some((label) => [ATTENTION_LABEL, BLOCKED_LABEL].includes(label.name)));
 });
 
-test('a blocked label always comes with one explanation, replaces the attention label, and is not set on closed pull requests', async () => {
+test('a blocked pull request asks for attention exactly while a blocker is not requested, and loses it when the block is lifted', async () => {
+  const github = fixRepo();
+  const implementation = github.repo.pulls.find((pull) => pull.number === 9);
+  const unrequested = { key: { blockers: [30, 31], unrequested: [31] }, lines: ['**Blocked** by prerequisite #30, #31'] };
+  const requested = { key: { blockers: [30, 31] }, lines: ['**Blocked** by prerequisite #30, #31. Nothing is needed on this pull request.'] };
+  await setBlocked(github, 9, true, { explain: unrequested });
+  assert.deepEqual(implementation.labels.map((label) => label.name).sort(), [ATTENTION_LABEL, BLOCKED_LABEL].sort());
+  await setBlocked(github, 9, true, { explain: unrequested });
+  assert.equal(implementation.labels.filter((label) => label.name === ATTENTION_LABEL).length, 1);
+  await setBlocked(github, 9, true, { explain: requested });
+  assert.deepEqual(implementation.labels.map((label) => label.name), [BLOCKED_LABEL]);
+  await setBlocked(github, 9, true, { explain: unrequested });
+  await setBlocked(github, 9, false);
+  assert.deepEqual(implementation.labels.map((label) => label.name), []);
+});
+
+test('a spec authored to unblock an implementation is requested for implementation automatically once it is ready', async () => {
+  const tasks = '## Phase 1\n\n- [ ] T001 one\n';
+  const ready = makeRepo([{ folder: FOLDER, plan: true, tasks }]);
+  const draft = makeRepo([{ folder: FOLDER, plan: true }]);
+  try {
+    for (const [rootDir, linkedBefore] of [[ready, false], [draft, true]]) {
+      const github = fixRepo({ branch: `speckit-fix/${FOLDER}` });
+      github.closePull(12, { merged: true });
+      await github.createComment(9, renderFixEvent('requested', { by: 'lead', stamp: '20261014-100000' }));
+      await github.createComment(9, renderFixEvent('created', { pull: 12, folder: FOLDER }));
+      await github.createComment(9, renderFixEvent('merged', { pull: 12, folder: FOLDER }));
+      if (linkedBefore) {
+        await github.createComment(9, renderFixEvent('linked', { pull: 12, folder: FOLDER, twin: 30 }));
+        github.edges.push([5, 30]);
+      }
+      addTwin(github, 30, FOLDER);
+      const implementation = github.repo.pulls.find((pull) => pull.number === 9);
+      const notes = [];
+      assert.equal((await maintainFixSpec(github, env(), { implementation, twin: 5, rootDir }, { now: github.clock, report: (line) => notes.push(line) })).outcome, 'linked');
+      const twinComments = () => github.comments.filter((comment) => comment.number === 30);
+      const stages = () => github.find(30).labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:'));
+      if (rootDir === ready) {
+        assert.deepEqual(stages(), ['speckit:stage:implement']);
+        assert.match(twinComments().at(-1).body, /^<!-- speckit:implement-requested \{"by":"lead","comment":null\} -->\n\*\*Implementation requested automatically\*\* for @lead: `\/speckit author` wrote this spec to unblock implementation pull request #9/);
+        const linked = github.comments.filter((comment) => comment.number === 9).at(-1).body;
+        assert.match(linked, /Its implementation was requested automatically for @lead, who asked for it with `\/speckit author`/);
+        assert.doesNotMatch(linked, /Recommended next step/, 'nothing is left to request');
+        assert.match(notes.join('\n'), /Requested the implementation of #30, authored to unblock #9/);
+        const count = twinComments().length;
+        await maintainFixSpec(github, env(), { implementation, twin: 5, rootDir }, { now: github.clock, report: silent });
+        assert.equal(twinComments().length, count, 'requested once');
+      } else {
+        assert.deepEqual(stages(), [], 'a spec without tasks is not requested');
+        assert.equal(twinComments().length, 0);
+        assert.match(notes.join('\n'), /Spec twin #30 \(authored for #9\) is not ready to request yet/);
+        writeFileSync(path.join(draft, 'specs', FOLDER, 'tasks.md'), tasks);
+        await maintainFixSpec(github, env(), { implementation, twin: 5, rootDir }, { now: github.clock, report: silent });
+        assert.deepEqual(stages(), ['speckit:stage:implement'], 'an already linked spec is requested once it is ready');
+      }
+    }
+  } finally {
+    rmSync(ready, { recursive: true, force: true });
+    rmSync(draft, { recursive: true, force: true });
+  }
+});
+
+test('a blocked label always comes with one explanation, replaces the attention label unless a blocker is unrequested, and is not set on closed pull requests', async () => {
   const github = fixRepo();
   const implementation = github.repo.pulls.find((pull) => pull.number === 9);
   await github.addLabels(9, ['bug', ATTENTION_LABEL]);
@@ -582,6 +665,30 @@ async function independentSpec(github) {
   github.find(5).labels = [];
   return withResult(authorResult(), (dir) => runRecord({ client: github, env: env({ SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_CREATED_PULL: '12' }), log: silent }));
 }
+
+test('authored-spec review labels reconcile after either merge or closure of the originating implementation', async () => {
+  for (const merged of [true, false]) {
+    const github = fixRepo();
+    await independentSpec(github);
+    if (!merged) github.repo.pulls.find((pull) => pull.number === 9).merged_at = null;
+    for (const run of github.repo.runs) run.status = 'completed';
+    Object.assign(github.repo.checkRuns.at(-1), { status: 'completed', conclusion: 'success', external_id: 'speckit:amend-consistent' });
+    const context = await resolveAmendment(github, env(), 12);
+    assert.equal(context.reason, undefined);
+    await presentAmendment(github, env(), context, { consistent: true, held: { reason: 'push' } });
+    await github.removeLabel(12, ATTENTION_LABEL);
+    const comments = github.comments.length;
+    await maintainIndependentSpecs(github, env(), { now: github.clock });
+    assert.ok((await github.getPullRequest(12)).labels.some((label) => label.name === ATTENTION_LABEL));
+    await maintainIndependentSpecs(github, env(), { now: github.clock });
+    assert.equal(github.comments.length, comments);
+    github.commentAuthor = 'dev';
+    await github.createComment(12, 'Please rework the spec without weakening its success criteria.');
+    github.commentAuthor = undefined;
+    await maintainIndependentSpecs(github, env(), { now: github.clock });
+    assert.equal((await github.getPullRequest(12)).labels.some((label) => label.name === ATTENTION_LABEL), false);
+  }
+});
 
 test('the scheduler recovers an unlinked spec authored after its origin merged, through independent analysis and correction', async () => {
   const github = fixRepo();
