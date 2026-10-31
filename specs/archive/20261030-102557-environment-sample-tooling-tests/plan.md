@@ -2,7 +2,7 @@
 
 **Branch**: `20261030-102557-environment-sample-tooling-tests` | **Date**: 2026-10-30 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261030-102557-environment-sample-tooling-tests/spec.md`
+**Input**: Feature specification from `/specs/archive/20261030-102557-environment-sample-tooling-tests/spec.md`
 
 ## Summary
 
@@ -94,7 +94,7 @@ the action's README, which the implementation updates (FR-011). The documentatio
 ### Documentation (this feature)
 
 ```text
-specs/20261030-102557-environment-sample-tooling-tests/
+specs/archive/20261030-102557-environment-sample-tooling-tests/
 ├── plan.md
 ├── research.md
 ├── data-model.md
