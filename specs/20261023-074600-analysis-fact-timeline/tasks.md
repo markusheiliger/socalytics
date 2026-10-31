@@ -66,7 +66,7 @@
 
 ### Density browser scenarios
 
-- [ ] T014 [US1] Create `src/clients/web/tests/e2e/simulated/analysis-timeline.spec.ts` with the US1 scenarios: lanes over a shared axis, density per bin, zoom and extent, partial density
+- [x] T014 [US1] Create `src/clients/web/tests/e2e/simulated/analysis-timeline.spec.ts` with the US1 scenarios: lanes over a shared axis, density per bin, zoom and extent, partial density
 
 **Checkpoint**: The timeline shows density and is usable on its own (MVP).
 
