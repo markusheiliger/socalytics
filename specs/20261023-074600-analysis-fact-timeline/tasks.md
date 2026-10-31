@@ -110,7 +110,7 @@
 ### Jump tests
 
 - [x] T022 [P] [US3] Component tests in `src/clients/web/tests/unit/features/analysis/timeline/timelineJump.test.tsx`: span range, selection cleared with an announcement when the extent moves it out of view, jump range passed to `changeRange`, zoom and extent kept on return, not-analysed range, partial-lane selection summary ("at least N" or `notLoaded`)
-- [ ] T023 [P] [US3] Add the US3 scenarios (select, jump, exactly the overlapping facts listed, address with stream and range, not-analysed range state, return keeping zoom and extent, partial-lane selection summary marked partial or `notLoaded`, at most 3 interactions) to `src/clients/web/tests/e2e/simulated/analysis-timeline.spec.ts`
+- [x] T023 [P] [US3] Add the US3 scenarios (select, jump, exactly the overlapping facts listed, address with stream and range, not-analysed range state, return keeping zoom and extent, partial-lane selection summary marked partial or `notLoaded`, at most 3 interactions) to `src/clients/web/tests/e2e/simulated/analysis-timeline.spec.ts`
 
 **Checkpoint**: Overview connects to the existing fact list.
 

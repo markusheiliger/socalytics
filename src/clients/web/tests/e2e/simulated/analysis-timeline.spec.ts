@@ -251,3 +251,119 @@ test.describe('Timeline coverage', () => {
     await expect(binGroup(page.getByRole('region', { name: mixedLane, exact: true })).getByRole('button')).toHaveCount(30);
   });
 });
+
+const factList = (page: import('@playwright/test').Page) => page.getByRole('list', { name: 'Facts of the selected stream' }).locator(':scope > li');
+const selectionGroup = (lane: import('@playwright/test').Locator) => lane.getByRole('group', { name: 'Selection', exact: true });
+
+test.describe('Timeline jump', () => {
+  test('selects a bin, jumps to exactly the overlapping facts, and returns keeping zoom and extent (scenarios 1-4)', async ({ page, api }) => {
+    const run = api.seedTimelineRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    // Zoom and extent are changed first so that the return has something to keep.
+    await page.getByRole('button', { name: '1 minute', exact: true }).click();
+    await page.getByRole('button', { name: 'Later', exact: true }).click();
+    await expect(page.getByText('Showing 15:00–45:00', { exact: true })).toBeVisible();
+
+    // Interaction 1: select the bin; interaction 2: show its facts.
+    const lane = page.getByRole('region', { name: firstLane, exact: true });
+    await binGroup(lane).getByRole('button', { name: 'from 15:00 to 16:00 (end excluded): Facts present, 1', exact: true }).click();
+    const selection = selectionGroup(lane);
+    await expect(selection.getByText('15:00–16:00', { exact: false })).toBeVisible();
+    await expect(selection.getByText('1 facts', { exact: true })).toBeVisible();
+    await selection.getByRole('button', { name: /^Show facts of passes-first-half for / }).click();
+
+    // The address carries the stream and the range; the timeline is closed and the list shows the overlapping fact only.
+    await expect(page).toHaveURL(/[?&]stream=passes-first-half&fromMs=900000&toMs=960000$/);
+    await expect(page.getByRole('region', { name: 'Timeline', exact: true })).toHaveCount(0);
+    await expect(factList(page)).toHaveCount(1);
+    await expect(factList(page).first()).toHaveAccessibleName('from 15:20 to 15:25 (end excluded): event-1-51');
+
+    // Back to the timeline keeps zoom and extent and reads the lanes afresh.
+    await page.getByRole('button', { name: 'Back to timeline', exact: true }).click();
+    await expect(page.getByText('Current zoom: 1 minute per bin')).toBeVisible();
+    await expect(page.getByText('Showing 15:00–45:00', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '1 minute', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(binGroup(page.getByRole('region', { name: firstLane, exact: true })).getByRole('button', { name: 'from 15:00 to 16:00 (end excluded): Facts present, 1', exact: true })).toBeVisible();
+  });
+
+  test('lists exactly the facts of a selected span across pages (scenarios 2, 3)', async ({ page, api }) => {
+    const run = api.seedTimelineRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    const lane = page.getByRole('region', { name: firstLane, exact: true });
+    const bins = binGroup(lane);
+    // Select the first bin, then extend the span to the second with shift: 10 minutes hold 50 facts.
+    await bins.getByRole('button', { name: 'from 0:00 to 5:00 (end excluded): Facts present, 25', exact: true }).click();
+    await bins.getByRole('button', { name: 'from 5:00 to 10:00 (end excluded): Facts present, 25', exact: true }).click({ modifiers: ['Shift'] });
+    const selection = selectionGroup(lane);
+    await expect(selection.getByText('0:00–10:00', { exact: false })).toBeVisible();
+    await expect(selection.getByText('50 facts', { exact: true })).toBeVisible();
+    await selection.getByRole('button', { name: /^Show facts of passes-first-half for / }).click();
+
+    await expect(page).toHaveURL(/[?&]stream=passes-first-half&fromMs=0&toMs=600000$/);
+    await expect(factList(page)).toHaveCount(20);
+    await page.getByRole('button', { name: 'Next page', exact: true }).click();
+    await expect(factList(page)).toHaveCount(20);
+    await page.getByRole('button', { name: 'Next page', exact: true }).click();
+    await expect(factList(page)).toHaveCount(10);
+    await expect(page.getByRole('button', { name: 'Next page', exact: true })).toBeDisabled();
+    // The last fact starting before 10:00 is the 50th of the dense opening.
+    await expect(factList(page).last()).toHaveAccessibleName(/: event-1-49$/);
+  });
+
+  test('lands on the explicit fact list state for a not-analysed range (scenario 5)', async ({ page, api }) => {
+    const run = api.seedCoverageRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+    await page.getByRole('button', { name: '5 minutes', exact: true }).click();
+
+    const lane = page.getByRole('region', { name: mixedLane, exact: true });
+    await binGroup(lane).getByRole('button', { name: 'from 10:00 to 15:00 (end excluded): Not analysed', exact: true }).click();
+    const selection = selectionGroup(lane);
+    await expect(selection.getByText('Not analysed', { exact: true })).toBeVisible();
+    await expect(selection.getByText(/^\d+ facts$/)).toHaveCount(0);
+    await selection.getByRole('button', { name: /^Show facts of coverage-mixed for / }).click();
+
+    await expect(page).toHaveURL(/[?&]stream=coverage-mixed&fromMs=600000&toMs=900000$/);
+    await expect(factList(page)).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Facts', exact: true }).getByText('No facts overlap this range.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Coverage', exact: true })).toContainText('10:00–15:00: Failed');
+  });
+
+  test('marks the selection summary of a partial lane as partial or not loaded (scenario 6)', async ({ page, api }) => {
+    const [base] = timelineRunFixture().streams;
+    const [firstNode] = timelineRunFixture().nodes;
+    const fact = (index: number, startMs: number): SeededFact => ({
+      acceptedResultId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      ordinal: 0,
+      kind: `event-${index}`,
+      startMs,
+      endMs: startMs + 5_000,
+      confidence: 0.5,
+      payload: { index },
+    });
+    const facts = [
+      ...Array.from({ length: 5_000 }, (_, i) => fact(i, i * 720)),
+      ...Array.from({ length: 100 }, (_, i) => fact(5_000 + i, 6_000_000 + i * 10_000)),
+    ];
+    const run = api.seedTimelineRun({ nodes: [firstNode], requestedCapabilities: ['pass-detection'], streams: [{ ...base, facts }] });
+    api.factPageSize = 500;
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    const lane = page.getByRole('region', { name: firstLane, exact: true });
+    const bins = binGroup(lane);
+    await expect(lane.getByText('Partial', { exact: true })).toBeVisible();
+    const selection = selectionGroup(lane);
+
+    await bins.getByRole('button', { name: /^from 0:00 to 5:00 \(end excluded\): Facts present, \d+$/ }).click();
+    await expect(selection.getByText(/^At least \d+ facts, based on loaded facts$/)).toBeVisible();
+
+    await bins.getByRole('button', { name: 'from 100:00 to 105:00 (end excluded): Facts beyond the loading bound not shown', exact: true }).click();
+    await expect(selection.getByText('Facts beyond the loading bound not shown', { exact: true })).toBeVisible();
+    await expect(selection.getByText(/At least/)).toHaveCount(0);
+  });
+});
