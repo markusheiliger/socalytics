@@ -10,6 +10,10 @@ dotnet build src/platform/SocAlytics.Platform.slnx --no-restore
 
 ## 1. Establish the cause (before changing anything)
 
+The "Evidence" section of [research.md](research.md) already records the baseline from the first T001 attempt
+(H1 proved, H2 ruled out, so the "not reproducible" path does not apply); T001 only confirms it with one run of
+the single test. The longer procedure below is how the evidence was gathered.
+
 Run the flaky test 20 consecutive times alone and the whole project 5 consecutive times under processor
 load (`stress-ng --cpu $(nproc)`, or `$(nproc)` busy-loop processes as the fallback), each driven by one shell
 loop that stops at the first failure, and record the failures and the elapsed times (see
@@ -28,7 +32,7 @@ verifications of #201, #225, and #275 as the primary evidence.
 ## 2. After the fix: determinism (SC-001)
 
 Repeat the single-test command at least 20 times and the whole-project command at least 5 times, the latter
-under processor load. Produce the load with `stress-ng --cpu $(nproc)` (or `$(nproc)` busy-loop processes) for the whole duration of the runs and record the tool and level in the Evidence section of [research.md](research.md). Expected: every run passes and the test count is unchanged.
+under processor load. Produce the load with `stress-ng --cpu $(nproc)` (or `$(nproc)` busy-loop processes) for the whole duration of the runs and record the tool and level in the final task summary (the baseline Evidence section of [research.md](research.md) is already recorded). Expected: every run passes and the test count is unchanged.
 
 ## 3. Probes (SC-002)
 
