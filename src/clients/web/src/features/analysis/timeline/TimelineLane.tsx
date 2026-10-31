@@ -3,7 +3,10 @@ import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import type { FactStreamSummary } from "../../../platform/models/analysis";
+import type {
+  CoverageWindow,
+  FactStreamSummary,
+} from "../../../platform/models/analysis";
 import { formatMatchRange } from "../matchClock";
 import { ProvenanceDetails } from "../ProvenanceDetails";
 import type { BinState, DensityBin } from "./timelineBins";
@@ -35,6 +38,53 @@ const PATTERNS: Record<BinState, { image: string; size?: string }> = {
   noCoverage: { image: "none" },
 };
 
+interface WindowStyle {
+  glyph: string;
+  image: string;
+  size?: string;
+  outline: string;
+}
+
+// Coverage windows differ by glyph, pattern, and outline besides their state text.
+const WINDOW_STYLES: Record<string, WindowStyle> = {
+  accepted: { glyph: "✓", image: "none", outline: "1px solid currentColor" },
+  missing: { glyph: "×", image: STRIPES, outline: "1px solid currentColor" },
+  failed: {
+    glyph: "!",
+    image:
+      "repeating-linear-gradient(135deg, currentColor 0 2px, transparent 2px 6px)",
+    outline: "2px solid currentColor",
+  },
+  blocked: {
+    glyph: "■",
+    image:
+      "repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 6px)",
+    outline: "1px solid currentColor",
+  },
+  skipped: {
+    glyph: "»",
+    image: DOTS,
+    size: "6px 6px",
+    outline: "1px dashed currentColor",
+  },
+};
+const UNKNOWN_WINDOW_STYLE: WindowStyle = {
+  glyph: "?",
+  image: STRIPES,
+  outline: "2px dotted currentColor",
+};
+
+// The review's existing wording is reused where one exists.
+const LANE_STATE_TEXT: Partial<Record<LaneState, string>> = {
+  inProgress: "states.inProgress",
+  completeWithoutFacts: "states.completeWithoutFacts",
+  noCoverage: "coverage.empty",
+  capabilityNotInRun: "states.capabilityNotInRun",
+  unavailable: "timeline.unavailable",
+  error: "timeline.error",
+  connectionRequired: "timeline.connectionRequired",
+};
+
 function binOutline(state: BinState): string {
   return state === "noCoverage"
     ? "1px dashed currentColor"
@@ -48,6 +98,10 @@ interface TimelineLaneProps {
   loadedFactCount: number;
   partial: boolean;
   updating?: boolean;
+  windows?: readonly CoverageWindow[];
+  extentStartMs?: number;
+  visibleMs?: number;
+  onReload?: () => void;
   runState?: string;
   nodeState?: string;
 }
@@ -60,6 +114,10 @@ export function TimelineLane({
   loadedFactCount,
   partial,
   updating,
+  windows = [],
+  extentStartMs,
+  visibleMs,
+  onReload,
   runState,
   nodeState,
 }: TimelineLaneProps) {
@@ -77,6 +135,25 @@ export function TimelineLane({
   const raw = unknownLaneStates(runState, nodeState);
   const showBins = state === "ready";
   const stateLabel = t(`timeline.state.${state}`);
+
+  const visibleWindows =
+    extentStartMs === undefined || visibleMs === undefined
+      ? []
+      : windows.filter(
+          (window) =>
+            window.endMs > extentStartMs &&
+            window.startMs < extentStartMs + visibleMs,
+        );
+  const windowState = (window: CoverageWindow) => {
+    const key = window.state.toLowerCase();
+    return key in WINDOW_STYLES
+      ? t(`coverage.stateName.${key}`)
+      : t("timeline.stateDescription.unknownState", {
+          raw: window.state,
+          interpolation: { escapeValue: false },
+        });
+  };
+  const needsReload = state === "unavailable" || state === "error";
 
   const moveFocus = (
     event: KeyboardEvent<HTMLButtonElement>,
@@ -145,6 +222,74 @@ export function TimelineLane({
       {updating && (
         <Typography component="p">{t("timeline.updating")}</Typography>
       )}
+      {showBins &&
+        visibleWindows.length > 0 &&
+        extentStartMs !== undefined &&
+        visibleMs !== undefined && (
+          <Box
+            component="ul"
+            aria-label={t("timeline.coverageStrip.label", {
+              capability,
+              key: stream.nodeKey,
+              interpolation: { escapeValue: false },
+            })}
+            sx={{
+              position: "relative",
+              listStyle: "none",
+              m: 0,
+              mb: "2px",
+              p: 0,
+              height: 24,
+            }}
+          >
+            {visibleWindows.map((window, index) => {
+              const style =
+                WINDOW_STYLES[window.state.toLowerCase()] ??
+                UNKNOWN_WINDOW_STYLE;
+              const start = Math.max(window.startMs, extentStartMs);
+              const end = Math.min(window.endMs, extentStartMs + visibleMs);
+              const label = t("timeline.coverageStrip.window", {
+                range: formatMatchRange(window.startMs, window.endMs).label,
+                state: windowState(window),
+                interpolation: { escapeValue: false },
+              });
+              return (
+                <Box
+                  component="li"
+                  key={`${window.startMs}-${window.endMs}-${index}`}
+                  aria-label={label}
+                  title={label}
+                  sx={{
+                    position: "absolute",
+                    top: 0,
+                    bottom: 0,
+                    left: `${((start - extentStartMs) / visibleMs) * 100}%`,
+                    width: `${((end - start) / visibleMs) * 100}%`,
+                    overflow: "hidden",
+                    boxSizing: "border-box",
+                    color: "text.primary",
+                    backgroundColor: "background.paper",
+                    backgroundImage: style.image,
+                    backgroundSize: style.size,
+                    border: style.outline,
+                    fontSize: "0.75rem",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      background: "var(--mui-palette-background-paper, #fff)",
+                      padding: "0 2px",
+                    }}
+                  >
+                    {style.glyph} {windowState(window)}
+                  </span>
+                </Box>
+              );
+            })}
+          </Box>
+        )}
       {showBins ? (
         <Box
           role="group"
@@ -205,7 +350,23 @@ export function TimelineLane({
           })}
         </Box>
       ) : (
-        <Typography component="p">{stateLabel}</Typography>
+        <>
+          <Typography
+            component="p"
+            role={
+              needsReload || state === "connectionRequired"
+                ? "alert"
+                : undefined
+            }
+          >
+            {LANE_STATE_TEXT[state] ? t(LANE_STATE_TEXT[state]) : stateLabel}
+          </Typography>
+          {needsReload && onReload && (
+            <Button size="small" onClick={onReload}>
+              {t("timeline.reload")}
+            </Button>
+          )}
+        </>
       )}
       <Button
         size="small"

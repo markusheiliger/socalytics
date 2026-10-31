@@ -182,6 +182,10 @@
     "unavailable": "The timeline of this stream is unavailable. The platform did not accept the position in the list twice.",
     "error": "The timeline of this stream could not be loaded.",
     "reload": "Reload the timeline",
+  "coverageStrip": {
+    "label": "Coverage windows of {{capability}} ({{key}})",
+    "window": "{{range}}: {{state}}"
+  },
     "connectionRequired": "A connection is required to show the timeline.",
     "extentUnavailable": "The match-time extent cannot be determined because no coverage window or fact is reported. Choose a fact stream from the list instead.",
     "reportedTotal": "{{count}} facts reported",

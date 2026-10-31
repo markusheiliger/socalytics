@@ -130,6 +130,14 @@ function LaneRunner({
       loadedFactCount={lane.loadedFactCount}
       partial={lane.partial}
       updating={lane.isUpdating}
+      windows={lane.windows}
+      extentStartMs={extentStartMs}
+      visibleMs={
+        zoomId === undefined
+          ? undefined
+          : zoomLevel(zoomId).bins * zoomLevel(zoomId).binMs
+      }
+      onReload={lane.reload}
       runState={effectiveRunState}
       nodeState={nodeState}
     />

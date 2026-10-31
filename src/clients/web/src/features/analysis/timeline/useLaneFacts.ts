@@ -77,6 +77,8 @@ export interface LaneFactsView {
   /** True while a reload runs and the previous data is still shown. */
   isUpdating: boolean;
   error: unknown;
+  /** Reloads the lane's pages. */
+  reload: () => void;
 }
 
 const NO_FACTS: readonly LaneFact[] = [];
@@ -100,6 +102,7 @@ export function useLaneFacts(adapter: AnalysisFactAdapter, runId: string, stream
 
   const data = query.data;
   const error = query.error;
+  const refetch = query.refetch;
   return useMemo<LaneFactsView>(() => {
     const isUpdating = query.isPlaceholderData || (query.isFetching && data !== undefined);
     if (data?.status === 'loaded') {
@@ -112,11 +115,12 @@ export function useLaneFacts(adapter: AnalysisFactAdapter, runId: string, stream
         partial: isLanePartial(data.facts.length, stream.factCount),
         isUpdating,
         error: null,
+        reload: () => void refetch(),
       };
     }
     let status: LaneLoadStatus = 'loading';
     if (data) status = data.status;
     else if (error) status = error instanceof PlatformFailure && error.kind === 'unreachable' ? 'connectionRequired' : 'error';
-    return { status, facts: NO_FACTS, windows: NO_WINDOWS, runState: undefined, loadedFactCount: 0, partial: false, isUpdating, error };
-  }, [data, error, query.isPlaceholderData, query.isFetching, stream.factCount]);
+    return { status, facts: NO_FACTS, windows: NO_WINDOWS, runState: undefined, loadedFactCount: 0, partial: false, isUpdating, error, reload: () => void refetch() };
+  }, [data, error, refetch, query.isPlaceholderData, query.isFetching, stream.factCount]);
 }
