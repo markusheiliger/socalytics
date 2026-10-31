@@ -90,7 +90,7 @@
 
 ### Coverage browser scenarios
 
-- [ ] T019 [US2] Add the US2 scenarios (four distinct bin states, in-progress lane refreshing within 15 s without losing selection, every explicit lane state) to `src/clients/web/tests/e2e/simulated/analysis-timeline.spec.ts`
+- [x] T019 [US2] Add the US2 scenarios (four distinct bin states, in-progress lane refreshing within 15 s without losing selection, every explicit lane state) to `src/clients/web/tests/e2e/simulated/analysis-timeline.spec.ts`
 
 **Checkpoint**: No state is inferred as zero.
 

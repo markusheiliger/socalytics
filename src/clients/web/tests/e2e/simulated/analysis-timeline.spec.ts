@@ -1,5 +1,6 @@
 import { expect, test } from '../support/fixtures';
 import {
+  coverageMatchEndMs,
   match,
   team,
   timelineRunFixture,
@@ -153,5 +154,100 @@ test.describe('Timeline density', () => {
     // Beyond the loading bound the bins say so instead of showing a zero.
     await expect(bins.getByRole('button', { name: 'from 100:00 to 105:00 (end excluded): Facts beyond the loading bound not shown', exact: true })).toBeVisible();
     await expect(bins.getByRole('button', { name: /^from 100:00 to 105:00 .*, 0$/ })).toHaveCount(0);
+  });
+});
+
+const mixedLane = 'Timeline of mixed-detection 1.0.0 (coverage-mixed)';
+const uncoveredLane = 'Timeline of uncovered-detection 1.0.0 (no-coverage)';
+const emptyLane = 'Timeline of empty-detection 1.0.0 (complete-empty)';
+const absentLane = 'Timeline of absent-detection 1.0.0 (not-in-run)';
+const failingLane = 'Timeline of failing-detection 1.0.0 (load-failure)';
+
+test.describe('Timeline coverage', () => {
+  test('shows four distinct bin states and never infers zero (scenarios 1-4)', async ({ page, api }) => {
+    const run = api.seedCoverageRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    // The 30 minutes of this run default to one-minute bins; five-minute bins match the windows.
+    await page.getByRole('button', { name: '5 minutes', exact: true }).click();
+    await expect(page.getByText('Current zoom: 5 minutes per bin')).toBeVisible();
+
+    const lane = page.getByRole('region', { name: mixedLane, exact: true });
+    const bins = binGroup(lane);
+    await expect(bins.getByRole('button', { name: 'from 0:00 to 5:00 (end excluded): Facts present, 5', exact: true })).toBeVisible();
+    await expect(bins.getByRole('button', { name: 'from 5:00 to 10:00 (end excluded): Analysed, no facts', exact: true })).toBeVisible();
+    await expect(bins.getByRole('button', { name: 'from 10:00 to 15:00 (end excluded): Not analysed', exact: true })).toBeVisible();
+    await expect(bins.getByRole('button', { name: 'from 15:00 to 20:00 (end excluded): Not analysed', exact: true })).toBeVisible();
+    await expect(bins.getByRole('button', { name: 'from 20:00 to 25:00 (end excluded): No reported coverage', exact: true })).toBeVisible();
+
+    // Each window is drawn with its state as text.
+    const windows = lane.getByRole('list', { name: 'Coverage windows of mixed-detection 1.0.0 (coverage-mixed)' });
+    await expect(windows.getByRole('listitem', { name: /^from 0:00 to 10:00 \(end excluded\): Accepted$/ })).toBeAttached();
+    await expect(windows.getByRole('listitem', { name: /^from 10:00 to 15:00 \(end excluded\): Failed$/ })).toBeAttached();
+    await expect(windows.getByRole('listitem', { name: /^from 15:00 to 20:00 \(end excluded\): Skipped$/ })).toBeAttached();
+
+    // A zero count appears only where the window is accepted and nothing was found.
+    await expect(bins.getByRole('button', { name: /^from (1[05]|20):00 .*, 0$/ })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: emptyLane, exact: true }).getByText('The analysis is complete and produced no facts.')).toBeVisible();
+  });
+
+  test('says a running run is in progress and refreshes the lane within 15 seconds keeping zoom (scenario 5)', async ({ page, api }) => {
+    const run = api.seedCoverageRun({
+      state: 'Running',
+      terminatedAt: null,
+      steps: [
+        (r) => {
+          const empty = r.streams.find((s) => s.nodeKey === 'complete-empty');
+          empty?.facts.push({
+            acceptedResultId: '00000000-0000-4000-8000-000000009001',
+            ordinal: 0,
+            kind: 'late-event',
+            startMs: 720_000,
+            endMs: 725_000,
+            confidence: 0.5,
+            payload: {},
+          });
+        },
+      ],
+    });
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    const empty = page.getByRole('region', { name: emptyLane, exact: true });
+    await expect(empty.getByText('The analysis is still in progress; no facts yet.')).toBeVisible();
+    await expect(binGroup(empty)).toHaveCount(0);
+    await expect(empty.getByText(/ 0$/)).toHaveCount(0);
+
+    await page.getByRole('button', { name: '1 minute', exact: true }).click();
+    await expect(page.getByText('Current zoom: 1 minute per bin')).toBeVisible();
+
+    const bin = binGroup(empty).getByRole('button', { name: 'from 12:00 to 13:00 (end excluded): Facts present, 1', exact: true });
+    await expect(bin).toBeVisible({ timeout: 15_000 });
+    await expect(empty.getByText('The analysis is still in progress; no facts yet.')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '1 minute', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText('Current zoom: 1 minute per bin')).toBeVisible();
+    await expect(page.getByText(`Showing 0:00–${coverageMatchEndMs / 60_000}:00`, { exact: true })).toBeVisible();
+  });
+
+  test('shows every explicit lane state without density (scenarios 5-7)', async ({ page, api }) => {
+    const run = api.seedCoverageRun();
+    registerRecordingSet(api, run);
+    await page.goto(`/matches/${match.id}/analysis-runs/${run.runId}`);
+
+    const uncovered = page.getByRole('region', { name: uncoveredLane, exact: true });
+    await expect(uncovered.getByText('The platform reports no coverage windows for this selection.')).toBeVisible();
+    const empty = page.getByRole('region', { name: emptyLane, exact: true });
+    await expect(empty.getByText('The analysis is complete and produced no facts.')).toBeVisible();
+    const absent = page.getByRole('region', { name: absentLane, exact: true });
+    await expect(absent.getByText('The chosen capability is not part of this run.')).toBeVisible();
+    const failing = page.getByRole('region', { name: failingLane, exact: true });
+    await expect(failing.getByText('The timeline of this stream could not be loaded.')).toBeVisible();
+    await expect(failing.getByRole('button', { name: 'Reload the timeline', exact: true })).toBeVisible();
+
+    for (const name of [uncoveredLane, emptyLane, absentLane, failingLane]) {
+      await expect(binGroup(page.getByRole('region', { name, exact: true }))).toHaveCount(0);
+    }
+    await expect(binGroup(page.getByRole('region', { name: mixedLane, exact: true })).getByRole('button')).toHaveCount(30);
   });
 });
