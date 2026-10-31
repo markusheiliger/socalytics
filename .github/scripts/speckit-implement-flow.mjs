@@ -6,7 +6,7 @@ import path from 'node:path';
 import { ASSESSMENT_FILE, COMPLETION_FILE, COMPLETION_FORMAT, bindEvidence, gitReader, sha256, taskDigest, validateAssessment, validateClaim } from './speckit-completion.mjs';
 import { FlowError, describeRun, option, readFlowState, readRunInputs, runAsScript, runDir, runFlowCommand, writeFlowState, writeResult } from './speckit-flow.mjs';
 import { hasConflictMarkers, isEnvironmentPath, isProtectedPath, listTasks, normalizeWriterGuidance, tasksPathOf, validateConvergeChange, validateTaskChange } from './speckit-implement-core.mjs';
-import { MAX_CHANGED_FILES, resolutionScope } from './speckit-implement-work.mjs';
+import { MAX_CHANGED_FILES, conflictAuthorizationReasons, resolutionScope } from './speckit-implement-work.mjs';
 import { UsageError, defaultGit } from './speckit-orchestrate.mjs';
 import { isValidFolderName, specDir } from './speckit-prepare-core.mjs';
 
@@ -130,9 +130,8 @@ const startOf = {
     if (mergeHead.status !== 0) throw new FlowError('The working tree is not in the middle of a merge: merge the base branch first (git merge <base>), then run this workflow for its conflicts.');
     const conflicts = [...new Set(splitZ(must(git, ['diff', '--name-only', '--diff-filter=U', '-z'], 'Listing the conflicts')))].sort();
     if (conflicts.length === 0) throw new FlowError('The merge has no conflicted files; there is nothing to resolve.');
-    const own = (file) => [specDir(folder), specDir(folder, { archived: true })].some((dir) => file.startsWith(`${dir}/`));
-    const blocked = conflicts.filter((file) => (isProtectedPath(file) || isEnvironmentPath(file)) && !own(file));
-    if (blocked.length > 0) throw new FlowError(`Conflicts in protected files need a person: ${blocked.join(', ')}.`);
+    const authorization = conflictAuthorizationReasons({ git, baseSha: mergeHead.stdout.trim(), folder, conflicts });
+    if (authorization.length > 0) throw new FlowError(authorization.join('\n'));
     const forkPoint = must(git, ['merge-base', 'HEAD', 'MERGE_HEAD'], 'Finding the fork point').trim();
     const base = text('base') || 'the base branch';
     return {
@@ -189,6 +188,7 @@ const checkOf = {
     if (marked.length > 0) reasons.push(`conflict markers remain in ${marked.join(', ')}`);
     const scope = resolutionScope({ git, baseSha: state.mergeHead, paths: files.filter((file) => !state.conflicts.includes(file)), deleted });
     reasons.push(...scope.reasons);
+    reasons.push(...conflictAuthorizationReasons({ git, baseSha: state.mergeHead, folder: state.folder, conflicts: state.conflicts, changedPaths: files }));
     const tasksPath = tasksPathOf(state.folder, { archived: state.archived });
     if (state.conflicts.includes(tasksPath)) {
       const ours = git(['show', `HEAD:${tasksPath}`]);
