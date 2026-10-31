@@ -55,6 +55,12 @@
 ### Timeline component tests and fixture
 
 - [x] T012 [P] [US1] Component tests in `src/clients/web/tests/unit/features/analysis/timeline/analysisTimeline.test.tsx`: lanes per stream and per node of the same capability, shared axis labels beyond 90 minutes, zoom and extent changes, default zoom chosen once and zoom and extent kept when lanes reload, totals agree with the reported count, partial density wording including the `notLoaded` label in bins and the text alternative, and markup-like node keys, capability ids, and failure reasons rendered as literal text (FR-016)
+### Existing review scenarios
+
+- [ ] T034 [US1] Adapt the existing review browser scenarios in `src/clients/web/tests/e2e/simulated/analysis-review.spec.ts` to the timeline that T011 now shows by default above the fact list: the scenario "shows a platform error with a reload that recovers (scenario 4)" fails its first facts request with a `500` for any request to the facts route, which the timeline's lane load now consumes, so the review's error alert never appears. Make each failure or rejection injected for the fact list (a `500`, a rejected continuation, an outdated stream) apply to the fact list's own requests only (for example the request that carries the page-size query used by the fact list, as distinguished from the timeline's lane reads) or close the timeline first, keeping every assertion of the scenario unchanged and without weakening any expectation; re-check every other scenario of the file for the same interaction (FR-021)
+
+### Timeline scenario fixture
+
 - [ ] T013 [P] [US1] Add a timeline scenario fixture (several pages of unevenly spread facts, two nodes of one capability, extra-time coverage) to `src/clients/web/tests/e2e/support/simulatedApi.ts`
 
 ### Density browser scenarios
@@ -162,13 +168,13 @@
 
 - Phase 1 first (T001 and T002 run in parallel); Phase 2 depends on T001 and T002; T003 to T005 are sequential (each builds on the previous), T006 to T008 run in parallel after them (three separate test files).
 - US1 (Phase 3) depends on Phase 2 and is the MVP. US2, US3, and US4 depend on US1's components and extend the same component files, so their implementation tasks run one after another in priority order. US5 depends on US1 and the lane queries; its platform test (T031) also depends on US3.
-- Within each story the test group (component tests and fixture or scenario files, all different files) runs in parallel after the implementation tasks; the browser scenarios of US1 and US2 follow their fixture (T014 after T013, T019 after T018) as their own task.
+- Within each story the test group (component tests and fixture or scenario files, all different files) runs in parallel after the implementation tasks; the browser scenarios of US1 and US2 follow their fixture (T014 after T013, T019 after T018), and T034 runs before the fixture because the timeline shown by T011 changes the existing review scenarios as their own task.
 - Phase 8 depends on all stories.
 
 ## Parallel Examples
 
 - T001 and T002; after T005: T006, T007, and T008.
-- After T011: T012 and T013, then T014. After T016: T017 and T018, then T019.
+- After T011: T012, then T034 (the existing review scenarios must pass with the timeline), then T013, then T014. After T016: T017 and T018, then T019.
 - After T021: T022 and T023. After T025: T026 and T027. After T028: T029, T030, and T031.
 
 ## Implementation Strategy
