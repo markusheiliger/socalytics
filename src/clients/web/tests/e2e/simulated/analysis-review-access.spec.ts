@@ -173,7 +173,7 @@ test.describe('Accessibility', () => {
   test('has no violations in the empty, incomplete, capability-not-in-run, and error states', async ({ page, api }) => {
     const empty = seedRun(api, { streams: [stream()] });
     await page.goto(reviewUrl(empty.runId, '?stream=detections'));
-    await expect(page.getByText('The analysis is complete and produced no facts.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Facts', exact: true }).getByText('The analysis is complete and produced no facts.')).toBeVisible();
     await expectNoAxeViolations(page);
 
     const coverage: SeededFactStream['coverage'] = [
@@ -182,7 +182,7 @@ test.describe('Accessibility', () => {
     ];
     const incomplete = seedRun(api, { state: 'PartiallyCompleted', streams: [stream({ facts: [], coverage })] });
     await page.goto(reviewUrl(incomplete.runId, '?stream=detections'));
-    await expect(page.getByText('The analysis is incomplete. Some windows are not accepted.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Facts', exact: true }).getByText('The analysis is incomplete. Some windows are not accepted.')).toBeVisible();
     await expectNoAxeViolations(page);
 
     await page.goto(reviewUrl(empty.runId, '?stream=retired'));

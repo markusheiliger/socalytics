@@ -58,7 +58,7 @@ test('reviews the run the upload flow created: run and node status, and the not-
   await expect(streams).toBeVisible({ timeout: 15_000 });
   await streams.getByRole('button', { name: /^Show facts of / }).first().click();
   await expect(
-    page.getByText(/The analysis is still in progress; no facts yet\.|The analysis is incomplete\. Some windows are not accepted\./),
+    page.getByRole('region', { name: 'Facts', exact: true }).getByText(/The analysis is still in progress; no facts yet\.|The analysis is incomplete\. Some windows are not accepted\./),
   ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('list', { name: 'Facts of the selected stream' })).toHaveCount(0);
 

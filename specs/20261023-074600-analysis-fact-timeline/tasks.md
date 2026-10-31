@@ -86,7 +86,7 @@
 ### Lane state component tests and fixture
 
 - [x] T017 [P] [US2] Component tests in `src/clients/web/tests/unit/features/analysis/timeline/timelineLaneStates.test.tsx`: every state of FR-006 (including `notLoaded` in a partial lane) shows its own label, no count of zero outside accepted coverage, a reloading lane keeping its previous data marked as updating until the new pages complete, unknown raw values, in-progress lane without density, refresh keeping selection, zoom, and extent, no lane refresh while the page is hidden, and final run states (`Failed`, `Cancelled`, unknown) never in progress with unknown raw values shown
-- [ ] T018 [P] [US2] Add coverage scenarios (failed segment, skipped window, accepted window without facts, stream without coverage, running run, complete without facts, capability not in run, lane load failure) to `src/clients/web/tests/e2e/support/simulatedApi.ts`
+- [x] T018 [P] [US2] Add coverage scenarios (failed segment, skipped window, accepted window without facts, stream without coverage, running run, complete without facts, capability not in run, lane load failure) to `src/clients/web/tests/e2e/support/simulatedApi.ts`
 
 ### Coverage browser scenarios
 

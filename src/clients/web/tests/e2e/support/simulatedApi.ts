@@ -267,6 +267,8 @@ export interface SeededFactStream {
   coverage: SeededCoverageWindow[];
   /** End of the recording coverage, the effective `toMs` when a read sets none. */
   coverageEndMs: number;
+  /** Makes the fact read of this stream answer 404 `analysis-capability-not-in-run` or a 500 although the run lists it. */
+  readFailure?: 'not-in-run' | 'server-error';
 }
 
 export interface SeededNode {
@@ -417,6 +419,73 @@ export function timelineRunFixture(overrides: Partial<SeededAnalysisRun> = {}): 
       stream('passes-first-half', 'pass-detection', 'passes', dense, 1),
       stream('passes-second-half', 'pass-detection', 'passes', second, 2),
       stream('shots', 'shot-detection', 'shots', shots, 3),
+    ],
+    ...overrides,
+  });
+}
+
+/** Match end of the coverage scenario: 30 minutes. */
+export const coverageMatchEndMs = 1_800_000;
+
+/**
+ * A completed run for the coverage states of the timeline. `coverage-mixed` has an accepted window with facts
+ * (0:00-5:00), an accepted window without facts (5:00-10:00), a failed window (10:00-15:00), a skipped window
+ * (15:00-20:00), and a span no window reports (20:00-30:00). `no-coverage` reports no window at all,
+ * `complete-empty` is accepted over the whole match without facts, `not-in-run` is listed but its fact read answers
+ * 404 `analysis-capability-not-in-run`, and `load-failure` is listed but its fact read answers 500.
+ * Override `state` (for example `Running`) for the in-progress scenarios.
+ */
+export function coverageRunFixture(overrides: Partial<SeededAnalysisRun> = {}): SeededAnalysisRun {
+  const [base] = analysisRunFixture().streams;
+  const stream = (nodeKey: string, capabilityId: string, extra: Partial<SeededFactStream>): SeededFactStream => ({
+    ...base,
+    nodeKey,
+    capabilityId,
+    outputType: nodeKey,
+    facts: [],
+    coverage: [],
+    coverageEndMs: coverageMatchEndMs,
+    ...extra,
+  });
+  const node = (nodeKey: string, capabilityId: string): SeededNode => ({
+    nodeKey,
+    capabilityId,
+    capabilityVersion: '1.0.0',
+    tier: 'LowLevel',
+    executionScope: 'Segment',
+    state: 'Completed',
+    blockedByNodeKey: null,
+    jobs: { waiting: 0, ready: 0, claimed: 0, completed: 3, failed: 0, blocked: 0 },
+  });
+  const lanes: [string, string][] = [
+    ['coverage-mixed', 'mixed-detection'],
+    ['no-coverage', 'uncovered-detection'],
+    ['complete-empty', 'empty-detection'],
+    ['not-in-run', 'absent-detection'],
+    ['load-failure', 'failing-detection'],
+  ];
+  return analysisRunFixture({
+    requestedCapabilities: lanes.map(([, capabilityId]) => capabilityId),
+    nodes: lanes.map(([nodeKey, capabilityId]) => node(nodeKey, capabilityId)),
+    streams: [
+      stream('coverage-mixed', 'mixed-detection', {
+        facts: timelineFacts(
+          1,
+          [10_000, 60_000, 120_000, 200_000, 290_000],
+        ),
+        coverage: [
+          { startMs: 0, endMs: 600_000, state: 'accepted' },
+          { startMs: 600_000, endMs: 900_000, state: 'failed' },
+          { startMs: 900_000, endMs: 1_200_000, state: 'skipped' },
+        ],
+      }),
+      stream('no-coverage', 'uncovered-detection', {}),
+      stream('complete-empty', 'empty-detection', { coverage: [{ startMs: 0, endMs: coverageMatchEndMs, state: 'accepted' }] }),
+      stream('not-in-run', 'absent-detection', { readFailure: 'not-in-run' }),
+      stream('load-failure', 'failing-detection', {
+        coverage: [{ startMs: 0, endMs: coverageMatchEndMs, state: 'accepted' }],
+        readFailure: 'server-error',
+      }),
     ],
     ...overrides,
   });
@@ -1124,6 +1193,12 @@ export class SimulatedApi {
     return this.seedAnalysisRun(timelineRunFixture(overrides));
   }
 
+  /** Seeds the coverage scenario (see `coverageRunFixture`) and pages facts by `timelineFactPageSize`. */
+  seedCoverageRun(overrides: Partial<SeededAnalysisRun> = {}): SeededAnalysisRun {
+    this.factPageSize = timelineFactPageSize;
+    return this.seedAnalysisRun(coverageRunFixture(overrides));
+  }
+
   /** Replaces the scripted answers of the evidence resolution and forgets the requests received so far. */
   scriptEvidence(...answers: SimulatedEvidenceAnswer[]): void {
     this.evidenceScript = answers;
@@ -1302,6 +1377,7 @@ export class SimulatedApi {
         s.capabilityId === capabilityId &&
         s.capabilityVersion === capabilityVersion &&
         s.schemaVersion === schemaVersion &&
+        s.readFailure !== 'not-in-run' &&
         (nodeKey === null || s.nodeKey === nodeKey),
     );
     if (nodes.length === 0) {
@@ -1311,6 +1387,7 @@ export class SimulatedApi {
       return json(400, problem(400, 'Capability ambiguous', { code: 'analysis-capability-ambiguous' }));
     }
     const stream = nodes[0];
+    if (stream.readFailure === 'server-error') return json(500, problem(500, 'Server error'));
     const hash = selectionHash(run.runId, stream, fromMs, toMs);
     if (after && after.h !== hash) {
       return json(400, problem(400, 'Validation failed', { errors: [{ field: 'continuationToken', code: 'invalid' }] }));
