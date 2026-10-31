@@ -23,8 +23,10 @@ artifact validation, approval, enablement, and pinning into invocations) is
 implemented as development evidence, with a Development and Test seed of the
 two direct Specialist Agents. The catalog entries, prompt drafts, profile
 values, and model choices in this document remain Provisional design inputs;
-model execution, MCP evidence tools, the Hermes orchestration runtime, and the
-remaining user experiences are design inputs rather than deployed behavior.
+The platform side of the MCP evidence tools (the `/api/v1/agent-tools`
+operations that enforce the pinned tool policy) is implemented as development
+evidence. Model execution, the MCP server, the Hermes orchestration runtime, and
+the remaining user experiences are design inputs rather than deployed behavior.
 The Web UI's catalog administration for Club Admins is implemented as
 development evidence.
 
@@ -358,7 +360,7 @@ subject to team authorization, resource availability, and the invocation's
 tool-policy version. Agents should request only the evidence needed for the
 question rather than exhaustively calling every permitted tool. The platform
 enforces the pinned tool policy on every tool call and refuses tools outside it
-without fencing the attempt (decided, not yet implemented; see
+without fencing the attempt (implemented as development evidence; see
 [Intelligence and Agents → MCP Tools](intelligence-and-agents.md#mcp-tools)).
 The MCP server lists and forwards only the pinned policy's tools (decided, not
 yet implemented; see

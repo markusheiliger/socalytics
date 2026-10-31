@@ -1160,6 +1160,135 @@ it('${id}', () => {
       });
     });
 
+    describe('Sample tooling tests', () => {
+      const name = 'Sample tooling tests';
+      const testFile = 'tools/samples.test.mjs';
+      const paths = ['tools/samples.test.mjs', 'tools/samples-lib.mjs', 'tools/upload-samples.mjs', 'tools/download-samples.mjs'];
+      const nonMatching = ['tools/other.mjs', 'tools/samples.test.mjs.bak', 'tools/sub/samples-lib.mjs', 'tools/Samples-Lib.mjs'];
+      const failureMessage = 'Sample tooling tests failed (command: node --test tools/samples.test.mjs). Recommended action: reproduce this command, correct the failing sample tooling file or its test without weakening the test, and retry verification';
+      // A stub test file in the workspace records the marker it runs under and passes or fails on demand.
+      function sampleFixture(root, { fail = false } = {}) {
+        mkdirSync(path.join(root, 'tools'), { recursive: true });
+        const record = path.join(root, `sample-record-${counter++}.txt`);
+        writeFileSync(path.join(root, testFile), `import { appendFileSync } from 'node:fs';
+import { it } from 'node:test';
+import assert from 'node:assert/strict';
+it('sample', () => {
+  appendFileSync(${JSON.stringify(record)}, 'samples:' + process.env.SOCALYTICS_ENVIRONMENT_TESTS_RUNNING + '\\n');
+  assert.ok(!${fail});
+});
+`);
+        return { env: { SAMPLE_TOOLING_TESTS: testFile }, record: () => (existsSync(record) ? readFileSync(record, 'utf8').split('\n').filter(Boolean) : []) };
+      }
+      const sampleRepository = (options) => {
+        const root = fullRepository({ python: false });
+        return { root, fixture: sampleFixture(root, options) };
+      };
+      const checksOf = (result) => result.outputs.checks.split(',');
+
+      it('runs the exact command and lists the check for each of the four paths, a deletion included', () => {
+        for (const changed of paths) {
+          const { root, fixture } = sampleRepository();
+          const result = run(root, { mode: 'task', changed: [changed], bin: toolBin(), env: fixture.env });
+          assert.equal(result.status, 0, `${changed}: ${result.log}`);
+          assert.ok(checksOf(result).includes(name), changed);
+          assert.match(result.log, /\$ node --test tools\/samples\.test\.mjs|\$ env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test tools\/samples\.test\.mjs/);
+          assert.deepEqual(fixture.record(), ['samples:1'], changed);
+        }
+        const { root, fixture } = sampleRepository();
+        const result = run(root, { mode: 'phase', changed: ['tools/upload-samples.mjs'], bin: toolBin(), env: fixture.env });
+        assert.equal(result.status, 0, result.log);
+        assert.ok(checksOf(result).includes(name));
+        assert.deepEqual(fixture.record(), ['samples:1']);
+      });
+
+      it('fails with the exact one-line reproduce-command message and still writes every output', () => {
+        const { root, fixture } = sampleRepository({ fail: true });
+        const result = run(root, { mode: 'task', changed: ['tools/samples-lib.mjs'], bin: toolBin(), env: fixture.env });
+        assert.equal(result.status, 1);
+        assert.ok(checksOf(result).includes(name));
+        assert.ok('uncovered' in result.outputs && 'flaky' in result.outputs);
+        assert.deepEqual(fixture.record(), ['samples:1']);
+        assert.deepEqual(result.log.split('\n').filter((line) => line.startsWith('Sample tooling tests failed')), [failureMessage]);
+      });
+
+      it('fails visibly with the missing-file message while another of the four files changes', () => {
+        const root = fullRepository({ python: false });
+        const result = run(root, { mode: 'task', changed: ['tools/download-samples.mjs'], bin: toolBin(), env: { SAMPLE_TOOLING_TESTS: testFile } });
+        assert.equal(result.status, 1);
+        assert.ok(checksOf(result).includes(name));
+        assert.deepEqual(
+          result.log.split('\n').filter((line) => line.startsWith('Sample tooling tests:')),
+          ['Sample tooling tests: tools/samples.test.mjs does not exist. Recommended action: restore tools/samples.test.mjs and retry verification'],
+        );
+      });
+
+      it('fails with the node-required message without Node.js', () => {
+        const { root, fixture } = sampleRepository();
+        // The plan itself needs node, so only the availability probe of the check is hidden.
+        const hide = '() { if [ "$1" = -v ] && [ "$2" = node ]; then return 1; fi; builtin command "$@"; }';
+        const result = run(root, { mode: 'task', changed: ['tools/samples.test.mjs'], bin: toolBin(), env: { ...fixture.env, 'BASH_FUNC_command%%': hide } });
+        assert.equal(result.status, 1, result.log);
+        assert.ok(checksOf(result).includes(name));
+        assert.ok(result.log.split('\n').includes('Sample tooling tests: node is required. Recommended action: run environment-setup before verification'));
+        assert.equal(fixture.record().length, 0);
+      });
+
+      it('skips and does not list the check for similar paths in task and phase mode', () => {
+        for (const mode of ['task', 'phase']) {
+          for (const changed of nonMatching) {
+            const { root, fixture } = sampleRepository();
+            const result = run(root, { mode, changed: [changed], bin: toolBin(), env: fixture.env });
+            assert.ok(!result.outputs.checks.includes(name), `${mode} ${changed}: ${result.log}`);
+            assert.equal(fixture.record().length, 0, `${mode} ${changed}`);
+          }
+        }
+      });
+
+      it('runs in finalize mode without a changed sample tooling file', () => {
+        const { root, fixture } = sampleRepository();
+        const result = run(root, { mode: 'finalize', bin: toolBin(), env: fixture.env });
+        assert.equal(result.status, 0, result.log);
+        assert.ok(checksOf(result).includes(name));
+        assert.deepEqual(fixture.record(), ['samples:1']);
+      });
+
+      it('belongs to the first shard only', () => {
+        const { root, fixture } = sampleRepository();
+        const second = run(root, { mode: 'finalize', bin: toolBin(), env: { ...fixture.env, SHARD: '2/2' } });
+        assert.equal(second.status, 0, second.log);
+        assert.ok(!checksOf(second).includes(name));
+        assert.equal(fixture.record().length, 0);
+        const first = run(root, { mode: 'finalize', bin: toolBin(), env: { ...fixture.env, SHARD: '1/2' } });
+        assert.equal(first.status, 0, first.log);
+        assert.ok(checksOf(first).includes(name));
+        assert.deepEqual(fixture.record(), ['samples:1']);
+      });
+
+      it('fails the step in the first shard only when the check fails', () => {
+        const { root, fixture } = sampleRepository({ fail: true });
+        const second = run(root, { mode: 'finalize', bin: toolBin(), env: { ...fixture.env, SHARD: '2/2' } });
+        assert.equal(second.status, 0, second.log);
+        assert.equal(fixture.record().length, 0);
+        const first = run(root, { mode: 'finalize', bin: toolBin(), env: { ...fixture.env, SHARD: '1/2' } });
+        assert.equal(first.status, 1);
+        assert.ok(checksOf(first).includes(name));
+        assert.deepEqual(first.log.split('\n').filter((line) => line.startsWith('Sample tooling tests failed')), [failureMessage]);
+      });
+
+      it('does not run while the nested-run marker is set or SAMPLE_TOOLING_TESTS is unset', () => {
+        const nested = sampleRepository();
+        const nestedResult = run(nested.root, { mode: 'task', changed: ['tools/samples.test.mjs'], bin: toolBin(), env: { ...nested.fixture.env, SOCALYTICS_ENVIRONMENT_TESTS_RUNNING: '1' } });
+        assert.equal(nestedResult.status, 0, nestedResult.log);
+        assert.ok(!nestedResult.outputs.checks.includes(name));
+        assert.equal(nested.fixture.record().length, 0);
+        const unset = sampleRepository();
+        const unsetResult = run(unset.root, { mode: 'task', changed: ['tools/samples.test.mjs'], bin: toolBin() });
+        assert.ok(!unsetResult.outputs.checks.includes(name));
+        assert.equal(unset.fixture.record().length, 0);
+      });
+    });
+
     describe('agents area coverage and regression', () => {
       const bypass = /--no-locked|--frozen|--upgrade|skip|ignore|disable|merge|unlock|bypass|weaken/i;
       const recommendations = (log) => log.split('\n').filter((line) => line.includes('Recommended action:'));
@@ -1266,10 +1395,12 @@ it('${id}', () => {
         project(root, 'src/agents/mcp', { name: 'mcp' });
         mkdirSync(path.join(root, '.github/scripts'), { recursive: true });
         writeFileSync(path.join(root, '.github/scripts/speckit-a.test.mjs'), "import { it } from 'node:test';\nit('passes', () => {});\n");
-        const result = run(root, { bin: toolBin(), env: { ENVIRONMENT_TESTS: file, SPECKIT_TOOLING_TESTS: '.github/scripts' } });
+        mkdirSync(path.join(root, 'tools'), { recursive: true });
+        writeFileSync(path.join(root, 'tools/samples.test.mjs'), "import { it } from 'node:test';\nit('passes', () => {});\n");
+        const result = run(root, { bin: toolBin(), env: { ENVIRONMENT_TESTS: file, SPECKIT_TOOLING_TESTS: '.github/scripts', SAMPLE_TOOLING_TESTS: 'tools/samples.test.mjs' } });
         assert.equal(result.status, 0, result.log);
         assert.equal(result.outputs.checks, [
-          names.platform, names.manager, names.web, names.python, 'Agent Python projects', 'Environment action tests', 'Spec Kit tooling tests', names.markdown,
+          names.platform, names.manager, names.web, names.python, 'Agent Python projects', 'Environment action tests', 'Spec Kit tooling tests', 'Sample tooling tests', names.markdown,
         ].join(','));
         assert.equal(result.outputs.uncovered, '');
       });

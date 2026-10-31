@@ -393,7 +393,10 @@ and video bytes do not pass through the API.
 
 The same capability-scoped pattern is implemented for people (development
 evidence against the simulated Analyst; the Web UI's connected analysis review
-is its consumer, see [Web UI](client-applications.md#web-ui)): members with
+is its consumer, and its match-time fact timeline is a second consumer of
+`listAnalysisRunFacts` and `listAnalysisRunFactStreams` that derives density in
+the browser from bounded page-by-page reads (development loading bound) and
+needs no new operation, see [Web UI](client-applications.md#web-ui)): members with
 read access to a run's team (Club Admins, and Coaches and Viewers of the team)
 read a run's indexed facts per capability, capability
 version, and output schema version through the member-facing `/api/v1`
@@ -433,8 +436,11 @@ the platform confirms the media's attested digest and size and the manifest
 checksum; it never reads media bytes, never stores or logs links, re-evaluates
 team authorization on every request, rate-limits resolutions per member, and
 records each resolution that issues links as an artifact-authorization audit
-event without the links. This is the API side of `get_video_clip()`; the MCP
-tool remains future work. Production link lifetimes, rate limits, content
+event without the links. This is the API side of `get_video_clip()` for
+members; the agent workload reaches the same resolution through the
+`agentToolGetVideoClip` operation, which is bound to its attempt and pinned
+tool policy and returns the links to the caller only. The MCP tool remains
+future work. Production link lifetimes, rate limits, content
 delivery, and the production storage origin remain unresolved.
 
 ---

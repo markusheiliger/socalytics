@@ -150,6 +150,11 @@ test.describe('Accessibility', () => {
     await page.getByRole('textbox', { name: 'To' }).fill('0:50');
     await activateWithKeyboard(page.getByRole('button', { name: 'Apply range' }));
     await expect(page).toHaveURL(new RegExp(`/analysis-runs/${run.runId}\\?stream=detections&fromMs=10000&toMs=50000$`));
+    // The address changes before the filtered page renders, and the unfiltered page also has two facts. Without
+    // these waits the test activated the control of the previous selection, which is replaced when the filtered
+    // request returns (reproduced with a 5000 ms delay on that request: the list was unmounted while loading).
+    await expect(facts.first()).toHaveAttribute('aria-label', /: pass-1$/);
+    await expect(page.getByRole('button', { name: 'Next page' })).toBeEnabled();
     await expect(facts).toHaveCount(2);
 
     await activateWithKeyboard(page.getByRole('button', { name: 'Next page' }));
@@ -168,7 +173,7 @@ test.describe('Accessibility', () => {
   test('has no violations in the empty, incomplete, capability-not-in-run, and error states', async ({ page, api }) => {
     const empty = seedRun(api, { streams: [stream()] });
     await page.goto(reviewUrl(empty.runId, '?stream=detections'));
-    await expect(page.getByText('The analysis is complete and produced no facts.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Facts', exact: true }).getByText('The analysis is complete and produced no facts.')).toBeVisible();
     await expectNoAxeViolations(page);
 
     const coverage: SeededFactStream['coverage'] = [
@@ -177,7 +182,7 @@ test.describe('Accessibility', () => {
     ];
     const incomplete = seedRun(api, { state: 'PartiallyCompleted', streams: [stream({ facts: [], coverage })] });
     await page.goto(reviewUrl(incomplete.runId, '?stream=detections'));
-    await expect(page.getByText('The analysis is incomplete. Some windows are not accepted.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Facts', exact: true }).getByText('The analysis is incomplete. Some windows are not accepted.')).toBeVisible();
     await expectNoAxeViolations(page);
 
     await page.goto(reviewUrl(empty.runId, '?stream=retired'));

@@ -19,7 +19,9 @@ description: >-
   task mode all unit tests but only the browser spec files the task touched); "Analyst Python projects" and "Agent Python projects" (the locked uv stages of the selected
   projects; a failed discovery fails its check in every mode); "Environment action tests" (the Node tests of both
   environment actions, when either action folder changed or in finalize mode); "Spec Kit tooling tests" (the Node
-  tests of .github/scripts/speckit-*.mjs, when such a script changed or in finalize mode); "Markdown check". A .NET component
+  tests of .github/scripts/speckit-*.mjs, when such a script changed or in finalize mode); "Sample tooling tests" (the Node
+  tests of tools/samples.test.mjs, when tools/samples-lib.mjs, upload-samples.mjs, download-samples.mjs, or the test
+  changed or in finalize mode); "Markdown check". A .NET component
   restores, builds, and tests from its own folder; an npm component runs npm ci (no browser download), the Playwright
   pin check when it uses @playwright/test (1.63.0, the version environment-setup installs), and its build, test, and
   test:e2e scripts (browser tests with --retries=1; with affected tests and a declared browserTests folder only the
@@ -99,6 +101,7 @@ runs:
         ANALYST_PROJECTS: ${{ github.action_path }}/analyst-projects.py
         VERIFICATION_PLAN: ${{ github.action_path }}/verification-plan.mjs
         SPECKIT_TOOLING_TESTS: .github/scripts
+        SAMPLE_TOOLING_TESTS: tools/samples.test.mjs
         ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/verification-scope.test.mjs ${{ github.action_path }}/verification-plan.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs ${{ github.action_path }}/../environment-setup/cv-libraries.test.mjs
       run: |
         # GitHub runs `shell: bash` with `-e`; this script handles failures itself (status) and must always write its
@@ -200,10 +203,10 @@ runs:
           agent_error="$(plan 'p.python.agents.error')"
           agent_selected="$(plan 'p.python.agents.selected')"
           # A shard other than the first runs only its components; the Python projects, the environment action tests,
-          # the Spec Kit tooling tests, and the Markdown check belong to the first shard.
+          # the Spec Kit tooling tests, the Sample tooling tests, and the Markdown check belong to the first shard.
           MAIN="$(plan 'p.main ? 1 : 0')"
           if [ -n "${SHARD:-}" ]; then
-            echo "Verification shard $SHARD: $(plan 'p.shards[Number(p.shard.split("/")[0]) - 1].units.map((u) => u.root + "#" + u.name + " (" + u.minutes + " min)").join(", ") || "no component work"')$([ "$MAIN" -eq 1 ] && echo '; also the Python projects, environment action tests, Spec Kit tooling tests, and Markdown check')" | tee -a "$LOG_FILE"
+            echo "Verification shard $SHARD: $(plan 'p.shards[Number(p.shard.split("/")[0]) - 1].units.map((u) => u.root + "#" + u.name + " (" + u.minutes + " min)").join(", ") || "no component work"')$([ "$MAIN" -eq 1 ] && echo '; also the Python projects, environment action tests, Spec Kit tooling tests, Sample tooling tests, and Markdown check')" | tee -a "$LOG_FILE"
           fi
           if [ "$MAIN" -eq 0 ]; then
             analyst_status=0; analyst_selected=""
@@ -639,6 +642,24 @@ runs:
           else
             step env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test "${tooling_tests[@]}" || {
               echo "Spec Kit tooling tests failed (command: node --test ${tooling_tests[*]}). Recommended action: reproduce this command, correct the failing Spec Kit tooling script or its test without weakening the test, and retry verification" | tee -a "$LOG_FILE"
+              status=1
+            }
+          fi
+        fi
+        # The Node tests of the sample tooling run when one of its four files changed (including a deletion) and in
+        # finalize mode. SAMPLE_TOOLING_TESTS is the workspace-relative test file; it is unset in fixtures. Nothing is
+        # installed or downloaded.
+        if [ "$status" -eq 0 ] && [ "$MAIN" -eq 1 ] && [ -n "${SAMPLE_TOOLING_TESTS:-}" ] && [ -z "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ] && applies '^tools/(samples\.test|samples-lib|upload-samples|download-samples)\.mjs$'; then
+          checks+=("Sample tooling tests")
+          if ! command -v node > /dev/null; then
+            echo "Sample tooling tests: node is required. Recommended action: run environment-setup before verification" | tee -a "$LOG_FILE"
+            status=1
+          elif [ ! -f "$SAMPLE_TOOLING_TESTS" ]; then
+            echo "Sample tooling tests: $SAMPLE_TOOLING_TESTS does not exist. Recommended action: restore $SAMPLE_TOOLING_TESTS and retry verification" | tee -a "$LOG_FILE"
+            status=1
+          else
+            step env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test "$SAMPLE_TOOLING_TESTS" || {
+              echo "Sample tooling tests failed (command: node --test $SAMPLE_TOOLING_TESTS). Recommended action: reproduce this command, correct the failing sample tooling file or its test without weakening the test, and retry verification" | tee -a "$LOG_FILE"
               status=1
             }
           fi

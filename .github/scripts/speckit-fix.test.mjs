@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 import { renderSpecLine } from './speckit-prepare-core.mjs';
 import { presentAmendment, resolveAmendment, runFeedback, runPushed, runRecordAnalysis, startRework } from './speckit-amend.mjs';
-import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, RETRY_COMMENT_MARKER, maintainDependencyBlock, parseFixEvents, renderFixEvent, setAttention, setBlocked } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, SYNC_COMMENT_MARKER, maintainDependencyBlock, parseFixEvents, renderFixEvent, setAttention, setBlocked, syncBarrier } from './speckit-implement-core.mjs';
 import { authoredFor, checkFixSpec, main as fixMain, designDecisionsFromPlan, fixBlock, fixStamp, isAutomationCommit, linkPrerequisite, maintainFixSpec, maintainIndependentSpecs, parseAuthorReport, parseDesignDecisions, readResult, reworkOutcome, reworkStage, runDecide, runEvidence, runInputs, runLand, runPackage, runRecord, settleClosedFix, startFixAuthoring, syncDesignDecisions, validateDecision } from './speckit-fix.mjs';
 import { defaultGit, runSelect } from './speckit-orchestrate.mjs';
 import { diagnosisRepo, makeRepo, silent } from './speckit-test-helpers.mjs';
@@ -148,13 +148,25 @@ test('a missing, refused, or broken spec goes back to the implementation with th
   const none = fixRepo();
   const result = await authored(none, { SPECKIT_CREATED_PULL: '' });
   assert.equal(result.outcome, 'none');
-  assert.match(none.comments.at(-1).body, /^\*\*No spec was created\*\*: Lengthens the session lifetime[\s\S]*\*\*Recommended next step\*\*: Retry what stopped[\s\S]*```text\n\/speckit retry\n```/);
+  assert.match(none.comments.at(-1).body, /No spec was created\*\*: Lengthens the session lifetime[\s\S]*one bounded recovery diagnosis/);
+  assert.doesNotMatch(none.comments.at(-1).body, /```text\n\/speckit retry/);
+  assert.equal(none.repo.runs.at(-1).workflow, 'speckit-orchestrate.yml');
+  assert.match(none.comments.at(-1).body, /"guidance":"Make the test robust"/);
+  const comments = none.comments.length;
+  const runs = none.repo.runs.length;
+  await withResult(authorResult(), (dir) => runRecord({ client: none, env: env({
+    SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(none.repo.checkRuns.at(-1).id), SPECKIT_CREATED_PULL: '',
+  }), log: silent }));
+  assert.equal(none.comments.length, comments, 'duplicate author delivery keeps the durable failure outcome');
+  assert.equal(none.repo.runs.length, runs, 'duplicate author delivery does not dispatch the scheduler again');
 
   const broken = fixRepo({ files: [`${PREFIX}/spec.md`, 'src/platform/Tests/UploadSessionExpiryTests.cs'] });
   assert.equal((await authored(broken)).outcome, 'rejected');
   assert.equal(broken.repo.pulls.find((item) => item.number === 12).state, 'closed');
   assert.equal(broken.repo.branches[BRANCH], undefined);
-  assert.match(broken.comments.at(-1).body, /^\*\*The authored spec #12 was rejected and closed\*\*: it changes files outside `specs\/20261014-100000-upload-expiry\/` and `docs\/architecture\/`: `src\/platform\/Tests\/UploadSessionExpiryTests\.cs`/);
+  assert.match(broken.comments.at(-1).body, /\*\*The authored spec #12 was rejected and closed\*\*: it changes files outside `specs\/20261014-100000-upload-expiry\/` and `docs\/architecture\/`: `src\/platform\/Tests\/UploadSessionExpiryTests\.cs`/);
+  assert.match(broken.comments.at(-1).body, /^<!-- speckit-implement:recovery-failed /);
+  assert.equal(broken.repo.runs.at(-1).workflow, 'speckit-orchestrate.yml');
   assert.equal(broken.repo.checkRuns.find((check) => check.name === 'Spec Kit author').conclusion, 'failure');
 
   const elsewhere = fixRepo({ branch: `feature/${FOLDER}` });
@@ -265,9 +277,11 @@ test('after the merge, the stopped spec depends on the new twin, which waits for
   assert.equal((await dependency()).outcome, 'retried');
   assert.equal(blocked(), false, 'implementing the new spec removes the hold');
   const retried = github.comments.filter((item) => item.number === 9).at(-1);
-  assert.ok(retried.body.startsWith(RETRY_COMMENT_MARKER), 'the retry preserves the current phase base');
-  assert.match(retried.body, /<!-- speckit-implement:unblocked -->\n\*\*The block is lifted\*\*: prerequisite #30 is implemented/);
-  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-group.yml', { issue: '5', pull: '9', title: 'F', subject: 'P · T002 Next' }]);
+  assert.ok(retried.body.startsWith(SYNC_COMMENT_MARKER), 'a lifted block requests the required synchronization with the base branch');
+  assert.match(retried.body, /<!-- speckit-implement:unblocked -->\n\*\*The block is lifted\*\*: prerequisite #30 is implemented; the implementation merges `main`, passes full verification, and then continues with a fresh attempt count\./);
+  assert.ok(syncBarrier(github.comments.filter((item) => item.number === 9)), 'the request is a durable sync barrier');
+  assert.equal(github.repo.runs.at(-1).inputs.pull, '9');
+  assert.equal(github.repo.runs.at(-1).inputs.issue, '5');
   assert.equal((await dependency()).outcome, 'none', 'retried once');
   assert.equal((await maintain()).outcome, 'linked');
   assert.deepEqual(parseFixEvents(github.comments.filter((item) => item.number === 9)).map((event) => event.event), ['requested', 'created', 'merged', 'linked']);
@@ -651,6 +665,30 @@ async function independentSpec(github) {
   github.find(5).labels = [];
   return withResult(authorResult(), (dir) => runRecord({ client: github, env: env({ SPECKIT_RESULT_DIR: dir, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_CREATED_PULL: '12' }), log: silent }));
 }
+
+test('authored-spec review labels reconcile after either merge or closure of the originating implementation', async () => {
+  for (const merged of [true, false]) {
+    const github = fixRepo();
+    await independentSpec(github);
+    if (!merged) github.repo.pulls.find((pull) => pull.number === 9).merged_at = null;
+    for (const run of github.repo.runs) run.status = 'completed';
+    Object.assign(github.repo.checkRuns.at(-1), { status: 'completed', conclusion: 'success', external_id: 'speckit:amend-consistent' });
+    const context = await resolveAmendment(github, env(), 12);
+    assert.equal(context.reason, undefined);
+    await presentAmendment(github, env(), context, { consistent: true, held: { reason: 'push' } });
+    await github.removeLabel(12, ATTENTION_LABEL);
+    const comments = github.comments.length;
+    await maintainIndependentSpecs(github, env(), { now: github.clock });
+    assert.ok((await github.getPullRequest(12)).labels.some((label) => label.name === ATTENTION_LABEL));
+    await maintainIndependentSpecs(github, env(), { now: github.clock });
+    assert.equal(github.comments.length, comments);
+    github.commentAuthor = 'dev';
+    await github.createComment(12, 'Please rework the spec without weakening its success criteria.');
+    github.commentAuthor = undefined;
+    await maintainIndependentSpecs(github, env(), { now: github.clock });
+    assert.equal((await github.getPullRequest(12)).labels.some((label) => label.name === ATTENTION_LABEL), false);
+  }
+});
 
 test('the scheduler recovers an unlinked spec authored after its origin merged, through independent analysis and correction', async () => {
   const github = fixRepo();

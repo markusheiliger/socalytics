@@ -39,4 +39,4 @@ None worth the conflict risk: the change is two files and T003 needs the helper 
 
 ## Implementation Strategy
 
-MVP is US1 in full: extract the parser and test it without Docker; the verification and the convergence run the tests and the Linux-engine image tests. SC-005 is post-merge evidence observed when `specs/20261025-003459-deterministic-agent-workload-test` is implemented and has no task here.
+MVP is US1 in full: extract the parser and test it without Docker; the verification and the convergence run the tests and the Linux-engine image tests. SC-005 is post-merge evidence observed when `specs/archive/20261025-003459-deterministic-agent-workload-test` is implemented and has no task here.

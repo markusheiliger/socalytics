@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Fix for**: the phase verification of `specs/20261025-003459-deterministic-agent-workload-test` (14 failing End-to-End tests)
+**Fix for**: the phase verification of `specs/archive/20261025-003459-deterministic-agent-workload-test` (14 failing End-to-End tests)
 
-**Input**: User description: "Make the Docker push helper of the End-to-End test support accept the manifest digest from the push status line. `DockerEngine.PushAsync` in `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/TestAnalystImage.cs` reads the pushed manifest digest only from an `aux.Digest` entry of the JSON progress stream of the engine's push call. The Docker engine of the GitHub Actions runner completes the push but reports the digest only in a status line of the form `<tag>: digest: sha256:<64 hex> size: <n>` and emits no `aux` entry, so all 14 End-to-End tests that build and push a Test Analyst image fail. The spec `specs/20261025-003459-deterministic-agent-workload-test` depends on this spec."
+**Input**: User description: "Make the Docker push helper of the End-to-End test support accept the manifest digest from the push status line. `DockerEngine.PushAsync` in `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/TestAnalystImage.cs` reads the pushed manifest digest only from an `aux.Digest` entry of the JSON progress stream of the engine's push call. The Docker engine of the GitHub Actions runner completes the push but reports the digest only in a status line of the form `<tag>: digest: sha256:<64 hex> size: <n>` and emits no `aux` entry, so all 14 End-to-End tests that build and push a Test Analyst image fail. The spec `specs/archive/20261025-003459-deterministic-agent-workload-test` depends on this spec."
 
 ## Clarifications
 
@@ -25,7 +25,7 @@ The End-to-End tests build a Test Analyst image, push it to the registry of the 
 - Engines that emit an `aux` entry with a `Digest` field (the development engines the helper was written against).
 - The Docker engine of the GitHub Actions runner, which completes the push (`Pushed`) but reports the digest only in a `status` line of the form `<tag>: digest: sha256:<64 hex> size: <n>` and emits no `aux` entry.
 
-On the second engine the helper finds no digest and throws `The push did not report a manifest digest`, so every End-to-End test that calls `TestAnalystImage.BuildAndPushAsync` fails (`ReferenceAnalystImage`, `ShotBoundaryImage`, and the other end-to-end tests that build and push a Test Analyst image, 14 in total). The failures are unrelated to the changes of the pull requests that run them, and block the stopped implementation of `specs/20261025-003459-deterministic-agent-workload-test`, whose phase verification fails in these tests although it only adds comments to a test file of the Integration tests.
+On the second engine the helper finds no digest and throws `The push did not report a manifest digest`, so every End-to-End test that calls `TestAnalystImage.BuildAndPushAsync` fails (`ReferenceAnalystImage`, `ShotBoundaryImage`, and the other end-to-end tests that build and push a Test Analyst image, 14 in total). The failures are unrelated to the changes of the pull requests that run them, and block the stopped implementation of `specs/archive/20261025-003459-deterministic-agent-workload-test`, whose phase verification fails in these tests although it only adds comments to a test file of the Integration tests.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -77,11 +77,11 @@ A maintainer, or the verification of an implementation pull request on a GitHub 
 - **SC-002**: The `ReferenceAnalystImage` and `ShotBoundaryImage` End-to-End tests pass on a Linux engine, and the other End-to-End tests that build and push a Test Analyst image no longer fail with `The push did not report a manifest digest`.
 - **SC-003**: Each of two probes (ignoring the status line, and accepting a 63-character digest) makes at least one parsing test fail on its assertions; the probes are removed afterward.
 - **SC-004**: The change touches only files under `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/` plus this spec folder; no production file, sleep, retry, or timeout changes.
-- **SC-005** (post-merge evidence, observed when `specs/20261025-003459-deterministic-agent-workload-test` is implemented and not verified by a task of this spec): its phase verification reports no failing End-to-End test caused by the missing digest.
+- **SC-005** (post-merge evidence, observed when `specs/archive/20261025-003459-deterministic-agent-workload-test` is implemented and not verified by a task of this spec): its phase verification reports no failing End-to-End test caused by the missing digest.
 
 ## Assumptions
 
 - **Scope**: The helper is test support code from the Docker Desktop runtime adapter, materialized segments, and capability fact payload schema features. The registry is the one of the test stamp; the digest names the manifest the engine pushed.
-- **Dependencies**: `specs/20261025-003459-deterministic-agent-workload-test` depends on this spec and implements only after it is merged. No other spec is a prerequisite.
+- **Dependencies**: `specs/archive/20261025-003459-deterministic-agent-workload-test` depends on this spec and implements only after it is merged. No other spec is a prerequisite.
 - **Environment**: The verification needs a Linux Docker engine (the runner's engine reproduces the status-line form); the parsing tests need none.
 - **Out of scope**: Other flaky or failing End-to-End tests, a change of how the digest is used after the push, real-registry evidence beyond the test stamp, and production values. Passing tests are development evidence only and do not establish deployment support or production readiness.

@@ -56,30 +56,69 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
         return setup;
     }
 
-    private async Task<List<(string Subject, JsonElement Payload)>> ReadMessagesAsync(FinalizationSetup s, CancellationToken ct)
+    // The outbox ids of the run's message set, taken once after the publication state of the run is complete.
+    private static async Task<HashSet<string>> RunMessageIdsAsync(FinalizationSetup s, CancellationToken ct)
     {
-        var own = new HashSet<string>();
-        await using (var c = new NpgsqlConnection(s.Db.MigratorConnectionString))
+        var ids = new HashSet<string>();
+        await using var c = new NpgsqlConnection(s.Db.MigratorConnectionString);
+        await c.OpenAsync(ct);
+        await using (var runCmd = new NpgsqlCommand("SELECT id FROM socalytics.analysis_runs LIMIT 1", c))
         {
-            await c.OpenAsync(ct);
-            await using var cmd = new NpgsqlCommand("SELECT id FROM socalytics.outbox_messages", c);
+            if (await runCmd.ExecuteScalarAsync(ct) is not Guid run)
+            {
+                throw new InvalidOperationException("The run does not exist.");
+            }
+
+            await using var cmd = new NpgsqlCommand($"SELECT id FROM socalytics.outbox_messages WHERE {MessageSetFilter}", c);
+            cmd.Parameters.AddWithValue("run", run);
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                own.Add(reader.GetGuid(0).ToString());
+                ids.Add(reader.GetGuid(0).ToString());
             }
         }
 
+        return ids;
+    }
+
+    private async Task<List<(string Subject, JsonElement Payload)>> ReadMessagesAsync(FinalizationSetup s, CancellationToken ct)
+    {
+        var own = await RunMessageIdsAsync(s, ct);
+        var found = new HashSet<string>();
         var all = new List<(string, JsonElement)>();
         foreach (var name in new[] { "SOCALYTICS_ANALYSIS_JOBS", "SOCALYTICS_EVENTS" })
         {
-            all.AddRange(await ReadStreamAsync(name, own, ct));
+            all.AddRange(await ReadStreamAsync(name, own, ct, found));
+        }
+
+        var missing = own.Except(found).Order().ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Outbox ids of the run's message set found in neither stream SOCALYTICS_ANALYSIS_JOBS nor SOCALYTICS_EVENTS: " + string.Join(", ", missing));
         }
 
         return all;
     }
 
-    private async Task<List<(string Subject, JsonElement Payload)>> ReadStreamAsync(string name, HashSet<string> own, CancellationToken ct)
+    // A message belongs to the set when its Nats-Msg-Id is an outbox id, optionally followed by ".r<round>" (published more than once).
+    private static string? OwnOutboxId(string msgId, HashSet<string> own)
+    {
+        if (own.Contains(msgId))
+        {
+            return msgId;
+        }
+
+        var cut = msgId.LastIndexOf(".r", StringComparison.Ordinal);
+        if (cut > 0 && msgId.Length > cut + 2 && msgId[(cut + 2)..].All(char.IsAsciiDigit) && own.Contains(msgId[..cut]))
+        {
+            return msgId[..cut];
+        }
+
+        return null;
+    }
+
+    private async Task<List<(string Subject, JsonElement Payload)>> ReadStreamAsync(string name, HashSet<string> own, CancellationToken ct, HashSet<string> found)
     {
         await using var connection = new NatsConnection(NatsOpts.Default with { Url = nats.ConnectionString });
         var stream = await new NatsJSContext(connection).GetStreamAsync(name, cancellationToken: ct);
@@ -92,11 +131,13 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
                 var raw = await stream.GetAsync(new StreamMsgGetRequest { Seq = seq }, ct);
                 var text = string.IsNullOrEmpty(raw.Message.Hdrs) ? "" : Encoding.UTF8.GetString(Convert.FromBase64String(raw.Message.Hdrs));
                 var line = text.Split("\r\n").FirstOrDefault(l => l.StartsWith("Nats-Msg-Id:", StringComparison.OrdinalIgnoreCase));
-                if (line is null || !own.Contains(line["Nats-Msg-Id:".Length..].Trim()))
+                var outboxId = line is null ? null : OwnOutboxId(line["Nats-Msg-Id:".Length..].Trim(), own);
+                if (outboxId is null)
                 {
                     continue;
                 }
 
+                found.Add(outboxId);
                 result.Add((raw.Message.Subject, JsonDocument.Parse(raw.Message.Data.ToArray()).RootElement.Clone()));
             }
             catch (NatsJSApiException)
@@ -107,21 +148,144 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
         return result;
     }
 
-    private async Task<List<(string Subject, JsonElement Payload)>> WaitForReadyWorkAsync(FinalizationSetup s, CancellationToken ct)
-    {
-        for (var i = 0; i < 360; i++)
-        {
-            var messages = await ReadMessagesAsync(s, ct);
-            if (messages.Any(m => m.Subject.StartsWith("analysis.jobs.ready.")))
-            {
-                return messages;
-            }
+    // Hang guard only: it bounds a stuck run and is never the success condition of a wait.
+    private const int HangGuardMilliseconds = 180_000;
+    private static readonly TimeSpan WaitLimit = TimeSpan.FromMilliseconds(HangGuardMilliseconds - 30_000);
 
-            s.Factory.Time.Advance(TimeSpan.FromSeconds(3));
-            await Task.Delay(500, ct);
+    private const string MessageSetFilter =
+        "run_id = @run AND message_type IN ('analysis.ready-work', 'analysis.run-state-changed')";
+
+    private static async Task<long> CountAsync(NpgsqlConnection c, string sql, Guid run, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(sql, c);
+        cmd.Parameters.AddWithValue("run", run);
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+    }
+
+    private static async Task<List<string>> OutboxRowsAsync(NpgsqlConnection c, string states, Guid run, CancellationToken ct)
+    {
+        var rows = new List<string>();
+        await using var cmd = new NpgsqlCommand(
+            "SELECT id, message_type, subject, state, attempt_count, failure_category, next_attempt_at " +
+            $"FROM socalytics.outbox_messages WHERE {MessageSetFilter} AND state IN ({states}) ORDER BY created_at, id", c);
+        cmd.Parameters.AddWithValue("run", run);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add($"id={reader.GetGuid(0)} message_type={reader.GetString(1)} subject={reader.GetString(2)} state={reader.GetString(3)} " +
+                $"attempt_count={reader.GetInt32(4)} failure_category={(reader.IsDBNull(5) ? "-" : reader.GetString(5))} " +
+                $"next_attempt_at={(reader.IsDBNull(6) ? "-" : reader.GetDateTime(6).ToString("O"))}");
         }
 
-        throw new TimeoutException("No ready-work message was published.");
+        return rows;
+    }
+
+    // The publication state of the run as the database shows it: true when the run's expected ready-work messages
+    // are complete and published. Throws when a message of the run's set is failed or discarded.
+    private static async Task<bool> PublicationCompleteAsync(FinalizationSetup s, CancellationToken ct)
+    {
+        await using var c = new NpgsqlConnection(s.Db.MigratorConnectionString);
+        await c.OpenAsync(ct);
+
+        Guid run;
+        await using (var cmd = new NpgsqlCommand("SELECT id FROM socalytics.analysis_runs LIMIT 1", c))
+        {
+            if (await cmd.ExecuteScalarAsync(ct) is not Guid id)
+            {
+                return false;
+            }
+
+            run = id;
+        }
+
+        var broken = await OutboxRowsAsync(c, "'failed', 'discarded'", run, ct);
+        if (broken.Count > 0)
+        {
+            throw new InvalidOperationException("Outbox rows of the run's message set failed or were discarded: " + string.Join("; ", broken));
+        }
+
+        if (await CountAsync(c, "SELECT count(*) FROM socalytics.analysis_workflow_nodes WHERE run_id = @run", run, ct) == 0 ||
+            await CountAsync(c, "SELECT count(*) FROM socalytics.outbox_messages WHERE " + MessageSetFilter + " AND state = 'pending'", run, ct) > 0)
+        {
+            return false;
+        }
+
+        // Every node of the run has its logical job.
+        if (await CountAsync(c,
+                "SELECT count(*) FROM socalytics.analysis_workflow_nodes n WHERE n.run_id = @run AND NOT EXISTS " +
+                "(SELECT 1 FROM socalytics.analysis_logical_jobs j WHERE j.run_id = n.run_id AND j.node_id = n.id)", run, ct) > 0)
+        {
+            return false;
+        }
+
+        const string readyAndPublished =
+            "j.state IN ('Ready', 'Claimed', 'Completed') AND EXISTS (SELECT 1 FROM socalytics.analysis_readiness_occurrences o " +
+            "WHERE o.logical_job_id = j.id) AND EXISTS (SELECT 1 FROM socalytics.outbox_messages m WHERE m.run_id = j.run_id " +
+            "AND m.logical_job_id = j.id AND m.message_type = 'analysis.ready-work' AND m.state = 'published')";
+
+        // Settled: Ready with its published ready-work row, or waiting on the accepted result of an upstream node of the run.
+        // A job waiting on segment materialization or not yet evaluated by the readiness worker has no such edge.
+        var unsettled = await CountAsync(c,
+            "SELECT count(*) FROM socalytics.analysis_logical_jobs j WHERE j.run_id = @run AND NOT ((" + readyAndPublished + ") OR " +
+            "(j.state = 'Waiting' AND EXISTS (SELECT 1 FROM socalytics.analysis_dependency_edges e WHERE e.run_id = j.run_id " +
+            "AND e.dependent_node_id = j.node_id)))", run, ct);
+        if (unsettled > 0)
+        {
+            return false;
+        }
+
+        return await CountAsync(c,
+            "SELECT count(*) FROM socalytics.analysis_logical_jobs j WHERE j.run_id = @run AND j.execution_scope = 'segment' AND " + readyAndPublished,
+            run, ct) > 0;
+    }
+
+    private static async Task<string> PendingRowsAsync(FinalizationSetup s)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            await using var c = new NpgsqlConnection(s.Db.MigratorConnectionString);
+            await c.OpenAsync(cts.Token);
+            await using var cmd = new NpgsqlCommand("SELECT id FROM socalytics.analysis_runs LIMIT 1", c);
+            if (await cmd.ExecuteScalarAsync(cts.Token) is not Guid run)
+            {
+                return "the run does not exist";
+            }
+
+            var rows = await OutboxRowsAsync(c, "'pending'", run, cts.Token);
+            return rows.Count == 0 ? "no pending row in the run's message set" : string.Join("; ", rows);
+        }
+        catch (Exception e) when (e is OperationCanceledException or NpgsqlException)
+        {
+            return "the pending rows could not be read: " + e.Message;
+        }
+    }
+
+    // Evidenced cause (PayloadConformanceEvidence.md, T002 to T005): the old wait returned on the first visible ready-work
+    // message or gave up after a fixed number of fake-clock advances, so the outcome depended on elapsed time and publication
+    // order (premature read, T003); the failure itself did not reproduce in 40 runs. Ruled out: staggered stream reads
+    // (T004), leftover stream or consumer state from other tests (T005, messages are filtered by outbox id), and the
+    // outbox publisher or readiness publishing in production code (T005). This wait therefore observes the run's
+    // publication state in the database and reads both streams once, against one outbox id set, after it is complete.
+    private async Task<List<(string Subject, JsonElement Payload)>> WaitForReadyWorkAsync(FinalizationSetup s, CancellationToken ct)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        linked.CancelAfter(WaitLimit);
+        try
+        {
+            while (!await PublicationCompleteAsync(s, linked.Token))
+            {
+                // Drives the publisher on the single fake clock; the delay only paces the condition check.
+                s.Factory.Time.Advance(TimeSpan.FromSeconds(3));
+                await Task.Delay(250, linked.Token);
+            }
+        }
+        catch (OperationCanceledException) when (linked.IsCancellationRequested)
+        {
+            throw new TimeoutException("The run's publication state was not complete before the hang guard. Pending rows: " + await PendingRowsAsync(s));
+        }
+
+        return await ReadMessagesAsync(s, ct);
     }
 
     private static string SchemaFor(string subject) => subject switch
@@ -175,7 +339,7 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
         return await client.SendAsync(request, ct);
     }
 
-    [Fact]
+    [Fact(Timeout = HangGuardMilliseconds)]
     public async Task PublishedMessagesConformToTheirSchemasAndCarryScopeIdentity()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -209,7 +373,7 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
         }
     }
 
-    [Fact]
+    [Fact(Timeout = HangGuardMilliseconds)]
     public async Task CompletionBodiesAreValidatedAndStaleOnesAreRejectedByAcceptance()
     {
         var ct = TestContext.Current.CancellationToken;

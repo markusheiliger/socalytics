@@ -23,12 +23,72 @@ import {
 import { diagnosisRepo, makeRepo, silent } from './speckit-test-helpers.mjs';
 import { renderTwinBody } from './speckit-prepare-core.mjs';
 import { resolveImplementRequester } from './speckit-prepare.mjs';
+import { maintainAmendmentRequest, readAmendmentAuthorization } from './speckit-amend.mjs';
 
 const run = (github, body, { pull = 9, actor = 'dev', env = {} } = {}) => runCommand({
   client: github,
   env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_PULL: String(pull), SPECKIT_COMMENT_ID: '501', SPECKIT_ACTOR: actor, SPECKIT_COMMENT_BODY: body, ...env },
   log: silent,
   now: () => github.clock,
+});
+
+test('amend authorizes artifact preparation without retrying, and duplicate delivery is idempotent', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  await github.addLabels(9, ['help wanted']);
+  github.commentAuthor = 'dev';
+  const source = await github.createComment(9, '/speckit amend Make SC-002 manual evidence; preserve completed tasks.');
+  github.commentAuthor = undefined;
+  const options = { env: { SPECKIT_COMMENT_ID: String(source.id) } };
+  assert.equal((await run(github, source.body, options)).outcome, 'preparing');
+  const workflow = github.repo.runs.at(-1);
+  assert.equal(workflow.workflow, 'speckit-diagnose.lock.yml');
+  assert.equal(workflow.inputs.mode, 'amend');
+  assert.equal(workflow.inputs.authorization, String(source.id));
+  const preparing = github.comments.find((item) => item.body.startsWith('<!-- speckit-amend:request-state '));
+  assert.match(preparing.body, /"state":"preparing".*"check":\d+[\s\S]*\*\*Amendment preparation started\*\* for #9/);
+  assert.equal(github.comments.some((item) => item.body.startsWith('<!-- speckit-implement:retry -->')), false);
+  assert.match(github.comments.find((item) => item.body.startsWith('<!-- speckit-amend:request ')).body, /No requirement change has landed/);
+  assert.equal((await run(github, source.body, options)).outcome, 'already requested');
+  assert.equal(github.repo.runs.length, 1);
+  const request = await readAmendmentAuthorization(github, await github.getPullRequest(9), source.id);
+  assert.equal(request.actor, 'dev');
+  assert.equal((await maintainAmendmentRequest(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { implementation: await github.getPullRequest(9), twin: 5, folder: 'f', now: github.clock })).outcome, 'preparing');
+  assert.equal(github.repo.runs.length, 1);
+  github.repo.branches['speckit/f'] = 'another-head';
+  await assert.rejects(readAmendmentAuthorization(github, await github.getPullRequest(9), source.id), /changed after authorization/);
+});
+
+test('amend refuses empty guidance, running implementations, and existing amendments without replacing them', async () => {
+  const github = diagnosisRepo();
+  await github.addLabels(9, ['help wanted']);
+  assert.match((await run(github, '/speckit amend')).rejected, /nonempty guidance/);
+  assert.match((await run(github, '/speckit amend Change SC-002')).rejected, /amendment #11 is already open/);
+  assert.equal(github.repo.pulls.find((item) => item.number === 11).state, 'open');
+  assert.equal(github.repo.runs.length, 0);
+  const running = diagnosisRepo({ amendment: false });
+  assert.match((await run(running, '/speckit amend Change SC-002')).rejected, /must be stopped/);
+  assert.equal((await run(running, '/speckit amend Change SC-002', { actor: 'stranger' })).handled, false);
+  assert.equal((await run(running, '/speckit amend Change SC-002', { actor: 'github-actions[bot]' })).handled, false);
+});
+
+test('amend dispatch failures remain durable and can be reconciled, without accepting edited authorization', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  await github.addLabels(9, ['help wanted']);
+  github.commentAuthor = 'dev';
+  const source = await github.createComment(9, '/speckit amend Make the probes manual.');
+  github.commentAuthor = undefined;
+  const dispatch = github.dispatchWorkflow.bind(github);
+  github.dispatchWorkflow = async () => { throw new Error('dispatch unavailable'); };
+  assert.equal((await run(github, source.body, { env: { SPECKIT_COMMENT_ID: String(source.id) } })).outcome, 'queued');
+  const queued = github.comments.find((item) => item.body.startsWith('<!-- speckit-amend:request-state '));
+  assert.match(queued.body, /"state":"preparing"[\s\S]*could not start: dispatch unavailable/);
+  github.dispatchWorkflow = dispatch;
+  assert.equal((await maintainAmendmentRequest(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { implementation: await github.getPullRequest(9), twin: 5, folder: 'f' })).outcome, 'preparing');
+  assert.equal(github.repo.runs.length, 1);
+  await github.updateComment(source.id, '/speckit amend Remove every assertion.');
+  await assert.rejects(readAmendmentAuthorization(github, await github.getPullRequest(9), source.id), /no longer authorizes/);
+  assert.equal((await maintainAmendmentRequest(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { implementation: await github.getPullRequest(9), twin: 5, folder: 'f' })).outcome, 'stale');
+  assert.match(github.comments.findLast((item) => item.body.startsWith('<!-- speckit-amend:request-state ')).body, /"state":"stale"[\s\S]*\*\*Amendment preparation stopped\*\*/);
 });
 
 test('parses commands: the first word, the name, and the rest as flags and guidance', () => {
@@ -90,6 +150,24 @@ test('ignores people without write access and bots, reacts, and answers help and
   github.repo.pulls[0].head.repo.full_name = 'octo/repo';
   const elsewhere = await run(github, '/speckit retry');
   assert.match(elsewhere.rejected, /not a Spec Kit implementation or amendment pull request/);
+});
+
+test('only accepted work clears an implementation action-required label', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  await github.addLabels(9, [ATTENTION_LABEL]);
+  const attention = () => github.repo.pulls[0].labels.some((label) => label.name === ATTENTION_LABEL);
+  for (const [body, actor] of [
+    ['Thanks for the update.', 'dev'],
+    ['/speckit help', 'dev'],
+    ['/speckit retry --unknown', 'dev'],
+    ['/speckit retry', 'stranger'],
+    ['/speckit retry', 'github-actions[bot]'],
+  ]) {
+    await run(github, body, { actor });
+    assert.equal(attention(), true, `${actor}: ${body}`);
+  }
+  assert.equal((await run(github, '/speckit retry')).outcome, 'retried');
+  assert.equal(attention(), false);
 });
 
 test('commands on amendments acquire their implementation publication lock and reject a changed lock target', async () => {

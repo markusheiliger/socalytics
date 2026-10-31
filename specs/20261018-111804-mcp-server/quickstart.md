@@ -7,7 +7,7 @@ configuration: [data-model.md](data-model.md).
 
 - CPython 3.12 and uv 0.13.1 (provisioned by the environment; see `AGENTS.md`).
 - For the image evidence: the .NET 10 SDK and a Docker-compatible runtime with a Linux engine.
-- The [Agent Evidence Tools API](../20261018-104924-agent-evidence-tools/spec.md) merged (its allowlist contract and
+- The [Agent Evidence Tools API](../archive/20261018-104924-agent-evidence-tools/spec.md) merged (its allowlist contract and
   the refreshed OpenAPI snapshot exist).
 
 ## 1. Project checks (no network beyond locked dependencies)

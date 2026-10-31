@@ -153,6 +153,93 @@
       "skipped": "Skipped"
     }
   },
+  "timeline": {
+    "title": "Timeline",
+    "laneLabel": "Timeline of {{capability}} ({{key}})",
+    "laneGroupLabel": "Bins of {{capability}} ({{key}})",
+    "binLabel": "{{range}}: {{state}}",
+    "binLabelCount": "{{range}}: {{state}}, {{count}}",
+    "updating": "Updating…",
+    "state": {
+      "facts": "Facts present",
+      "analysedNoFacts": "Analysed, no facts",
+      "notLoaded": "Facts beyond the loading bound not shown",
+      "partial": "Partially covered",
+      "notAnalysed": "Not analysed",
+      "noCoverage": "No reported coverage",
+      "inProgress": "Run in progress, no facts yet",
+      "completeWithoutFacts": "Analysis complete, no facts",
+      "capabilityNotInRun": "Capability not part of this run",
+      "unavailable": "Unavailable",
+      "error": "Error",
+      "connectionRequired": "Connection required",
+      "loading": "Loading"
+    },
+    "stateDescription": {
+      "unknownState": "Not analysed (unknown state: {{raw}})",
+      "unknownRunState": "Run state: {{raw}}"
+    },
+    "unavailable": "The timeline of this stream is unavailable. The platform did not accept the position in the list twice.",
+    "error": "The timeline of this stream could not be loaded.",
+    "reload": "Reload the timeline",
+  "coverageStrip": {
+    "label": "Coverage windows of {{capability}} ({{key}})",
+    "window": "{{range}}: {{state}}"
+  },
+    "connectionRequired": "A connection is required to show the timeline.",
+    "extentUnavailable": "The match-time extent cannot be determined because no coverage window or fact is reported. Choose a fact stream from the list instead.",
+    "reportedTotal": "{{count}} facts reported",
+    "partialMark": "Partial",
+    "laneDetail": {
+      "show": "Show details of {{key}}",
+      "hide": "Hide details of {{key}}",
+      "unknownNodeState": "Node state: {{raw}}"
+    },
+    "partialBasis": "Based on {{loaded}} of {{reported}} facts",
+    "atLeastCount": "At least {{count}} facts, based on loaded facts",
+    "zoom": {
+      "label": "Zoom",
+      "10s": "10 seconds",
+      "30s": "30 seconds",
+      "1m": "1 minute",
+      "5m": "5 minutes",
+      "level": "{{level}} per bin",
+      "current": "Current zoom: {{level}} per bin"
+    },
+    "extent": {
+      "label": "Visible extent",
+      "earlier": "Earlier",
+      "later": "Later",
+      "value": "Showing {{range}}"
+    },
+    "selection": {
+      "label": "Selection",
+      "none": "Nothing selected. Select a bin or a span of bins.",
+      "range": "{{range}}",
+      "factCount": "{{count}} facts",
+      "clear": "Clear selection",
+      "showFacts": "Show facts",
+      "showFactsLabel": "Show facts of {{key}} for {{range}}"
+    },
+    "backToTimeline": "Back to timeline",
+    "textAlternative": {
+      "show": "Show text alternative",
+      "hide": "Hide text alternative",
+      "tableLabel": "Bins of {{capability}} ({{key}})",
+      "range": "Match-time range",
+      "countOrState": "Facts or coverage state"
+    },
+    "live": {
+      "updated": "The timeline data changed.",
+      "updating": "The timeline of {{capability}} is updating.",
+      "zoomChanged": "Zoom changed to {{level}} per bin.",
+      "extentChanged": "Showing {{range}}.",
+      "selected": "Selected {{range}} on {{capability}}: {{value}}.",
+      "selectionCleared": "Selection cleared.",
+      "laneLoaded": "The timeline of {{capability}} is loaded.",
+      "laneUnavailable": "The timeline of {{capability}} is unavailable."
+    }
+  },
   "provenance": {
     "title": "Provenance",
     "workflow": "Workflow",

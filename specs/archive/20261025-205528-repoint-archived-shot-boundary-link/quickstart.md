@@ -17,7 +17,7 @@ Expected: exit code 0 with no dead link and no other finding.
 Compare against the merge base with the implementation pull request's base branch (the default branch, for example `origin/main`), scoped to the edited spec:
 
 ```bash
-git diff $(git merge-base HEAD origin/HEAD) --unified=0 -- specs/20261025-003459-deterministic-agent-workload-test/
+git diff $(git merge-base HEAD origin/HEAD) --unified=0 -- specs/archive/20261025-003459-deterministic-agent-workload-test/
 ```
 
 Expected: line 83 changed, with only `archive/` added to the Shot Boundary Analyst link target; lines 9 and 11 are either untouched or rewritten to `specs/archive/20261023-022148-shot-boundary-analyst` by the archive tooling's reference rewrite; no other line changes.
@@ -28,7 +28,7 @@ Expected: line 83 changed, with only `archive/` added to the Shot Boundary Analy
 git diff $(git merge-base HEAD origin/HEAD) --name-only
 ```
 
-Expected: only files under `specs/archive/20261025-205528-repoint-archived-shot-boundary-link/` and `specs/20261025-003459-deterministic-agent-workload-test/spec.md`.
+Expected: only files under `specs/archive/20261025-205528-repoint-archived-shot-boundary-link/` and `specs/archive/20261025-003459-deterministic-agent-workload-test/spec.md`.
 
 ## Scenario 4: The link opens the archived spec (acceptance scenario 2)
 

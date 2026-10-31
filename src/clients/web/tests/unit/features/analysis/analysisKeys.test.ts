@@ -1,4 +1,4 @@
-import { analysisFactsKey, analysisRunKey, analysisStreamsKey, isRunInProgress, runRefreshInterval } from '../../../../src/features/analysis/analysisKeys';
+import { analysisFactsKey, analysisRunKey, analysisStreamsKey, analysisTimelineKey, analysisTimelineLaneKey, isRunInProgress, runRefreshInterval } from '../../../../src/features/analysis/analysisKeys';
 import { RUN_REFRESH_MS } from '../../../../src/features/lineage/AnalysisRunStates';
 
 describe('analysis query keys', () => {
@@ -15,6 +15,29 @@ describe('analysis query keys', () => {
   it('differs per page token and range', () => {
     expect(analysisFactsKey('r1', 'n1', 0, 10, 'a')).not.toEqual(analysisFactsKey('r1', 'n1', 0, 10, 'b'));
     expect(analysisFactsKey('r1', 'n1', 0, 10, 'a')).not.toEqual(analysisFactsKey('r1', 'n1', 0, 11, 'a'));
+  });
+});
+
+describe('timeline query keys', () => {
+  const coverage = { accepted: 3, missing: 1, failed: 0, blocked: 0, skipped: 2 };
+
+  it('builds the lane key under the timeline prefix', () => {
+    expect(analysisTimelineKey).toEqual(['analysis', 'timeline']);
+    expect(analysisTimelineLaneKey('r1', 'n1', 5, coverage)).toEqual(['analysis', 'timeline', 'r1', 'n1', 5, 3, 1, 0, 0, 2]);
+  });
+
+  it('differs when the fact count or any coverage count changes', () => {
+    const base = analysisTimelineLaneKey('r1', 'n1', 5, coverage);
+    expect(analysisTimelineLaneKey('r1', 'n1', 6, coverage)).not.toEqual(base);
+    for (const field of ['accepted', 'missing', 'failed', 'blocked', 'skipped'] as const) {
+      expect(analysisTimelineLaneKey('r1', 'n1', 5, { ...coverage, [field]: coverage[field] + 1 })).not.toEqual(base);
+    }
+    expect(analysisTimelineLaneKey('r2', 'n1', 5, coverage)).not.toEqual(base);
+    expect(analysisTimelineLaneKey('r1', 'n2', 5, coverage)).not.toEqual(base);
+  });
+
+  it('is identical for an unchanged summary', () => {
+    expect(analysisTimelineLaneKey('r1', 'n1', 5, { ...coverage })).toEqual(analysisTimelineLaneKey('r1', 'n1', 5, coverage));
   });
 });
 

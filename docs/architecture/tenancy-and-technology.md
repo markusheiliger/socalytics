@@ -221,6 +221,11 @@ enforcement boundary for platform access. See the
 
 ### Engineering Baseline
 
+- Visual Studio Code is the primary development IDE. Opening the repository
+  root on the default branch and pressing F5 must run the full application in
+  debug mode, initially on Windows. This is an adopted requirement awaiting
+  implementation, not current executable evidence; see the
+  [local development and debugging contract](platform-implementation.md#local-development-and-debugging).
 - one monorepo using native .NET, `pnpm`, and `uv` workspaces
 - cloud-neutral OCI production artifacts
 - OpenTelemetry with Aspire ServiceDefaults for .NET components

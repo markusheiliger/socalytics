@@ -6,11 +6,11 @@
 
 **Status**: Draft
 
-**Input**: User description: "Repoint the archived Shot Boundary Analyst link in the deterministic agent workload test spec. The Dependencies entry on line 83 of `specs/20261025-003459-deterministic-agent-workload-test/spec.md` links `../20261023-022148-shot-boundary-analyst/spec.md`, but that spec was archived to `specs/archive/20261023-022148-shot-boundary-analyst/`, so the repository Markdown check reports one dead link and fails the phase and finalize verification of every implementation."
+**Input**: User description: "Repoint the archived Shot Boundary Analyst link in the deterministic agent workload test spec. The Dependencies entry on line 83 of `specs/archive/20261025-003459-deterministic-agent-workload-test/spec.md` links `../20261023-022148-shot-boundary-analyst/spec.md`, but that spec was archived to `specs/archive/20261023-022148-shot-boundary-analyst/`, so the repository Markdown check reports one dead link and fails the phase and finalize verification of every implementation."
 
 ## Problem
 
-The spec [Deterministic Agent Workload Test](../../20261025-003459-deterministic-agent-workload-test/spec.md) is on the default branch with a relative link in its Dependencies entry (line 83) to the spec `20261023-022148-shot-boundary-analyst` at its pre-archive location. That spec has since been archived to [specs/archive/20261023-022148-shot-boundary-analyst](../20261023-022148-shot-boundary-analyst/spec.md), so the link no longer resolves.
+The spec [Deterministic Agent Workload Test](../20261025-003459-deterministic-agent-workload-test/spec.md) is on the default branch with a relative link in its Dependencies entry (line 83) to the spec `20261023-022148-shot-boundary-analyst` at its pre-archive location. That spec has since been archived to [specs/archive/20261023-022148-shot-boundary-analyst](../20261023-022148-shot-boundary-analyst/spec.md), so the link no longer resolves.
 
 The repository Markdown validation (`node .github/scripts/check-markdown.mjs`) therefore reports one dead link on the whole repository. Because phase and finalize verification of every implementation run that validation on the whole repository, every implementation currently fails verification for a reason unrelated to its own change. This blocks the stopped implementation pull request #318 of `specs/archive/20261023-085421-cv-inference-environment` (twin #256), whose own task T001 passed.
 
@@ -45,7 +45,7 @@ A maintainer or the implementation automation runs the repository Markdown valid
 
 ### Functional Requirements
 
-- **FR-001**: The Dependencies entry (line 83) of `specs/20261025-003459-deterministic-agent-workload-test/spec.md` MUST link the Shot Boundary Analyst at `../archive/20261023-022148-shot-boundary-analyst/spec.md` instead of `../20261023-022148-shot-boundary-analyst/spec.md`.
+- **FR-001**: The Dependencies entry (line 83) of `specs/archive/20261025-003459-deterministic-agent-workload-test/spec.md` MUST link the Shot Boundary Analyst at `../archive/20261023-022148-shot-boundary-analyst/spec.md` instead of `../20261023-022148-shot-boundary-analyst/spec.md`.
 - **FR-002**: The link target on line 83 MUST change. The link text and the rest of line 83 MUST stay unchanged. The plain-text mentions on lines 9 and 11 MAY also be rewritten to `specs/archive/20261023-022148-shot-boundary-analyst` by the archive tooling's reference rewrite; every other line of the file MUST stay unchanged.
 - **FR-003**: No other file outside this spec's own folder MAY change; no code, test, environment action, or `docs/architecture/` file changes.
 - **FR-004**: After the change, the repository Markdown validation MUST report no dead link on the whole repository.
@@ -55,7 +55,7 @@ A maintainer or the implementation automation runs the repository Markdown valid
 ### Measurable Outcomes
 
 - **SC-001**: `node .github/scripts/check-markdown.mjs` reports zero dead links and zero other findings on the whole repository.
-- **SC-002**: Measured against the base branch and scoped to `specs/20261025-003459-deterministic-agent-workload-test/`, every changed line is a reference rewrite of the archived folder `20261023-022148-shot-boundary-analyst`: the link target on line 83 (where only `archive/` is added) and, optionally, the plain-text mentions on lines 9 and 11; no other line changes.
+- **SC-002**: Measured against the base branch and scoped to `specs/archive/20261025-003459-deterministic-agent-workload-test/`, every changed line is a reference rewrite of the archived folder `20261023-022148-shot-boundary-analyst`: the link target on line 83 (where only `archive/` is added) and, optionally, the plain-text mentions on lines 9 and 11; no other line changes.
 - **SC-003**: Phase and finalize verification of the implementation of `specs/archive/20261023-085421-cv-inference-environment` (pull request #318) no longer fails on the Markdown validation after this spec is merged.
 
 ## Assumptions

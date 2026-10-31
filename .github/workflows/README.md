@@ -92,7 +92,7 @@ They become ready only after final verification, immediately before an automatic
 | Workflow | File | Triggered by | Does |
 | --- | --- | --- | --- |
 | Spec Kit prepare | [speckit-prepare.yml](speckit-prepare.yml) | Push to `specs/**`, stage label changes (restored when a person made them), manual | Keeps one twin issue per spec folder, infers dependencies between new twins, validates implement requests; a dispatched, applying run then dispatches `Spec Kit orchestrate`. |
-| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; blocked implementations keep their slots; requested twins that block running implementations start regardless and first, the one that unblocks the most waiting implementations, also through chains of blocked ones, first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Works the blocked queue down (see [Blocked target](#blocked-target)). Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
+| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; blocked implementations keep their slots; requested twins that block running implementations start regardless and first, the one that unblocks the most waiting implementations, also through chains of blocked ones, first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, optionally keeps them close to their base branch (`SPECKIT_BLOCKED_REFRESH`, off by default), and lifts the block once they are implemented, requesting the required synchronization with the base branch before the implementation continues. Starts `Spec Kit backlog` once no spec is left to request with `/speckit implement`. Works the blocked queue down (see [Blocked target](#blocked-target)). Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
 | Spec Kit implement decide | [speckit-implement-decide.yml](speckit-implement-decide.yml) | Orchestrate, commands, the chain | The run without work: when the next work is none (a stop at an attempt limit, a failure, a running merge, a finished implementation) or cannot be told, it decides and acts on it (reports the stop, starts the diagnosis, marks the implementation done); work it finds after all is handed over to the workflow of its kind. |
 | Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Orchestrate, commands, the chain | A sequential group (consecutive tasks without `[P]`, one at a time), a parallel group (consecutive `[P]` tasks under one heading, at most 5 at once, verified together only when a landing merged a sibling's edits to the same files), or the convergence or a conflict resolution as a group of one; then starts the next run. |
 | Spec Kit implement verify | [speckit-implement-verify.yml](speckit-implement-verify.yml) | The chain | The full verification of a finished phase in a run of its own, in up to four shards side by side that a planning job names after their work (combined into the artifact `speckit-phase-verification`); a failure stops with a pending repair. |
@@ -111,7 +111,7 @@ The implementation jobs use typed command scripts (`speckit-implement.mjs`, `spe
 (a task), `converge`, `repair`, or `resolve`, and selects its script `speckit-<kind>.mjs`; attempt markers keep the
 attempt kind `task`. Its other inputs (`issue`, `pull`, `folder`, `base`, `order`, and `entry`) mean the same for every
 kind: `entry` is the work item as `decide` built it (`index`, `task`, `attempt`, `guidance`, and the fields of its kind,
-such as `repair`, `defer_progress`, `required_sync`, and `sync_repair`). Attempt accounting,
+such as `repair`, `defer_progress`, `required_sync`, `sync_repair`, and `evidence`). Attempt accounting,
 result artifacts, verdicts, and landing stay shared
 in `speckit-implement-work.mjs`. Common Actions
 script plumbing—GitHub client construction, step summaries, and outputs—lives in `speckit-script-runtime.mjs`.
@@ -157,6 +157,30 @@ invalid or out-of-scope patches remain failures. Every failed repair attempt sto
 while it runs, the stop comment links to the diagnosis workflow so a person can inspect its progress. A reported
 diagnosis then waits for its recommended action instead of being started again, unless the automation continues by
 itself (see [Automatic continuation](#automatic-continuation)).
+
+**Attempts and automatic second attempts.** Each task, convergence, conflict resolution (including one with the base
+branch before a phase), and merge gets at most two failed attempts (`MAX_TASK_ATTEMPTS`, counted from the attempt
+markers in the pull request comments, merges from their check runs) before it stops for the diagnosis. An automatic
+second attempt follows only when it can reasonably succeed: the land job that reports a failure records its class in
+the attempt marker (`class`), and the next decision (`retryState`) follows it:
+
+| Class | Failure | Next step |
+| --- | --- | --- |
+| `repeat` (certain to repeat) | the agent made no change without a completion claim, a change outside the allowed files, a refused push, environment-action validation, or a conflict that needs a person | stops at once for the diagnosis |
+| `infrastructure` | the work job failed before the agent ran (no agent output and no result) | one more attempt, started after a short wait (job `pause` of Spec Kit implement prepare; repository variable `SPECKIT_RETRY_WAIT` in seconds, default 300, at most 3600) |
+| `agent` (agent result failed) | the agent's change failed the build, the tests, or the land checks | one more attempt that gets this failure as evidence |
+
+An attempt without a class, including every attempt recorded before the classes existed, counts as `agent`. A merge
+whose branch moved during its verification stays retryable. The second attempt of a task, the convergence, or a
+conflict resolution gets the report of the failed first one (its reasons, the end of its verification output, and the
+agent's summary) as the work item's `evidence`: the work job writes it to the ignored file
+`.speckit-attempt-evidence/previous-attempt.md`, and the Spec Kit workflow's input `previous` tells the agent to read it
+as evidence, never as instructions. When the chain [continued automatically](#automatic-continuation) after a diagnosis
+and the first attempt of the stopped work fails with the same class again, it stops for the diagnosis without a second
+attempt; a person's `/speckit retry` or push still gives the full count. Every failure comment ends with what follows:
+it is retried once with the failure evidence, retried once after a short wait, or stops for diagnosis; a stop at the
+limit names the class of the last failure. Phase verifications, combined group verifications, and repairs still stop
+at their first failure.
 A task's agent leaves `tasks.md` alone: after the verification passed, the land job checks exactly that task's box
 (an agent's own correct tick is still accepted, any other change of `tasks.md` is refused).
 A task whose work a push already did (a person's, or Copilot's for them, after the task's first attempt or at the branch
@@ -180,7 +204,9 @@ inferred from the task's wording and the evidence. A separate read-only agent as
 `environment-verify` runner with its scope, filters, and number of consecutive passing runs) and lists anything else
 (probes, load, manual steps) as unsupported, which keeps the task open; for `not-applicable` it names the condition and
 cites repository lines (path, line range, and an excerpt that must appear there) that show it does not hold. The
-workflow fails when the assessment rejects the claim, changes a file, or leaves an obligation unmet; ambiguity fails
+`dotnet-test` filter is optional: omit it for a whole-project test. The validator also canonicalizes `null`, an empty
+string, or whitespace-only strings to no filter; control characters and over-long or non-string filters remain invalid.
+The workflow fails when the assessment rejects the claim, changes a file, or leaves an obligation unmet; ambiguity fails
 closed. In the work job, the trusted runner (`speckit-completion.mjs verify`, step "Run the task's own verification",
 time budget `SPECKIT_COMPLETION_BUDGET_MINUTES`, default 25) executes the assessed requirements on the unchanged
 branch without reruns, and the environment verification runs only for an assessed `environment-verify` requirement,
@@ -208,10 +234,13 @@ The comment commands that restart, synchronize, or fix a stopped implementation 
 the job `sync` ("Merge the base branch"), which merges the base branch into the implementation branch through the
 GitHub API when it is ahead and the next work is a phase that has not started (none of its tasks is ticked yet), the
 convergence, or the merge (repository variable `SPECKIT_SYNC_BASE`, default `true`). Retries (`/speckit retry`),
-merged amendments, retries after implemented blockers, and continuations of a started phase keep its base. On a conflict the
+merged amendments, and continuations of a started phase keep its base; a lifted block instead requests the required
+synchronization of `/speckit sync`, also in the middle of a phase. The job never merges into an implementation whose
+twin still has open prerequisites; only the optional upkeep merge of a blocked implementation
+(`SPECKIT_BLOCKED_REFRESH`, see [Pull requests that need attention](#pull-requests-that-need-attention)) does. On a conflict the
 decide job of the same run starts the conflict resolution the merge uses (Copilot CLI edits the conflicted files and,
 to fix clashes without a textual conflict such as two migrations with the same number, the implementation branch's
-own files and new files; never protected paths or the environment actions; the full verification runs), and
+own files and new files; never protected paths or unrelated environment actions; the full verification runs), and
 the next run does the work on the merged branch. When the merged result can only pass with a change to a file that
 only the base branch owns (for example a test the base branch added that does not know a setting this implementation
 made required), the resolution may make the smallest such change, but never delete such a file or weaken a test. The
@@ -230,7 +259,14 @@ remain go to Copilot: code, and real edits of the own spec's artifacts that the 
 branch changed too. Copilot may resolve the latter if it keeps every task and every checked box (the land job checks
 `tasks.md`), and the final merge waits for a person's review of them. Outside the own spec folder an implementation may
 change files under `specs/` only by reference rewrites: the merge verification refuses any other difference from the
-base branch (`referenceOnlySpecChanges`). Conflicts under `.github/` and `.specify/` still need a person.
+base branch (`referenceOnlySpecChanges`). Conflicts under `.github/` and `.specify/` still need a person,
+except for an environment action already changed by a standalone environment implementation. Preparation, the
+resolve workflow, packaging, and trusted landing independently check that exception against the pinned base and
+the implementation's Git changes. Base-only updates do not count as implementation changes; the own spec and its
+archive are allowed, and foreign spec differences must be verified archive-only reference rewrites. Product
+changes, other protected tooling, unrelated environment-action edits, and missing evidence are refused; an
+environment flag in a work report grants no permission. The exception changes neither verification and environment
+self-test requirements nor the human review required for changes to the environment actions.
 Before a phase or the convergence,
 this is best effort: when GitHub refuses the merge, the conflicts touch protected paths, or the resolution fails
 `MAX_SYNC_RESOLVE_ATTEMPTS` times, the implementation continues on its current base without stopping, that base commit
@@ -274,8 +310,10 @@ diagnosis evidence file are generated from it, and a test fails when this table 
 
 | Command | Where | What it does | Flags |
 | --- | --- | --- | --- |
+| `/speckit reset [--force]` | implementation pull request | discard all branch-only changes and progress, keep a recovery reference, and automatically restart from the current PR base; without force, active work or open child PRs prevent reset | `--force`: cancel and confirm related work stopped, close owned amendment PRs, and delete their exact amendment branch before resetting; authored prerequisite PRs and unconfirmed external handoffs still prevent reset |
 | `/speckit retry [--force] [guidance]` | implementation pull request | restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt's prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given | `--force`: restart even after 2 restarts in a row that left the branch unchanged |
 | `/speckit sync [guidance]` | implementation pull request | require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved | none |
+| `/speckit amend <guidance>` | implementation pull request | authorize the stated spec-only change and prepare an amendment for independent analysis and human review; implementation resumes only after the amendment is merged; completed tasks are preserved and no task is ticked | none |
 | `/speckit author [guidance]` | implementation pull request | author a new spec for a cause outside this spec with the Spec Kit workflow `author`; it is checked and merged to the default branch automatically, and this implementation waits until that spec is signed off with `/speckit implement` on its twin and implemented | none |
 | `/speckit implement` | spec twin issue | request the implementation of this spec: checks that it is `tasked` with all checklists checked, records who requested it, and starts it on GitHub (it waits for open prerequisites) | none |
 | `/speckit help` | anywhere | list these commands | none |
@@ -291,7 +329,73 @@ refuses the command instead of becoming guidance. An unknown command is answered
 (`specify` and `fix`, now `author`) is not run either, and the answer gives the command to post instead, with its
 guidance (`RENAMED_COMMANDS` in `speckit-commands.mjs`).
 
+### Destructive restart
+
+`/speckit reset` starts the same implementation pull request over from its **current PR base**. The writer's bare
+command is authorization: guidance and extra confirmation are not supported. It discards every branch-only change,
+including amendments, checked tasks, and convergence additions. The base must already contain the active spec,
+plan, a nonempty fully unchecked task list, and checked checklists. Related open amendment or authored-spec pull
+requests, active handoffs, and queued or active work prevent reset; nothing is cancelled automatically.
+
+The optional `--force` flag authorizes trusted cleanup **before** the publication lock: cancel queued/running
+work attributable specifically to the implementation and its amendments, confirm it stopped, close owned open
+amendment PRs without merging, and delete the exact owned amendment branch under an expected-head lease. This also
+removes that branch when left behind by a closed PR or without an open PR. The force workflow excludes itself and
+never cancels shared/global schedulers or unrelated work. It never deletes the implementation, base, authored-spec
+branches, or recovery refs. Open authored prerequisite-spec PRs and external handoffs that cannot be confirmed stopped
+remain hard refusals. An incomplete listing, timeout, permission refusal, changed branch head, or failed cleanup
+stops the reset and reports partial cleanup; completed cancellations and closures are not rolled back.
+
+Preparation records a durable fence so old work cannot publish and amendment callbacks cannot reopen or resume it.
+The branch replacement still takes the existing publication lock. A trusted completion boundary excludes late
+cancellation reports from the new generation, and interrupted preparation is reconciled from its recorded steps.
+
+The trusted command job retains the old head indefinitely at `refs/tags/speckit-reset/pr-<pull>/<comment-id>` and
+atomically replaces the implementation ref under an exact-head lease. The new head is a unique empty start commit
+with exactly the pinned base's tree and that base commit as its only parent. It keeps the PR, twin, accepted
+implementation request, and native dependencies. Historical comments and checks remain audit records, not current
+progress: attempts, repairs, sync barriers, guidance, and child settlements start in a new reset generation. Old runs
+cannot publish or continue into it. Interrupted operations are reconciled from their trusted reset record.
+
+The normal loop is explicitly requested at its first task. If reset completes but that dispatch fails or is
+interrupted, the scheduler automatically retries the recorded continuation through the trusted command workflow,
+without another writer command or another branch reset, even when diagnosis auto-continuation is disabled.
+Ordinary phase-start base synchronization is unchanged,
+including its configured best-effort behavior; reset adds no new sync policy. It does not fix a defective base spec,
+grant tooling-edit permission, or promise that a legacy spec will finish. Narrower retry, sync, amendment, or repair
+remains preferable when it solves the cause without discarding implementation.
+
+Diagnoses may recommend `/speckit reset` for evidence-backed `retry`, `outside`, or `decision` findings, identifying
+what it discards and why that is appropriate. They recheck eligibility and warn about recovery and the actual base.
+Copyable diagnosis actions remain **only the bare reset command**. Prose may suggest typing the `--force` flag
+manually, but it is never prefilled in a recommended command or copy block.
+**Only an explicit writer command executes either variant; diagnosis never auto-continues with reset.** No restore command,
+recovery-ref cleanup, token-permission expansion, or production-readiness claim is provided.
+
+For protected-path or publication failures, diagnosis must explicitly compare reset with retry, sync, amendment,
+and repair before recommending manual privileged publication or additional permissions. Trusted evidence pins the
+actual base and implementation revisions, compares protected paths against that base tip (not just the merge base),
+and records reset blockers and original protected-tooling obligations. The report's `resetAssessment` explains what
+reset removes now and what remains; a staged restart may leave a separately authorized scope correction necessary.
+Completed implementation tasks do not by themselves exclude reset. Missing, stale, or contradictory assessments
+use the existing bounded reassessment, never automatic reset or silent permission advice.
+
+The agent can preflight its report with
+`node .speckit-tooling/.github/scripts/speckit-diagnose.mjs check-report <report.json> --context .speckit-diagnosis/context.json`.
+The publisher recomputes trusted facts rather than trusting this editable context. Unrelated diagnoses and
+amendment/rework reports retain their existing contract.
+
 ### Guidance
+
+`/speckit amend <guidance>` is a writer authorization for the stated change to this feature's artifacts, not
+implementation retry guidance. It records the source comment, actor, and implementation revision, then prepares a
+spec-only amendment for independent analysis and human review and merge. Completed tasks stay unchanged and no task
+is ticked. It may edit or remove authorized unchecked obligations and update dependent artifacts consistently; it
+must never claim unverified manual evidence. Implementation resumes only after merge into its implementation branch.
+Duplicate delivery reuses the request. An existing amendment is linked for review or rework, never silently replaced.
+Empty guidance, a running implementation, stale authorization, and non-writers are refused. Failed dispatches leave
+a durable request for the scheduler. Request-state markers are embedded in visible preparation and outcome comments,
+not posted as separate empty comments. No decision or amend command is executed automatically.
 
 Writer-supplied text after `/speckit retry`, `/speckit sync`, or `/speckit author` and their flags is called
 **guidance**. Retry and sync guidance is stored in a bot-authored pull request marker so a replaced dispatch or
@@ -311,9 +415,17 @@ When a diagnosis recommends `/speckit retry` (category `retry`, confidence mediu
 (category `outside`, the fix is already on the base branch), the diagnosis record step posts that command itself, with
 the diagnosis guidance, as a comment that starts with the marker `speckit-implement:auto-continue` and says
 "Continued automatically with … as the diagnosis recommends". It does so at most once after each action of a person
-(a `/speckit` comment or a push), never when the same command already failed the same way, and never for `artifacts`,
+(a `/speckit` comment or a push), never for the same unchanged failure without a new corrective approach or verified base fix, and never for `artifacts`,
 `decision`, or `unknown`. A person is asked as before when it stops again. Set the repository variable
-`SPECKIT_AUTO_CONTINUE` to `false` to always wait for a person.
+`SPECKIT_AUTO_CONTINUE` to `false` to always wait for a person. An automatically continued work item whose first
+attempt fails with the same class as the failure that stopped it stops again at once instead of making a second
+attempt (see [Attempts and automatic second attempts](#units-of-work)).
+
+Automatic retry requires nonempty diagnosis evidence and `basis: transient` or `corrective`; it is never a generic
+fallback. Sync uses `target: base` and a full `fixedBy` commit SHA, verified as belonging to the PR base before
+continuation. A diagnosis cannot infer that its fix exists just because the implementation is behind the base.
+After a repeated sync failure, that fix must also be absent from the base recorded by the failed synchronization.
+Corrective retry guidance must differ from the failed approach; changing only its metadata does not establish progress.
 
 ### Retry
 
@@ -343,12 +455,16 @@ the spec branch: the earliest artifact the findings or feedback name chooses the
 **Design decisions** comment comes from the `## Architecture Updates` section of the spec's plan. Once the
 analysis finds it consistent and its changed Markdown passes the Markdown check (the record job runs
 `check-markdown.mjs` on it, and every problem is a finding for the correction rounds; amendments get the same
-check), the pull request is merged automatically; it waits for review when it changes
+check). The check loads the owning spec folders' Markdown (or architecture Markdown) from the pinned pull request
+head, including unchanged linked artifacts and removing stale Markdown absent from that head. Only changed files
+are checked; tooling and configuration still come from the trusted default-branch checkout. Once consistent,
+the pull request is merged automatically; it waits for review when it changes
 `docs/architecture/` (a **Design decisions** comment explains why) or when a person pushed to it. On the default
 branch it is an ordinary spec with its own twin, and the stopped spec's twin is blocked by it like by any dependency.
 Once it is ready (`tasked`, checklists checked), the scheduler requests its implementation automatically on behalf of
 the person who posted `/speckit author`, because it exists only to unblock the stopped implementation. The
-stopped implementation is blocked until it is implemented and then retries by itself (see
+stopped implementation is blocked until it is implemented and then merges the base branch, passes full verification,
+and continues by itself (see
 [Pull requests that need attention](#pull-requests-that-need-attention)). When the fix is already on the base branch,
 use `sync` instead.
 
@@ -401,7 +517,39 @@ recommends `sync`; inconsistent category/command reports are rejected at publica
 A diagnosis never recommends a command that already failed the same way: when the last `/speckit retry` or
 `/speckit sync` left the implementation branch at the same head and the stop after it has the same reason as the stop
 before it (`repeatedFailure`), the evidence tells the agent, and a recommendation of that command is moved to the other
-options at publication, with `/speckit author` as the fallback.
+options at publication. Neither retry nor author is synthesized as a fallback. Author requires a supported
+`feature` or `environment` target. Protected trusted tooling and unmet permissions or service prerequisites use an
+explicit external-action option with no immediately runnable command.
+Both task and non-task publication retain the remote push rejection in their failure reports and landing logs,
+redacting token values, HTTP authorization headers, and URL credentials before reporting bounded diagnostics.
+After a rejected push, the publisher fetches the branch: an unchanged head is a refused push (`repeat`), a failed
+read leaves the branch state unknown (`infrastructure`), and a moved head follows the existing task replay rules or
+requeues non-task work for verification on the new head. No workflow-permission cause is inferred from generic Git
+failure text, and a failed publication neither releases required synchronization nor clears pending repair evidence.
+An earlier required synchronization that stopped without moving the branch is shown prominently in the diagnosis,
+with its request time and available link, even when its failure differs from the preceding stop. A verified or
+released synchronization is not reported as failed. Push-permission causes must not be asserted from generic Git
+failure text alone.
+
+When trusted tooling can remove the blocker, an `outside` diagnosis may supply an external option with
+`target: tooling` and a `copilot` prompt. It renders a ready-to-use local Copilot Chat prompt on the repository's
+actual default branch, names the affected implementation PR, and never becomes an `@copilot` PR-comment handoff.
+It must name the evidence, tooling files, fix and checks, and distinguish unresolved permission prerequisites.
+Applying that fix does not itself resume the implementation or clear pending repair verification.
+
+A refused author request, failed Copilot handoff, or unusable diagnosis gets one shared automatic reassessment for
+the unchanged implementation head and pending repair. Its trusted outcome and refusal feed the diagnosis; repeating
+the request, switching verbs or adding unrelated base commits does not create another budget. The scheduler records
+the reassessment before dispatch. Failed dispatch is visible and requires its permission or workflow blocker to be
+resolved; repeated scheduler passes do not dispatch it again. Without a supported remedy after reassessment, the PR
+keeps `help wanted` and names the concrete external action or missing evidence, rather than spending another
+implementation/verification attempt.
+
+Required synchronization still selects the original repair's checks. For an original-only uncovered path, packaging
+records whether the staged tree equals the pinned trusted base, including type, mode and absence. The raw coverage
+report stays in the result. Trusted landing rechecks the verified tree and the base-equivalence evidence before
+discharging that historical coverage obligation. Actual uncovered changes remain blocked; original scope, repair
+snapshots, environment self-tests, attempt limits and the latest-base barrier remain required.
 
 Architecture impact: none. This changes repository automation, not the product design in `docs/architecture/`.
 
@@ -417,7 +565,7 @@ missed, the scheduler report says why, and:
 - the backlog refill and the flaky-test specs pause, because both author new specs;
 - an implementation that is not blocked itself but stopped for a person's decision (its diagnosis is reported), while
   implementations open longer than `SPECKIT_MAX_BLOCKED_DAYS` wait for it directly or through a chain, gets one
-  **Escalation** comment per stop that mentions its requester, names the waiting implementations, and recommends
+  **Action required** reminder per stop that mentions its requester, names the waiting implementations, and recommends
   following the latest diagnosis.
 
 A requested spec whose twin still has open blockers never gets a pull request in the first place: it waits as
@@ -482,7 +630,12 @@ and merge. Alternatives stay collapsed. Correctable findings trigger automatic c
 while automation is running, no action is needed yet. This goal never bypasses required verification or makes a
 failed or missing analysis a reason to merge.
 
-When the remedy is a change only a push to the implementation branch can make (another spec's folder, a protected
+When a decision changes this feature's requirements, unchecked tasks, checkpoints, or dependency notes, the diagnosis
+recommends one ready-to-post `/speckit amend` command with concrete guidance. The writer command authorizes preparation,
+not acceptance or verified manual evidence; independent analysis and human review/merge remain mandatory.
+This path does not use a Copilot implementation handoff, whose fixed scope intentionally forbids task-list edits.
+
+When the remedy is an external unblock that only a push to the implementation branch can make (another spec's folder, a protected
 path, or the change a person's decision needs), a `decision` diagnosis recommends a ready-to-paste `@copilot` prompt
 instead of describing the change: posted as a comment, it has GitHub Copilot's cloud agent (enabled for the
 repository) push the change to the pull request's branch, and that push continues the implementation by itself like
@@ -496,16 +649,44 @@ Posting such a request is a handoff: when a person with write access comments `@
 implementation pull request that waits for a person (`help wanted`, not `blocked`), job "Hand a stopped implementation
 over to Copilot" of `Spec Kit commands` removes `help wanted` at once and comments that Copilot is working on it and
 that its push continues the implementation by itself. If Copilot replies without having pushed, or has not pushed
-within 60 minutes, `Spec Kit orchestrate` puts `help wanted` back with a comment that says so and recommends following
-the latest diagnosis again. A push, a `/speckit retry`, or a `/speckit sync` after the handoff ends it.
+within 60 minutes, `Spec Kit orchestrate` records the ended handoff and starts one new diagnosis with the failed
+request and refusal or timeout as evidence. While it runs, no action is needed. The same failed Copilot request is
+rejected on the unchanged revision; a rewording that leaves the contradiction intact is not a valid recovery.
+A timeout alone does not establish an artifact defect. A push, a `/speckit retry`, or a `/speckit sync` after the
+handoff ends it. Open amendments and pending authorized requests are preserved.
 
 Implementation, amendment, and authored spec pull requests carry GitHub's default label `help wanted` ("Extra attention is
-needed") while they wait for a person, and lose it as soon as a person's action puts automation back to work or the
-pull request is merged or closed. The label is a convenience; the comments and check runs stay authoritative.
+needed") for the state **Awaiting human action**. An **Action required** comment explains that state and the next step;
+it is not a higher severity level or a separate state. The label is a convenience; the comments and check runs stay authoritative.
 
-Every label comes with a comment that explains it. `help wanted` is only added together with a comment that recommends
+The label clears when an accepted action puts automation back to work, including a queued authorized request,
+accepted feedback, or a Copilot handoff, or when the pull request merges or closes. A casual comment, `/speckit help`,
+or a rejected or unauthorized command does not clear it. Existing feedback rules still apply to amendment and authored
+spec comments and reviews. When a child pull request owns the review action, its waiting implementation does not
+duplicate that request.
+
+Every label comes with a comment that explains it. `help wanted` is initially added with a comment that recommends
 exactly one next step (a diagnosis, an outcome to decide on, or a review); a stop whose diagnosis is still running
 waits without it, so the label never appears before the recommendation does.
+
+On each scheduler run, current decisions, checks, and trusted workflow markers reconcile the label on existing open
+pull requests too, including authored specs whose originating implementation has merged or closed. A missing label is
+restored without reposting the existing recommendation, and stale labels clear during queued or running work.
+Old comments cannot re-label work resumed by a newer accepted action. Label API failures warn without stopping the
+workflow; subsequent reconciliation retries them. Historical reminder markers remain recognized. A stopped chain head
+that older blocked implementations wait for can receive one **Action required**
+reminder per stop; this adds context, not another state or label.
+
+Reminders use the same current-action assessment as labels. Before posting, the scheduler refreshes the stop,
+accepted requests, checks, and controlling amendment instead of relying on its earlier selection snapshot.
+Amendment preparation completing with `speckit:diagnosed` is not another request to execute the old diagnosis.
+When an action is accepted or resolved, or an amendment owns the next step, the workflow edits the outstanding bot
+reminder in place as **Superseded**, preserving its comment ID and historical tracking marker. It removes the obsolete
+instruction and links the accepted handoff or controlling amendment without claiming that a particular stage runs
+forever. Cleanup also runs when no aged dependents remain or new reminders are disabled. Repeated passes do not
+repost comments or rewrite unchanged superseded bodies. A later stop uses its own current recommendation.
+Historical diagnoses and task-failure reports are not rewritten. Comment API failures warn and are retried; fresh
+checks and reconciliation limit races but are not an atomic transaction across GitHub resources.
 
 When an amendment passes its consistency check (or a spec pull request authored by `/speckit author` is held for review) and correction rounds are finished, its description,
 review handoff comment, and notification on the stopped implementation explicitly recommend **Review and merge** the
@@ -533,9 +714,22 @@ Once every blocker is requested (the explanation posted again then says that not
 and only `blocked` stays. The scheduler does not continue a blocked implementation's chain, and a running chain stops
 before its next unit (no retry, no diagnosis) while it waits. The `blocked` label (and a `help wanted` that came with it)
 is removed when the last blocker is
-implemented (the retry comment says the block is lifted and the implementation continues with a fresh attempt count),
+implemented (the comment that lifts the block requests the required synchronization of `/speckit sync`: the
+implementation merges the base branch, which now carries its prerequisites, passes full verification, and then continues
+with a fresh attempt count, also in the middle of a phase; a pending repair keeps its scope and attempt limits),
 when a blocker or the authored spec pull request is closed without being implemented (that comment lists the next
 steps with `help wanted`), or when the implementation pull request closes.
+
+While it waits, a blocked implementation can optionally be kept close to its base branch: with the repository variable
+`SPECKIT_BLOCKED_REFRESH` set to a positive number of commits (default `0`, which turns it off), every scheduler run
+merges the base branch into each blocked implementation that is at least that many commits behind, through GitHub's
+merge API (`refreshBlocked`). The upkeep merge runs no agent and no verification, records no attempt, posts no comment,
+and changes no label; it only adds a line to the scheduler's summary. It never touches an implementation that is
+stopped, being diagnosed, active, repairing, or waiting for a required synchronization, because their state lives on
+the head commit. A conflict or a refused merge merges nothing: one comment per base commit (marker
+`speckit-implement:refresh-skipped`) says so, the same base commit is not tried again, and the required synchronization
+after the block is lifted resolves the conflict. The merge commit is the workflow's, so it never counts as a person's
+push and opens no attempt window. Start with a high value.
 
 The custom label `roadblock` (`ROADBLOCK_LABEL`) marks the implementations to process first: those that are not
 blocked themselves and that the most other implementations wait for, directly or through a chain of blocked

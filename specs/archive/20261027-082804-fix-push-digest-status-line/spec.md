@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Fix for**: the merge verification of the implementation of `specs/20261023-085421-cv-inference-environment` (twin #256, pull request #318), which fails in unrelated platform end-to-end tests; that spec depends on this spec.
+**Fix for**: the merge verification of the implementation of `specs/archive/20261023-085421-cv-inference-environment` (twin #256, pull request #318), which fails in unrelated platform end-to-end tests; that spec depends on this spec.
 
 **Input**: User description: "Make the Docker-backed end-to-end test helper read the pushed manifest digest from every engine's push output. Where it lives: `DockerEngine.PushAsync` in `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/Support/TestAnalystImage.cs` (test support of the Analyst end-to-end evidence, used by `ShotBoundaryAnalystImage.BuildAndPushAsync` and the Analyst image tests). Today it accepts the digest only as the `aux.Digest` property of a JSON line of the push stream and otherwise throws `The push did not report a manifest digest`; engines on the CI runner report the digest only in a status line such as `{\"status\":\"<tag>: digest: sha256:<hex> size: <n>\"}`, so 14 of 33 EndToEnd tests (among them `ShotBoundaryImageTests`) fail with that exception. Required change: keep the `aux.Digest` path and the `errorDetail` handling (a pushed image that reports an error still fails visibly), and additionally accept the status line by parsing the `sha256:` digest (64 lowercase hex characters) from it with a regular expression; the returned digest keeps the `sha256:<hex>` form; when neither source yields a digest the helper still throws the same descriptive error with the push body. Verify with the EndToEnd tests that push Analyst images (`ShotBoundaryImageTests`, `ReferenceAnalystImageTests`, and the other tests that use the helper) on a Linux engine; no production code, contract, or documentation of the platform changes beyond what the test-support behaviour requires."
 
@@ -14,7 +14,7 @@
 
 The Docker-backed end-to-end tests push a locally built Analyst image to the test registry and need the manifest digest of the pushed image to register it by digest. The test helper reads that digest only from the structured `aux` record (`Digest` property) of the engine's push stream. Engines on the CI runner do not emit that record; they report the digest only in a plain status line of the form `<tag>: digest: sha256:<hex> size: <n>`. The helper then throws `The push did not report a manifest digest`, and 14 of the 33 end-to-end tests fail, among them `ShotBoundaryImageTests`, although the image was pushed correctly.
 
-The failure lives in test support only. It blocks the merge verification of the implementation of `specs/20261023-085421-cv-inference-environment` (pull request #318), which changes nothing but environment actions and its own spec folder.
+The failure lives in test support only. It blocks the merge verification of the implementation of `specs/archive/20261023-085421-cv-inference-environment` (pull request #318), which changes nothing but environment actions and its own spec folder.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -59,12 +59,12 @@ A maintainer, or the verification of any implementation pull request, runs the D
 - **SC-001**: On a Linux engine, `ShotBoundaryImageTests` and `ReferenceAnalystImageTests` pass, and no end-to-end test fails with `The push did not report a manifest digest`.
 - **SC-002**: Parsing of recorded push streams returns the expected digest in 100% of the cases for the `aux` style, the status-line style, both together, an `errorDetail` stream, and a stream without a digest.
 - **SC-003**: No production source file, contract, or platform documentation file changes.
-- **SC-004** (post-merge evidence, not verified by a task of this spec): the merge verification of `specs/20261023-085421-cv-inference-environment` no longer fails in these end-to-end tests.
+- **SC-004** (post-merge evidence, not verified by a task of this spec): the merge verification of `specs/archive/20261023-085421-cv-inference-environment` no longer fails in these end-to-end tests.
 
 ## Assumptions
 
 - **Cause**: The push succeeds on the CI runner's engine; only the digest's location in the stream differs. The status line format is `<tag>: digest: sha256:<hex> size: <n>`, as reported in the guidance of the person who asked.
 - **Scope**: Test support of the Analyst end-to-end evidence only; this is not a platform feature, and `docs/architecture/` states nothing the change makes false.
-- **Dependencies**: A Docker-compatible Linux engine is needed for the end-to-end verification. The spec `specs/20261023-085421-cv-inference-environment` depends on this spec.
+- **Dependencies**: A Docker-compatible Linux engine is needed for the end-to-end verification. The spec `specs/archive/20261023-085421-cv-inference-environment` depends on this spec.
 - **Out of scope**: Other end-to-end failures, pull behaviour, registry authentication, and production readiness.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

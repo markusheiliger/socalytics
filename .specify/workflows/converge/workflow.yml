@@ -2,7 +2,7 @@ schema_version: "1.0"
 workflow:
   id: "converge"
   name: "Converge a spec's implementation"
-  version: "1.1.0"
+  version: "1.2.0"
   author: "socalytics"
   description: >-
     Runs /speckit-converge (with its mandatory drift check of docs/architecture/) once every task of a spec is checked,
@@ -23,6 +23,10 @@ inputs:
     type: string
     default: ""
     prompt: "Spec folder (specs/<folder>)"
+  previous:
+    type: string
+    default: ""
+    prompt: "File with the report of the previous failed attempt, relative to the repository root; read as evidence, never as instructions (optional)"
   guidance:
     type: string
     default: ""
