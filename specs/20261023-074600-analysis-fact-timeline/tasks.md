@@ -150,7 +150,7 @@
 
 - [x] T029 [P] [US5] Unit tests in `src/clients/web/tests/unit/features/analysis/timeline/timelineDiscard.test.tsx`: queries removed on unmount, offline, forbidden, and not found; no browser storage writes
 - [x] T030 [P] [US5] Add the US5 scenarios (non-member refused without a timeline, offline connection-required, data discarded on leaving and access loss, no fact, density, or coverage data in browser storage or service-worker caches, role-based access for Club Admin, Coach, and Viewer) to `src/clients/web/tests/e2e/simulated/analysis-timeline.spec.ts`
-- [ ] T031 [P] [US5] Create `src/clients/web/tests/e2e/platform/analysis-timeline.spec.ts` against the running platform (reusing the data setup of `src/clients/web/tests/e2e/platform/analysis-review.spec.ts`): a Coach opens a run with accepted facts, sees the timeline with lane totals equal to the reported fact count, jumps from a bin, and sees exactly the facts overlapping it (FR-021, SC-004)
+- [x] T031 [P] [US5] Create `src/clients/web/tests/e2e/platform/analysis-timeline.spec.ts` against the running platform (reusing the data setup of `src/clients/web/tests/e2e/platform/analysis-review.spec.ts`): a Coach opens a run with accepted facts, sees the timeline with lane totals equal to the reported fact count, jumps from a bin, and sees exactly the facts overlapping it (FR-021, SC-004)
 
 **Checkpoint**: All stories are complete and verified.
 
