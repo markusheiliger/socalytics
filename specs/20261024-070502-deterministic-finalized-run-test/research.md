@@ -26,4 +26,4 @@
 
 ## Evidence
 
-To be filled during implementation (FR-001, SC-001, SC-003): repeated-run results alone and under CPU load, the deliberate widening (a test-side delay of the publisher's commit under which the old test fails and the new one passes), and the two probes that make the test fail on its assertions.
+Each evidence task appends its own `###` sub-section below, so every task leaves a file change; T012 consolidates the sub-sections of T001 to T004 and T008 to T011, and T013 and T014, which run after it, only append their own short sub-sections. To be filled during implementation (FR-001, SC-001, SC-003): repeated-run results alone and under CPU load, the deliberate widening (a test-side delay of the publisher's commit under which the old test fails and the new one passes), and the two probes that make the test fail on its assertions.
