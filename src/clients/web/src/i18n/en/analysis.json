@@ -231,6 +231,7 @@
     },
     "live": {
       "updated": "The timeline data changed.",
+      "updating": "The timeline of {{capability}} is updating.",
       "zoomChanged": "Zoom changed to {{level}} per bin.",
       "extentChanged": "Showing {{range}}.",
       "selected": "Selected {{range}} on {{capability}}: {{value}}.",

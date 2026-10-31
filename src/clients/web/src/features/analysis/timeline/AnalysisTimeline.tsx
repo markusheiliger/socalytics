@@ -89,7 +89,14 @@ function LaneRunner({
         }),
       );
     } else if (lane.status === "loaded" && before) {
-      if (before.status === "loading")
+      if (!before.updating && lane.isUpdating)
+        onAnnounce(
+          t("timeline.live.updating", {
+            capability,
+            interpolation: { escapeValue: false },
+          }),
+        );
+      else if (before.status === "loading")
         onAnnounce(
           t("timeline.live.laneLoaded", {
             capability,
