@@ -7,6 +7,7 @@ import { after, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { buildPlan, MAIN_MINUTES, packShards, shardMatrix, TOOL_GROUPS } from './verification-plan.mjs';
+import { SAMPLE_TOOLING_FILE } from './verification-scope.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(here, '..', '..', '..');
@@ -156,6 +157,44 @@ describe('selection and coverage', () => {
     const mixed = plan(root, 'task', ['.github/scripts/README.md', '.github/scripts/speckit-implement-core.test.mjs']);
     assert.deepEqual(mixed.uncovered, []);
     assert.equal(mixed.documentationOnly, false);
+  });
+
+  describe('sample tooling files', () => {
+    const sampleFiles = ['tools/samples.test.mjs', 'tools/samples-lib.mjs', 'tools/upload-samples.mjs', 'tools/download-samples.mjs'];
+    const otherFiles = ['tools/other.mjs', 'tools/samples.test.mjs.bak', 'tools/sub/samples-lib.mjs', 'tools/Samples-Lib.mjs'];
+
+    it('covers a change of only tools/samples.test.mjs next to a spec-folder file', () => {
+      const root = sample();
+      const result = plan(root, 'task', ['tools/samples.test.mjs', 'specs/x/plan.md']);
+      assert.deepEqual(result.uncovered, []);
+    });
+
+    it('covers each of the four sample tooling files', () => {
+      const root = sample();
+      for (const file of sampleFiles) assert.deepEqual(plan(root, 'task', [file]).uncovered, [], file);
+      assert.deepEqual(plan(root, 'task', sampleFiles).uncovered, []);
+    });
+
+    it('lists only the other tools path as uncovered in a mixed change', () => {
+      const root = sample();
+      const result = plan(root, 'task', ['tools/samples.test.mjs', 'tools/other.mjs', 'specs/x/plan.md']);
+      assert.deepEqual(result.uncovered, ['tools/other.mjs']);
+    });
+
+    it('matches the same paths with SAMPLE_TOOLING_FILE and the applies pattern of action.yml', () => {
+      const action = readFileSync(path.join(here, 'action.yml'), 'utf8');
+      const found = [...action.matchAll(/SAMPLE_TOOLING_TESTS:-\}"[^\n]*applies '([^']+)'/g)];
+      assert.equal(found.length, 1);
+      const grepPattern = new RegExp(found[0][1]);
+      for (const file of sampleFiles) {
+        assert.equal(SAMPLE_TOOLING_FILE.test(file), true, file);
+        assert.equal(grepPattern.test(file), true, file);
+      }
+      for (const file of otherFiles) {
+        assert.equal(SAMPLE_TOOLING_FILE.test(file), false, file);
+        assert.equal(grepPattern.test(file), false, file);
+      }
+    });
   });
 
   it('tests a component in full and keeps its declaration uncovered when the declaration changes', () => {
@@ -501,6 +540,14 @@ describe('shards', () => {
     assert.equal(bins[3].units[0].tests, null);
   });
 
+  it('counts the Sample tooling tests in the first shard\'s minutes', () => {
+    assert.equal(MAIN_MINUTES, 6);
+    assert.deepEqual(packShards([], 3).map((bin) => bin.minutes), [6, 0, 0]);
+    const bins = plan(sharded(), 'finalize', [], '1/4').shards;
+    assert.equal(bins[0].minutes, 6 + bins[0].units.reduce((sum, unit) => sum + unit.minutes, 0));
+    assert.ok(bins.slice(1).every((bin) => bin.minutes === bin.units.reduce((sum, unit) => sum + unit.minutes, 0)));
+  });
+
   it('runs in each shard only its own components and test projects', () => {
     const root = sharded();
     const view = (shard) => plan(root, 'finalize', [], shard).components.filter((item) => item.run).map((item) => [item.root, item.allowedTests]);
@@ -649,7 +696,15 @@ describe('sharded verification', () => {
       'platform|dotnet|restore Platform.slnx', 'platform|dotnet|build Platform.slnx --no-restore',
       'platform|dotnet|test Tests/Architecture.Tests/Architecture.Tests.csproj --no-build', 'markdown',
     ]);
-    assert.match(result.log, /Verification shard 1\/2: src\/platform#default \(3 min\); also the Python projects, environment action tests, Spec Kit tooling tests, and Markdown check/);
+    assert.match(result.log, /Verification shard 1\/2: src\/platform#default \(3 min\); also the Python projects, environment action tests, Spec Kit tooling tests, Sample tooling tests, and Markdown check/);
+  });
+
+  it('names the shared checks, the Sample tooling tests included, only in the log of the first shard', () => {
+    const first = shardRun(twoProjects(), '1/2');
+    const second = shardRun(twoProjects(), '2/2');
+    assert.equal(first.log.split('\n').filter((line) => line.includes('Sample tooling tests')).length, 1);
+    assert.match(first.log, /Verification shard 1\/2: .*; also .*Sample tooling tests/);
+    assert.doesNotMatch(second.log, /Sample tooling tests|also the Python projects/);
   });
 
   it('runs nothing in a shard without work and still passes', () => {
