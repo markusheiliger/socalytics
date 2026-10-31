@@ -124,7 +124,7 @@ The downloads directory is deleted when the script ends, also on failure. The wh
 
 Findings print one `<wheel|library>: <kind>: <problem>` line each, with the kinds `denied-license`, `unknown-license`, `not-allow-listed`, `evidence-mismatch`, `table-gap`, `evidence-gap`, `denied-library`, `lgpl-not-distinct`, `lgpl-not-dynamic`, `not-in-sbom`, and `missing-digest`. Setup reports the first one as the failure and counts the rest.
 
-The CycloneDX 1.6 SBOM is written to `notices/analyst-cv/sbom.cdx.json` in the install directory. Beside it, `notices/analyst-cv/<wheel file name>/` holds each wheel's `PROVENANCE.txt` (URL, digest, publisher, licence, role, and the digest of every bundled library) and the licence texts. Success prints `Verified Analyst CV libraries: <n> wheels, <m> bundled libraries, SBOM <path>` and `Verified synthetic CV smoke check: ...`.
+The CycloneDX 1.6 SBOM is written to `notices/analyst-cv/sbom.cdx.json` in the install directory. Beside it, `notices/analyst-cv/<wheel file name>/` holds each wheel's `PROVENANCE.txt` (URL, digest, publisher, licence, role, and the digest of every bundled library) and the licence texts. On success, setup prints the last complete valid `Verified synthetic CV smoke check: ...` evidence line from standard output; diagnostics on standard error do not interfere. It also prints `Verified Analyst CV libraries: <n> wheels, <m> bundled libraries, SBOM <path>`.
 
 ### Excluded Material
 

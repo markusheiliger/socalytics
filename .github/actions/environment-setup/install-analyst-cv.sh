@@ -19,6 +19,7 @@ declaration="${ANALYST_CV_LIBRARIES:-$script_dir/analyst-cv-libraries.json}"
 toolchain="${ANALYST_MEDIA_TOOLCHAIN:-$script_dir/analyst-media-toolchain.json}"
 smoke_script="$script_dir/analyst-cv-smoke.py"
 downloads=""
+smoke_stderr=""
 
 fail() {
   printf 'ERROR: Analyst CV libraries: library=%s stage=%s: %s\nRecommended action: %s\n' "$1" "$2" "$3" "$4" >&2
@@ -29,7 +30,8 @@ pin_action="inspect the named artifact and pin evidence, and correct the environ
 declaration_action="correct the declaration through a standalone environment change and rerun setup."
 
 cleanup() {
-  [[ -z "$downloads" ]] || rm -rf "${downloads:?}"
+  [[ -z "$downloads" ]] || rm -rf "${downloads:?}" || true
+  [[ -z "$smoke_stderr" ]] || rm -f -- "$smoke_stderr" || true
 }
 trap cleanup EXIT
 
@@ -235,15 +237,36 @@ if ! install_output="$(uv pip install --python "$venv/bin/python" --offline --no
 fi
 
 smoke_status=0
-smoke_output="$(timeout 300 "$venv/bin/python" "$smoke_script" 2>&1 < /dev/null)" || smoke_status=$?
-smoke_output="${smoke_output//$'\n'/ }"
+smoke_stderr="$(mktemp "$install_root/analyst-cv-smoke-stderr.XXXXXX")" \
+  || fail smoke "cv smoke" "cannot create the smoke check's temporary stderr file" "$pin_action"
+smoke_stdout="$(timeout 300 "$venv/bin/python" "$smoke_script" 2>"$smoke_stderr" < /dev/null)" || smoke_status=$?
+smoke_failure_diagnostics() {
+  local stderr_output diagnostics
+  stderr_output="$(cat "$smoke_stderr" 2>/dev/null || true)"
+  diagnostics="$smoke_stdout"
+  [[ -z "$stderr_output" ]] || diagnostics+="${diagnostics:+ }$stderr_output"
+  diagnostics="${diagnostics//$'\n'/ }"
+  printf '%s' "${diagnostics:0:300}"
+}
 if ((smoke_status == 124)); then
-  fail smoke "cv smoke" "the synthetic smoke check timed out after 300 seconds" "$pin_action"
+  smoke_diagnostics="$(smoke_failure_diagnostics)"
+  fail smoke "cv smoke" "the synthetic smoke check timed out after 300 seconds: $smoke_diagnostics" "$pin_action"
 elif ((smoke_status != 0)); then
-  fail smoke "cv smoke" "the synthetic smoke check failed: ${smoke_output:0:300}" "$pin_action"
+  smoke_diagnostics="$(smoke_failure_diagnostics)"
+  fail smoke "cv smoke" "the synthetic smoke check failed: $smoke_diagnostics" "$pin_action"
 fi
-[[ "$smoke_output" == "Verified synthetic CV smoke check:"* ]] \
-  || fail smoke "cv smoke" "the smoke check printed no evidence line: ${smoke_output:0:300}" "$pin_action"
 
-echo "$smoke_output"
+smoke_evidence_pattern='^Verified synthetic CV smoke check: decoded [0-9]+ frames, NumPy mean [0-9]+([.][0-9]+)?, ONNX Runtime Add graph executed$'
+smoke_evidence=""
+while IFS= read -r line; do
+  if [[ "$line" =~ $smoke_evidence_pattern ]]; then
+    smoke_evidence="$line"
+  fi
+done <<< "$smoke_stdout"
+if [[ -z "$smoke_evidence" ]]; then
+  smoke_diagnostics="$(smoke_failure_diagnostics)"
+  fail smoke "cv smoke" "the smoke check printed no evidence line: $smoke_diagnostics" "$pin_action"
+fi
+
+echo "$smoke_evidence"
 echo "Verified Analyst CV libraries: $wheel_count wheels, $bundled_count bundled libraries, SBOM $sbom"
