@@ -8,6 +8,7 @@ import type { FactStreamSummary } from "../../../platform/models/analysis";
 import { FactStreamList } from "../FactStreamList";
 import { formatMatchClock, formatMatchRange } from "../matchClock";
 import { TimelineLane } from "./TimelineLane";
+import { TimelineTextAlternative } from "./TimelineTextAlternative";
 import {
   BINS_PER_VIEW,
   ZOOM_LEVELS,
@@ -57,6 +58,7 @@ interface LaneRunnerProps {
   zoomId?: ZoomId;
   extentStartMs?: number;
   selection?: TimelineSelection;
+  textAlternative: boolean;
   onSelect: (selection: TimelineSelection) => void;
   onClearSelection: () => void;
   onShowFacts?: (nodeKey: string, fromMs: number, toMs: number) => void;
@@ -75,6 +77,7 @@ function LaneRunner({
   zoomId,
   extentStartMs,
   selection,
+  textAlternative,
   onSelect,
   onClearSelection,
   onShowFacts,
@@ -146,29 +149,34 @@ function LaneRunner({
   );
 
   return (
-    <TimelineLane
-      stream={stream}
-      state={state}
-      bins={bins}
-      loadedFactCount={lane.loadedFactCount}
-      partial={lane.partial}
-      updating={lane.isUpdating}
-      windows={lane.windows}
-      extentStartMs={extentStartMs}
-      visibleMs={
-        zoomId === undefined
-          ? undefined
-          : zoomLevel(zoomId).bins * zoomLevel(zoomId).binMs
-      }
-      onReload={lane.reload}
-      runState={effectiveRunState}
-      nodeState={nodeState}
-      selection={selection}
-      onSelect={(fromMs, toMs) => onSelect({ nodeKey, fromMs, toMs })}
-      onClearSelection={onClearSelection}
-      onShowFacts={(fromMs, toMs) => onShowFacts?.(nodeKey, fromMs, toMs)}
-      onAnnounce={onAnnounce}
-    />
+    <>
+      <TimelineLane
+        stream={stream}
+        state={state}
+        bins={bins}
+        loadedFactCount={lane.loadedFactCount}
+        partial={lane.partial}
+        updating={lane.isUpdating}
+        windows={lane.windows}
+        extentStartMs={extentStartMs}
+        visibleMs={
+          zoomId === undefined
+            ? undefined
+            : zoomLevel(zoomId).bins * zoomLevel(zoomId).binMs
+        }
+        onReload={lane.reload}
+        runState={effectiveRunState}
+        nodeState={nodeState}
+        selection={selection}
+        onSelect={(fromMs, toMs) => onSelect({ nodeKey, fromMs, toMs })}
+        onClearSelection={onClearSelection}
+        onShowFacts={(fromMs, toMs) => onShowFacts?.(nodeKey, fromMs, toMs)}
+        onAnnounce={onAnnounce}
+      />
+      {textAlternative && state === "ready" && bins.length > 0 && (
+        <TimelineTextAlternative stream={stream} bins={bins} />
+      )}
+    </>
   );
 }
 
@@ -188,6 +196,7 @@ export function AnalysisTimeline({
   const [selection, setSelection] = useState<TimelineSelection | undefined>();
   const [reports, setReports] = useState<Record<string, LaneFactsView>>({});
   const [announcement, setAnnouncement] = useState("");
+  const [textAlternative, setTextAlternative] = useState(false);
   const allowance = laneAllowance(streams.length);
 
   const report = useCallback(
@@ -310,6 +319,7 @@ export function AnalysisTimeline({
       zoomId={level?.id}
       extentStartMs={extentStartMs}
       selection={selection?.nodeKey === stream.nodeKey ? selection : undefined}
+      textAlternative={textAlternative}
       onSelect={setSelection}
       onClearSelection={clearSelection}
       onShowFacts={onShowFacts}
@@ -394,6 +404,19 @@ export function AnalysisTimeline({
               ).text,
             })}
           </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            sx={{ mt: 1 }}
+            aria-pressed={textAlternative}
+            onClick={() => setTextAlternative((value) => !value)}
+          >
+            {t(
+              textAlternative
+                ? "timeline.textAlternative.hide"
+                : "timeline.textAlternative.show",
+            )}
+          </Button>
           <Box
             aria-hidden="true"
             sx={{
