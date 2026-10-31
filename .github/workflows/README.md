@@ -240,7 +240,7 @@ twin still has open prerequisites; only the optional upkeep merge of a blocked i
 (`SPECKIT_BLOCKED_REFRESH`, see [Pull requests that need attention](#pull-requests-that-need-attention)) does. On a conflict the
 decide job of the same run starts the conflict resolution the merge uses (Copilot CLI edits the conflicted files and,
 to fix clashes without a textual conflict such as two migrations with the same number, the implementation branch's
-own files and new files; never protected paths or the environment actions; the full verification runs), and
+own files and new files; never protected paths or unrelated environment actions; the full verification runs), and
 the next run does the work on the merged branch. When the merged result can only pass with a change to a file that
 only the base branch owns (for example a test the base branch added that does not know a setting this implementation
 made required), the resolution may make the smallest such change, but never delete such a file or weaken a test. The
@@ -259,7 +259,14 @@ remain go to Copilot: code, and real edits of the own spec's artifacts that the 
 branch changed too. Copilot may resolve the latter if it keeps every task and every checked box (the land job checks
 `tasks.md`), and the final merge waits for a person's review of them. Outside the own spec folder an implementation may
 change files under `specs/` only by reference rewrites: the merge verification refuses any other difference from the
-base branch (`referenceOnlySpecChanges`). Conflicts under `.github/` and `.specify/` still need a person.
+base branch (`referenceOnlySpecChanges`). Conflicts under `.github/` and `.specify/` still need a person,
+except for an environment action already changed by a standalone environment implementation. Preparation, the
+resolve workflow, packaging, and trusted landing independently check that exception against the pinned base and
+the implementation's Git changes. Base-only updates do not count as implementation changes; the own spec and its
+archive are allowed, and foreign spec differences must be verified archive-only reference rewrites. Product
+changes, other protected tooling, unrelated environment-action edits, and missing evidence are refused; an
+environment flag in a work report grants no permission. The exception changes neither verification and environment
+self-test requirements nor the human review required for changes to the environment actions.
 Before a phase or the convergence,
 this is best effort: when GitHub refuses the merge, the conflicts touch protected paths, or the resolution fails
 `MAX_SYNC_RESOLVE_ATTEMPTS` times, the implementation continues on its current base without stopping, that base commit

@@ -123,6 +123,7 @@ export const REPEAT_REASON_PATTERNS = Object.freeze([
   /^the (repair|resolution) changed protected files: /,
   /^the resolution deleted files that only the base branch owns: /,
   /^conflicts in protected paths need a person: /,
+  /^conflicts in environment actions need a standalone environment implementation: /,
   /^the push to `[^`]+` was rejected: /,
   /^merging \S+ failed: /,
   /^changes under specs\/ outside .+ must be reference rewrites of the archive/,
@@ -264,6 +265,37 @@ export function resolutionScope({ git, baseSha, paths, deleted = [] }) {
   const removed = foreign.filter((file) => deleted.includes(file));
   if (removed.length > 0) reasons.push(`the resolution deleted files that only the base branch owns: ${removed.join(', ')}`);
   return { reasons, baseOwned: foreign.filter((file) => !removed.includes(file)) };
+}
+
+// The exception belongs to the implementation's existing changes, not a work report or a caller-supplied flag.
+export function conflictAuthorizationReasons({ git, baseSha, folder, conflicts, changedPaths = [] }) {
+  const protectedConflicts = conflicts.filter((file) => isProtectedPath(file) && !isOwnSpecPath(file, folder));
+  const reasons = protectedConflicts.length > 0
+    ? [`conflicts in protected paths need a person: ${protectedConflicts.join(', ')}`]
+    : [];
+  const environmentConflicts = conflicts.filter(isEnvironmentPath);
+  if (environmentConflicts.length === 0) return reasons;
+  const refuse = (problem) => [
+    ...reasons,
+    `conflicts in environment actions need a standalone environment implementation: ${problem}`,
+  ];
+  if (!/^[0-9a-f]{40}$/.test(String(baseSha ?? ''))) return refuse('the pinned base SHA is missing or invalid');
+  const fork = git(['merge-base', 'HEAD', baseSha]);
+  if (fork.status !== 0) return refuse(`the pinned base cannot be compared with HEAD: ${fork.stderr.trim()}`);
+  const own = git(['diff', '--name-only', '--no-renames', '-z', fork.stdout.trim(), 'HEAD']);
+  if (own.status !== 0) return refuse(`the implementation changes cannot be listed: ${own.stderr.trim()}`);
+  const changed = new Set(splitZ(own.stdout));
+  const foreign = environmentConflicts.filter((file) => !changed.has(file));
+  if (foreign.length > 0) return refuse(`the implementation did not change ${foreign.join(', ')}`);
+  const staged = git(['diff', '--cached', '--name-only', '--no-renames', '-z', baseSha]);
+  if (staged.status !== 0) return refuse(`the merged changes cannot be listed: ${staged.stderr.trim()}`);
+  const paths = splitZ(staged.stdout);
+  const specReasons = referenceOnlySpecChanges({ git, baseSha, folder });
+  const confinement = environmentExclusivityReasons({
+    folder,
+    branchPaths: [...new Set([...environmentConflicts, ...[...paths, ...changedPaths].filter((file) => !file.startsWith('specs/'))])],
+  });
+  return [...reasons, ...specReasons, ...confinement];
 }
 
 function sizeReasons(patchBytes, paths) {
@@ -512,9 +544,9 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   }
   if (conflicts.length > 0) writeFileSync(path.join(resultDir, 'merge-index.json'), `${JSON.stringify(Object.fromEntries(indexEntries(git)))}\n`);
   if (merge.status !== 0 && conflicts.length === 0 && specs.resolved.length === 0) result.reasons.push(`merging ${baseBranch} failed: ${merge.stderr.trim() || merge.stdout.trim()}`);
-  const protectedConflicts = conflicts.filter((file) => isProtected(file) && !isOwnSpecPath(file, folder));
-  if (protectedConflicts.length > 0) {
-    result.reasons.push(`conflicts in protected paths need a person: ${protectedConflicts.join(', ')}`);
+  const authorization = conflictAuthorizationReasons({ git, baseSha, folder, conflicts });
+  if (authorization.length > 0) {
+    result.reasons.push(...authorization);
     result.attention = true;
   }
   if (inputs.kind === 'merge' && conflicts.length === 0 && result.reasons.length === 0) {
@@ -599,6 +631,7 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
         .sort();
       const scope = resolutionScope({ git, baseSha: result.baseSha, paths: changed, deleted: changed.filter((file) => !after.has(file)) });
       result.reasons.push(...scope.reasons);
+      result.reasons.push(...conflictAuthorizationReasons({ git, baseSha: result.baseSha, folder, conflicts: result.conflicts }));
       result.baseOwned = scope.baseOwned;
       const resolvedDir = path.join(resultDir, 'resolved');
       rmSync(resolvedDir, { recursive: true, force: true });
@@ -1688,6 +1721,8 @@ function replayResolution({ git, env, result, resultDir, folder }) {
   const conflicts = unmergedPaths(git);
   const expected = [...(result.conflicts ?? [])].sort();
   if (conflicts.join('\0') !== expected.join('\0')) return refuse([`the merge conflicts changed: expected ${expected.join(', ') || 'none'}, found ${conflicts.join(', ') || 'none'}`]);
+  const authorization = conflictAuthorizationReasons({ git, baseSha: result.baseSha, folder, conflicts });
+  if (authorization.length > 0) return refuse(authorization);
   const reasons = [];
   const ownSpec = [];
   const resolutions = new Map((result.resolutions ?? []).map((item) => [item.path, item]));
@@ -1727,6 +1762,7 @@ function replayResolution({ git, env, result, resultDir, folder }) {
     reasons.push(...changes.reasons);
     baseOwned = changes.baseOwned;
   }
+  if (reasons.length === 0) reasons.push(...conflictAuthorizationReasons({ git, baseSha: result.baseSha, folder, conflicts }));
   if (reasons.length === 0 && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0 &&
       !env.SPECKIT_REQUIRED_SYNC) reasons.push('there is nothing to merge from the base branch');
   return { reasons, baseOwned, ownSpec };
